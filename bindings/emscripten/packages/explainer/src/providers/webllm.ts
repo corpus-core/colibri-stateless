@@ -36,8 +36,16 @@ interface ChatCompletionLike {
     choices?: { message?: { content?: string } }[];
 }
 
+interface ChatCompletionChunkLike {
+    choices?: { delta?: { content?: string } }[];
+}
+
 interface MLCEngineLike {
-    chat: { completions: { create(request: unknown): Promise<ChatCompletionLike> } };
+    chat: {
+        completions: {
+            create(request: unknown): Promise<ChatCompletionLike | AsyncIterable<ChatCompletionChunkLike>>;
+        };
+    };
 }
 
 interface WebLLMModule {
@@ -67,6 +75,7 @@ export class WebLLMProvider implements LLMProvider {
     private temperature: number;
     private contextWindowSize?: number;
     private onProgress?: (progress: ModelProgress) => void;
+    private onToken?: (delta: string, full: string) => void;
     private injectedEngine?: MLCEngineLike;
 
     constructor(config: LLMProviderConfig) {
@@ -75,20 +84,44 @@ export class WebLLMProvider implements LLMProvider {
         this.temperature = config.temperature ?? 0.2;
         this.contextWindowSize = config.contextWindowSize;
         this.onProgress = config.onModelProgress;
+        this.onToken = config.onToken;
         this.injectedEngine = config.webllmEngine as MLCEngineLike | undefined;
     }
 
     async complete(systemPrompt: string, userPrompt: string): Promise<string> {
         const engine = await this.getEngine();
+        const messages = [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt },
+        ];
 
-        const res = await engine.chat.completions.create({
-            messages: [
-                { role: 'system', content: systemPrompt },
-                { role: 'user', content: userPrompt },
-            ],
+        // Stream token-by-token when a callback is provided so callers can render
+        // the answer live (generation can take 10-20s on consumer hardware).
+        if (this.onToken) {
+            const stream = (await engine.chat.completions.create({
+                messages,
+                max_tokens: this.maxTokens,
+                temperature: this.temperature,
+                stream: true,
+            })) as AsyncIterable<ChatCompletionChunkLike>;
+
+            let full = '';
+            for await (const chunk of stream) {
+                const delta = chunk.choices?.[0]?.delta?.content;
+                if (delta) {
+                    full += delta;
+                    this.onToken(delta, full);
+                }
+            }
+            if (!full) throw new Error('WebLLM returned an empty response');
+            return full;
+        }
+
+        const res = (await engine.chat.completions.create({
+            messages,
             max_tokens: this.maxTokens,
             temperature: this.temperature,
-        });
+        })) as ChatCompletionLike;
 
         const content = res.choices?.[0]?.message?.content;
         if (!content) {

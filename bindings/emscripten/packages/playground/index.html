@@ -63,22 +63,22 @@
             <div id="mode-object" class="mode">
                 <div class="row">
                     <label class="grow">To
-                        <input id="to" type="text" placeholder="0x..." />
+                        <input id="to" type="text" placeholder="0x..." value="0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2" />
                     </label>
                     <label class="grow">From
-                        <input id="from" type="text" placeholder="0x... (optional)" />
+                        <input id="from" type="text" placeholder="0x... (optional)" value="0x4838B106FCe9647Bdf1E7877BF73cE8B0BAD5f97" />
                     </label>
                 </div>
                 <div class="row">
                     <label>Value (wei or 0x)
-                        <input id="value" type="text" placeholder="0x16345785d8a0000" />
+                        <input id="value" type="text" placeholder="0x16345785d8a0000" value="0x100bac21cac2ce9" />
                     </label>
                     <label>Gas (optional)
                         <input id="gas" type="text" placeholder="0x..." />
                     </label>
                 </div>
                 <label>Data
-                    <textarea id="data" rows="3" placeholder="0xd0e30db0"></textarea>
+                    <textarea id="data" rows="3" placeholder="0xd0e30db0">0x</textarea>
                 </label>
             </div>
 
@@ -155,7 +155,16 @@
         <div id="status" class="status"></div>
 
         <div id="progress-wrap" class="progress-wrap hidden">
+            <div class="progress-head">
+                <span id="progress-label" class="progress-label">Downloading model…</span>
+                <span id="progress-pct" class="progress-pct">0%</span>
+            </div>
             <div class="progress-bar"><div id="progress-fill"></div></div>
+            <div class="progress-info">
+                <span id="progress-eta" class="progress-eta"></span>
+                <span id="progress-hint" class="progress-hint">One-time download — the model is cached in your
+                    browser, so later visits start instantly.</span>
+            </div>
             <span id="progress-text" class="progress-text"></span>
         </div>
 

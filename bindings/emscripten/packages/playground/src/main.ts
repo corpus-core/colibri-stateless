@@ -18,6 +18,8 @@ import type {
     LLMProviderType,
 } from '@corpus-core/colibri-explainer';
 import { Transaction } from 'ethers';
+import { marked } from 'marked';
+import DOMPurify from 'dompurify';
 
 // -- Model catalogs per provider --------------------------------------------
 
@@ -51,9 +53,44 @@ function show(id: string, visible: boolean): void {
     $(id).classList.toggle('hidden', !visible);
 }
 
+// Wall-clock anchor for the current model download, used to estimate the
+// remaining time. Reset at the start of every run.
+let modelDownloadStart = 0;
+
+function formatDuration(seconds: number): string {
+    const s = Math.max(0, Math.round(seconds));
+    if (s < 60) return `${s}s`;
+    const m = Math.floor(s / 60);
+    const rem = s % 60;
+    return rem ? `${m}m ${rem}s` : `${m}m`;
+}
+
+/**
+ * Update the model download/loading progress bar. WebLLM reports `progress`
+ * (fetchedBytes / totalBytes) and a human-readable `text`; the remaining time is
+ * estimated from the elapsed wall-clock time and the current progress.
+ */
 function setProgress(progress: number, text: string): void {
     show('progress-wrap', true);
-    ($('progress-fill') as HTMLDivElement).style.width = `${Math.round(progress * 100)}%`;
+    if (modelDownloadStart === 0) modelDownloadStart = performance.now();
+
+    const pct = Math.max(0, Math.min(100, Math.round(progress * 100)));
+    ($('progress-fill') as HTMLDivElement).style.width = `${pct}%`;
+    $('progress-pct').textContent = `${pct}%`;
+
+    // WebLLM uses "Loading model from cache" once the weights are local and only
+    // the GPU upload remains - that phase is not a download, so hide the hint.
+    const isLoading = /loading model/i.test(text);
+    $('progress-label').textContent = isLoading ? 'Loading model into GPU…' : 'Downloading model…';
+    show('progress-hint', !isLoading);
+
+    const elapsedSec = (performance.now() - modelDownloadStart) / 1000;
+    let eta = '';
+    if (progress > 0.01 && progress < 0.999 && elapsedSec > 1) {
+        const remaining = (elapsedSec * (1 - progress)) / progress;
+        eta = `~${formatDuration(remaining)} remaining`;
+    }
+    $('progress-eta').textContent = eta;
     $('progress-text').textContent = text;
 }
 
@@ -174,6 +211,12 @@ function buildExplainerConfig(useEnrichment: boolean, chainId: number): Explaine
     if (provider === 'webllm') {
         if (ctx) config.contextWindowSize = ctx;
         config.onModelProgress = ({ progress, text }) => setProgress(progress, text);
+        // Render the answer live as the local model streams it. Once tokens
+        // arrive the download/load is finished, so the progress bar can go away.
+        config.onToken = (_delta, full) => {
+            show('progress-wrap', false);
+            renderMarkdown('explanation', full);
+        };
     }
     return config;
 }
@@ -191,6 +234,7 @@ async function run(): Promise<void> {
     show('result', false);
     show('error', false);
     show('progress-wrap', false);
+    modelDownloadStart = 0;
     clearDebug();
     resetSteps();
     const runBtn = $('run') as HTMLButtonElement;
@@ -215,6 +259,9 @@ async function run(): Promise<void> {
         setStatus('Running colibri_simulateTransaction (verified)...');
         setStep(1, 'active');
         const clientConfig: Record<string, unknown> = { chainId };
+        clientConfig.zk_proof = true;
+        clientConfig.debug = true;
+        clientConfig.skip_wsp_check = true;
         if (endpoint) {
             clientConfig.rpcs = [endpoint];
             clientConfig.prover = [endpoint];
@@ -224,8 +271,6 @@ async function run(): Promise<void> {
             // via a TEE-backed hybrid prover and ZK-verified state proofs.
             clientConfig.privacy_mode = 'basic';
             clientConfig.prover_mode = 'hybrid';
-            clientConfig.zk_proof = true;
-            clientConfig.skip_wsp_check = true;
         }
         const client = new C4Client(clientConfig);
         sim = (await client.rpc('colibri_simulateTransaction', [tx, 'latest'])) as SimulationResult;
@@ -257,7 +302,7 @@ async function run(): Promise<void> {
         const explanation = await provider.complete(prompt.systemPrompt, prompt.userPrompt);
         setStep(4, 'done');
 
-        $('explanation').textContent = explanation;
+        renderMarkdown('explanation', explanation);
         $('enhanced-json').textContent = JSON.stringify(toEnhancedResult(sim, context, explanation), null, 2);
         show('progress-wrap', false);
         setStatus('Done.');
@@ -366,6 +411,13 @@ function formatEventParam(param: { name: string; type: string; value: string }):
         value = hexToBigInt(param.value).toString();
     }
     return `${param.name}=${value}`;
+}
+
+// Render LLM output (which is typically Markdown) into the target element.
+// The text is untrusted, so the parsed HTML is sanitized before insertion.
+function renderMarkdown(id: string, markdown: string): void {
+    const html = marked.parse(markdown, { async: false }) as string;
+    $(id).innerHTML = DOMPurify.sanitize(html);
 }
 
 function badge(text: string, kind: 'ok' | 'bad'): HTMLElement {

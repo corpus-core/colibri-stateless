@@ -36,6 +36,7 @@ export function createProvider(config: ExplainerConfig): LLMProvider {
         temperature: config.temperature,
         contextWindowSize: config.contextWindowSize,
         onModelProgress: config.onModelProgress,
+        onToken: config.onToken,
         webllmEngine: config.webllmEngine,
     };
 

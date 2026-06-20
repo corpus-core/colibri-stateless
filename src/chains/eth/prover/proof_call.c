@@ -232,9 +232,15 @@ c4_status_t c4_get_eth_proofs(prover_ctx_t* ctx, json_t trace, uint64_t block_nu
     json_as_bytes(to_json, &to_buf);
   }
 
-  if (ctx->flags & C4_PROVER_FLAG_USE_ACCESSLIST) {
-    json_t access_list = json_get(trace, "accessList");
-    accounts_len       = json_len(access_list);
+  // For colibri_proofCall the trace IS the access-list object ({"accessList":[...]})
+  // independent of the USE_ACCESSLIST prover flag (that flag only selects the trace
+  // builder for eth_call). Branch on the actual trace shape so the access-list parser
+  // is used whenever a list is present; otherwise a missing flag would make us fall
+  // into the prestate-trace branch and treat the property name "accessList" as an
+  // account address (producing eth_getProof("accessList", ...)).
+  json_t access_list = json_get(trace, "accessList");
+  if ((ctx->flags & C4_PROVER_FLAG_USE_ACCESSLIST) || access_list.type == JSON_TYPE_ARRAY) {
+    accounts_len = json_len(access_list);
     json_for_each_value(access_list, values) {
       buffer_t buf = stack_buffer(address);
       json_as_bytes(json_get(values, "address"), &buf);
