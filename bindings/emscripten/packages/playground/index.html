@@ -96,8 +96,13 @@
                 <section class="config-group">
                     <h4 class="config-group-title">Network</h4>
                     <div class="row">
-                        <label>Chain ID
-                            <input id="chainId" type="number" value="1" min="1" />
+                        <label>Chain
+                            <select id="chainId">
+                                <option value="1">Ethereum Mainnet (1)</option>
+                                <option value="11155111">Sepolia (11155111)</option>
+                                <option value="100">Gnosis (100)</option>
+                                <option value="10200">Chiado (10200)</option>
+                            </select>
                         </label>
                         <label class="grow">RPC endpoint (optional override)
                             <input id="rpc" type="text" placeholder="https://mainnet1.colibri-proof.tech" />

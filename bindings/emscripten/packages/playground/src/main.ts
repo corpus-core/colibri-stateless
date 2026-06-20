@@ -254,7 +254,7 @@ async function run(): Promise<void> {
     let context: EnrichedContext = EMPTY_CONTEXT;
 
     try {
-        const chainId = Number(($('chainId') as HTMLInputElement).value);
+        const chainId = Number(($('chainId') as HTMLSelectElement).value);
         if (!Number.isFinite(chainId) || chainId <= 0) throw new Error('Invalid chain ID.');
         // The RPC node serves JSON eth_* responses; the prover returns SSZ-encoded
         // proofs. They are distinct roles, so they are configured independently.
