@@ -18,6 +18,8 @@ import type {
     LLMProviderType,
 } from '@corpus-core/colibri-explainer';
 import { Transaction } from 'ethers';
+import { marked } from 'marked';
+import DOMPurify from 'dompurify';
 
 // -- Model catalogs per provider --------------------------------------------
 
@@ -215,6 +217,8 @@ async function run(): Promise<void> {
         setStatus('Running colibri_simulateTransaction (verified)...');
         setStep(1, 'active');
         const clientConfig: Record<string, unknown> = { chainId };
+        clientConfig.zk_proof = true;
+        clientConfig.skip_wsp_check = true;
         if (endpoint) {
             clientConfig.rpcs = [endpoint];
             clientConfig.prover = [endpoint];
@@ -224,8 +228,6 @@ async function run(): Promise<void> {
             // via a TEE-backed hybrid prover and ZK-verified state proofs.
             clientConfig.privacy_mode = 'basic';
             clientConfig.prover_mode = 'hybrid';
-            clientConfig.zk_proof = true;
-            clientConfig.skip_wsp_check = true;
         }
         const client = new C4Client(clientConfig);
         sim = (await client.rpc('colibri_simulateTransaction', [tx, 'latest'])) as SimulationResult;
@@ -257,7 +259,7 @@ async function run(): Promise<void> {
         const explanation = await provider.complete(prompt.systemPrompt, prompt.userPrompt);
         setStep(4, 'done');
 
-        $('explanation').textContent = explanation;
+        renderMarkdown('explanation', explanation);
         $('enhanced-json').textContent = JSON.stringify(toEnhancedResult(sim, context, explanation), null, 2);
         show('progress-wrap', false);
         setStatus('Done.');
@@ -366,6 +368,13 @@ function formatEventParam(param: { name: string; type: string; value: string }):
         value = hexToBigInt(param.value).toString();
     }
     return `${param.name}=${value}`;
+}
+
+// Render LLM output (which is typically Markdown) into the target element.
+// The text is untrusted, so the parsed HTML is sanitized before insertion.
+function renderMarkdown(id: string, markdown: string): void {
+    const html = marked.parse(markdown, { async: false }) as string;
+    $(id).innerHTML = DOMPurify.sanitize(html);
 }
 
 function badge(text: string, kind: 'ok' | 'bad'): HTMLElement {

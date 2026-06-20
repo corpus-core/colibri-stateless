@@ -394,11 +394,99 @@ details.config[open]>summary::before {
 }
 
 .explanation {
-    white-space: pre-wrap;
     background: #0d1117;
     border: 1px solid var(--border);
     border-radius: 8px;
-    padding: 1rem;
+    padding: 1rem 1.25rem;
+    line-height: 1.6;
+}
+
+/* Markdown rendered from the LLM output */
+.explanation> :first-child {
+    margin-top: 0;
+}
+
+.explanation> :last-child {
+    margin-bottom: 0;
+}
+
+.explanation p {
+    margin: 0.6rem 0;
+}
+
+.explanation ul,
+.explanation ol {
+    margin: 0.6rem 0;
+    padding-left: 1.5rem;
+}
+
+.explanation li {
+    margin: 0.25rem 0;
+}
+
+.explanation h1,
+.explanation h2,
+.explanation h3,
+.explanation h4 {
+    margin: 1rem 0 0.5rem;
+    line-height: 1.3;
+}
+
+.explanation h1 {
+    font-size: 1.3rem;
+}
+
+.explanation h2 {
+    font-size: 1.15rem;
+}
+
+.explanation h3 {
+    font-size: 1.05rem;
+}
+
+.explanation code {
+    background: #161b22;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.1rem 0.35rem;
+    font-size: 0.9em;
+}
+
+.explanation pre {
+    background: #161b22;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.75rem 1rem;
+    overflow-x: auto;
+}
+
+.explanation pre code {
+    background: none;
+    border: none;
+    padding: 0;
+}
+
+.explanation a {
+    color: var(--accent);
+}
+
+.explanation blockquote {
+    margin: 0.6rem 0;
+    padding-left: 0.9rem;
+    border-left: 3px solid var(--border);
+    color: var(--muted);
+}
+
+.explanation table {
+    border-collapse: collapse;
+    margin: 0.6rem 0;
+}
+
+.explanation th,
+.explanation td {
+    border: 1px solid var(--border);
+    padding: 0.35rem 0.6rem;
+    text-align: left;
 }
 
 /* Always-visible decoded summary */
