@@ -79,6 +79,18 @@ header .sub {
     color: var(--accent);
 }
 
+.links a.report-issue {
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    padding: .25rem .6rem;
+}
+
+.links a.report-issue:hover {
+    background: var(--accent);
+    color: #111;
+}
+
 .features {
     display: grid;
     grid-template-columns: repeat(3, 1fr);

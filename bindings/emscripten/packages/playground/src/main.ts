@@ -89,10 +89,18 @@ function setProgress(progress: number, text: string): void {
     ($('progress-fill') as HTMLDivElement).style.width = `${pct}%`;
     $('progress-pct').textContent = `${pct}%`;
 
+    // Surface the model name + size so the user understands what is being
+    // fetched and why a multi-GB download can take a while.
+    const model = ($('model') as HTMLSelectElement).value;
+    const prettyModel = model.replace(/-q4f16_1-MLC$/, '');
+    const size = WEBLLM_MODEL_SIZE[model];
+
     // WebLLM uses "Loading model from cache" once the weights are local and only
     // the GPU upload remains - that phase is not a download, so hide the hint.
     const isLoading = /loading model/i.test(text);
-    $('progress-label').textContent = isLoading ? 'Loading model into GPU…' : 'Downloading model…';
+    $('progress-label').textContent = isLoading
+        ? `Loading ${prettyModel} into GPU…`
+        : `Downloading ${prettyModel}${size ? ` (${size})` : ''}…`;
     show('progress-hint', !isLoading);
 
     const elapsedSec = (performance.now() - modelDownloadStart) / 1000;
