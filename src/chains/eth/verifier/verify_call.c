@@ -296,10 +296,14 @@ static bool match_call_result(verify_ctx_t* ctx, evm_call_ctx_t* evm) {
     ctx->flags |= VERIFY_FLAG_REVERTED;
     return true;
   }
-  if (evm->call_result.data && (ctx->data.def == NULL || ctx->data.def->type == SSZ_TYPE_NONE)) {
-    ctx->data = (ssz_ob_t) {.bytes = evm->call_result, .def = eth_ssz_verification_type(ETH_SSZ_DATA_BYTES)};
-    ctx->flags |= VERIFY_FLAG_FREE_DATA;
-    evm->call_result = NULL_BYTES;
+  if (ctx->data.def == NULL || ctx->data.def->type == SSZ_TYPE_NONE) {
+    if (evm->call_result.data) {
+      ctx->data = (ssz_ob_t) {.bytes = evm->call_result, .def = eth_ssz_verification_type(ETH_SSZ_DATA_BYTES)};
+      ctx->flags |= VERIFY_FLAG_FREE_DATA;
+      evm->call_result = NULL_BYTES;
+    }
+    else 
+      ctx->data = (ssz_ob_t) {.bytes = bytes(ctx, 0), .def = eth_ssz_verification_type(ETH_SSZ_DATA_BYTES)};
     return true;
   }
   return evm->call_result.data && bytes_eq(evm->call_result, ctx->data.bytes);
@@ -431,7 +435,6 @@ static c4_status_t call_apply_authorization_list(verify_ctx_t* ctx, call_account
   return C4_SUCCESS;
 }
 
-
 // Freshness check for eth_call/eth_estimateGas/colibri_simulateTransaction.
 //
 // `ctx` always supplies the request args, the host-supplied lower bound and
@@ -446,7 +449,6 @@ static bool verify_call_freshness(verify_ctx_t* ctx, verify_ctx_t* proof_ctx) {
   bool                     has_ts    = eth_get_call_block_context_from_proof(proof_ctx, &bctx);
   return eth_check_latest_freshness(ctx, is_latest, has_ts, bctx.timestamp);
 }
-
 
 // shared helper: resolve codes, apply state overrides and EIP-7702 authorization list
 static bool prepare_evm_call(verify_ctx_t* ctx, evm_call_ctx_t* evm, bool apply_overrides) {
