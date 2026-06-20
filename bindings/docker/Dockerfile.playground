@@ -6,6 +6,11 @@
 # QEMU -- only the tiny nginx final stage is resolved per target platform.
 FROM --platform=$BUILDPLATFORM emscripten/emsdk:4.0.3 AS builder
 
+# CMake normally derives the version from `git describe`, but the build context
+# has no .git directory. Pass the version explicitly so CMake picks it up via
+# $ENV{C4_VERSION}; defaults to the same value CMake would fall back to.
+ARG C4_VERSION=0.1.0-dev
+
 WORKDIR /src
 
 # 1) Build the colibri-stateless WASM bundle with the WASM embedded into a
@@ -16,7 +21,9 @@ COPY libs ./libs
 COPY bindings ./bindings
 COPY scripts ./scripts
 
-RUN emcmake cmake -B build \
+# `:-` guards against an empty build-arg (an empty env var would still be
+# DEFINED in CMake and produce an empty version).
+RUN C4_VERSION="${C4_VERSION:-0.1.0-dev}" emcmake cmake -B build \
         -DWASM=true -DWASM_EMBED=ON -DCLI=false -DTEST=false -DCURL=false \
         -DCMAKE_BUILD_TYPE=MINSIZREL -S . \
     && cmake --build build

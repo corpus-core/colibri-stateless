@@ -186,6 +186,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Full history + tags so `git describe` can derive the version that is
+          # passed into the image build (the build context itself has no .git).
+          fetch-depth: 0
+
+      - name: Determine version
+        id: version
+        run: echo "version=$(git describe --tags --always --dirty)" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -215,6 +223,8 @@ jobs:
         with:
           context: .
           file: bindings/docker/Dockerfile.playground
+          build-args: |
+            C4_VERSION=${{ steps.version.outputs.version }}
           # Single-arch is enough: the image is just nginx serving static files,
           # so the content is architecture-independent (unlike the prover).
           platforms: linux/amd64
