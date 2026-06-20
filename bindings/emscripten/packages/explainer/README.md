@@ -1,6 +1,8 @@
 # @corpus-core/colibri-explainer
 
-LLM-powered transaction simulation explainer for [Colibri Stateless](https://github.com/corpus-core/c4). Takes the JSON result of `colibri_simulateTransaction` and produces a human-readable explanation via configurable LLM providers (OpenAI, Anthropic, Ollama, or any OpenAI-compatible endpoint).
+LLM-powered transaction simulation explainer for [Colibri Stateless](https://github.com/corpus-core/colibri-stateless). Takes the JSON result of `colibri_simulateTransaction` and produces a human-readable explanation via configurable LLM providers: OpenAI, Anthropic, Ollama, any OpenAI-compatible endpoint, or a fully local in-browser model running on WebGPU.
+
+Before prompting the model, the package fetches the verified contract sources from Sourcify, compiles and verifies them, extracts the storage layout, maps the raw state changes onto named contract variables, and decodes calls/events/revert reasons -- so the LLM receives rich, structured context instead of opaque hex.
 
 ## Installation
 
@@ -100,7 +102,23 @@ already-initialized engine across calls, pass it via `webllmEngine`.
 
 ## Architecture
 
-This package is intentionally separate from `@corpus-core/colibri-stateless` to preserve the core library's zero-dependency security model. The explainer uses only the native `fetch()` API -- no external SDKs are required.
+This package is intentionally separate from `@corpus-core/colibri-stateless` so the
+core verifier keeps its zero-dependency security model. `@corpus-core/colibri-stateless`
+is an optional peer dependency -- the explainer only consumes the `SimulationResult`
+JSON it produces and never imports the verifier itself.
+
+The explainer brings its own runtime dependencies for the enrichment step:
+
+- [`ethers`](https://www.npmjs.com/package/ethers) and
+  [`@solidity-parser/parser`](https://www.npmjs.com/package/@solidity-parser/parser)
+  -- ABI/event decoding and storage-slot resolution.
+- [`solc`](https://www.npmjs.com/package/solc) -- compiles the fetched sources to
+  verify the on-chain bytecode and to extract the storage layout.
+- [`@mlc-ai/web-llm`](https://www.npmjs.com/package/@mlc-ai/web-llm) (optional) --
+  loaded lazily only for the `webllm` provider.
+
+Cloud providers (OpenAI/Anthropic/Ollama) are reached via the native `fetch()` API;
+no provider SDKs are bundled.
 
 ```
 @corpus-core/colibri-stateless  (zero dependencies, verifier)
@@ -108,11 +126,18 @@ This package is intentionally separate from `@corpus-core/colibri-stateless` to 
          │  SimulationResult JSON
          ▼
 @corpus-core/colibri-explainer  (this package)
-         │
-         │  LLM API call via fetch()
+         │  fetch Sourcify sources → solc compile + verify → storage layout
+         │  decode calls/events/state changes → build prompt
          ▼
-   OpenAI / Anthropic / Ollama
+   OpenAI / Anthropic / Ollama (fetch)   ·   WebLLM (local, WebGPU)
 ```
+
+## Publishing
+
+This package is published to npm on every tagged release (`vX.Y.Z`) via the
+`colibri-explainer` job in
+[`.github/workflows/bindings-emscripten.yml`](../../../../.github/workflows/bindings-emscripten.yml),
+mirroring the other Colibri JS packages. The release tag sets the version.
 
 ## License
 
