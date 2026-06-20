@@ -109,6 +109,14 @@ export interface ModelProgress {
 /** Prompt-related configuration (subset of ExplainerConfig). */
 export interface PromptConfig {
     /**
+     * Full override for the base system prompt. When set, it *replaces* the
+     * built-in analyst prompt (`DEFAULT_SYSTEM_PROMPT`). The language instruction
+     * and `systemPromptInclude` are still appended afterwards. Leave unset to use
+     * the default. Use `DEFAULT_SYSTEM_PROMPT` as a starting point if you only want
+     * to tweak it.
+     */
+    systemPrompt?: string;
+    /**
      * Additional context appended to the system prompt.
      * Use this to inject app-specific instructions, e.g.
      * `"This is a DeFi wallet. Focus on user-facing financial impact."`.

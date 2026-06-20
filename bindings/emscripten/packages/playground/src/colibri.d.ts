@@ -11,6 +11,13 @@ declare module '@corpus-core/colibri-stateless' {
         privacy_mode?: 'none' | 'basic';
         /** Proof generation mode. "hybrid" combines local + remote proving. */
         prover_mode?: 'local' | 'remote' | 'hybrid' | 'proxy' | 'light_client';
+        /**
+         * TEE RPC endpoints that terminate the privacy-critical eth_getProof
+         * requests inside a trusted enclave (ORAM-backed). When non-empty this
+         * enables the oblivious verify flag (and PAP), so even the requested
+         * account/storage keys are not leaked to the prover. One entry is enough.
+         */
+        oblivious_nodes?: string[];
         /** Request ZK-verified state proofs from the prover. */
         zk_proof?: boolean;
         /** Skip the Weak Subjectivity Period check (needed for older periods). */

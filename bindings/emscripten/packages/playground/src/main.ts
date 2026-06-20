@@ -8,6 +8,7 @@ import {
     shortenAddress,
     labelAddress,
     hexToBigInt,
+    DEFAULT_SYSTEM_PROMPT,
 } from '@corpus-core/colibri-explainer';
 import type {
     ExplainerConfig,
@@ -33,6 +34,16 @@ const MODELS: Record<LLMProviderType, string[]> = {
     openai: ['gpt-4o-mini', 'gpt-4o'],
     anthropic: ['claude-sonnet-4-20250514', 'claude-3-5-haiku-latest'],
     ollama: ['qwen2.5-coder', 'llama3.1'],
+};
+
+// Approximate one-time download size per local WebLLM model (q4f16_1 weights),
+// shown in the dropdown so users can gauge the download before selecting. These
+// are rounded approximations derived from the MLC model sizes.
+const WEBLLM_MODEL_SIZE: Record<string, string> = {
+    'Qwen2.5-Coder-7B-Instruct-q4f16_1-MLC': '~4.7 GB',
+    'Qwen2.5-Coder-3B-Instruct-q4f16_1-MLC': '~2.0 GB',
+    'Llama-3.2-3B-Instruct-q4f16_1-MLC': '~1.9 GB',
+    'Llama-3.2-1B-Instruct-q4f16_1-MLC': '~0.9 GB',
 };
 
 // -- Tiny DOM helpers --------------------------------------------------------
@@ -78,10 +89,18 @@ function setProgress(progress: number, text: string): void {
     ($('progress-fill') as HTMLDivElement).style.width = `${pct}%`;
     $('progress-pct').textContent = `${pct}%`;
 
+    // Surface the model name + size so the user understands what is being
+    // fetched and why a multi-GB download can take a while.
+    const model = ($('model') as HTMLSelectElement).value;
+    const prettyModel = model.replace(/-q4f16_1-MLC$/, '');
+    const size = WEBLLM_MODEL_SIZE[model];
+
     // WebLLM uses "Loading model from cache" once the weights are local and only
     // the GPU upload remains - that phase is not a download, so hide the hint.
     const isLoading = /loading model/i.test(text);
-    $('progress-label').textContent = isLoading ? 'Loading model into GPU…' : 'Downloading model…';
+    $('progress-label').textContent = isLoading
+        ? `Loading ${prettyModel} into GPU…`
+        : `Downloading ${prettyModel}${size ? ` (${size})` : ''}…`;
     show('progress-hint', !isLoading);
 
     const elapsedSec = (performance.now() - modelDownloadStart) / 1000;
@@ -125,7 +144,8 @@ function populateModels(): void {
     for (const m of MODELS[provider]) {
         const opt = document.createElement('option');
         opt.value = m;
-        opt.textContent = m;
+        const size = WEBLLM_MODEL_SIZE[m];
+        opt.textContent = size ? `${m} (${size})` : m;
         select.appendChild(opt);
     }
 
@@ -136,6 +156,12 @@ function populateModels(): void {
     show('baseurl-wrap', needsBaseUrl);
     show('apikey-row', isCloudKeyed || needsBaseUrl);
     show('contextWindow-wrap', isLocal);
+}
+
+// The oblivious-node option only applies to PAP, so it is hidden unless privacy
+// mode is enabled.
+function updatePrivacyVisibility(): void {
+    show('oblivious-wrap', ($('privacy') as HTMLInputElement).checked);
 }
 
 function bindTabs(): void {
@@ -195,9 +221,10 @@ function buildExplainerConfig(useEnrichment: boolean, chainId: number): Explaine
     const model = ($('model') as HTMLSelectElement).value;
     const apiKey = ($('apiKey') as HTMLInputElement).value.trim();
     const baseUrl = ($('baseUrl') as HTMLInputElement).value.trim();
-    const language = ($('language') as HTMLInputElement).value.trim() || 'en';
+    const language = ($('language') as HTMLSelectElement).value.trim() || 'en';
     const maxSourceChars = Number(($('maxSourceChars') as HTMLInputElement).value) || undefined;
     const ctx = Number(($('contextWindow') as HTMLInputElement).value) || undefined;
+    const systemPrompt = ($('systemPrompt') as HTMLTextAreaElement).value.trim();
 
     const config: ExplainerConfig = {
         provider,
@@ -208,6 +235,7 @@ function buildExplainerConfig(useEnrichment: boolean, chainId: number): Explaine
     };
     if (apiKey) config.apiKey = apiKey;
     if (baseUrl) config.baseUrl = baseUrl;
+    if (systemPrompt) config.systemPrompt = systemPrompt;
     if (provider === 'webllm') {
         if (ctx) config.contextWindowSize = ctx;
         config.onModelProgress = ({ progress, text }) => setProgress(progress, text);
@@ -246,9 +274,12 @@ async function run(): Promise<void> {
     let context: EnrichedContext = EMPTY_CONTEXT;
 
     try {
-        const chainId = Number(($('chainId') as HTMLInputElement).value);
+        const chainId = Number(($('chainId') as HTMLSelectElement).value);
         if (!Number.isFinite(chainId) || chainId <= 0) throw new Error('Invalid chain ID.');
-        const endpoint = ($('endpoint') as HTMLInputElement).value.trim();
+        // The RPC node serves JSON eth_* responses; the prover returns SSZ-encoded
+        // proofs. They are distinct roles, so they are configured independently.
+        const rpc = ($('rpc') as HTMLInputElement).value.trim();
+        const prover = ($('prover') as HTMLInputElement).value.trim();
         const useEnrichment = ($('enrich') as HTMLInputElement).checked;
         const usePrivacy = ($('privacy') as HTMLInputElement).checked;
 
@@ -262,15 +293,17 @@ async function run(): Promise<void> {
         clientConfig.zk_proof = true;
         clientConfig.debug = true;
         clientConfig.skip_wsp_check = true;
-        if (endpoint) {
-            clientConfig.rpcs = [endpoint];
-            clientConfig.prover = [endpoint];
-        }
+        if (rpc) clientConfig.rpcs = [rpc];
+        if (prover) clientConfig.prover = [prover];
         if (usePrivacy) {
             // Pragmatic Adaptive Privacy: hides which account/storage is requested
             // via a TEE-backed hybrid prover and ZK-verified state proofs.
             clientConfig.privacy_mode = 'basic';
             clientConfig.prover_mode = 'hybrid';
+            // Optional: route the privacy-critical eth_getProof requests to a TEE
+            // (ORAM) node so even the requested storage keys are not leaked.
+            const oblivious = ($('oblivious') as HTMLInputElement).value.trim();
+            if (oblivious) clientConfig.oblivious_nodes = [oblivious];
         }
         const client = new C4Client(clientConfig);
         sim = (await client.rpc('colibri_simulateTransaction', [tx, 'latest'])) as SimulationResult;
@@ -440,7 +473,14 @@ function meta(label: string, value: string): HTMLElement {
 function init(): void {
     bindTabs();
     populateModels();
+    updatePrivacyVisibility();
     $('provider').addEventListener('change', populateModels);
+    $('privacy').addEventListener('change', updatePrivacyVisibility);
+    // Load the built-in base prompt into the textarea as an editable template.
+    $('load-default-prompt').addEventListener('click', (e) => {
+        e.preventDefault();
+        ($('systemPrompt') as HTMLTextAreaElement).value = DEFAULT_SYSTEM_PROMPT;
+    });
     $('run').addEventListener('click', () => void run());
 
     if (typeof navigator !== 'undefined' && !(navigator as { gpu?: unknown }).gpu) {

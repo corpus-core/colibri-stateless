@@ -28,7 +28,11 @@ import type {
 import { hexToBigInt, weiToEth, formatGas, shortenAddress, formatSelector } from './format.js';
 import { labelAddress } from './known_addresses.js';
 
-const BASE_SYSTEM_PROMPT = `You are a blockchain transaction analyst. Your job is to explain \
+/**
+ * Default base system prompt used by the explainer. Exposed so applications can
+ * use it as a starting point for a custom `PromptConfig.systemPrompt` override.
+ */
+export const DEFAULT_SYSTEM_PROMPT = `You are a blockchain transaction analyst. Your job is to explain \
 what an Ethereum transaction would do in clear, simple terms that a non-technical user can understand.
 
 Rules:
@@ -60,7 +64,9 @@ export function buildPrompt(
 const DEFAULT_MAX_SOURCE_CHARS = 10000;
 
 function buildSystemPrompt(config: PromptConfig): string {
-    let prompt = BASE_SYSTEM_PROMPT;
+    // A non-empty override fully replaces the built-in base prompt; the language
+    // hint and app-supplied context below are still appended in either case.
+    let prompt = config.systemPrompt?.trim() ? config.systemPrompt : DEFAULT_SYSTEM_PROMPT;
 
     if (config.language && config.language !== 'en') {
         prompt += `\n\nIMPORTANT: Respond in ${languageName(config.language)}.`;

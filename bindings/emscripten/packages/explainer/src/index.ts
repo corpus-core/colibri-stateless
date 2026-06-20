@@ -55,7 +55,7 @@ export type {
     EnhancedContractStateChange,
 } from './types.js';
 
-export { buildPrompt } from './prompt.js';
+export { buildPrompt, DEFAULT_SYSTEM_PROMPT } from './prompt.js';
 export { createProvider } from './providers/index.js';
 export { WebLLMProvider, DEFAULT_WEBLLM_MODEL } from './providers/webllm.js';
 export { hexToBigInt, weiToEth, formatTokenAmount, formatGas, shortenAddress } from './format.js';

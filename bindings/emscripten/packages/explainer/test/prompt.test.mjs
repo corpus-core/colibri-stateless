@@ -48,6 +48,27 @@ describe('buildPrompt', () => {
         assert.ok(systemPrompt.includes(include), `Expected include text, got:\n${systemPrompt}`);
     });
 
+    it('fully replaces the base prompt when systemPrompt is set', () => {
+        const custom = 'You are a terse auditor. Reply in one line.';
+        const { systemPrompt } = buildPrompt(WETH_DEPOSIT_RESULT, TX_PARAMS, { systemPrompt: custom });
+        assert.ok(systemPrompt.startsWith(custom), `Expected custom prompt, got:\n${systemPrompt}`);
+        assert.ok(!systemPrompt.includes('blockchain transaction analyst'), 'default prompt must be replaced');
+    });
+
+    it('still appends language and include to a custom system prompt', () => {
+        const { systemPrompt } = buildPrompt(WETH_DEPOSIT_RESULT, TX_PARAMS, {
+            systemPrompt: 'Custom base.', language: 'de', systemPromptInclude: 'extra ctx',
+        });
+        assert.ok(systemPrompt.includes('Custom base.'));
+        assert.ok(systemPrompt.includes('German'), `Expected German instruction, got:\n${systemPrompt}`);
+        assert.ok(systemPrompt.includes('extra ctx'));
+    });
+
+    it('falls back to the default prompt for a blank systemPrompt', () => {
+        const { systemPrompt } = buildPrompt(WETH_DEPOSIT_RESULT, TX_PARAMS, { systemPrompt: '   ' });
+        assert.ok(systemPrompt.includes('blockchain transaction analyst'));
+    });
+
     it('handles a reverted transaction', () => {
         const revertedResult = { gasUsed: '0x5208', status: '0x0', returnValue: '0x', logs: [] };
         const { userPrompt } = buildPrompt(revertedResult, TX_PARAMS, {});
