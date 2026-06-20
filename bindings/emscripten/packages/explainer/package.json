@@ -55,5 +55,10 @@
     },
     "publishConfig": {
         "access": "public"
+    },
+    "overrides": {
+        "ws": "^8.20.1",
+        "follow-redirects": "^1.16.0",
+        "tmp": "^0.2.6"
     }
 }
