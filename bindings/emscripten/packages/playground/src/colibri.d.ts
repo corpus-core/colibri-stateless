@@ -7,6 +7,14 @@ declare module '@corpus-core/colibri-stateless' {
         prover?: string[];
         beacon_apis?: string[];
         checkpointz?: string[];
+        /** Pragmatic Adaptive Privacy mode. "basic" enables the PAP verify flag. */
+        privacy_mode?: 'none' | 'basic';
+        /** Proof generation mode. "hybrid" combines local + remote proving. */
+        prover_mode?: 'local' | 'remote' | 'hybrid' | 'proxy' | 'light_client';
+        /** Request ZK-verified state proofs from the prover. */
+        zk_proof?: boolean;
+        /** Skip the Weak Subjectivity Period check (needed for older periods). */
+        skip_wsp_check?: boolean;
         [key: string]: unknown;
     }
 

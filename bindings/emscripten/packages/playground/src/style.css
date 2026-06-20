@@ -1,11 +1,13 @@
 :root {
-    --bg: #0f1419;
-    --panel: #1a2029;
-    --border: #2a323d;
-    --text: #e6edf3;
-    --muted: #8b98a5;
-    --accent: #4f9cf9;
-    --accent-hover: #3b82f6;
+    --bg: #0b0c0e;
+    --panel: #15161a;
+    --border: #2b2c31;
+    --text: #ece9e3;
+    --muted: #9a948a;
+    --accent: #d6a248;
+    --accent-hover: #e4b768;
+    /* Text/icon color on top of the gold accent (needs to be dark for contrast). */
+    --on-accent: #1a140a;
     --error: #f87171;
     --radius: 10px;
 }
@@ -28,14 +30,101 @@ body {
     padding: 2rem 1.25rem 4rem;
 }
 
+header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.brand {
+    display: flex;
+    align-items: center;
+    gap: .9rem;
+}
+
+.brand .logo {
+    width: 52px;
+    height: 52px;
+    object-fit: contain;
+    flex-shrink: 0;
+}
+
 header h1 {
     margin: 0 0 .25rem;
     font-size: 1.6rem;
 }
 
 header .sub {
-    margin: 0 0 1.5rem;
+    margin: 0;
     color: var(--muted);
+}
+
+.links {
+    display: flex;
+    align-items: center;
+    gap: 1.1rem;
+}
+
+.links a {
+    color: var(--muted);
+    text-decoration: none;
+    font-size: .9rem;
+    transition: color .15s ease;
+}
+
+.links a:hover {
+    color: var(--accent);
+}
+
+.features {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: .75rem;
+    margin-bottom: 1.5rem;
+}
+
+.feature {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: var(--radius);
+    padding: .85rem 1rem;
+    display: flex;
+    flex-direction: column;
+}
+
+.feature h3 {
+    margin: 0 0 .3rem;
+    font-size: .95rem;
+    color: var(--accent);
+}
+
+.feature p {
+    margin: 0 0 .6rem;
+    font-size: .82rem;
+    color: var(--muted);
+}
+
+.feature-link {
+    margin-top: auto;
+    font-size: .8rem;
+    color: var(--accent);
+    text-decoration: none;
+    font-weight: 600;
+}
+
+.feature-link:hover {
+    color: var(--accent-hover);
+    text-decoration: underline;
+}
+
+@media (max-width: 680px) {
+    .features {
+        grid-template-columns: 1fr;
+    }
 }
 
 .panel {
@@ -102,6 +191,42 @@ textarea {
     font-size: .82rem;
 }
 
+/* Collapsible configuration accordion */
+details.config {
+    padding: 0;
+}
+
+details.config>summary {
+    cursor: pointer;
+    list-style: none;
+    padding: 1rem 1.25rem;
+    font-size: 1rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+}
+
+details.config>summary::-webkit-details-marker {
+    display: none;
+}
+
+details.config>summary::before {
+    content: "▸";
+    display: inline-block;
+    transition: transform .15s ease;
+}
+
+details.config[open]>summary::before {
+    transform: rotate(90deg);
+}
+
+.config-body {
+    padding: 0 1.25rem 1.25rem;
+}
+
 .tabs {
     display: flex;
     gap: .4rem;
@@ -120,20 +245,104 @@ textarea {
 .tab.active {
     background: var(--accent);
     border-color: var(--accent);
-    color: #fff;
+    color: var(--on-accent);
 }
 
 .actions {
     display: flex;
     align-items: center;
-    gap: 1rem;
+    gap: 1.5rem;
+    flex-wrap: wrap;
     margin: .5rem 0 1rem;
+}
+
+/* Step checklist next to the run button */
+.steps {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: .3rem;
+}
+
+.steps li {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    font-size: .85rem;
+    color: var(--muted);
+}
+
+.steps .step-icon {
+    width: 1.05rem;
+    height: 1.05rem;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: .7rem;
+    line-height: 1;
+    flex-shrink: 0;
+}
+
+.steps li.pending .step-icon {
+    opacity: .5;
+}
+
+.steps li.active .step-icon {
+    border-color: var(--accent);
+    border-top-color: transparent;
+    animation: spin .7s linear infinite;
+}
+
+.steps li.active .step-label {
+    color: var(--text);
+}
+
+.steps li.done .step-icon {
+    border-color: #2ea043;
+    background: #2ea043;
+    color: #fff;
+}
+
+.steps li.done .step-icon::after {
+    content: "✓";
+}
+
+.steps li.done .step-label {
+    color: var(--text);
+}
+
+.steps li.skipped .step-icon::after {
+    content: "–";
+}
+
+.steps li.skipped {
+    opacity: .55;
+}
+
+.steps li.error .step-icon {
+    border-color: var(--error);
+    background: var(--error);
+    color: #fff;
+}
+
+.steps li.error .step-icon::after {
+    content: "✕";
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 #run {
     background: var(--accent);
     border: none;
-    color: #fff;
+    color: var(--on-accent);
     font-size: 1rem;
     font-weight: 600;
     padding: .7rem 1.4rem;
@@ -192,6 +401,70 @@ textarea {
     padding: 1rem;
 }
 
+/* Always-visible decoded summary */
+.summary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: .5rem 1rem;
+    margin-top: 1rem;
+}
+
+.badge {
+    font-size: .75rem;
+    font-weight: 700;
+    letter-spacing: .04em;
+    padding: .2rem .6rem;
+    border-radius: 999px;
+}
+
+.badge.ok {
+    background: rgba(46, 160, 67, .18);
+    color: #3fb950;
+}
+
+.badge.bad {
+    background: rgba(248, 113, 113, .18);
+    color: var(--error);
+}
+
+.meta {
+    font-size: .85rem;
+}
+
+.meta-label {
+    color: var(--muted);
+}
+
+.events {
+    list-style: none;
+    margin: .5rem 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: .5rem;
+}
+
+.events li {
+    background: #0d1117;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: .6rem .8rem;
+}
+
+.event-addr {
+    color: var(--muted);
+    font-size: .82rem;
+}
+
+.event-params {
+    margin-top: .25rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: .78rem;
+    color: var(--text);
+    word-break: break-all;
+}
+
 .debug {
     margin-top: 1rem;
 }
@@ -215,6 +488,18 @@ pre {
     overflow: auto;
     font-size: .78rem;
     max-height: 360px;
+}
+
+#prompt-text {
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.muted-inline {
+    font-weight: 400;
+    font-size: .78rem;
+    color: var(--muted);
+    margin-left: .5rem;
 }
 
 .error pre {

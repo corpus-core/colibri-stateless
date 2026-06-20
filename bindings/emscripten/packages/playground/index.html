@@ -11,24 +11,50 @@
 <body>
     <main class="app">
         <header>
-            <h1>Colibri Transaction Explainer</h1>
-            <p class="sub">Verify-simulate a transaction and explain it with a local WebGPU model or a cloud LLM.</p>
+            <div class="brand">
+                <img class="logo" src="/c4_logo.png" alt="Colibri" />
+                <div>
+                    <h1>Colibri Transaction Explainer</h1>
+                    <p class="sub">Verify-simulate a transaction and explain it with a local WebGPU model or a cloud
+                        LLM.</p>
+                </div>
+            </div>
+            <nav class="links">
+                <a href="https://corpus-core.gitbook.io/specification-colibri-stateless" target="_blank"
+                    rel="noopener">Documentation</a>
+                <a href="https://github.com/corpus-core/colibri-stateless" target="_blank" rel="noopener">GitHub</a>
+                <a href="https://www.npmjs.com/package/@corpus-core/colibri-stateless" target="_blank"
+                    rel="noopener">npm</a>
+                <a href="https://x.com/CorpusCoreHQ" target="_blank" rel="noopener">X</a>
+            </nav>
         </header>
 
-        <section class="panel">
-            <h2>1. Network</h2>
-            <div class="row">
-                <label>Chain ID
-                    <input id="chainId" type="number" value="1" min="1" />
-                </label>
-                <label class="grow">RPC / Prover endpoint (optional override)
-                    <input id="endpoint" type="text" placeholder="https://mainnet1.colibri-proof.tech" />
-                </label>
+        <section class="features">
+            <div class="feature">
+                <h3>Local verification</h3>
+                <p>Consensus &amp; execution proofs verified in your browser - no trusted RPC.</p>
+                <a class="feature-link"
+                    href="https://corpus-core.gitbook.io/specification-colibri-stateless/specifications/ethereum/call-proof"
+                    target="_blank" rel="noopener">How the call proof works →</a>
+            </div>
+            <div class="feature">
+                <h3>Full privacy</h3>
+                <p>Pragmatic Adaptive Privacy with ZK-verified state and a hybrid prover.</p>
+                <a class="feature-link"
+                    href="https://corpus-core.gitbook.io/specification-colibri-stateless/specifications/ethereum/pragmatic-adaptive-privacy"
+                    target="_blank" rel="noopener">Pragmatic Adaptive Privacy →</a>
+            </div>
+            <div class="feature">
+                <h3>Local LLM</h3>
+                <p>Explanation generated on-device via WebGPU - your data never leaves the browser.</p>
+                <a class="feature-link"
+                    href="https://github.com/corpus-core/colibri-stateless/tree/dev/bindings/emscripten/packages/explainer"
+                    target="_blank" rel="noopener">Explainer README →</a>
             </div>
         </section>
 
         <section class="panel">
-            <h2>2. Transaction</h2>
+            <h2>Transaction</h2>
             <div class="tabs">
                 <button class="tab active" data-mode="object" type="button">Tx Object</button>
                 <button class="tab" data-mode="raw" type="button">Raw Transaction</button>
@@ -63,49 +89,70 @@
             </div>
         </section>
 
-        <section class="panel">
-            <h2>3. Explainer</h2>
-            <div class="row">
-                <label>Provider
-                    <select id="provider">
-                        <option value="webllm">Local (WebGPU / WebLLM)</option>
-                        <option value="openai">OpenAI</option>
-                        <option value="anthropic">Anthropic</option>
-                        <option value="ollama">Ollama (local server)</option>
-                    </select>
-                </label>
-                <label class="grow">Model
-                    <select id="model"></select>
-                </label>
-                <label>Language
-                    <input id="language" type="text" value="en" size="4" />
-                </label>
-            </div>
-            <div class="row" id="apikey-row">
-                <label class="grow" id="apikey-wrap">API key
-                    <input id="apiKey" type="password" placeholder="sk-..." />
-                </label>
-                <label class="grow" id="baseurl-wrap">Base URL (Ollama / custom)
-                    <input id="baseUrl" type="text" placeholder="http://localhost:11434" />
-                </label>
-            </div>
-            <div class="row">
-                <label>Max source chars (context budget)
-                    <input id="maxSourceChars" type="number" value="10000" min="0" step="500" />
-                </label>
-                <label id="contextWindow-wrap">Context window (webllm, optional)
-                    <input id="contextWindow" type="number" placeholder="4096" min="0" step="512" />
-                </label>
+        <details class="panel config">
+            <summary>Configuration</summary>
+
+            <div class="config-body">
+                <div class="row">
+                    <label>Chain ID
+                        <input id="chainId" type="number" value="1" min="1" />
+                    </label>
+                    <label class="grow">RPC / Prover endpoint (optional override)
+                        <input id="endpoint" type="text" placeholder="https://mainnet1.colibri-proof.tech" />
+                    </label>
+                </div>
+                <div class="row">
+                    <label>Provider
+                        <select id="provider">
+                            <option value="webllm">Local (WebGPU / WebLLM)</option>
+                            <option value="openai">OpenAI</option>
+                            <option value="anthropic">Anthropic</option>
+                            <option value="ollama">Ollama (local server)</option>
+                        </select>
+                    </label>
+                    <label class="grow">Model
+                        <select id="model"></select>
+                    </label>
+                    <label>Language
+                        <input id="language" type="text" value="en" size="4" />
+                    </label>
+                </div>
+                <div class="row" id="apikey-row">
+                    <label class="grow" id="apikey-wrap">API key
+                        <input id="apiKey" type="password" placeholder="sk-..." />
+                    </label>
+                    <label class="grow" id="baseurl-wrap">Base URL (Ollama / custom)
+                        <input id="baseUrl" type="text" placeholder="http://localhost:11434" />
+                    </label>
+                </div>
+                <div class="row">
+                    <label>Max source chars (context budget)
+                        <input id="maxSourceChars" type="number" value="10000" min="0" step="500" />
+                    </label>
+                    <label id="contextWindow-wrap">Context window (webllm, optional)
+                        <input id="contextWindow" type="number" placeholder="4096" min="0" step="512" />
+                    </label>
                 <label class="check">
                     <input id="enrich" type="checkbox" checked /> Enrich via Sourcify (decode + storage layout)
                 </label>
+                <label class="check">
+                    <input id="privacy" type="checkbox" checked /> Privacy mode (PAP + ZK proof, hybrid prover)
+                </label>
             </div>
-        </section>
+            </div>
+        </details>
 
         <div class="actions">
             <button id="run" type="button">Simulate &amp; Explain</button>
-            <span id="status" class="status"></span>
+            <ul id="steps" class="steps hidden">
+                <li data-step="1"><span class="step-icon"></span><span class="step-label">Tx locally simulated</span></li>
+                <li data-step="2"><span class="step-icon"></span><span class="step-label">State verified</span></li>
+                <li data-step="3"><span class="step-icon"></span><span class="step-label">Contract code compiled &amp; verified</span></li>
+                <li data-step="4"><span class="step-icon"></span><span class="step-label">LLM explanation</span></li>
+            </ul>
         </div>
+
+        <div id="status" class="status"></div>
 
         <div id="progress-wrap" class="progress-wrap hidden">
             <div class="progress-bar"><div id="progress-fill"></div></div>
@@ -116,9 +163,16 @@
             <h2>Explanation</h2>
             <div id="explanation" class="explanation"></div>
 
-            <details class="debug">
+            <div id="summary" class="summary"></div>
+
+            <h3 id="events-heading" class="hidden">Events</h3>
+            <ul id="events" class="events"></ul>
+
+            <details id="debug" class="debug">
                 <summary>Debug data</summary>
-                <h3>Decoded result</h3>
+                <h3>Prompt sent to the LLM <span id="prompt-size" class="muted-inline"></span></h3>
+                <pre id="prompt-text"></pre>
+                <h3>Decoded result (JSON)</h3>
                 <pre id="enhanced-json"></pre>
                 <h3>Raw colibri_simulateTransaction result</h3>
                 <pre id="sim-json"></pre>
