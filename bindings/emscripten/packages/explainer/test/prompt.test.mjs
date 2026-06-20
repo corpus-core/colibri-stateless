@@ -153,3 +153,67 @@ describe('buildPrompt', () => {
         assert.ok(userPrompt.includes('available=100'), `Expected error params in prompt`);
     });
 });
+
+describe('buildPrompt source-code budget (maxSourceChars)', () => {
+    const WETH_ADDR = '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2';
+
+    // formatSourceContext only embeds source code when a state-changed contract
+    // has a storage slot whose resolved entry exists but lacks a variableName,
+    // and metadata sources are available.
+    function sourceContext(content, fileCount = 1) {
+        const sources = {};
+        for (let i = 0; i < fileCount; i++) sources[`F${i}.sol`] = { content };
+        return {
+            contracts: new Map([[WETH_ADDR, { abi: null, storageLayout: null, sources }]]),
+            resolvedStorage: new Map([[WETH_ADDR, [{ baseSlot: -1, raw: 'x' }]]]),
+            decodedTrace: [],
+            decodedEvents: [],
+        };
+    }
+
+    it('embeds contract source when slots are unresolved', () => {
+        const { userPrompt } = buildPrompt(WETH_DEPOSIT_RESULT, TX_PARAMS, {}, sourceContext('contract C {}'));
+        assert.ok(userPrompt.includes('## Contract Source Code'));
+        assert.ok(userPrompt.includes('contract C {}'));
+        assert.ok(!userPrompt.includes('(truncated)'));
+    });
+
+    it('truncates a large source file at the default per-file cap', () => {
+        const { userPrompt } = buildPrompt(WETH_DEPOSIT_RESULT, TX_PARAMS, {}, sourceContext('A'.repeat(5000)));
+        assert.ok(userPrompt.includes('(truncated)'));
+    });
+
+    it('a small maxSourceChars budget truncates what the default keeps', () => {
+        const med = 'B'.repeat(2000);
+        const kept = buildPrompt(WETH_DEPOSIT_RESULT, TX_PARAMS, {}, sourceContext(med)).userPrompt;
+        const cut = buildPrompt(WETH_DEPOSIT_RESULT, TX_PARAMS, { maxSourceChars: 600 }, sourceContext(med)).userPrompt;
+        assert.ok(!kept.includes('(truncated)'));
+        assert.ok(cut.includes('(truncated)'));
+    });
+
+    it('falls back to the default budget for non-positive maxSourceChars', () => {
+        const med = 'B'.repeat(2000);
+        const out = buildPrompt(WETH_DEPOSIT_RESULT, TX_PARAMS, { maxSourceChars: 0 }, sourceContext(med)).userPrompt;
+        assert.ok(!out.includes('(truncated)'));
+    });
+
+    it('shares the budget across multiple source files', () => {
+        const { userPrompt } = buildPrompt(
+            WETH_DEPOSIT_RESULT, TX_PARAMS, { maxSourceChars: 600 }, sourceContext('C'.repeat(2000), 3),
+        );
+        assert.ok(userPrompt.includes('(truncated)'));
+        // The third file must be dropped once the budget is exhausted.
+        assert.ok(!userPrompt.includes('F2.sol'));
+    });
+
+    it('omits source code when storage slots are resolved', () => {
+        const ctx = {
+            contracts: new Map([[WETH_ADDR, { abi: null, storageLayout: null, sources: { 'F.sol': { content: 'X' } } }]]),
+            resolvedStorage: new Map([[WETH_ADDR, [{ variableName: 'balances', baseSlot: 3, raw: 'x' }]]]),
+            decodedTrace: [],
+            decodedEvents: [],
+        };
+        const { userPrompt } = buildPrompt(WETH_DEPOSIT_RESULT, TX_PARAMS, {}, ctx);
+        assert.ok(!userPrompt.includes('## Contract Source Code'));
+    });
+});

@@ -2,6 +2,22 @@ name: Emscripten CI
 
 on:
   workflow_call:
+    inputs:
+      push_image:
+        description: 'Whether to push the playground image to GHCR'
+        required: false
+        type: boolean
+        default: false
+      ref_name:
+        description: 'Reference name (branch or tag)'
+        required: false
+        type: string
+        default: ''
+      ref_type:
+        description: 'Reference type (branch or tag)'
+        required: false
+        type: string
+        default: ''
     secrets:
       NPM_TOKEN:
         required: false
@@ -11,6 +27,7 @@ permissions:
   checks: write
   pull-requests: write
   actions: read
+  packages: write # Required for pushing the playground Docker image to GHCR
 
 jobs:
 
@@ -125,3 +142,87 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         working-directory: bindings/emscripten/packages/tor
+
+  colibri-explainer:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build colibri-explainer
+        run: |
+          npm install
+          npx tsc
+        working-directory: bindings/emscripten/packages/explainer
+
+      - name: Test colibri-explainer
+        run: npm test
+        working-directory: bindings/emscripten/packages/explainer
+
+      - name: Set colibri-explainer version from tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          TAG_VERSION=${GITHUB_REF#refs/tags/v}
+          echo "Setting colibri-explainer version to $TAG_VERSION"
+          npm version $TAG_VERSION --no-git-tag-version
+        working-directory: bindings/emscripten/packages/explainer
+
+      - name: Publish colibri-explainer to npm
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" > ~/.npmrc
+          npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        working-directory: bindings/emscripten/packages/explainer
+
+  docker-playground:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        if: ${{ inputs.push_image }}
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/corpus-core/colibri-explainer-playground
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest,enable=${{ inputs.ref_type == 'tag' && startsWith(inputs.ref_name, 'v') }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: bindings/docker/Dockerfile.playground
+          # Single-arch is enough: the image is just nginx serving static files,
+          # so the content is architecture-independent (unlike the prover).
+          platforms: linux/amd64
+          push: ${{ inputs.push_image }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=playground
+          cache-to: type=gha,mode=max,scope=playground
+          # Disable provenance/attestation to avoid GHCR upload issues
+          provenance: false
+          sbom: false

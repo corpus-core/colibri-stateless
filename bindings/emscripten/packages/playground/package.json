@@ -1,0 +1,23 @@
+{
+    "name": "@corpus-core/colibri-explainer-playground",
+    "version": "0.1.0",
+    "private": true,
+    "description": "Browser playground for the Colibri transaction explainer. Enter a raw transaction or tx object, run colibri_simulateTransaction live, and get a human-readable explanation from a local WebGPU model or a cloud provider.",
+    "type": "module",
+    "scripts": {
+        "dev": "vite",
+        "build": "tsc --noEmit && vite build",
+        "preview": "vite preview"
+    },
+    "author": "Simon Jentzsch <simon@corpus.io>",
+    "license": "MIT",
+    "dependencies": {
+        "@corpus-core/colibri-explainer": "file:../explainer",
+        "@mlc-ai/web-llm": "^0.2.84",
+        "ethers": "^6.16.0"
+    },
+    "devDependencies": {
+        "typescript": "^5.5.0",
+        "vite": "^5.4.0"
+    }
+}
