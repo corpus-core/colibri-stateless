@@ -302,7 +302,7 @@ static bool match_call_result(verify_ctx_t* ctx, evm_call_ctx_t* evm) {
       ctx->flags |= VERIFY_FLAG_FREE_DATA;
       evm->call_result = NULL_BYTES;
     }
-    else 
+    else
       ctx->data = (ssz_ob_t) {.bytes = bytes(ctx, 0), .def = eth_ssz_verification_type(ETH_SSZ_DATA_BYTES)};
     return true;
   }
@@ -649,10 +649,8 @@ static bool pap_verify_proof_response(verify_ctx_t* ctx, call_account_t* call_ac
         *values_changed = true;
       if (cs) {
         memcpy(cs->src_value, proof_val, 32);
-        memcpy(cs->post_value, proof_val, 32);
         cs->verified_at = 1;
         cs->source      = STORAGE_SRC_PROOF;
-        cs->modified    = false;
       }
       else
         call_account_set_storage(acc, proof_key, proof_val, STORAGE_SRC_PROOF, 1);
@@ -752,6 +750,10 @@ static bool verify_call_result_and_finish(verify_ctx_t* ctx, evm_call_ctx_t* evm
   if (!all_verified && !proof_call(ctx, evm)) return false;
   if (!evm->evm_done) return true;
 
+  ctx->success = is_simulate   ? match_simulate_result(ctx, evm)
+                 : is_estimate ? match_estimate_result(ctx, evm)
+                               : match_call_result(ctx, evm);
+
   if (evm->pap_mode && json_len(ctx->args) < 3) { // only save the cache if we are not using state overrides
 
     for (call_account_t* ac = evm->accounts; ac; ac = ac->next) {
@@ -773,10 +775,6 @@ static bool verify_call_result_and_finish(verify_ctx_t* ctx, evm_call_ctx_t* evm
       eth_call_account_cache_save(ctx, ac->address, ac);
     }
   }
-
-  ctx->success = is_simulate   ? match_simulate_result(ctx, evm)
-                 : is_estimate ? match_estimate_result(ctx, evm)
-                               : match_call_result(ctx, evm);
 
   if (!ctx->success) RETURN_VERIFY_ERROR(ctx, is_simulate ? "Simulation result mismatch" : "Call result mismatch");
   return true;
