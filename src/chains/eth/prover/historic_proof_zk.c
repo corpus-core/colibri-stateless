@@ -32,7 +32,9 @@
 // First client version that consumes SP1 v6 ("Hypercube") proofs. Clients below
 // this version keep receiving the legacy v5 `zk_proof.ssz`; from this version on
 // the prover serves the `zk_proof_v6.ssz` produced by the v6 pipeline.
-#define FIRST_V6_VERSION c4_version_number(2, 0, 0)
+// Keep FIRST_V6_VERSION and FIRST_V6_VERSION_STR in sync (numeric gate vs. message text).
+#define FIRST_V6_VERSION     c4_version_number(2, 0, 0)
+#define FIRST_V6_VERSION_STR "2.0.0"
 
 c4_status_t c4_fetch_zk_proof_data(prover_ctx_t* ctx, zk_proof_data_t* zk_proof, uint64_t period) {
   c4_status_t status                                        = C4_SUCCESS;
@@ -48,14 +50,14 @@ c4_status_t c4_fetch_zk_proof_data(prover_ctx_t* ctx, zk_proof_data_t* zk_proof,
   // for ZK sync data is built at proof-assembly time (see `c4_get_syncdata_proof`
   // in `historic_proof.c`) from a freshly-fetched LightClientBootstrap, so the
   // prover only needs to pick the version-appropriate proof file here.
-  bool        v6    = ctx->version >= FIRST_V6_VERSION;
-  const char* fname = v6 ? "zk_proof_v6.ssz" : "zk_proof.ssz";
-  c4_status_t st    = c4_send_internal_request(ctx, bprintf(&buf, "period_store/%l/%s", period, fname), NULL, 0, &zk_proof->sync_proof.bytes);
+  bool        is_v6        = ctx->version >= FIRST_V6_VERSION;
+  const char* proof_name   = is_v6 ? "zk_proof_v6.ssz" : "zk_proof.ssz";
+  c4_status_t proof_status = c4_send_internal_request(ctx, bprintf(&buf, "period_store/%l/%s", period, proof_name), NULL, 0, &zk_proof->sync_proof.bytes);
   // Once legacy v5 generation stops, an old client will no longer find its file.
   // Return an explicit upgrade hint instead of a generic "not found" error.
-  if (st == C4_ERROR && !v6)
-    THROW_ERROR("zk sync proofs for verifier versions < 2.0.0 are no longer supported; please upgrade colibri to >= 2.0.0");
-  TRY_ADD_ASYNC(status, st);
+  if (proof_status == C4_ERROR && !is_v6)
+    THROW_ERROR("zk sync proofs for verifier versions < " FIRST_V6_VERSION_STR " are no longer supported; please upgrade colibri to >= " FIRST_V6_VERSION_STR);
+  TRY_ADD_ASYNC(status, proof_status);
 
   if (ctx->witness_key.len && ctx->witness_key.len % 20 == 0) {
     for (uint32_t i = 0; i < ctx->witness_key.len; i += 20) {
