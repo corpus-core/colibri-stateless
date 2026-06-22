@@ -23,10 +23,16 @@
 
 #include "historic_proof.h"
 #include "prover.h"
+#include "version.h"
 #include <stdlib.h>
 #include <string.h>
 #define MAX_SIGNATURES   5
 #define SIGNATURE_LENGTH 65
+
+// First client version that consumes SP1 v6 ("Hypercube") proofs. Clients below
+// this version keep receiving the legacy v5 `zk_proof.ssz`; from this version on
+// the prover serves the `zk_proof_v6.ssz` produced by the v6 pipeline.
+#define FIRST_V6_VERSION c4_version_number(2, 0, 0)
 
 c4_status_t c4_fetch_zk_proof_data(prover_ctx_t* ctx, zk_proof_data_t* zk_proof, uint64_t period) {
   c4_status_t status                                        = C4_SUCCESS;
@@ -36,11 +42,20 @@ c4_status_t c4_fetch_zk_proof_data(prover_ctx_t* ctx, zk_proof_data_t* zk_proof,
   buffer_t    buf                                           = stack_buffer(buffer);
   zk_proof->sync_proof.def                                  = C4_ETH_REQUEST_SYNCDATA_UNION + 2;
 
-  // The WSP anchor for ZK sync data is now built at proof-assembly time
-  // (see `c4_get_syncdata_proof` in `historic_proof.c`) from a freshly-fetched
-  // LightClientBootstrap, so the prover always reads the single canonical
-  // `zk_proof.ssz` per period.
-  TRY_ADD_ASYNC(status, c4_send_internal_request(ctx, bprintf(&buf, "period_store/%l/zk_proof.ssz", period), NULL, 0, &zk_proof->sync_proof.bytes));
+  // Dual-serve during the SP1 v5 -> v6 transition: clients >= 2.0.0 receive the
+  // v6 proof (`zk_proof_v6.ssz`), older clients keep the legacy v5 `zk_proof.ssz`.
+  // `ctx->version == 0` (unknown/pre-versioning) counts as legacy. The WSP anchor
+  // for ZK sync data is built at proof-assembly time (see `c4_get_syncdata_proof`
+  // in `historic_proof.c`) from a freshly-fetched LightClientBootstrap, so the
+  // prover only needs to pick the version-appropriate proof file here.
+  bool        v6    = ctx->version >= FIRST_V6_VERSION;
+  const char* fname = v6 ? "zk_proof_v6.ssz" : "zk_proof.ssz";
+  c4_status_t st    = c4_send_internal_request(ctx, bprintf(&buf, "period_store/%l/%s", period, fname), NULL, 0, &zk_proof->sync_proof.bytes);
+  // Once legacy v5 generation stops, an old client will no longer find its file.
+  // Return an explicit upgrade hint instead of a generic "not found" error.
+  if (st == C4_ERROR && !v6)
+    THROW_ERROR("zk sync proofs for verifier versions < 2.0.0 are no longer supported; please upgrade colibri to >= 2.0.0");
+  TRY_ADD_ASYNC(status, st);
 
   if (ctx->witness_key.len && ctx->witness_key.len % 20 == 0) {
     for (uint32_t i = 0; i < ctx->witness_key.len; i += 20) {
