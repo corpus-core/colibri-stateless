@@ -30,22 +30,31 @@ void c4_period_sync_on_checkpoint(bytes32_t checkpoint, uint64_t slot) {
     if (!c4_ps_file_exists(period, "lcb.ssz")) c4_ps_fetch_lcb_for_checkpoint(checkpoint, period);
     if (!c4_ps_file_exists(period, "lcu.ssz")) c4_ps_schedule_fetch_lcu(period);
     if (!c4_ps_file_exists(period, "historical_root.json")) c4_ps_schedule_fetch_historical_root(period);
-    // Build any missing zk_proof.ssz files. The zk_proof_g16.bin of recent periods may be
-    // delivered late (after this check already ran for that period), so instead of only
-    // checking the current and next period, walk backwards starting at period + 1 until we
-    // reach a period that already has its zk_proof.ssz built (or the oldest known period).
+    // Build any missing zk_proof(.ssz / _v6.ssz) files. The Groth16 inputs of recent
+    // periods may be delivered late (after this check already ran for that period), so
+    // instead of only checking the current and next period, walk backwards starting at
+    // period + 1 until we reach an already-built period (or the oldest known period).
+    // c4_build_zk_sync_proof_data packs whichever variant has its input present (v5
+    // zk_proof_g16.bin -> zk_proof.ssz, v6 zk_proof_g16_v6.bin -> zk_proof_v6.ssz), so
+    // both chains are filled during the dual-serve window.
     uint64_t oldest_period, newest_period;
     if (c4_ps_period_index_get_contiguous_from(0, &oldest_period, &newest_period)) {
       for (uint64_t p = period + 1;; p--) {
-        if (c4_ps_file_exists(p, "zk_proof.ssz")) break;
-        if (c4_ps_file_exists(p, "zk_proof_g16.bin")) c4_build_zk_sync_proof_data(p);
+        bool v5_done    = c4_ps_file_exists(p, "zk_proof.ssz");
+        bool v6_done    = c4_ps_file_exists(p, "zk_proof_v6.ssz");
+        bool v5_pending = !v5_done && c4_ps_file_exists(p, "zk_proof_g16.bin");
+        bool v6_pending = !v6_done && c4_ps_file_exists(p, "zk_proof_g16_v6.bin");
+        if (v5_pending || v6_pending)
+          c4_build_zk_sync_proof_data(p);
+        else if (v5_done || v6_done)
+          break; // reached the already-built region; nothing pending below
         if (p <= oldest_period) break;
       }
     }
     else {
       // No usable period index (empty store or gaps): keep the previous best-effort behavior.
-      if (c4_ps_file_exists(period, "zk_proof_g16.bin")) c4_build_zk_sync_proof_data(period);
-      if (c4_ps_file_exists(period + 1, "zk_proof_g16.bin")) c4_build_zk_sync_proof_data(period + 1);
+      if (c4_ps_file_exists(period, "zk_proof_g16.bin") || c4_ps_file_exists(period, "zk_proof_g16_v6.bin")) c4_build_zk_sync_proof_data(period);
+      if (c4_ps_file_exists(period + 1, "zk_proof_g16.bin") || c4_ps_file_exists(period + 1, "zk_proof_g16_v6.bin")) c4_build_zk_sync_proof_data(period + 1);
     }
     c4_period_prover_on_checkpoint(period);
   }
