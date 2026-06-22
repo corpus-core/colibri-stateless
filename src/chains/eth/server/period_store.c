@@ -30,8 +30,23 @@ void c4_period_sync_on_checkpoint(bytes32_t checkpoint, uint64_t slot) {
     if (!c4_ps_file_exists(period, "lcb.ssz")) c4_ps_fetch_lcb_for_checkpoint(checkpoint, period);
     if (!c4_ps_file_exists(period, "lcu.ssz")) c4_ps_schedule_fetch_lcu(period);
     if (!c4_ps_file_exists(period, "historical_root.json")) c4_ps_schedule_fetch_historical_root(period);
-    if (c4_ps_file_exists(period, "zk_proof_g16.bin")) c4_build_zk_sync_proof_data(period);
-    if (c4_ps_file_exists(period + 1, "zk_proof_g16.bin")) c4_build_zk_sync_proof_data(period + 1);
+    // Build any missing zk_proof.ssz files. The zk_proof_g16.bin of recent periods may be
+    // delivered late (after this check already ran for that period), so instead of only
+    // checking the current and next period, walk backwards starting at period + 1 until we
+    // reach a period that already has its zk_proof.ssz built (or the oldest known period).
+    uint64_t oldest_period, newest_period;
+    if (c4_ps_period_index_get_contiguous_from(0, &oldest_period, &newest_period)) {
+      for (uint64_t p = period + 1;; p--) {
+        if (c4_ps_file_exists(p, "zk_proof.ssz")) break;
+        if (c4_ps_file_exists(p, "zk_proof_g16.bin")) c4_build_zk_sync_proof_data(p);
+        if (p <= oldest_period) break;
+      }
+    }
+    else {
+      // No usable period index (empty store or gaps): keep the previous best-effort behavior.
+      if (c4_ps_file_exists(period, "zk_proof_g16.bin")) c4_build_zk_sync_proof_data(period);
+      if (c4_ps_file_exists(period + 1, "zk_proof_g16.bin")) c4_build_zk_sync_proof_data(period + 1);
+    }
     c4_period_prover_on_checkpoint(period);
   }
   else {
