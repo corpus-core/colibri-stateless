@@ -4,7 +4,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, Write, Read};
 use std::path::PathBuf;
 use regex::Regex;
-use sp1_sdk::{HashableKey, ProverClient, Prover, SP1VerifyingKey};
+use sp1_sdk::{Elf, HashableKey, ProverClient, Prover, ProvingKey};
 use serde::Deserialize;
 
 #[derive(Parser, Debug)]
@@ -31,7 +31,8 @@ struct Args {
     output_c_path: Option<PathBuf>,
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let args = Args::parse();
 
     // 1. Compute Program Hash
@@ -43,9 +44,10 @@ fn main() {
     } else if let Some(elf_path) = &args.elf_path {
         eprintln!("Computing VK Hash from ELF: {:?}", elf_path);
         let elf_bytes = std::fs::read(elf_path).expect("Failed to read ELF file");
-        let client = ProverClient::builder().cpu().build();
-        let (_, vk) = client.setup(&elf_bytes);
-        vk
+        let client = ProverClient::builder().cpu().build().await;
+        let elf: Elf = elf_bytes.into();
+        let pk = client.setup(elf).await.expect("Failed to setup proving key");
+        pk.verifying_key().clone()
     } else {
         panic!("Either --elf-path or --vk-path must be provided");
     };
