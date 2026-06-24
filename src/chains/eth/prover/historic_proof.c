@@ -289,7 +289,7 @@ static c4_status_t fetch_bootstrap_by_root(prover_ctx_t* ctx, bytes32_t header_r
   sbprintf(path, "eth/v1/beacon/light_client/bootstrap/0x%x", bytes(header_root, 32));
   TRY_ASYNC(c4_send_beacon_ssz(ctx, path, NULL, NULL, DEFAULT_TTL, &result));
 
-  const ssz_def_t* bootstrap_union_def = ssz_get_def(C4_ETH_REQUEST_SYNCDATA_UNION + 1, "bootstrap");
+  const ssz_def_t* bootstrap_union_def = ssz_get_def(eth_ssz_verification_type(ETH_SSZ_VERIFY_LC_SYNCDATA), "bootstrap");
   fork_id_t        fork                = c4_eth_get_fork_for_lcu(ctx->chain_id, result.bytes);
   if (fork == 0) THROW_ERROR("Invalid bootstrap data: cannot determine fork!");
   // Mirror the verifier-side mapping in `sync_committee_state.c`: pre-Electra forks
@@ -381,8 +381,12 @@ c4_status_t c4_get_syncdata_proof(prover_ctx_t* ctx, syncdata_state_t* sync_data
   if (ctx->flags & C4_PROVER_FLAG_ZK_PROOF && (ctx->flags & C4_PROVER_FLAG_CHAIN_STORE) == 0) return C4_SUCCESS;
   if ((ctx->flags & C4_PROVER_FLAG_ZK_PROOF) && ((sync_data->newest_period == 0 && sync_data->checkpoint_period == 0) ||
                                                  (sync_data->newest_period && sync_data->newest_period < sync_data->required_period))) {
-    // we need a zk_proof (if available) for the required period.
-    builder->def             = C4_ETH_REQUEST_SYNCDATA_UNION + 2; // TODO find a way to better handle this in the future, so updates on ssz will not break the build.
+    // we need a zk_proof (if available) for the required period. Pick the ZKSyncData
+    // union variant by client version: v6 clients (>= 2.0.0) get `ZKSyncDataV6` (index 3,
+    // 356-byte proof), older clients keep the legacy `ZKSyncData` (index 2, 260-byte
+    // proof). The builder layout AND the union selector are derived from this def, so it
+    // must match the read def used in `c4_fetch_zk_proof_data`.
+    builder->def             = eth_ssz_verification_type(c4_zk_syncdata_type(ctx->version));
     zk_proof_data_t zk_proof = {0};
     eth_cu_add(ctx, CU_ZK_PROOF_INCLUDE); // ZK proof attached to the sync section
 
@@ -426,7 +430,7 @@ c4_status_t c4_get_syncdata_proof(prover_ctx_t* ctx, syncdata_state_t* sync_data
   }
   if (sync_data->checkpoint_period == 0 && sync_data->required_period <= sync_data->newest_period) return C4_SUCCESS;
 
-  builder->def            = C4_ETH_REQUEST_SYNCDATA_UNION + 1; // TODO find a way to better handle this in the future, so updates on ssz will not break the build.
+  builder->def            = eth_ssz_verification_type(ETH_SSZ_VERIFY_LC_SYNCDATA);
   ssz_ob_t      bootstrap = {.def = &ssz_none};
   ssz_ob_t      cp_ob     = {0}; // owns checkpoint_proof bytes (free at end)
   ssz_builder_t updates   = ssz_builder_for_def(ssz_get_def(builder->def, "update"));

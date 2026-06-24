@@ -34,6 +34,7 @@ static const ssz_def_t ssz_bytes_1024 = SSZ_BYTES("Bytes", 1073741824);
 // Forward declaration for C4_ETH_LC_SYNCDATA (defined later after includes)
 static const ssz_def_t C4_ETH_LC_SYNCDATA[2];
 static const ssz_def_t C4_ETH_ZK_SYNCDATA[6];
+static const ssz_def_t C4_ETH_ZK_SYNCDATA_V6[6];
 #include "verify_data_types.h"
 #include "verify_proof_types.h"
 
@@ -117,8 +118,9 @@ static const ssz_def_t C4_ETH_SYNCDATA_UPDATE_UNION[] = {
 // A Union of possible types of sync data used to update the sync state by verifying the transition from the last period to the required.
 const ssz_def_t C4_ETH_REQUEST_SYNCDATA_UNION[] = {
     SSZ_NONE,
-    SSZ_CONTAINER("LCSyncData", C4_ETH_LC_SYNCDATA), // Light Client Sync Data
-    SSZ_CONTAINER("ZKSyncData", C4_ETH_ZK_SYNCDATA), // ZK Proof Sync Data
+    SSZ_CONTAINER("LCSyncData", C4_ETH_LC_SYNCDATA),       // Light Client Sync Data
+    SSZ_CONTAINER("ZKSyncData", C4_ETH_ZK_SYNCDATA),       // ZK Proof Sync Data (legacy SP1 v5, 260-byte groth16 proof)
+    SSZ_CONTAINER("ZKSyncDataV6", C4_ETH_ZK_SYNCDATA_V6),  // ZK Proof Sync Data (SP1 v6 "Hypercube", 356-byte groth16 proof)
 };
 
 // the main container defining the incoming data processed by the verifier
@@ -149,10 +151,28 @@ static const ssz_def_t C4_ETH_LC_SYNCDATA[2] = {
     SSZ_LIST("update", C4_ETH_SYNCDATA_UPDATE, 1024)         // optional update data for the sync committee
 };
 
-// ZK SyncData contains the recursive zk proof of the sync committee update
+// ZK SyncData contains the recursive zk proof of the sync committee update.
+// Legacy SP1 v5 layout with a fixed 260-byte groth16 proof. Kept unchanged so the
+// prover can keep serving `zk_proof.ssz` to released clients (< 2.0.0) during the
+// SP1 v5 -> v6 dual-serve window. See `C4_ETH_ZK_SYNCDATA_V6` for the v6 variant.
 static const ssz_def_t C4_ETH_ZK_SYNCDATA[6] = {
     SSZ_BYTES32("vk_hash"),        // the hash of the vk used to generate the proof
     SSZ_BYTE_VECTOR("proof", 260), // the recursive zk proof of the sync committee update as groth16 proof
+    SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),
+    SSZ_VECTOR("pubkeys", ssz_bls_pubky, 512),          // the pubkeys of the sync committee
+    SSZ_UNION("checkpoint", ETH_HEADER_PROOFS_UNION),   // the proof from the checkpoint to the header
+    SSZ_LIST("signatures", ssz_secp256k1_signature, 16) // the signatures for the checkpoint
+};
+
+// SP1 v6 ("Hypercube") variant of `ZKSyncData`. Structurally identical to the legacy
+// `C4_ETH_ZK_SYNCDATA` except for the groth16 proof size: SP1 v6 emits a 356-byte
+// proof (selector + exit_code + vk_root + proof_nonce + A/B/C) instead of the v5
+// 260-byte proof. The differing fixed-size `proof` field shifts every following field,
+// so v5 and v6 cannot share one container definition -- they are distinct union
+// variants selected by client version (see `c4_zk_syncdata_type`).
+static const ssz_def_t C4_ETH_ZK_SYNCDATA_V6[6] = {
+    SSZ_BYTES32("vk_hash"),        // the hash of the vk used to generate the proof
+    SSZ_BYTE_VECTOR("proof", 356), // the recursive zk proof of the sync committee update as SP1 v6 groth16 proof
     SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),
     SSZ_VECTOR("pubkeys", ssz_bls_pubky, 512),          // the pubkeys of the sync committee
     SSZ_UNION("checkpoint", ETH_HEADER_PROOFS_UNION),   // the proof from the checkpoint to the header
@@ -280,6 +300,12 @@ const ssz_def_t* eth_ssz_verification_type(eth_ssz_type_t type) {
       return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, ETH_HYBRID_BLOCK_RECEIPTS_PROOF);
     case ETH_SSZ_VERIFY_CHECKPOINT_PROOF:
       return ARRAY_TYPE(ETH_HEADER_PROOFS_UNION, ETH_CHECKPOINT_PROOF);
+    case ETH_SSZ_VERIFY_LC_SYNCDATA:
+      return C4_ETH_REQUEST_SYNCDATA_UNION + 1;
+    case ETH_SSZ_VERIFY_ZK_SYNCDATA:
+      return C4_ETH_REQUEST_SYNCDATA_UNION + 2;
+    case ETH_SSZ_VERIFY_ZK_SYNCDATA_V6:
+      return C4_ETH_REQUEST_SYNCDATA_UNION + 3;
     default: return NULL;
   }
 }

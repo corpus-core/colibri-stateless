@@ -116,8 +116,12 @@ if [ "$SKIP_TOOLCHAIN" = false ]; then
     # Locate SP1 Toolchain
     # CRITICAL: We pin a specific toolchain version to ensure the Verification Key (VK)
     # remains stable across different machines/developers.
-    # PkFc33VNGO corresponds to sp1 v4.0.0 / v5.0.0 specific toolchain
-    PINNED_TOOLCHAIN="PkFc33VNGO"
+    # aqFpu2ZKYP corresponds to the sp1 v6.3.0 toolchain (rustc 1.94.0-dev),
+    # installed via `sp1up -v v6.3.0`. The previous v5 pin was "PkFc33VNGO".
+    # NOTE: the toolchain directory name is assigned at install time; on a machine where
+    # this exact name is missing the script falls back to the latest installed toolchain
+    # (with a loud warning). For reproducible VKs always install via `sp1up -v v6.3.0`.
+    PINNED_TOOLCHAIN="aqFpu2ZKYP"
     SP1_TOOLCHAIN_DIR="$HOME/.sp1/toolchains"
     RUSTC_PATH="$SP1_TOOLCHAIN_DIR/$PINNED_TOOLCHAIN/bin/rustc"
 
@@ -312,30 +316,28 @@ if [ "$SKIP_TOOLCHAIN" = false ]; then
         echo "   (Skipping guest build to ensure stable Verification Key)"
         ELF="$ELF_FROZEN"
     else
-        # Build Guest
-        echo "🔨 Building Guest Program..."
+        # Build Guest.
+        # SP1 v6 uses the 64-bit RISC-V target (riscv64im-succinct-zkvm-elf). We rely on
+        # `cargo prove build`, which selects the correct target, linker arguments and the
+        # `+succinct` toolchain automatically (the old manual `cargo build --target
+        # riscv32im-...` with hardcoded RUSTFLAGS is v5-only and no longer valid).
+        echo "🔨 Building Guest Program (cargo prove build)..."
         (
-            # Use the SP1 toolchain rustc found earlier
-            export RUSTFLAGS='--cfg getrandom_backend="custom" -C link-arg=-Ttext=0x00201000 -C link-arg=--image-base=0x00200800 -C panic=abort'
+            unset RUSTFLAGS
+            unset RUSTC
             cd "$WORKSPACE_ROOT/src/chains/eth/zk_proof/program"
-            cargo build --release --target riscv32im-succinct-zkvm-elf
+            cargo prove build
         )
 
-        # Find ELF
-        ELF=$(find "$WORKSPACE_ROOT/src/chains/eth/zk_proof/target/riscv32im-succinct-zkvm-elf/release/deps" -name "eth_sync_program*" -type f -not -name "*.*" | head -n 1)
+        ELF="$WORKSPACE_ROOT/src/chains/eth/zk_proof/target/elf-compilation/riscv64im-succinct-zkvm-elf/release/eth-sync-program"
 
-        if [ -z "$ELF" ]; then
-            # Fallback search
-            ELF=$(find "$WORKSPACE_ROOT/src/chains/eth/zk_proof/program/target/riscv32im-succinct-zkvm-elf/release/deps" -name "eth_sync_program*" -type f -not -name "*.*" 2>/dev/null | head -n 1)
-        fi
-        
-        if [ -z "$ELF" ]; then
-            echo "❌ Error: Could not find guest ELF binary."
+        if [ ! -f "$ELF" ]; then
+            echo "❌ Error: Could not find guest ELF binary at $ELF"
             exit 1
         fi
-        
+
         echo "✅ Built ELF: $ELF"
-        
+
         # Save to frozen path for next time / git commit
         echo "💾 Saving ELF to $ELF_FROZEN"
         echo "   ⚠️  IMPORTANT: Commit this file to git to freeze the Verification Key!"

@@ -11,6 +11,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libcurl4-openssl-dev \
     pkg-config \
     libssl-dev \
+    protobuf-compiler \
+    libprotobuf-dev \
     wget \
     && update-ca-certificates \
     && rm -rf /var/lib/apt/lists/*

@@ -5,10 +5,11 @@ use k256::elliptic_curve::sec1::ToEncodedPoint;
 use k256::SecretKey;
 use sha2::{Digest, Sha256};
 use sha3::{Digest as Sha3Digest, Keccak256};
-use sp1_sdk::{HashableKey, ProverClient, SP1ProofWithPublicValues, SP1Stdin, SP1VerifyingKey};
+use sp1_sdk::network::{FulfillmentStrategy, NetworkMode};
+use sp1_sdk::{Elf, HashableKey, Prover, ProverClient, ProveRequest, ProvingKey, SP1ProofWithPublicValues, SP1Stdin, SP1VerifyingKey};
 use std::fs::File;
 use std::io::Read;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 const PROOF_OFFSET: usize = 49358;
 
@@ -98,6 +99,82 @@ fn read_proof_data(filename: &str) -> ProofData {
     }
 }
 
+/// Persist all artifacts produced by a Groth16 run: the compressed proof (for the recursion
+/// chain), the SP1 Groth16 wrapper, the raw on-chain proof bytes for the C verifier, the public
+/// values, and the verifying key. Output paths are taken from the `*_FILE` environment variables.
+fn save_groth16_outputs(
+    proof: &SP1ProofWithPublicValues,
+    compressed: &SP1ProofWithPublicValues,
+    vk: &SP1VerifyingKey,
+    start: Instant,
+) {
+    let proof_output =
+        std::env::var("PROOF_OUTPUT_FILE").unwrap_or("proof_groth16.bin".to_string());
+    // Derive the compressed path or use the explicit env var.
+    let compressed_path = std::env::var("PROOF_COMPRESSED_OUTPUT_FILE")
+        .unwrap_or_else(|_| proof_output.replace("_groth16.bin", ".bin"));
+
+    println!("Saving Compressed Proof to {}", compressed_path);
+    compressed.save(&compressed_path).expect("Failed to save compressed proof");
+
+    // Save VK for the compressed proof (needed as input for the next recursion step).
+    let vk_output = std::env::var("VK_OUTPUT_FILE").unwrap_or("vk_groth16.bin".to_string());
+    let vk_compressed_path = std::env::var("VK_COMPRESSED_OUTPUT_FILE")
+        .unwrap_or_else(|_| vk_output.replace("_groth16.bin", ".bin"));
+    let vk_bytes = bincode::serialize(vk).expect("Failed to serialize VK");
+    std::fs::write(&vk_compressed_path, vk_bytes).expect("Failed to save VK");
+
+    println!("Groth16 Proof generated successfully in {:?}", start.elapsed());
+
+    println!("Saving SP1 Groth16 proof to {}", proof_output);
+    proof.save(&proof_output).expect("Failed to save proof");
+
+    // Save the raw on-chain bytes for the C verifier.
+    let raw_proof = proof.bytes();
+    println!("Raw Proof size: {} bytes", raw_proof.len());
+    let raw_output = std::env::var("PROOF_RAW_FILE").unwrap_or("proof_raw.bin".to_string());
+    println!("Saving raw Groth16 proof bytes to {}", raw_output);
+    std::fs::write(&raw_output, &raw_proof).expect("Failed to save raw proof");
+
+    let public_values_path =
+        std::env::var("PUBLIC_VALUES_FILE").unwrap_or("public_values.bin".to_string());
+    println!("Saving raw public values to {}", public_values_path);
+    std::fs::write(&public_values_path, proof.public_values.as_slice())
+        .expect("Failed to save public values");
+
+    println!("Saving VK to {}", vk_output);
+    let vk_bytes = bincode::serialize(vk).expect("Failed to serialize VK");
+    std::fs::write(&vk_output, vk_bytes).expect("Failed to save VK");
+}
+
+/// Persist the artifacts produced by a Core/Compressed run: the compressed proof and the
+/// verifying key. Output paths are taken from the `*_FILE` environment variables.
+fn save_compressed_outputs(proof: &SP1ProofWithPublicValues, vk: &SP1VerifyingKey) {
+    let proof_output = std::env::var("PROOF_OUTPUT_FILE").unwrap_or("proof.bin".to_string());
+    println!("Saving proof to {}", proof_output);
+    proof.save(&proof_output).expect("Failed to save proof");
+
+    let vk_output = std::env::var("VK_OUTPUT_FILE").unwrap_or("vk.bin".to_string());
+    println!("Saving VK to {}", vk_output);
+    let vk_bytes = bincode::serialize(vk).expect("Failed to serialize VK");
+    std::fs::write(&vk_output, vk_bytes).expect("Failed to save VK");
+}
+
+/// Run the SDK's local verification on a freshly generated proof unless `skip` is set.
+fn verify_proof<P: Prover>(
+    client: &P,
+    proof: &SP1ProofWithPublicValues,
+    vk: &SP1VerifyingKey,
+    skip: bool,
+) {
+    if skip {
+        println!("Skipping local verification (SP1_SKIP_VERIFY is set).");
+    } else {
+        client.verify(proof, vk, None).expect("Verification failed");
+        println!("Proof verified successfully.");
+    }
+}
+
 #[tokio::main]
 async fn main() {
     println!("Starting eth-sync-script...");
@@ -105,7 +182,7 @@ async fn main() {
     let skip_local_verify = std::env::var("SP1_SKIP_VERIFY").is_ok();
 
     log_network_identity();
-    let client = ProverClient::from_env();
+    let use_network = std::env::var("SP1_PROVER").as_deref() == Ok("network");
     let mut stdin = SP1Stdin::new();
 
     println!("Reading proof data from {}", args.input_file);
@@ -167,12 +244,14 @@ async fn main() {
     });
     println!("Loading ELF from: {}", elf_path);
     let elf_bytes = std::fs::read(&elf_path).expect(&format!("Failed to read ELF at {}", elf_path));
-    let elf = elf_bytes.as_slice();
+    let elf: Elf = elf_bytes.into();
 
     if args.execute {
         println!("Executing program...");
+        // Execution always runs locally in the executor, regardless of the proving backend.
+        let client = ProverClient::builder().cpu().build().await;
         let start = Instant::now();
-        let (mut output, report) = client.execute(elf, &stdin).run().unwrap();
+        let (mut output, report) = client.execute(elf, stdin).await.unwrap();
         println!("Execution finished in {:?}", start.elapsed());
         println!("Cycles: {}", report.total_instruction_count());
 
@@ -188,97 +267,96 @@ async fn main() {
         println!("Saved public values to {}", public_values_path);
     } else {
         println!("Generating proof...");
-        let (pk, vk) = client.setup(elf);
-
         let start = Instant::now();
 
-        if args.groth16 {
-            println!("Generating Groth16 proof (requires Docker if local)...");
+        // The network prover (mainnet auction) and the local CPU prover are distinct types,
+        // and the auction options (strategy/gas_limit/timeout) only exist on the network prove
+        // builder. We therefore branch on the selected backend (SP1_PROVER=network).
+        //
+        // NOTE: In Groth16 mode we currently submit two separate jobs (compressed + groth16).
+        // On the network this double-pays the expensive core proof; this is intentionally kept
+        // for the initial v6 bring-up and will be replaced by a single network compressed job
+        // plus a local native-gnark wrap (see `single_core_job`).
+        if use_network {
+            println!("Using SP1 Prover Network (mainnet, auction)...");
+            let client = ProverClient::builder()
+                .network_for(NetworkMode::Mainnet)
+                .build()
+                .await;
+            let pk = client.setup(elf).await.expect("Failed to setup proving key");
+            let vk = pk.verifying_key().clone();
 
-            // 1. Generate Compressed Proof first (needed for recursion chain)
-            println!("1. Generating Compressed Proof (for recursion)...");
-            let compressed = client.prove(&pk, &stdin).compressed().run().unwrap();
-
-            // Save Compressed Proof
-            let proof_output =
-                std::env::var("PROOF_OUTPUT_FILE").unwrap_or("proof_groth16.bin".to_string());
-            // derive compressed path or use explicit env var
-            let compressed_path = std::env::var("PROOF_COMPRESSED_OUTPUT_FILE")
-                .unwrap_or_else(|_| proof_output.replace("_groth16.bin", ".bin"));
-
-            println!("Saving Compressed Proof to {}", compressed_path);
-            compressed
-                .save(&compressed_path)
-                .expect("Failed to save compressed proof");
-
-            // Save VK for Compressed (needed for next step input)
-            let vk_output = std::env::var("VK_OUTPUT_FILE").unwrap_or("vk_groth16.bin".to_string());
-            let vk_compressed_path = std::env::var("VK_COMPRESSED_OUTPUT_FILE")
-                .unwrap_or_else(|_| vk_output.replace("_groth16.bin", ".bin"));
-
-            let vk_bytes = bincode::serialize(&vk).expect("Failed to serialize VK");
-            std::fs::write(&vk_compressed_path, vk_bytes).expect("Failed to save VK");
-
-            // 2. Wrap in Groth16
-            println!("2. Wrapping in Groth16...");
-            // We verify the same input again, but requesting Groth16 mode.
-            // SP1 should reuse cached artifacts for the core proof.
-            let proof = client.prove(&pk, &stdin).groth16().run().unwrap();
-
-            println!(
-                "Groth16 Proof generated successfully in {:?}",
-                start.elapsed()
+            // Auction tuning. `SP1_TIMEOUT_SECS` overrides the request timeout; if
+            // `SP1_GAS_LIMIT` is set we skip on-chain simulation and use that explicit cap.
+            let timeout = Duration::from_secs(
+                std::env::var("SP1_TIMEOUT_SECS")
+                    .ok()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(3600),
             );
+            let gas_limit: Option<u64> =
+                std::env::var("SP1_GAS_LIMIT").ok().and_then(|s| s.parse().ok());
 
-            // Save SP1 proof wrapper
-            println!("Saving SP1 Groth16 proof to {}", proof_output);
-            proof.save(&proof_output).expect("Failed to save proof");
+            if args.groth16 {
+                println!("1. Generating Compressed Proof (for recursion)...");
+                let mut req = client
+                    .prove(&pk, stdin.clone())
+                    .strategy(FulfillmentStrategy::Auction)
+                    .timeout(timeout);
+                if let Some(g) = gas_limit {
+                    req = req.skip_simulation(true).gas_limit(g);
+                }
+                let compressed = req.compressed().await.unwrap();
 
-            // Save RAW bytes for C-Verifier
-            let raw_proof = proof.bytes();
-            println!("Raw Proof size: {} bytes", raw_proof.len());
-            let raw_output = std::env::var("PROOF_RAW_FILE").unwrap_or("proof_raw.bin".to_string());
-            println!("Saving raw Groth16 proof bytes to {}", raw_output);
-            std::fs::write(&raw_output, &raw_proof).expect("Failed to save raw proof");
+                println!("2. Wrapping in Groth16...");
+                let mut req = client
+                    .prove(&pk, stdin.clone())
+                    .strategy(FulfillmentStrategy::Auction)
+                    .timeout(timeout);
+                if let Some(g) = gas_limit {
+                    req = req.skip_simulation(true).gas_limit(g);
+                }
+                let proof = req.groth16().await.unwrap();
 
-            // Save Public Values (DIRECT from proof to be safe)
-            let public_values_path =
-                std::env::var("PUBLIC_VALUES_FILE").unwrap_or("public_values.bin".to_string());
-            println!("Saving raw public values to {}", public_values_path);
-            std::fs::write(&public_values_path, &proof.public_values.as_slice())
-                .expect("Failed to save public values");
-
-            // Save VK (Program Hash) for Groth16 mode
-            println!("Saving VK to {}", vk_output);
-            let vk_bytes = bincode::serialize(&vk).expect("Failed to serialize VK");
-            std::fs::write(&vk_output, vk_bytes).expect("Failed to save VK");
-
-            if skip_local_verify {
-                println!("Skipping local verification (SP1_SKIP_VERIFY is set).");
+                save_groth16_outputs(&proof, &compressed, &vk, start);
+                verify_proof(&client, &proof, &vk, skip_local_verify);
             } else {
-                client.verify(&proof, &vk).expect("Verification failed");
-                println!("Proof verified successfully.");
+                println!("Generating Core/Compressed proof (default)...");
+                let mut req = client
+                    .prove(&pk, stdin.clone())
+                    .strategy(FulfillmentStrategy::Auction)
+                    .timeout(timeout);
+                if let Some(g) = gas_limit {
+                    req = req.skip_simulation(true).gas_limit(g);
+                }
+                let proof = req.compressed().await.unwrap();
+                println!("Proof generated successfully in {:?}", start.elapsed());
+
+                save_compressed_outputs(&proof, &vk);
+                verify_proof(&client, &proof, &vk, skip_local_verify);
             }
         } else {
-            println!("Generating Core/Compressed proof (default)...");
-            let proof = client.prove(&pk, &stdin).compressed().run().unwrap();
-            println!("Proof generated successfully in {:?}", start.elapsed());
+            println!("Using local CPU prover (Groth16 wrap requires Docker/native-gnark)...");
+            let client = ProverClient::builder().cpu().build().await;
+            let pk = client.setup(elf).await.expect("Failed to setup proving key");
+            let vk = pk.verifying_key().clone();
 
-            let proof_output =
-                std::env::var("PROOF_OUTPUT_FILE").unwrap_or("proof.bin".to_string());
-            println!("Saving proof to {}", proof_output);
-            proof.save(&proof_output).expect("Failed to save proof");
+            if args.groth16 {
+                println!("1. Generating Compressed Proof (for recursion)...");
+                let compressed = client.prove(&pk, stdin.clone()).compressed().await.unwrap();
 
-            let vk_output = std::env::var("VK_OUTPUT_FILE").unwrap_or("vk.bin".to_string());
-            println!("Saving VK to {}", vk_output);
-            let vk_bytes = bincode::serialize(&vk).expect("Failed to serialize VK");
-            std::fs::write(&vk_output, vk_bytes).expect("Failed to save VK");
+                println!("2. Wrapping in Groth16...");
+                let proof = client.prove(&pk, stdin.clone()).groth16().await.unwrap();
 
-            if skip_local_verify {
-                println!("Skipping local verification (SP1_SKIP_VERIFY is set).");
+                save_groth16_outputs(&proof, &compressed, &vk, start);
+                verify_proof(&client, &proof, &vk, skip_local_verify);
             } else {
-                client.verify(&proof, &vk).expect("Verification failed");
-                println!("Proof verified successfully.");
+                println!("Generating Core/Compressed proof (default)...");
+                let proof = client.prove(&pk, stdin.clone()).compressed().await.unwrap();
+                println!("Proof generated successfully in {:?}", start.elapsed());
+
+                save_compressed_outputs(&proof, &vk);
+                verify_proof(&client, &proof, &vk, skip_local_verify);
             }
         }
     }
@@ -376,7 +454,10 @@ async fn update_network_balance_file() {
         .and_then(derive_eth_address);
 
     // sp1-sdk is built with `features = ["network"]` in this workspace, so this is always available.
-    let prover = ProverClient::builder().network().build();
+    let prover = ProverClient::builder()
+        .network_for(NetworkMode::Mainnet)
+        .build()
+        .await;
     match prover.get_balance().await {
         Ok(balance) => {
             if let Some(a) = &addr {

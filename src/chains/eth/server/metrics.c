@@ -145,6 +145,10 @@ void eth_server_metrics(http_server_t* server, buffer_t* data) {
   bprintf(data, "# TYPE colibri_period_sync_retries_total counter\n");
   bprintf(data, "colibri_period_sync_retries_total{chain_id=\"%d\"} %l\n", (uint32_t) server->chain_id, server->stats.period_sync_retries_total);
 
+  bprintf(data, "# HELP colibri_zk_proof_v5_requests_total Total requests for the legacy SP1 v5 zk_proof.ssz (dual-serve sunset tracking).\n");
+  bprintf(data, "# TYPE colibri_zk_proof_v5_requests_total counter\n");
+  bprintf(data, "colibri_zk_proof_v5_requests_total{chain_id=\"%d\"} %l\n", (uint32_t) server->chain_id, server->stats.zk_proof_v5_requests_total);
+
   // Blocks root verification marker metrics (blocks_root.bin).
   bprintf(data, "# HELP colibri_blocks_root_last_verified_period Last period with verified blocks_root.bin marker.\n");
   bprintf(data, "# TYPE colibri_blocks_root_last_verified_period gauge\n");
