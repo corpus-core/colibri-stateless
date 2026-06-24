@@ -35,11 +35,17 @@ if(NOT GIT_VERSION)
     set(GIT_VERSION "0.1.0-dev")
 endif()
 
-# Allow overriding version (e.g., from CI)
-if(DEFINED ENV{C4_VERSION})
-    set(C4_VERSION $ENV{C4_VERSION})
-else()
-    set(C4_VERSION ${GIT_VERSION})
+# Version override precedence:
+#   1. explicit cache value (-DC4_VERSION=... at configure time, e.g. to force the v6
+#      dual-serve gate for local roundtrip testing),
+#   2. C4_VERSION environment variable (CI),
+#   3. git describe (default for release builds).
+if(NOT C4_VERSION)
+    if(DEFINED ENV{C4_VERSION})
+        set(C4_VERSION $ENV{C4_VERSION})
+    else()
+        set(C4_VERSION ${GIT_VERSION})
+    endif()
 endif()
 
 message(STATUS "C4 Version: ${C4_VERSION}")

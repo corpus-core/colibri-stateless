@@ -102,7 +102,10 @@ static void files_read_cb(void* user_data, file_data_t* files, int num_files) {
     buffer_append(&headers_list, bytes_slice(h, 48, 64)); // stateRoot and bodyRoot
   }
 
-  ssz_builder_t builder = ssz_builder_for_def(C4_ETH_REQUEST_SYNCDATA_UNION + 2);
+  // Pack into the union variant matching the proof size: v6 -> `ZKSyncDataV6` (index 3,
+  // 356-byte proof), v5 -> legacy `ZKSyncData` (index 2, 260-byte proof). The proof
+  // sizes differ, so using the wrong def would shift every following field.
+  ssz_builder_t builder = ssz_builder_for_type(ctx->v6 ? ETH_SSZ_VERIFY_ZK_SYNCDATA_V6 : ETH_SSZ_VERIFY_ZK_SYNCDATA);
   // build checkpoint proof for ETH_HEADERS_BLOCK_PROOF
   ssz_builder_t checkpoint_builder = ssz_builder_for_def(ssz_get_def(builder.def, "checkpoint")->def.container.elements + 2);
   ssz_add_bytes(&checkpoint_builder, "headers", headers_list.data);

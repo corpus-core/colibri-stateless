@@ -113,10 +113,11 @@ static bool file_exists_min_size(const char* path, size_t min_bytes) {
 // These values are intentionally conservative and based on real outputs:
 // - sync.ssz is typically ~tens of KB
 // - zk_proof.bin is typically ~MB
-// - zk_vk_raw.bin can be ~234 bytes (so 256 would be too strict)
+// - the raw vk is ~104 bytes for SP1 v6 (`zk_vk_raw_v6.bin`) and was ~234 bytes for the
+//   legacy v5 chain, so the threshold must stay below 104 to accept v6 artifacts.
 static const size_t ZK_SYNC_MIN_BYTES       = 1024;
 static const size_t ZK_PREV_PROOF_MIN_BYTES = 1024;
-static const size_t ZK_PREV_VK_MIN_BYTES    = 128;
+static const size_t ZK_PREV_VK_MIN_BYTES    = 64;
 
 // Artifact filenames produced/consumed by the automatic proving pipeline.
 //

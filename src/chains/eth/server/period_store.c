@@ -46,8 +46,14 @@ void c4_period_sync_on_checkpoint(bytes32_t checkpoint, uint64_t slot) {
         bool v6_pending = !v6_done && c4_ps_file_exists(p, "zk_proof_g16_v6.bin");
         if (v5_pending || v6_pending)
           c4_build_zk_sync_proof_data(p);
-        else if (v5_done || v6_done)
-          break; // reached the already-built region; nothing pending below
+        else if (v5_done && v6_done)
+          break; // both chains built here; their contiguous built regions extend below
+        // NOTE: do NOT break on (v5_done || v6_done). During the dual-serve window the v5
+        // and v6 chains have *independent* built frontiers: a newer period may already be
+        // v5-built while an older period still has a pending v6 input (e.g. backfilled v6
+        // proofs). Breaking on a single-variant hit would skip those older pending v6
+        // periods. Only a period built for *both* variants guarantees nothing is pending
+        // below; otherwise we keep walking down to oldest_period (cheap stat() calls).
         if (p <= oldest_period) break;
       }
     }

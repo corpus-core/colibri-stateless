@@ -101,7 +101,13 @@ typedef enum {
   // Resolves to the `timestamp` variant of `ETH_STATE_BLOCK_UNION` (UINT64). Used
   // by the verifier to distinguish the new account-`latest` freshness leaf from
   // the `blockNumber` variant (both are 8 bytes long).
-  ETH_SSZ_DATA_STATE_BLOCK_TIMESTAMP = 44
+  ETH_SSZ_DATA_STATE_BLOCK_TIMESTAMP = 44,
+
+  // `C4_ETH_REQUEST_SYNCDATA_UNION` variants (named to avoid raw pointer arithmetic
+  // on the union array at the call sites).
+  ETH_SSZ_VERIFY_LC_SYNCDATA    = 45, // `LCSyncData`   (union index 1): LightClient sync data
+  ETH_SSZ_VERIFY_ZK_SYNCDATA    = 46, // `ZKSyncData`   (union index 2): legacy SP1 v5 ZK sync data, 260-byte proof
+  ETH_SSZ_VERIFY_ZK_SYNCDATA_V6 = 47  // `ZKSyncDataV6` (union index 3): SP1 v6 ZK sync data, 356-byte proof
 
 } eth_ssz_type_t;
 
@@ -157,7 +163,7 @@ extern const ssz_def_t DENEP_WITHDRAWAL_CONTAINER;
 extern const ssz_def_t ELECTRA_EXECUTION_PAYLOAD[17];
 extern const ssz_def_t ELECTRA_WITHDRAWAL_CONTAINER;
 extern const ssz_def_t C4_ETH_REQUEST_DATA_UNION[12];
-extern const ssz_def_t C4_ETH_REQUEST_SYNCDATA_UNION[3];
+extern const ssz_def_t C4_ETH_REQUEST_SYNCDATA_UNION[4];
 
 #define epoch_for_slot(slot, chain_spec)  ((slot) >> (chain_spec ? chain_spec->slots_per_epoch_bits : 5))
 #define period_for_slot(slot, chain_spec) ((slot) >> (chain_spec ? (chain_spec->epochs_per_period_bits + chain_spec->slots_per_epoch_bits) : 13))

@@ -46,6 +46,7 @@ typedef struct {
   client_t* client;
   address_t addr;
   uint64_t  periods[MAX_BACKFILL_PERIODS];
+  bool      is_v6[MAX_BACKFILL_PERIODS]; // per-period: true if the selected proof file is the v6 variant
   int       num_periods;
   json_t    payload;
 } checkpoints_ctx_t;
@@ -61,24 +62,37 @@ static const char* zk_proof_name_for_period(uint64_t period) {
   return NULL;
 }
 
-// Appends `period` to the parallel periods/files arrays if it has a signable proof
-// (v5 or v6), recording the path to the present proof file. Returns false (no-op) when
-// neither proof exists. The caller must keep `*num` within MAX_BACKFILL_PERIODS.
-static bool append_signable_period(uint64_t period, uint64_t* periods, file_data_t* files, int* num) {
+// Appends `period` to the parallel periods/files/is_v6 arrays if it has a signable proof
+// (v5 or v6), recording the path to the present proof file and the authoritative variant
+// flag (so the read def matches the file layout, see `get_checkpoint_from_proof`).
+// Returns false (no-op) when neither proof exists. The caller must keep `*num` within
+// MAX_BACKFILL_PERIODS.
+static bool append_signable_period(uint64_t period, uint64_t* periods, bool* is_v6, file_data_t* files, int* num) {
   const char* proof_name = zk_proof_name_for_period(period);
   if (!proof_name) return false;
   periods[*num]    = period;
+  is_v6[*num]      = strcmp(proof_name, "zk_proof_v6.ssz") == 0;
   files[*num].path = bprintf(NULL, "%s/%l/%s", eth_config.period_store, period, proof_name);
   (*num)++;
   return true;
 }
 
-static bool get_checkpoint_from_proof(bytes_t proof_data, bytes32_t checkpoint, uint64_t* slot) {
+// Extracts the signable checkpoint (header tree-root + slot) from a packed ZK proof
+// file. `is_v6` selects the matching `C4_ETH_REQUEST_SYNCDATA_UNION` variant: the v6
+// (`ZKSyncDataV6`) and v5 (`ZKSyncData`) layouts differ in the groth16 `proof` size
+// (356 vs 260 bytes), which shifts the `checkpoint` field -- using the wrong def reads
+// a garbage checkpoint. The caller derives `is_v6` from the proof file name.
+static bool get_checkpoint_from_proof(bytes_t proof_data, bool is_v6, bytes32_t checkpoint, uint64_t* slot) {
   if (proof_data.len < 25000) return false; //  make sure we have a min len
-  ssz_ob_t proof  = {.bytes = proof_data, .def = C4_ETH_REQUEST_SYNCDATA_UNION + 2};
-  ssz_ob_t cp     = ssz_get(&proof, "checkpoint");
+  ssz_ob_t proof = {.bytes = proof_data, .def = eth_ssz_verification_type(is_v6 ? ETH_SSZ_VERIFY_ZK_SYNCDATA_V6 : ETH_SSZ_VERIFY_ZK_SYNCDATA)};
+  ssz_ob_t cp    = ssz_get(&proof, "checkpoint");
+  // `checkpoint` is a union: a corrupt/partial file (or a wrong-variant def) yields a
+  // zero-initialised `cp` (cp.def == NULL) or a non-container variant. Bail out instead
+  // of dereferencing through `ssz_get(&cp, "header")`.
+  if (!cp.def || cp.def->type != SSZ_TYPE_CONTAINER) return false;
   ssz_ob_t header = ssz_get(&cp, "header");
-  *slot           = ssz_get_uint64(&header, "slot");
+  if (!header.def) return false;
+  *slot = ssz_get_uint64(&header, "slot");
   ssz_hash_tree_root(header, checkpoint);
   return true;
 }
@@ -94,7 +108,7 @@ static void missing_checkpoints_cb(void* user_data, file_data_t* files, int num_
     }
     bytes32_t checkpoint = {0};
     uint64_t  slot       = 0;
-    if (!get_checkpoint_from_proof(files[i].data, checkpoint, &slot)) {
+    if (!get_checkpoint_from_proof(files[i].data, ctx->is_v6[i], checkpoint, &slot)) {
       log_error("Failed to get checkpoint from lcu: %l", ctx->periods[i]);
       continue;
     }
@@ -122,7 +136,7 @@ static void find_missing_checkpoints(client_t* client) {
 
   for (uint64_t period = last_period; period >= first_period && period > last_period - MAX_BACKFILL_PERIODS; period--) {
     if (c4_ps_file_exists(period, sigfile)) break;
-    append_signable_period(period, ctx.periods, files, &ctx.num_periods);
+    append_signable_period(period, ctx.periods, ctx.is_v6, files, &ctx.num_periods);
   }
 
   if (ctx.num_periods == 0) {
@@ -173,7 +187,7 @@ static void add_missing_checkpoints_cb(void* user_data, file_data_t* files, int 
       }
     }
     if (!found) continue;
-    if (!get_checkpoint_from_proof(files[i].data, checkpoint, &slot)) {
+    if (!get_checkpoint_from_proof(files[i].data, ctx->is_v6[i], checkpoint, &slot)) {
       log_error("Failed to get checkpoint from proof: %l", ctx->periods[i]);
       continue;
     }
@@ -231,7 +245,7 @@ static void add_missing_checkpoints(client_t* client) {
   json_for_each_value(ctx->payload, item) {
     uint64_t period = json_get_uint64(item, "period");
     if (period < first_period || period > last_period) continue;
-    append_signable_period(period, ctx->periods, files, &ctx->num_periods);
+    append_signable_period(period, ctx->periods, ctx->is_v6, files, &ctx->num_periods);
   }
 
   if (ctx->num_periods == 0) {
