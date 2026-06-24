@@ -193,7 +193,28 @@ jobs:
 
       - name: Determine version
         id: version
-        run: echo "version=$(git describe --tags --always --dirty)" >> "$GITHUB_OUTPUT"
+        run: |
+          # colibri sends its build version to the remote prover, which gates the
+          # zk-proof format: clients <2.0 receive the v5 (SP1 turbo) proof, clients
+          # >=2.0 the v6 (SP1 hypercube) proof. We intentionally keep the playground
+          # pinned to the dev-branch image (i.e. pre-release) to test the upcoming
+          # release early. On dev, `git describe` still resolves to the latest 1.x
+          # tag, so the prover would serve the v5 proof while this build already
+          # expects v6 -> verification fails.
+          #
+          # Fix: force 2.0.0 *only* while git describe reports a 1.x (or untagged)
+          # version. As soon as v2.0.0+ is tagged the real version is used again,
+          # so this needs no manual cleanup after the release.
+          VERSION="$(git describe --tags --always --dirty)"
+          # Strip a leading "v" and keep the leading major component (empty if no
+          # tag resolved, e.g. a bare commit hash).
+          MAJOR="$(printf '%s' "$VERSION" | sed -E 's/^v//; s/[^0-9].*$//')"
+          if [ -z "$MAJOR" ] || [ "$MAJOR" -lt 2 ]; then
+            echo "git describe gave '$VERSION' (major='$MAJOR'); forcing C4_VERSION=2.0.0 for the v6 proof gate"
+            VERSION="2.0.0"
+          fi
+          echo "Using C4_VERSION=$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
