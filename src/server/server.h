@@ -62,6 +62,7 @@ typedef struct {
   uint64_t period_sync_backfilled_slots_total; // writes from backfill
   uint64_t period_sync_errors_total;           // fs or processing errors
   uint64_t period_sync_retries_total;          // backfill retry-ish scheduling counter
+  uint64_t zk_proof_v5_requests_total;         // legacy SP1 v5 zk_proof.ssz requests (dual-serve sunset tracking)
 #ifdef HTTP_SERVER_GEO
   geo_location_t* geo_locations;
   size_t          geo_locations_count;
