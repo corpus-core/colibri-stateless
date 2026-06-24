@@ -54,7 +54,8 @@ function $<T extends HTMLElement = HTMLElement>(id: string): T {
     return el as T;
 }
 
-let inputMode: 'object' | 'raw' = 'object';
+type InputMode = 'object' | 'json' | 'raw';
+let inputMode: InputMode = 'object';
 
 function setStatus(text: string): void {
     $('status').textContent = text;
@@ -169,8 +170,9 @@ function bindTabs(): void {
         tab.addEventListener('click', () => {
             for (const t of Array.from(document.querySelectorAll('.tab'))) t.classList.remove('active');
             tab.classList.add('active');
-            inputMode = (tab as HTMLElement).dataset.mode as 'object' | 'raw';
+            inputMode = (tab as HTMLElement).dataset.mode as InputMode;
             show('mode-object', inputMode === 'object');
+            show('mode-json', inputMode === 'json');
             show('mode-raw', inputMode === 'raw');
         });
     }
@@ -213,6 +215,44 @@ function readTxFromRaw(): TxParams {
     if (parsed.value > 0n) tx.value = '0x' + parsed.value.toString(16);
     if (parsed.data && parsed.data !== '0x') tx.data = parsed.data;
     if (parsed.gasLimit > 0n) tx.gas = '0x' + parsed.gasLimit.toString(16);
+    return tx;
+}
+
+/**
+ * Parses a pasted JSON transaction object. Accepts the common wallet/explorer
+ * shape (`{to, from, value, data, gas}`), the RPC alias fields (`input`,
+ * `gasLimit`), and even a full JSON-RPC request (`{method, params:[tx, block]}`),
+ * from which the first param object is used.
+ */
+function readTxFromJson(): TxParams {
+    const text = ($('jsontx') as HTMLTextAreaElement).value.trim();
+    if (!text) throw new Error('Transaction JSON is required in JSON mode.');
+
+    let obj: any;
+    try {
+        obj = JSON.parse(text);
+    } catch (e) {
+        throw new Error('Invalid JSON: ' + (e as Error).message);
+    }
+
+    // Unwrap a JSON-RPC request payload, e.g. {"method":"eth_call","params":[{...}, "latest"]}.
+    if (obj && Array.isArray(obj.params) && obj.params[0] && typeof obj.params[0] === 'object') obj = obj.params[0];
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) throw new Error('JSON must be a transaction object.');
+
+    const to = typeof obj.to === 'string' ? obj.to.trim() : '';
+    if (!to) throw new Error('Transaction JSON must contain a "to" address.');
+
+    const tx: TxParams = { to };
+    if (typeof obj.from === 'string' && obj.from.trim()) tx.from = obj.from.trim();
+
+    if (obj.value !== undefined && obj.value !== null && obj.value !== '') tx.value = normalizeHexValue(String(obj.value));
+
+    const data = obj.data ?? obj.input;
+    if (typeof data === 'string' && data.trim() && data.trim() !== '0x') tx.data = data.trim();
+
+    const gas = obj.gas ?? obj.gasLimit;
+    if (gas !== undefined && gas !== null && gas !== '') tx.gas = normalizeHexValue(String(gas));
+
     return tx;
 }
 
@@ -283,7 +323,8 @@ async function run(): Promise<void> {
         const useEnrichment = ($('enrich') as HTMLInputElement).checked;
         const usePrivacy = ($('privacy') as HTMLInputElement).checked;
 
-        const tx = inputMode === 'object' ? readTxFromObject() : readTxFromRaw();
+        const tx =
+            inputMode === 'object' ? readTxFromObject() : inputMode === 'json' ? readTxFromJson() : readTxFromRaw();
         const config = buildExplainerConfig(useEnrichment, chainId);
 
         // Step 1 + 2: verified local simulation.

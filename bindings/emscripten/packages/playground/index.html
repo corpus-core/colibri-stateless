@@ -76,6 +76,7 @@
             <h2>Transaction</h2>
             <div class="tabs">
                 <button class="tab active" data-mode="object" type="button">Tx Object</button>
+                <button class="tab" data-mode="json" type="button">JSON</button>
                 <button class="tab" data-mode="raw" type="button">Raw Transaction</button>
             </div>
 
@@ -98,6 +99,15 @@
                 </div>
                 <label>Data
                     <textarea id="data" rows="3" placeholder="0xd0e30db0">0x</textarea>
+                </label>
+            </div>
+
+            <div id="mode-json" class="mode hidden">
+                <label>Transaction JSON
+                    <small class="hint">Paste a tx object (e.g. from a wallet, an explorer or an eth_call RPC payload).
+                        Recognized fields: to, from, value, data/input, gas/gasLimit.</small>
+                    <textarea id="jsontx" rows="7"
+                        placeholder='{"to":"0x...","from":"0x...","value":"0x...","data":"0x..."}'></textarea>
                 </label>
             </div>
 
