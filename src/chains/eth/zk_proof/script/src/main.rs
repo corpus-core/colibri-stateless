@@ -5,7 +5,11 @@ use k256::elliptic_curve::sec1::ToEncodedPoint;
 use k256::SecretKey;
 use sha2::{Digest, Sha256};
 use sha3::{Digest as Sha3Digest, Keccak256};
-use sp1_sdk::{HashableKey, ProverClient, SP1ProofWithPublicValues, SP1Stdin, SP1VerifyingKey};
+use sp1_sdk::{
+    HashableKey, Prover, ProverClient, SP1Proof, SP1ProofWithPublicValues, SP1Stdin,
+    SP1VerifyingKey, SP1_CIRCUIT_VERSION,
+};
+use sp1_stark::SP1ProverOpts;
 use std::fs::File;
 use std::io::Read;
 use std::time::Instant;
@@ -219,11 +223,43 @@ async fn main() {
             let vk_bytes = bincode::serialize(&vk).expect("Failed to serialize VK");
             std::fs::write(&vk_compressed_path, vk_bytes).expect("Failed to save VK");
 
-            // 2. Wrap in Groth16
-            println!("2. Wrapping in Groth16...");
-            // We verify the same input again, but requesting Groth16 mode.
-            // SP1 should reuse cached artifacts for the core proof.
-            let proof = client.prove(&pk, &stdin).groth16().run().unwrap();
+            // 2. Wrap in Groth16 by reusing the compressed proof.
+            //    Avoids running core+compress a second time (which would otherwise
+            //    happen inside `client.prove(...).groth16().run()`).
+            println!("2. Wrapping in Groth16 (shrink -> wrap_bn254 -> groth16)...");
+
+            let public_values = compressed.public_values.clone();
+            let reduce_proof = match compressed.proof {
+                SP1Proof::Compressed(boxed) => *boxed,
+                _ => panic!("Expected a Compressed proof from compressed().run()"),
+            };
+
+            let prover = client.inner();
+            let opts = SP1ProverOpts::default();
+
+            let shrink_proof = prover
+                .shrink(reduce_proof, opts)
+                .expect("shrink failed");
+            let outer_proof = prover
+                .wrap_bn254(shrink_proof, opts)
+                .expect("wrap_bn254 failed");
+
+            let groth16_dir = if sp1_prover::build::sp1_dev_mode() {
+                sp1_prover::build::try_build_groth16_bn254_artifacts_dev(
+                    &outer_proof.vk,
+                    &outer_proof.proof,
+                )
+            } else {
+                sp1_sdk::install::try_install_circuit_artifacts("groth16")
+            };
+            let groth16 = prover.wrap_groth16_bn254(outer_proof, &groth16_dir);
+
+            let proof = SP1ProofWithPublicValues {
+                proof: SP1Proof::Groth16(groth16),
+                public_values,
+                sp1_version: SP1_CIRCUIT_VERSION.to_string(),
+                tee_proof: None,
+            };
 
             println!(
                 "Groth16 Proof generated successfully in {:?}",
