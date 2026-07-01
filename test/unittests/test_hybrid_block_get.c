@@ -107,11 +107,11 @@ void test_data_request_ttl_serialized_when_set(void) {
   req.encoding       = C4_DATA_ENCODING_SSZ;
   req.type           = C4_DATA_TYPE_PROVER;
   req.url            = "proof/eth_getBlockHeader/latest/3/std/0x";
-  req.cache_max_age  = 6;
+  req.ttl            = 6;
   c4i_add_data_request(&buf, &req, false);
   TEST_ASSERT_NOT_NULL(buf.data.data);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr((char*) buf.data.data, "\"ttl\": 6,"),
-                               "cache_max_age must be emitted as \"ttl\" in the request JSON");
+                               "ttl must be emitted in the request JSON");
   buffer_free(&buf);
 }
 
@@ -123,11 +123,11 @@ void test_data_request_no_ttl_when_zero(void) {
   req.encoding       = C4_DATA_ENCODING_SSZ;
   req.type           = C4_DATA_TYPE_PROVER;
   req.url            = "proof/eth_getBlockHeader/latest/3/std/0x";
-  req.cache_max_age  = 0;
+  req.ttl            = 0;
   c4i_add_data_request(&buf, &req, false);
   TEST_ASSERT_NOT_NULL(buf.data.data);
   TEST_ASSERT_NULL_MESSAGE(strstr((char*) buf.data.data, "ttl"),
-                           "no \"ttl\" field must be emitted when cache_max_age is 0");
+                           "no \"ttl\" field must be emitted when ttl is 0");
   buffer_free(&buf);
 }
 

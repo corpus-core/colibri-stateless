@@ -246,11 +246,10 @@ typedef struct data_request {
   char*                   error;                 ///< Error message if request failed (NULL if no error)
   struct data_request*    next;                  ///< Pointer to next request in linked list
   bytes32_t               id;                    ///< Unique identifier for this request (32-byte hash)
-  uint32_t                ttl;                   ///< Time-to-live / node-rotation retry counter (see `RETRY_REQUEST`, which retries on a *different* node); distinct from `retry_count` below
+  uint32_t                ttl;                   ///< Cache time-to-live in seconds (0 = not cacheable). Used server-side to cache the response (e.g. memcached) and forwarded by hosts as a `Cache-Control: max-age=<n>` request header so a shared cache/CDN never returns a response older than this bound (e.g. short bound for `latest` block proofs).
   uint32_t                delay;                 ///< Milliseconds the host must wait before (re-)executing this request (0 = no delay). Used for delayed same-node retries (e.g. oblivious node warm-up).
   uint16_t                retry_count;           ///< Number of delayed *same-node* retries already performed (see `c4_state_retry_after`); managed by the chain module, not the host
   bool                    validated;             ///< Whether the response has been validated
-  uint32_t                cache_max_age;         ///< Cache freshness hint in seconds for CDN-friendly requests (0 = no hint). Distinct from `ttl` (node-rotation). The host forwards this as a `Cache-Control: max-age=<n>` request header so a shared cache/CDN never returns a response older than this bound (e.g. short bound for `latest` block proofs).
 } data_request_t;
 
 /**

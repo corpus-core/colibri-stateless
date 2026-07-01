@@ -57,9 +57,11 @@ export async function fetch_from_servers(
   // uppercase token for standard methods.
   const httpMethod = String(method).toUpperCase();
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
     'Accept': accept === 'json' ? 'application/json' : 'application/octet-stream',
   };
+  // Content-Type only describes the request body, so it is only relevant when we actually send a
+  // payload (POST). Cache-friendly GET requests (e.g. hybrid block proofs) carry no body.
+  if (payload) headers['Content-Type'] = 'application/json';
   // Freshness bound for shared caches/CDNs: never accept a response older than `maxAge` seconds
   // (used for `latest` block proofs so a CDN cannot serve a stale head).
   if (maxAge && maxAge > 0) headers['Cache-Control'] = `max-age=${Math.floor(maxAge)}`;

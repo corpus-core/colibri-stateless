@@ -7,6 +7,7 @@
 #include "handler.h"
 #include "logger.h"
 #include "util/bytes.h"
+#include "util/chain_props.h"
 #include "util/compat.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -27,10 +28,11 @@ static void proof_get_error(client_t* client, int status, const char* msg) {
   buffer_free(&body);
 }
 
-// Returns true if the whole string consists of [0-9a-zA-Z] only. This defends against JSON
-// injection when the block identifier is embedded into the params array (tags and 0x-hex values
-// are all alphanumeric).
-static bool is_alnum_str(const char* s) {
+// Returns true if the block identifier is safe to embed into the JSON params array. Accepts only
+// alphanumeric characters [0-9a-zA-Z], which covers both textual tags (`latest`, `safe`,
+// `finalized`, ...) and `0x`-prefixed hex block numbers/hashes, while rejecting quotes,
+// backslashes, brackets and control characters that could break out of the JSON string.
+static bool is_safe_block_id(const char* s) {
   if (!s || !*s) return false;
   for (; *s; s++) {
     char c = *s;
@@ -78,7 +80,8 @@ static bytes_t parse_signers_query(const char* query) {
 // Non-static so it can be unit-tested directly.
 void c4_eth_block_cache_control(char* out, size_t cap, const char* block, chain_id_t chain_id) {
   const chain_spec_t* spec       = c4_eth_get_chain_spec(chain_id);
-  uint32_t            block_time = is_gnosis_chain(chain_id) ? 5 : 12;
+  chain_properties_t  props      = {0};
+  uint32_t            block_time = c4_chains_get_props(chain_id, &props) ? (uint32_t) (props.block_time / 1000) : 12;
   uint32_t            spe        = 1u << (spec ? spec->slots_per_epoch_bits : 5);
 
   if (strcmp(block, "latest") == 0)
@@ -136,7 +139,7 @@ bool c4_handle_proof_get_request(client_t* client) {
     proof_get_error(client, 400, "Unsupported method for proof GET");
     return true;
   }
-  if (!is_alnum_str(s_block)) {
+  if (!is_safe_block_id(s_block)) {
     proof_get_error(client, 400, "Invalid block identifier");
     return true;
   }

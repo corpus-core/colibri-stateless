@@ -76,12 +76,13 @@ char* eth_build_delegated_block_get_url(const char* method, json_t block, uint32
   // and therefore cacheable, while keeping the (large) key list out of the cache-key path segments.
   if (witness_key.data && witness_key.len)
     bprintf(&url, "?signers=0x%x", witness_key);
-  return (char*) url.data.data;
+  return buffer_as_string(url);
 }
 
-// Maps a block identifier to a cache freshness bound (seconds) mirroring `header_tag_ttl_ms`.
-// Concrete block numbers/hashes are immutable and need no bound (returns 0).
-static uint32_t hybrid_block_cache_max_age(chain_id_t chain_id, json_t block, prover_flags_t flags) {
+// Maps a block identifier to a cache freshness bound in seconds, mirroring `header_tag_ttl_ms`
+// (which returns milliseconds). Concrete block numbers/hashes are immutable and need no bound
+// (returns 0).
+static uint32_t hybrid_block_cache_max_age_s(chain_id_t chain_id, json_t block, prover_flags_t flags) {
   header_tag_t tag = HEADER_TAG_COUNT;
   if (strncmp(block.start, "\"latest\"", 8) == 0)
     tag = HEADER_TAG_LATEST;
@@ -292,11 +293,11 @@ static c4_status_t hybrid_fetch_and_verify(prover_ctx_t* ctx, json_t block, hybr
   memcpy(data_request->id, id, 32);
   data_request->type          = C4_DATA_TYPE_PROVER;
   data_request->chain_id      = ctx->chain_id;
-  data_request->method        = C4_DATA_METHOD_GET;
-  data_request->encoding      = C4_DATA_ENCODING_SSZ;
-  data_request->url           = eth_build_delegated_block_get_url(method, block, c4_current_version_number(),
-                                                                  ctx->flags, ctx->client_state, ctx->witness_key);
-  data_request->cache_max_age = hybrid_block_cache_max_age(ctx->chain_id, block, ctx->flags);
+  data_request->method   = C4_DATA_METHOD_GET;
+  data_request->encoding = C4_DATA_ENCODING_SSZ;
+  data_request->url      = eth_build_delegated_block_get_url(method, block, c4_current_version_number(),
+                                                             ctx->flags, ctx->client_state, ctx->witness_key);
+  data_request->ttl      = hybrid_block_cache_max_age_s(ctx->chain_id, block, ctx->flags);
 
   c4_state_add_request(&ctx->state, data_request);
   return C4_PENDING;
