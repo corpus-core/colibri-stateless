@@ -124,6 +124,7 @@ class DataRequest:
         exclude_mask: int = 0,
         chain_id: int = 1,
         delay: int = 0,
+        ttl: int = 0,
     ):
         self.req_ptr = req_ptr
         self.url = url
@@ -135,6 +136,10 @@ class DataRequest:
         self.chain_id = chain_id
         # Milliseconds to wait before (re-)executing (e.g. oblivious-node retry backoff).
         self.delay = delay
+        # Cache freshness bound in seconds (0 = no hint). Forwarded as a
+        # `Cache-Control: max-age=<ttl>` request header so a shared cache/CDN never
+        # returns a response older than this bound (e.g. short bound for `latest` blocks).
+        self.ttl = ttl
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "DataRequest":
@@ -149,6 +154,7 @@ class DataRequest:
             exclude_mask=int(data.get("exclude_mask", 0)),
             chain_id=int(data.get("chain_id", 1)),
             delay=int(data.get("delay", 0)),
+            ttl=int(data.get("ttl", 0)),
         )
 
     def to_dict(self) -> Dict[str, Any]:

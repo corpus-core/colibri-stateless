@@ -452,6 +452,12 @@ class Colibri {
       headers['Content-Type'] = 'application/json';
     }
 
+    // Forward the cache freshness bound so a shared cache/CDN never returns a
+    // response older than `ttl` seconds (e.g. short bound for `latest` blocks).
+    if (request.ttl > 0) {
+      headers['Cache-Control'] = 'max-age=${request.ttl}';
+    }
+
     final method = request.method.toUpperCase();
     final uri = Uri.parse(url);
 

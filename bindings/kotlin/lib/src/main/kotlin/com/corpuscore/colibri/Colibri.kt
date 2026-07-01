@@ -277,6 +277,9 @@ class Colibri(
         val delayMs = request.optLong("delay", 0L)
         if (delayMs > 0L) delay(delayMs)
 
+        // Cache freshness bound in seconds, forwarded below as `Cache-Control: max-age`.
+        val ttl = request.optLong("ttl", 0L)
+
         var index = 0
         var lastError = ""
         for (server in servers) {
@@ -321,6 +324,11 @@ class Colibri(
                     if (payload != null && !payload.isEmpty()) {
                         contentType(ContentType.Application.Json)
                         setBody(payload.toString())
+                    }
+
+                    // Forward the cache freshness bound to shared caches/CDNs.
+                    if (ttl > 0L) {
+                        header("Cache-Control", "max-age=$ttl")
                     }
                 }
 

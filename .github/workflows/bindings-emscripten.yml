@@ -36,16 +36,44 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Full history + tags so `git describe` can resolve the real version
+          # for the proof-gate logic in "Determine version".
+          fetch-depth: 0
 
       - name: Setup Emscripten
         uses: mymindstorm/setup-emsdk@v14
         with:
           version: 4.0.3
 
+      - name: Determine version
+        id: version
+        run: |
+          # The WASM build bakes this version in and colibri reports it to the
+          # remote prover, which gates the zk-proof format (<2.0 -> v5/SP1 turbo,
+          # >=2.0 -> v6/SP1 hypercube). The unit/integration tests below already
+          # expect v6, but on dev `git describe` still resolves to the latest 1.x
+          # tag, so the prover would serve the v5 proof -> tests fail.
+          #
+          # Force 2.0.0 *only* while git describe reports a 1.x (or untagged)
+          # version; once v2.0.0+ is tagged the real version is used again, so
+          # this needs no manual cleanup after the release. (Mirrors the same
+          # logic in the docker-playground job.)
+          VERSION="$(git describe --tags --always --dirty)"
+          MAJOR="$(printf '%s' "$VERSION" | sed -E 's/^v//; s/[^0-9].*$//')"
+          if [ -z "$MAJOR" ] || [ "$MAJOR" -lt 2 ]; then
+            echo "git describe gave '$VERSION' (major='$MAJOR'); forcing C4_VERSION=2.0.0 for the v6 proof gate"
+            VERSION="2.0.0"
+          fi
+          echo "Using C4_VERSION=$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
       - name: Build with Emscripten (Split WASM for npm)
         run: |
           emcmake cmake -B build -DWASM=true -DWASM_EMBED=OFF -DCLI=false -DTEST=false -DCURL=false -DCMAKE_BUILD_TYPE=MINSIZREL -S .
           cmake --build build
+        env:
+          C4_VERSION: ${{ steps.version.outputs.version }}
 
       - name: Run unit tests (node) + webpack build
         run: |
