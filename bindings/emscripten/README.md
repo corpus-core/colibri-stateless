@@ -306,7 +306,7 @@ The constructor of the colibri client accepts a configuration-object, which may 
     ```js
     new Colibri({ include_code:  true})
     ```
-- `privacy_mode` - **PAP (Pragmatic Adaptive Privacy)** mode: `"none"` (default) or `"basic"`. With `"basic"`, the verifier may use cached storage for optimistic execution and verify afterwards; method type can depend on params.
+- `privacy_mode` - **PAP (Pragmatic Adaptive Privacy)** mode: `"none"` (default) or `"basic"`. With `"basic"`, the verifier may use cached storage for optimistic execution and verify afterwards; method type can depend on params. *This feature is still experimental!*
     ```js
     new Colibri({ privacy_mode: "basic" })
     ```

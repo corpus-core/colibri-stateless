@@ -51,6 +51,8 @@ colibri.chainId = 42161  // Arbitrum
 
 Enable Pragmatic Adaptive Privacy to reduce intent leakage (e.g. use cached storage when available):
 
+*This feature is still experimental!*
+
 ```swift
 colibri.privacyMode = .basic  // default: .none
 ```

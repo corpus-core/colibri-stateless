@@ -203,6 +203,8 @@ Default: `ProverMode.REMOTE` when prover URLs are configured, `ProverMode.LOCAL`
 
 - `privacyMode` – `PrivacyMode.NONE` (default) or `PrivacyMode.BASIC`. With `BASIC`, the verifier sets the PAP flag so that method-type and verification can use cached storage for optimistic execution (e.g. for `eth_call`); method type may depend on params.
 
+*This feature is still experimental!*
+
 ```kotlin
 val colibri = Colibri(
     chainId = BigInteger.ONE,

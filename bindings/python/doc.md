@@ -547,6 +547,9 @@ client = Colibri(
 
 - `privacy_mode` – `PrivacyMode.NONE` (default) or `PrivacyMode.BASIC`. With `BASIC`, the verifier sets the PAP flag so that method-type and verification can use cached storage for optimistic execution (e.g. for `eth_call`); method type may depend on params.
 
+*This feature is still experimental!*
+
+
 ```python
 from colibri import Colibri
 from colibri.types import PrivacyMode

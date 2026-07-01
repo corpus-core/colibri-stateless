@@ -243,6 +243,8 @@ Default: `.remote` when prover URLs are configured, `.local` otherwise.
 
 - `privacyMode` – `PrivacyMode.none` (default) or `PrivacyMode.basic`. With `.basic`, the verifier sets the PAP flag so that method-type and verification can use cached storage for optimistic execution (e.g. for `eth_call`); method type may depend on params.
 
+*This feature is still experimental!*
+
 ```swift
 let colibri = Colibri()
 colibri.chainId = 1
