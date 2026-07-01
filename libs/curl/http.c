@@ -309,6 +309,14 @@ static bool configure_curl(curl_request_t* creq) {
   headers = curl_slist_append(headers, "charsets: utf-8");
   headers = curl_slist_append(headers, "User-Agent: c4 curl ");
 
+  // Forward the cache freshness bound so a shared cache/CDN never returns a
+  // response older than `ttl` seconds (e.g. short bound for `latest` block proofs).
+  if (req->ttl) {
+    char     ttl_tmp[64];
+    buffer_t ttl_buf = stack_buffer(ttl_tmp);
+    headers          = curl_slist_append(headers, bprintf(&ttl_buf, "Cache-Control: max-age=%d", (uint32_t) req->ttl));
+  }
+
   if (req->type == C4_DATA_TYPE_PROVER && curl_nodes.trace_config.type == JSON_TYPE_OBJECT) {
     char     tmp[256];
     buffer_t buf      = stack_buffer(tmp);

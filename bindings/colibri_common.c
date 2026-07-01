@@ -124,6 +124,8 @@ void c4i_add_data_request(buffer_t* result, data_request_t* req, bool req_ptr_as
   bprintf(result, "\"exclude_mask\": \"%d\",", (uint32_t) req->node_exclude_mask);
   if (req->delay)
     bprintf(result, "\"delay\": %d,", (uint32_t) req->delay);
+  if (req->ttl)
+    bprintf(result, "\"ttl\": %d,", (uint32_t) req->ttl);
   bprintf(result, "\"method\": \"%s\",", method_to_string(req->method));
   bprintf(result, "\"url\": \"%s\",", req->url);
   if (req->payload.data)

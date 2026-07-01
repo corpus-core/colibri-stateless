@@ -226,6 +226,7 @@ add_server_handler(
     server/period_store_zk_ssz.c
     server/handle_period_static.c
     server/handle_tx_cache.c
+    server/handle_block_proof_get.c
     server/eth_conf.c
   DEPENDS eth_prover
   INIT_FUNC eth_server_init

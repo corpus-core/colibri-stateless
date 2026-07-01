@@ -207,6 +207,30 @@ c4_status_t c4_beacon_get_block_for_eth(prover_ctx_t* ctx, json_t block, beacon_
 // :: Hybrid Mode (beacon_header.c)
 
 /**
+ * Builds the cache-friendly GET path for a delegated block proof request in hybrid mode:
+ * `proof/<method>/<block>/<version>/<zk|std>/<c4>[?signers=0x..]`.
+ *
+ * - `<block>` is the raw JSON block identifier without quotes (tag or `0x...`); the `includeTx`
+ *   boolean is intentionally omitted (irrelevant for the proof).
+ * - `<zk|std>` reflects `flags & C4_PROVER_FLAG_ZK_PROOF`.
+ * - `<c4>` is the hex-encoded `client_state` (or `0x` when empty).
+ * - Optional `?signers=0x...` carries the witness/signer keys.
+ *
+ * The returned string is heap-allocated; ownership is transferred to the caller (typically
+ * assigned to `data_request_t.url` and released via `c4_request_free`).
+ *
+ * @param method the delegated RPC method (`eth_getBlockHeader` or `eth_getBlockByNumber`)
+ * @param block the JSON block identifier
+ * @param version the client version number to embed
+ * @param flags the prover flags (used for the zk segment)
+ * @param client_state the client_state snapshot (may be empty)
+ * @param witness_key the witness/signer keys (may be empty)
+ * @return heap-allocated URL path
+ */
+char* eth_build_delegated_block_get_url(const char* method, json_t block, uint32_t version,
+                                        prover_flags_t flags, bytes_t client_state, bytes_t witness_key);
+
+/**
  * Resolves the block identifier and fetches/caches the verified block header
  * from the remote prover. Returns a header-only `beacon_block_t`.
  *

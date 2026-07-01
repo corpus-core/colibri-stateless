@@ -44,6 +44,17 @@ RUN cmake -DHTTP_SERVER=ON -DCLI=ON -DCMAKE_BUILD_TYPE=Release -DCHAIN_OP=ON -DC
     && make -j"$(nproc)" colibri-server colibri-prover colibri-ssz colibri-verifier colibri-signer verify_zk_proof_cli
 
 # Use a small Debian image for the final stage
+#
+# RUNTIME REQUIREMENT (ZK proof generation): When this server is run as a period
+# prover (an SP1 key is configured), the SP1 native executor (linux/x86_64) maps a
+# POSIX shared-memory segment under /dev/shm. Docker's default /dev/shm of 64 MB is
+# too small and causes a SIGBUS that surfaces as "Program simulation failed".
+# /dev/shm size is a runtime setting and CANNOT be set here in the Dockerfile.
+# Start the container with at least 2 GB of shared memory, e.g.:
+#   docker run  --shm-size=2g ...
+#   compose:    shm_size: "2gb"
+#   kubernetes: mount a RAM-backed emptyDir (medium: Memory) at /dev/shm
+# See bindings/docker/README.md -> "Shared Memory Requirement".
 FROM debian:bookworm-slim AS final
 
 # Install runtime dependencies

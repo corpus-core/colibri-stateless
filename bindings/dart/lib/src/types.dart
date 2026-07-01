@@ -136,6 +136,7 @@ class DataRequest {
     required this.chainId,
     this.payload,
     this.delay = 0,
+    this.ttl = 0,
   });
 
   /// Opaque native handle (pointer) for this request; used when fulfilling.
@@ -156,6 +157,9 @@ class DataRequest {
   final Map<String, dynamic>? payload;
   /// Milliseconds to wait before (re-)executing this request (e.g. oblivious-node retry backoff).
   final int delay;
+  /// Cache freshness bound in seconds (0 = no hint). Forwarded as a `Cache-Control: max-age=<ttl>`
+  /// request header so a shared cache/CDN never returns a response older than this bound.
+  final int ttl;
 
   /// Parses a JSON request object returned by native status calls.
   static DataRequest fromJson(Map<String, dynamic> data) {
@@ -168,6 +172,13 @@ class DataRequest {
 
     final delayRaw = data['delay'];
     final delay = switch (delayRaw) {
+      int value => value,
+      String value => int.tryParse(value) ?? 0,
+      _ => 0,
+    };
+
+    final ttlRaw = data['ttl'];
+    final ttl = switch (ttlRaw) {
       int value => value,
       String value => int.tryParse(value) ?? 0,
       _ => 0,
@@ -213,6 +224,7 @@ class DataRequest {
       }(),
       payload: normalizedPayload,
       delay: delay,
+      ttl: ttl,
     );
   }
 }

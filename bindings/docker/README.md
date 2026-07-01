@@ -57,6 +57,11 @@ services:
     init: true
     stop_signal: SIGTERM
     stop_grace_period: 120s
+    # Required when this server generates ZK sync-committee proofs (period prover).
+    # The SP1 native executor uses POSIX shared memory in /dev/shm; the Docker
+    # default of 64 MB is too small and leads to a SIGBUS crash that surfaces as
+    # "Program simulation failed". See "Shared Memory Requirement" below.
+    shm_size: "2gb"
     ports:
       - "8090:8090"
     environment:
@@ -102,6 +107,58 @@ docker compose up -d
 ```
 
 **Note:** Using Memcached is **highly recommended** for production. The prover server caches almost all external requests in Memcached (TTL: 24h), which significantly reduces load on RPC/Beacon endpoints and improves response times.
+
+### ⚠️ Shared Memory (`/dev/shm`) Requirement for ZK Proof Generation
+
+If the server is configured to **generate ZK sync-committee proofs** (i.e. it runs as a *period prover* with `PERIOD_PROVER_KEY_FILE` / an SP1 key set), the container **must** be given a larger `/dev/shm` than Docker's default of **64 MB**.
+
+**Symptom if missing:** proof generation fails on the very first period the container builds itself, with logs like:
+
+```
+Prover: 1. Generating Compressed Proof (for recursion)...
+WARN  Prover: called `Result::unwrap()` on an `Err` value: Program simulation failed
+ERROR on_prover_exit: Prover: Proof generation failed for period <N>
+```
+
+(When run interactively / under emulation the same crash appears as `Child native executor crashed, details: CrashDetails { signal: 7, ... }` — signal 7 is `SIGBUS`.)
+
+**Cause:** On `linux/x86_64` the SP1 (v6) prover runs its program execution in a **native executor** that maps a POSIX shared-memory segment under `/dev/shm`. With only 64 MB available, touching the mapped pages triggers a `SIGBUS`. The SP1 network path swallows the underlying error and reports the generic `Program simulation failed`. This is purely a runtime/container setting — it **cannot** be baked into the image via the `Dockerfile`; it must be set when the container is started.
+
+> This only affects the proof-generating master. A server that merely serves/forwards proofs (no SP1 key) does not run the native executor and is unaffected.
+
+**Fix** — give the container a larger `/dev/shm` (2 GB is plenty; `/dev/shm` is RAM-backed and only consumes RAM for pages actually touched):
+
+Docker Compose:
+
+```yaml
+services:
+  colibri-prover:
+    shm_size: "2gb"
+```
+
+`docker run`:
+
+```bash
+docker run --shm-size=2g -p 8090:8090 ghcr.io/corpus-core/colibri-prover:latest
+```
+
+Kubernetes (replace `/dev/shm` with a RAM-backed `emptyDir`):
+
+```yaml
+spec:
+  containers:
+    - name: colibri-prover
+      volumeMounts:
+        - name: dshm
+          mountPath: /dev/shm
+  volumes:
+    - name: dshm
+      emptyDir:
+        medium: Memory
+        sizeLimit: 2Gi
+```
+
+> Kubernetes note: with `medium: Memory` the tmpfs usage counts against the pod's memory limit, so raise the container memory limit accordingly.
 
 ### Performance Tips
 
@@ -162,6 +219,9 @@ The prover server itself is **lightweight** (uses libuv, single-threaded, ~100MB
 - CPU: 2 cores
 - RAM: 2-4 GB
 - Storage: 10-20 GB
+
+**For ZK proof generation (period prover with an SP1 key):**
+- `/dev/shm`: **at least 2 GB** (Docker default 64 MB is too small — see the "Shared Memory (`/dev/shm`) Requirement for ZK Proof Generation" section above). Set via `shm_size` (Compose) / `--shm-size` (`docker run`) / RAM-backed `emptyDir` (k8s).
 
 ## Building Locally
 

@@ -48,10 +48,23 @@ export async function fetch_from_servers(
   payload?: any,
   accept: AcceptKind = 'json',
   excludeMask = 0,
-  fetchFn: typeof globalThis.fetch = globalThis.fetch
+  fetchFn: typeof globalThis.fetch = globalThis.fetch,
+  maxAge?: number
 ): Promise<{ data: Uint8Array, nodeIndex: number }> {
   let lastError = 'All nodes failed';
   let nodeIndex = 0;
+  // Normalize the method: the C layer emits lowercase ("get"/"post"); fetch expects an
+  // uppercase token for standard methods.
+  const httpMethod = String(method).toUpperCase();
+  const headers: Record<string, string> = {
+    'Accept': accept === 'json' ? 'application/json' : 'application/octet-stream',
+  };
+  // Content-Type only describes the request body, so it is only relevant when we actually send a
+  // payload (POST). Cache-friendly GET requests (e.g. hybrid block proofs) carry no body.
+  if (payload) headers['Content-Type'] = 'application/json';
+  // Freshness bound for shared caches/CDNs: never accept a response older than `maxAge` seconds
+  // (used for `latest` block proofs so a CDN cannot serve a stale head).
+  if (maxAge && maxAge > 0) headers['Cache-Control'] = `max-age=${Math.floor(maxAge)}`;
   for (const server of servers) {
     if (excludeMask & (1 << nodeIndex)) {
       nodeIndex++;
@@ -59,12 +72,9 @@ export async function fetch_from_servers(
     }
     try {
       const response = await fetchFn(joinPath(server, path), {
-        method,
+        method: httpMethod,
         body: payload ? JSON.stringify(payload) : undefined,
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': accept === 'json' ? 'application/json' : 'application/octet-stream',
-        },
+        headers,
       });
       if (!response.ok) {
         lastError = `HTTP error! Status: ${response.status}, Details: ${await response.text()}`;
@@ -202,7 +212,7 @@ export async function handle_request(req: DataRequest, conf: C4Config) {
   try {
     const accept = req.encoding == 'json' ? 'json' : 'octet';
     const fetchFn = conf.fetch || globalThis.fetch;
-    const { data, nodeIndex } = await fetch_from_servers(servers, req.url || '', req.method as any, req.payload, accept as any, req.exclude_mask, fetchFn);
+    const { data, nodeIndex } = await fetch_from_servers(servers, req.url || '', req.method as any, req.payload, accept as any, req.exclude_mask, fetchFn, req.ttl);
     c4w._c4w_req_set_response(req.req_ptr, copy_to_c(data, c4w), data.length, nodeIndex);
     if (conf.onTransfer) conf.onTransfer(data.length, req);
     if (conf.debug) log(`::: ${path} (len=${data.length} bytes) FETCHED`);

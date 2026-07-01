@@ -154,31 +154,6 @@ static bool handle_proof_parse_proxy_csv(char* csv, server_list_t** out_list, ch
   return true;
 }
 
-static void proof_request_free_proxy_lists(request_t* req) {
-  if (!req) return;
-  if (req->proxy_rpc_servers) {
-    c4_free_server_list(req->proxy_rpc_servers);
-    safe_free(req->proxy_rpc_servers);
-    req->proxy_rpc_servers = NULL;
-  }
-  if (req->proxy_beacon_servers) {
-    c4_free_server_list(req->proxy_beacon_servers);
-    safe_free(req->proxy_beacon_servers);
-    req->proxy_beacon_servers = NULL;
-  }
-}
-
-/** Roll back `/proof` setup after `req`/`ctx` were allocated (frees proxy lists, prover, strings, sends HTTP error). */
-static void proof_request_abort_after_alloc(client_t* client, request_t* req, prover_ctx_t* ctx, char* method_str, char* params_str,
-                                            int http_status, const char* msg) {
-  if (req) proof_request_free_proxy_lists(req);
-  if (ctx) c4_prover_free(ctx);
-  if (req) safe_free(req);
-  safe_free(method_str);
-  safe_free(params_str);
-  c4_write_error_response(client, http_status, msg);
-}
-
 typedef struct {
   uv_work_t     req;
   request_t*    req_obj;
@@ -261,9 +236,16 @@ static void respond(request_t* req, bytes_t result, int status, char* content_ty
     req->parent_cb(req->client, req->parent_ctx, data);
   }
   else {
-    char hdr[64];
-    sbprintf(hdr, "Compute-Units: %l\r\n", compute_units);
-    c4_http_respond_ex(req->client, status, content_type, result, bytes((uint8_t*) hdr, (uint32_t) strlen(hdr)));
+    buffer_t hdr = {0};
+    bprintf(&hdr, "Compute-Units: %l\r\n", compute_units);
+    // Cache-Control: only cache successful proofs; the value is server-controlled (derived from
+    // the block identifier), never from client input, so no header-injection risk.
+    if (status == 200 && req->cache_control && *req->cache_control)
+      bprintf(&hdr, "Cache-Control: %s\r\n", req->cache_control);
+    else if (status != 200)
+      bprintf(&hdr, "Cache-Control: no-store\r\n");
+    c4_http_respond_ex(req->client, status, content_type, result, hdr.data);
+    buffer_free(&hdr);
   }
 }
 
@@ -306,6 +288,7 @@ static void prover_request_free(request_t* req) {
     c4_free_server_list(req->proxy_beacon_servers);
     safe_free(req->proxy_beacon_servers);
   }
+  if (req->cache_control) safe_free(req->cache_control);
   safe_free(req);
 }
 static bool c4_check_worker_request(request_t* req) {
@@ -480,6 +463,66 @@ void c4_prover_handle_request(request_t* req) {
       }
   }
 }
+
+void c4_proof_request_dispatch(client_t* client, char* method_str, char* params_str,
+                               uint32_t version, prover_flags_t extra_flags,
+                               bytes_t client_state, bytes_t witness_key,
+                               server_list_t* proxy_rpc, server_list_t* proxy_beacon,
+                               const char* cache_control) {
+  prover_flags_t flags = C4_PROVER_FLAG_UV_SERVER_CTX | http_server.prover_flags | extra_flags;
+  if (proxy_rpc || proxy_beacon) flags |= C4_PROVER_FLAG_PROXY;
+
+  request_t*    req = (request_t*) safe_calloc(1, sizeof(request_t));
+  prover_ctx_t* ctx = c4_prover_create(method_str, params_str, (chain_id_t) http_server.chain_id, flags);
+  req->start_time           = current_ms();
+  req->client               = client;
+  req->cb                   = c4_prover_handle_request;
+  req->ctx                  = ctx;
+  req->proxy_rpc_servers    = proxy_rpc;
+  req->proxy_beacon_servers = proxy_beacon;
+  if (cache_control && *cache_control) req->cache_control = strdup(cache_control);
+  ctx->version = version;
+  if (client_state.data && client_state.len) {
+    ctx->client_state = bytes_dup(client_state);
+    if (ctx->client_state.len > 4) ctx->flags |= C4_PROVER_FLAG_INCLUDE_SYNC;
+  }
+  if (witness_key.data && witness_key.len)
+    ctx->witness_key = bytes_dup(witness_key);
+
+  // Tracing: start root span
+  if (tracing_is_enabled() && client->trace_level != TRACE_LEVEL_NONE) {
+    char name_tmp[256];
+    sbprintf(name_tmp, "proof/%s", method_str ? method_str : "unknown");
+    bool force_debug = (client->trace_level == TRACE_LEVEL_DEBUG && tracing_debug_quota_try_consume());
+    if (client->b3_trace_id) {
+      int sampled = force_debug ? 1 : (client->b3_sampled == 0 ? 0 : 1);
+      req->trace_root = tracing_start_root_with_b3(name_tmp, client->b3_trace_id,
+                                                   client->b3_span_id ? client->b3_span_id : client->b3_parent_span_id,
+                                                   sampled);
+    }
+    else
+      req->trace_root = force_debug ? tracing_start_root_forced(name_tmp) : tracing_start_root(name_tmp);
+    if (req->trace_root) {
+      tracing_span_tag_str(req->trace_root, "method", method_str ? method_str : "");
+      tracing_span_tag_json(req->trace_root, "params", params_str);
+      tracing_span_tag_i64(req->trace_root, "chain_id", (int64_t) http_server.chain_id);
+      tracing_span_tag_i64(req->trace_root, "flags", (int64_t) ctx->flags);
+      tracing_span_tag_i64(req->trace_root, "request.size", (int64_t) client->request.payload_len);
+      tracing_span_tag_str(req->trace_root, "trace.level", client->trace_level == TRACE_LEVEL_DEBUG ? "debug" : "min");
+      tracing_span_tag_str(req->trace_root, "include_code", (ctx->flags & C4_PROVER_FLAG_INCLUDE_CODE) ? "true" : "false");
+      if (ctx->client_state.len) {
+        char cs_str[70];
+        sbprintf(cs_str, "%x", ctx->client_state);
+        tracing_span_tag_str(req->trace_root, "client_state", cs_str);
+      }
+    }
+  }
+
+  safe_free(method_str);
+  safe_free(params_str);
+  req->cb(req);
+}
+
 bool c4_handle_proof_request(client_t* client) {
   if (client->request.method != C4_DATA_METHOD_POST /*|| strncmp(client->request.path, "/proof/", 7) != 0*/)
     return false;
@@ -515,91 +558,62 @@ bool c4_handle_proof_request(client_t* client) {
     return true;
   }
 
-  prover_flags_t flags            = C4_PROVER_FLAG_UV_SERVER_CTX | http_server.prover_flags;
-  buffer_t       client_state_buf = {0};
-  char*          method_str       = bprintf(NULL, "%j", method);
-  char*          params_str       = bprintf(NULL, "%J", params);
-  request_t*     req              = (request_t*) safe_calloc(1, sizeof(request_t));
-  prover_ctx_t*  ctx              = c4_prover_create(method_str, params_str, (chain_id_t) http_server.chain_id, flags);
-  req->start_time                 = current_ms();
-  req->client                     = client;
-  req->cb                         = c4_prover_handle_request;
-  req->ctx                        = ctx;
-  ctx->version                    = version.type == JSON_TYPE_NUMBER ? (uint32_t) json_as_uint32(version) : 0;
-  if (include_code.type == JSON_TYPE_BOOLEAN && include_code.start[0] == 't') ctx->flags |= C4_PROVER_FLAG_INCLUDE_CODE;
-  if (zk_proof.type == JSON_TYPE_BOOLEAN && zk_proof.start[0] == 't') ctx->flags |= C4_PROVER_FLAG_ZK_PROOF;
-  if (client_state.type == JSON_TYPE_STRING && client_state.len > 4) ctx->client_state = json_as_bytes(client_state, &client_state_buf);
-  if (ctx->client_state.len > 4) ctx->flags |= C4_PROVER_FLAG_INCLUDE_SYNC;
-  if (signers.type == JSON_TYPE_STRING && signers.len > 43 && signers.start[1] == '0' && signers.start[2] == 'x')
-    ctx->witness_key = json_as_bytes(signers, NULL);
-  else if (!bytes_all_zero(bytes(http_server.witness_key, 32)))
-    ctx->witness_key = bytes_dup(bytes(http_server.witness_key, 32));
-
+  // Parse proxy CSVs up front (before allocating the prover ctx) so cleanup on error is trivial.
   bool wants_rpc_proxy    = rpc_proxy_j.type == JSON_TYPE_STRING && rpc_proxy_j.len > 2;
   bool wants_beacon_proxy = beacon_proxy_j.type == JSON_TYPE_STRING && beacon_proxy_j.len > 2;
   if ((wants_rpc_proxy || wants_beacon_proxy) && !http_server.proxy_enabled) {
-    proof_request_abort_after_alloc(client, req, ctx, method_str, params_str, 403,
-                                    "Client rpc/beacon URL lists are disabled on this server");
+    c4_write_error_response(client, 403, "Client rpc/beacon URL lists are disabled on this server");
     return true;
   }
 
-  char  proxy_err[256];
-  char* rpc_csv    = wants_rpc_proxy ? json_new_string(rpc_proxy_j) : NULL;
-  char* beacon_csv = wants_beacon_proxy ? json_new_string(beacon_proxy_j) : NULL;
+  server_list_t* proxy_rpc    = NULL;
+  server_list_t* proxy_beacon = NULL;
+  char           proxy_err[256];
+  char*          rpc_csv    = wants_rpc_proxy ? json_new_string(rpc_proxy_j) : NULL;
+  char*          beacon_csv = wants_beacon_proxy ? json_new_string(beacon_proxy_j) : NULL;
 
-  if (rpc_csv && !handle_proof_parse_proxy_csv(rpc_csv, &req->proxy_rpc_servers, proxy_err, sizeof proxy_err)) {
+  if (rpc_csv && !handle_proof_parse_proxy_csv(rpc_csv, &proxy_rpc, proxy_err, sizeof proxy_err)) {
     safe_free(rpc_csv);
     safe_free(beacon_csv);
-    proof_request_abort_after_alloc(client, req, ctx, method_str, params_str, 400, proxy_err);
+    c4_write_error_response(client, 400, proxy_err);
     return true;
   }
-  if (beacon_csv && !handle_proof_parse_proxy_csv(beacon_csv, &req->proxy_beacon_servers, proxy_err, sizeof proxy_err)) {
+  if (beacon_csv && !handle_proof_parse_proxy_csv(beacon_csv, &proxy_beacon, proxy_err, sizeof proxy_err)) {
     safe_free(rpc_csv);
     safe_free(beacon_csv);
-    proof_request_abort_after_alloc(client, req, ctx, method_str, params_str, 400, proxy_err);
+    if (proxy_rpc) {
+      c4_free_server_list(proxy_rpc);
+      safe_free(proxy_rpc);
+    }
+    c4_write_error_response(client, 400, proxy_err);
     return true;
   }
   safe_free(rpc_csv);
   safe_free(beacon_csv);
   /* Per-request proxy lists keep BEACON_CLIENT_UNKNOWN: c4_detect_server_client_types uses sync curl and would block
    * libuv. Planned: per-host cache + async detection (track via GitHub issue on corpus-core/colibri-stateless). */
-  if (wants_rpc_proxy || wants_beacon_proxy) ctx->flags |= C4_PROVER_FLAG_PROXY;
 
-  // Tracing: start root span
-  if (tracing_is_enabled() && client->trace_level != TRACE_LEVEL_NONE) {
-    char  name_tmp[256];
-    char* desc = c4_req_info(C4_DATA_TYPE_INTERN, "", bytes(client->request.payload, client->request.payload_len));
-    sbprintf(name_tmp, "proof/%s", method_str ? method_str : "unknown");
-    bool force_debug = (client->trace_level == TRACE_LEVEL_DEBUG && tracing_debug_quota_try_consume());
-    if (client->b3_trace_id) {
-      int sampled =
-          force_debug ? 1 : (client->b3_sampled == 0 ? 0 : 1);
-      req->trace_root = tracing_start_root_with_b3(name_tmp, client->b3_trace_id,
-                                                   client->b3_span_id ? client->b3_span_id : client->b3_parent_span_id,
-                                                   sampled);
-    }
-    else {
-      req->trace_root = force_debug ? tracing_start_root_forced(name_tmp) : tracing_start_root(name_tmp);
-    }
-    if (req->trace_root) {
-      tracing_span_tag_str(req->trace_root, "method", method_str ? method_str : "");
-      tracing_span_tag_json(req->trace_root, "params", params_str);
-      tracing_span_tag_i64(req->trace_root, "chain_id", (int64_t) http_server.chain_id);
-      tracing_span_tag_i64(req->trace_root, "flags", (int64_t) ctx->flags);
-      tracing_span_tag_i64(req->trace_root, "request.size", (int64_t) client->request.payload_len);
-      tracing_span_tag_str(req->trace_root, "trace.level", client->trace_level == TRACE_LEVEL_DEBUG ? "debug" : "min");
-      if (include_code.type == JSON_TYPE_BOOLEAN)
-        tracing_span_tag_str(req->trace_root, "include_code", include_code.start[0] == 't' ? "true" : "false");
-      if (ctx->client_state.len) {
-        char cs_str[70];
-        sbprintf(cs_str, "%x", ctx->client_state);
-        tracing_span_tag_str(req->trace_root, "client_state", cs_str);
-      }
-    }
-  }
+  prover_flags_t extra_flags = 0;
+  if (include_code.type == JSON_TYPE_BOOLEAN && include_code.start[0] == 't') extra_flags |= C4_PROVER_FLAG_INCLUDE_CODE;
+  if (zk_proof.type == JSON_TYPE_BOOLEAN && zk_proof.start[0] == 't') extra_flags |= C4_PROVER_FLAG_ZK_PROOF;
 
-  safe_free(method_str);
-  safe_free(params_str);
-  req->cb(req);
+  buffer_t client_state_buf = {0};
+  bytes_t  cs               = NULL_BYTES;
+  if (client_state.type == JSON_TYPE_STRING && client_state.len > 4) cs = json_as_bytes(client_state, &client_state_buf);
+
+  buffer_t witness_buf = {0};
+  bytes_t  wk          = NULL_BYTES;
+  if (signers.type == JSON_TYPE_STRING && signers.len > 43 && signers.start[1] == '0' && signers.start[2] == 'x')
+    wk = json_as_bytes(signers, &witness_buf);
+  else if (!bytes_all_zero(bytes(http_server.witness_key, 32)))
+    wk = bytes(http_server.witness_key, 32);
+
+  uint32_t version_num = version.type == JSON_TYPE_NUMBER ? (uint32_t) json_as_uint32(version) : 0;
+
+  c4_proof_request_dispatch(client, bprintf(NULL, "%j", method), bprintf(NULL, "%J", params),
+                            version_num, extra_flags, cs, wk, proxy_rpc, proxy_beacon, NULL);
+
+  buffer_free(&client_state_buf);
+  buffer_free(&witness_buf);
   return true;
 }

@@ -599,6 +599,10 @@ class Colibri:
                 headers = {
                     "Accept": "application/octet-stream" if request.encoding == "ssz" else "application/json"
                 }
+                # Forward the cache freshness bound so a shared cache/CDN never returns a
+                # response older than `ttl` seconds (e.g. short bound for `latest` blocks).
+                if getattr(request, "ttl", 0):
+                    headers["Cache-Control"] = f"max-age={request.ttl}"
                 
                 try:
                     async with session.request(

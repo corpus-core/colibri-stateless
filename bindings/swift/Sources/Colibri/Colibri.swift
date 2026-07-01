@@ -185,13 +185,17 @@ public struct DataRequest {
     public let payload: [String: Any]?
     public let encoding: String?
     public let type: String?
-    
-    public init(url: String, method: String, payload: [String: Any]? = nil, encoding: String? = nil, type: String? = nil) {
+    /// Cache freshness bound in seconds (0 = no hint). Forwarded as a `Cache-Control: max-age=<ttl>`
+    /// request header so a shared cache/CDN never returns a response older than this bound.
+    public let ttl: UInt64
+
+    public init(url: String, method: String, payload: [String: Any]? = nil, encoding: String? = nil, type: String? = nil, ttl: UInt64 = 0) {
         self.url = url
         self.method = method
         self.payload = payload
         self.encoding = encoding
         self.type = type
+        self.ttl = ttl
     }
 }
 
@@ -626,6 +630,16 @@ public class Colibri {
                     if delayMs > 0 {
                         try? await Task.sleep(nanoseconds: delayMs * 1_000_000)
                     }
+
+                    // Cache freshness bound in seconds, forwarded below as `Cache-Control: max-age`.
+                    let ttlSeconds: UInt64
+                    if let ttlNum = request["ttl"] as? NSNumber {
+                        ttlSeconds = ttlNum.uint64Value
+                    } else if let ttlStr = request["ttl"] as? String, let v = UInt64(ttlStr) {
+                        ttlSeconds = v
+                    } else {
+                        ttlSeconds = 0
+                    }
                     
                     // Convert exclude_mask from String to Int
                     let excludeMask: Int
@@ -672,7 +686,8 @@ public class Colibri {
                             method: method,
                             payload: request["payload"] as? [String: Any],
                             encoding: request["encoding"] as? String,
-                            type: requestType
+                            type: requestType,
+                            ttl: ttlSeconds
                         )
                         
                         do {
@@ -730,6 +745,11 @@ public class Colibri {
                                 urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
                                 let payloadData = try JSONSerialization.data(withJSONObject: payload)
                                 urlRequest.httpBody = payloadData
+                            }
+
+                            // Forward the cache freshness bound to shared caches/CDNs.
+                            if ttlSeconds > 0 {
+                                urlRequest.setValue("max-age=\(ttlSeconds)", forHTTPHeaderField: "Cache-Control")
                             }
                             
                             let (responseData, response) = try await URLSession.shared.data(for: urlRequest)

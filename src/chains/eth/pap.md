@@ -5,6 +5,8 @@
 
 This document describes the concrete implementation plan for Pragmatic Adaptive Privacy (PAP) within colibri-stateless, mapping each supported Ethereum RPC method to its privacy exposure and potential mitigation strategies.
 
+*This feature is still experimental and this document still a draft!*
+
 See [Pragmatic Adaptive Privacy (PAP)](https://medium.com/corpus-core-insights/pragmatic-adaptive-privacy-pap-5c6f6080cb1a) for the high-level concept.
 
 ## Privacy Model

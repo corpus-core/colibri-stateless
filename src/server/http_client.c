@@ -1158,6 +1158,13 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
     r->headers = curl_slist_append(r->headers, c4_request_fix_encoding(r->req->encoding, r, servers ? servers->client_types[selected_index] : 0) == C4_DATA_ENCODING_JSON ? "Accept: application/json" : "Accept: application/octet-stream");
     r->headers = curl_slist_append(r->headers, "charsets: utf-8");
     r->headers = curl_slist_append(r->headers, "User-Agent: c4 curl ");
+    // Forward the cache freshness bound so a shared cache/CDN never returns a
+    // response older than `ttl` seconds (e.g. short bound for `latest` block proofs).
+    if (r->req->ttl) {
+      char     ttl_tmp[64];
+      buffer_t ttl_buf = stack_buffer(ttl_tmp);
+      r->headers       = curl_slist_append(r->headers, bprintf(&ttl_buf, "Cache-Control: max-age=%d", (uint32_t) r->req->ttl));
+    }
     // Inject b3 tracing headers
     if (r->attempt_span) {
       tracing_inject_b3_headers(r->attempt_span, &r->headers);

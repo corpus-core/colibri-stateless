@@ -26,6 +26,7 @@
 #include "json.h"
 #include "prover.h"
 #include "verify.h"
+#include "version.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -55,6 +56,42 @@ static uint64_t header_tag_ttl_ms(chain_id_t chain_id, header_tag_t tag, prover_
     default:
       return 0;
   }
+}
+
+// -- Hybrid: Cache-friendly GET request construction --
+
+char* eth_build_delegated_block_get_url(const char* method, json_t block, uint32_t version,
+                                        prover_flags_t flags, bytes_t client_state, bytes_t witness_key) {
+  buffer_t url = {0};
+  // `%j` emits the raw block identifier without surrounding quotes (e.g. `latest`, `0x1234`),
+  // which is URL-safe for tags and hex values alike. The `includeTx` boolean is intentionally
+  // omitted (irrelevant for the proof).
+  bprintf(&url, "proof/%s/%j/%d/%s/", method, block, version,
+          (flags & C4_PROVER_FLAG_ZK_PROOF) ? "zk" : "std");
+  if (client_state.data && client_state.len)
+    bprintf(&url, "0x%x", client_state);
+  else
+    bprintf(&url, "0x");
+  // Signer/witness keys go into a query parameter: the proof stays deterministic per signer set
+  // and therefore cacheable, while keeping the (large) key list out of the cache-key path segments.
+  if (witness_key.data && witness_key.len)
+    bprintf(&url, "?signers=0x%x", witness_key);
+  return buffer_as_string(url);
+}
+
+// Maps a block identifier to a cache freshness bound in seconds, mirroring `header_tag_ttl_ms`
+// (which returns milliseconds). Concrete block numbers/hashes are immutable and need no bound
+// (returns 0).
+static uint32_t hybrid_block_cache_max_age_s(chain_id_t chain_id, json_t block, prover_flags_t flags) {
+  header_tag_t tag = HEADER_TAG_COUNT;
+  if (strncmp(block.start, "\"latest\"", 8) == 0)
+    tag = HEADER_TAG_LATEST;
+  else if (strncmp(block.start, "\"safe\"", 6) == 0 || strncmp(block.start, "\"justified\"", 11) == 0)
+    tag = HEADER_TAG_SAFE;
+  else if (strncmp(block.start, "\"finalized\"", 11) == 0)
+    tag = HEADER_TAG_FINALIZED;
+  if (tag >= HEADER_TAG_COUNT) return 0;
+  return (uint32_t) (header_tag_ttl_ms(chain_id, tag, flags) / 1000);
 }
 
 // -- Header Cache Implementation --
@@ -162,16 +199,17 @@ static c4_status_t hybrid_fetch_and_verify(prover_ctx_t* ctx, json_t block, hybr
   const char* method          = type == HYBRID_FETCH_EXECUTION ? "eth_getBlockByNumber" : "eth_getBlockHeader";
   char        arg_buffer[100] = {0};
   bytes32_t   id              = {0};
-  buffer_t    buffer          = {0};
+  buffer_t    id_buffer       = {0};
+  // The trailing ",false" (includeTx) for eth_getBlockByNumber is irrelevant for the proof itself
+  // (the full execution payload is always included). It is only kept here so the local dedup id
+  // stays stable and unambiguous per method+block.
   sbprintf(arg_buffer, "[%J%s]", block, type == HYBRID_FETCH_EXECUTION ? ",false" : "");
-  bprintf(&buffer, "{\"method\":\"%s\",\"params\":%s", method, arg_buffer);
-  sha256(buffer.data, id); // we create the id befor adding the props, so client_state changes will not effect the hash.
-  c4_append_prover_request_props(&buffer, ctx->client_state, ctx->chain_id, ctx->flags, ctx->witness_key);
-  bprintf(&buffer, "}");
+  bprintf(&id_buffer, "{\"method\":\"%s\",\"params\":%s}", method, arg_buffer);
+  sha256(id_buffer.data, id); // id derives from method+params only; version/client_state/flags go into the URL, not the id.
+  buffer_free(&id_buffer);
   data_request_t* data_request = c4_state_get_data_request_by_id(&ctx->state, id);
 
   if (data_request) {
-    buffer_free(&buffer);
     if (c4_state_is_pending(data_request)) return C4_PENDING;
     if (data_request->error) THROW_ERROR(data_request->error);
     if (!data_request->response.data) THROW_ERROR_WITH("empty response from remote prover for %s", method);
@@ -253,11 +291,13 @@ static c4_status_t hybrid_fetch_and_verify(prover_ctx_t* ctx, json_t block, hybr
 
   data_request = safe_calloc(1, sizeof(data_request_t));
   memcpy(data_request->id, id, 32);
-  data_request->type     = C4_DATA_TYPE_PROVER;
-  data_request->chain_id = ctx->chain_id;
-  data_request->method   = C4_DATA_METHOD_POST;
+  data_request->type          = C4_DATA_TYPE_PROVER;
+  data_request->chain_id      = ctx->chain_id;
+  data_request->method   = C4_DATA_METHOD_GET;
   data_request->encoding = C4_DATA_ENCODING_SSZ;
-  data_request->payload  = buffer.data;
+  data_request->url      = eth_build_delegated_block_get_url(method, block, c4_current_version_number(),
+                                                             ctx->flags, ctx->client_state, ctx->witness_key);
+  data_request->ttl      = hybrid_block_cache_max_age_s(ctx->chain_id, block, ctx->flags);
 
   c4_state_add_request(&ctx->state, data_request);
   return C4_PENDING;
