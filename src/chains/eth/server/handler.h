@@ -24,6 +24,19 @@ bool c4_handle_lcu(client_t* client);
 bool c4_handle_lcu_updates(single_request_t* r);
 bool c4_handle_checkpoints(client_t* client);
 bool c4_handle_tx_cache(client_t* client);
+bool c4_handle_proof_get_request(client_t* client);
+
+/**
+ * Builds the `Cache-Control` header value for a delegated block proof response, based on the
+ * block identifier: concrete block numbers/hashes are immutable, tags (`latest`/`safe`/
+ * `justified`/`finalized`) get a bounded TTL that mirrors the client-side freshness logic.
+ *
+ * @param out      destination buffer
+ * @param cap      capacity of `out`
+ * @param block    the block identifier (tag or `0x`-prefixed number/hash)
+ * @param chain_id the chain id (affects block time / epoch length)
+ */
+void c4_eth_block_cache_control(char* out, size_t cap, const char* block, chain_id_t chain_id);
 
 // Ethereum-specific background service functions
 void c4_handle_new_head(json_t head);

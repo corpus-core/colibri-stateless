@@ -250,6 +250,7 @@ typedef struct data_request {
   uint32_t                delay;                 ///< Milliseconds the host must wait before (re-)executing this request (0 = no delay). Used for delayed same-node retries (e.g. oblivious node warm-up).
   uint16_t                retry_count;           ///< Number of delayed *same-node* retries already performed (see `c4_state_retry_after`); managed by the chain module, not the host
   bool                    validated;             ///< Whether the response has been validated
+  uint32_t                cache_max_age;         ///< Cache freshness hint in seconds for CDN-friendly requests (0 = no hint). Distinct from `ttl` (node-rotation). The host forwards this as a `Cache-Control: max-age=<n>` request header so a shared cache/CDN never returns a response older than this bound (e.g. short bound for `latest` block proofs).
 } data_request_t;
 
 /**

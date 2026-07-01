@@ -301,6 +301,8 @@ typedef struct request_t {
   /** Per-request backend lists when client sends `rpc` / `beacon` in proxy mode (owned). */
   server_list_t* proxy_rpc_servers;
   server_list_t* proxy_beacon_servers;
+  /** Optional `Cache-Control` header value emitted on a successful direct response (owned, may be NULL). */
+  char* cache_control;
 } request_t;
 
 typedef enum {
@@ -361,6 +363,31 @@ int                   c4_save_config_file(const char* updates);
 // Handlers
 bool           c4_handle_verify_request(client_t* client);
 bool           c4_handle_proof_request(client_t* client);
+/**
+ * Shared dispatch for direct `/proof` requests (POST and GET variants).
+ *
+ * Creates the `prover_ctx_t` + `request_t`, applies flags/client_state/witness key, wires up
+ * tracing and finally kicks off `c4_prover_handle_request`. Takes ownership of `method_str`,
+ * `params_str`, the two proxy server lists (may be NULL) and duplicates the `client_state` /
+ * `witness_key` byte views. On a successful direct response the (copied) `cache_control` value
+ * is emitted as a `Cache-Control` header.
+ *
+ * @param client       the HTTP client to respond to
+ * @param method_str   the RPC method (ownership transferred, freed here)
+ * @param params_str   the RPC params JSON array (ownership transferred, freed here)
+ * @param version      the requesting client version (0 = unknown)
+ * @param extra_flags  additional prover flags (e.g. INCLUDE_CODE / ZK_PROOF)
+ * @param client_state client_state snapshot (copied, may be empty)
+ * @param witness_key  witness/signer keys (copied, may be empty)
+ * @param proxy_rpc    per-request RPC proxy list (ownership transferred, may be NULL)
+ * @param proxy_beacon per-request Beacon proxy list (ownership transferred, may be NULL)
+ * @param cache_control optional `Cache-Control` header value for the direct response (copied, may be NULL)
+ */
+void           c4_proof_request_dispatch(client_t* client, char* method_str, char* params_str,
+                                         uint32_t version, prover_flags_t extra_flags,
+                                         bytes_t client_state, bytes_t witness_key,
+                                         server_list_t* proxy_rpc, server_list_t* proxy_beacon,
+                                         const char* cache_control);
 bool           c4_handle_status(client_t* client);
 bool           c4_handle_health_check(client_t* client);
 bool           c4_handle_metrics(client_t* client);

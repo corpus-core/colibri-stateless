@@ -181,6 +181,8 @@ export interface DataRequest {
     req_ptr: number;
     /** Milliseconds to wait before (re-)executing this request (e.g. oblivious-node retry backoff). Optional. */
     delay?: number;
+    /** Cache freshness bound in seconds. When set, forwarded as a `Cache-Control: max-age=<ttl>` request header so a shared cache/CDN never returns a response older than this bound (e.g. short bound for `latest` block proofs). Optional. */
+    ttl?: number;
 }
 
 // Enum for RPC method types

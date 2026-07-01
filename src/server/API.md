@@ -52,6 +52,10 @@ The OpenAPI specification below provides interactive documentation for all avail
 [OpenAPI colibri-api](https://raw.githubusercontent.com/corpus-core/colibri-stateless/refs/heads/dev/src/server/openapi.yaml)
 {% endopenapi-operation %}
 
+{% openapi-operation spec="colibri-api" path="/proof/{method}/{block}/{version}/{zk}/{c4}" method="get" %}
+[OpenAPI colibri-api](https://raw.githubusercontent.com/corpus-core/colibri-stateless/refs/heads/dev/src/server/openapi.yaml)
+{% endopenapi-operation %}
+
 {% openapi-operation spec="colibri-api" path="/config.html" method="get" %}
 [OpenAPI colibri-api](https://raw.githubusercontent.com/corpus-core/colibri-stateless/refs/heads/dev/src/server/openapi.yaml)
 {% endopenapi-operation %}
