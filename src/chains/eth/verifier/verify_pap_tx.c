@@ -107,18 +107,45 @@ static c4_status_t ensure_tx_cache(verify_ctx_t* ctx) {
 
 /* ── block proof verification + tx extraction ── */
 
+// Selects the prover method used to fetch the whole block for a PAP tx lookup.
+// In hybrid mode `colibri_proofBlock` is used: it is not remote-delegated, so the
+// binding routes it to the local sub-prover, which reuses the prover-side header
+// cache (only header/block proofs are pulled from the remote prover on a miss).
+// In remote mode `eth_getBlockByNumber` is kept so the CDN GET cache keeps serving
+// immutable per-block proofs. The provider never learns which tx the caller wants;
+// it only ever sees a request for the whole block.
+static const char* pap_block_proof_method(verify_ctx_t* ctx) {
+  return (ctx->flags & VERIFY_FLAG_HYBRID) ? "colibri_proofBlock" : "eth_getBlockByNumber";
+}
+
 static bool extract_tx_from_block_proof(verify_ctx_t* ctx, ssz_ob_t proof_req,
                                         json_t          req_block,
                                         uint32_t        target_tx_index,
                                         const bytes32_t expected_tx_hash) {
-  ctx->sync_data = ssz_get(&proof_req, "sync_data");
-  if (c4_update_from_sync_data(ctx) != C4_SUCCESS) return false;
-
   ssz_ob_t block_proof = ssz_get(&proof_req, "proof");
+  bool     is_hybrid   = ssz_is_type(&block_proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_HYBRID_BLOCK_PROOF));
+
 #ifdef ETH_BLOCK
-  if (!verify_block_proof_for_block(ctx, block_proof, req_block, NULL))
-    return false;
+  if (is_hybrid) {
+    // In hybrid mode a co-located, trusted prover has already verified the block header
+    // against the sync committee and cached it, so the executionPayload is trusted here.
+    // The VERIFY_FLAG_HYBRID gate prevents accepting such a proof when no local trusted
+    // prover exists (e.g. pure remote mode), mirroring `verify_block_proof`.
+    if (!(ctx->flags & VERIFY_FLAG_HYBRID))
+      RETURN_VERIFY_ERROR(ctx, "PAP: hybrid block proof requires hybrid mode");
+    ssz_ob_t hb_exec = ssz_get(&block_proof, "executionPayload");
+    if (!hb_exec.bytes.data)
+      RETURN_VERIFY_ERROR(ctx, "PAP: missing executionPayload in hybrid block proof");
+    if (!c4_eth_matches_blocknumber(ctx, hb_exec, req_block)) return false;
+  }
+  else {
+    ctx->sync_data = ssz_get(&proof_req, "sync_data");
+    if (c4_update_from_sync_data(ctx) != C4_SUCCESS) return false;
+    if (!verify_block_proof_for_block(ctx, block_proof, req_block, NULL))
+      return false;
+  }
 #else
+  (void) is_hybrid;
   RETURN_VERIFY_ERROR(ctx, "PAP: block proof verification requires ETH_BLOCK");
 #endif
 
@@ -270,7 +297,7 @@ static bool pap_tx_by_hash(verify_ctx_t* ctx) {
   ssz_ob_t  proof;
   if (h.len != 32) RETURN_VERIFY_ERROR(ctx, "PAP: invalid transaction hash");
   if (!get_tx_index_and_block(ctx, requested_hash, &block_number, &tx_index)) return false;
-  if (pap_request_proof(ctx, "eth_getBlockByNumber", bprintf(&buf, "[\"0x%lx\",true]", block_number), &proof) != C4_SUCCESS)
+  if (pap_request_proof(ctx, pap_block_proof_method(ctx), bprintf(&buf, "[\"0x%lx\",true]", block_number), &proof) != C4_SUCCESS)
     return false;
 
   char     bn[24];
@@ -278,8 +305,6 @@ static bool pap_tx_by_hash(verify_ctx_t* ctx) {
   return extract_tx_from_block_proof(ctx, proof,
                                      json_parse(bprintf(&bn_buf, "\"0x%lx\"", block_number)),
                                      tx_index, requested_hash);
-  ctx->success = true;
-  return true;
 }
 
 /* ── eth_getTransactionByBlockNumberAndIndex ── */
@@ -291,7 +316,7 @@ static bool pap_tx_by_block_and_index(verify_ctx_t* ctx) {
   uint8_t  tmp[200];
   buffer_t buf = stack_buffer(tmp);
   ssz_ob_t proof;
-  if (pap_request_proof(ctx, "eth_getBlockByNumber",
+  if (pap_request_proof(ctx, pap_block_proof_method(ctx),
                         bprintf(&buf, "[%J,true]", block_param), &proof) != C4_SUCCESS)
     return false;
 

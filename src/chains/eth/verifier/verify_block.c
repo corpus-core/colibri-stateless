@@ -120,7 +120,7 @@ void eth_set_block_data(verify_ctx_t* ctx, uint32_t mask, ssz_ob_t block, bytes3
   ctx->flags |= VERIFY_FLAG_FREE_DATA;
 }
 
-static bool matches_blocknumber(verify_ctx_t* ctx, ssz_ob_t block, json_t req_block) {
+bool c4_eth_matches_blocknumber(verify_ctx_t* ctx, ssz_ob_t block, json_t req_block) {
   const char* err = json_validate(req_block, req_block.len == 68 ? "bytes32" : "block", "params[0]");
   if (err) {
     c4_state_add_error(&ctx->state, err);
@@ -157,7 +157,7 @@ bool verify_block_proof_for_block(verify_ctx_t* ctx, ssz_ob_t block_proof, json_
   if (c4_verify_header(ctx, header, block_proof) != C4_SUCCESS) return false;
   ssz_hash_tree_root(ssz_get(&execution_payload, "withdrawals"), exec_root);
 
-  if (ctx->state.error || !matches_blocknumber(ctx, execution_payload, block_number)) return false;
+  if (ctx->state.error || !c4_eth_matches_blocknumber(ctx, execution_payload, block_number)) return false;
   if (execution_payload_root) memcpy(execution_payload_root,exec_root, 32);
   return true;
 }
@@ -174,7 +174,7 @@ bool verify_block_proof(verify_ctx_t* ctx) {
     bool     include_txs       = json_as_bool(json_at(ctx->args, 1));
     ssz_ob_t execution_payload = ssz_get(&ctx->proof, "executionPayload");
     if (!execution_payload.bytes.data) RETURN_VERIFY_ERROR(ctx, "missing executionPayload in hybrid block proof");
-    if (!matches_blocknumber(ctx, execution_payload, block_number)) return false;
+    if (!c4_eth_matches_blocknumber(ctx, execution_payload, block_number)) return false;
 
     if (!eth_check_latest_freshness(ctx, eth_json_is_latest(block_number), true,
                                     ssz_get_uint64(&execution_payload, "timestamp")))
@@ -316,7 +316,7 @@ bool verify_block_header_proof(verify_ctx_t* ctx) {
 
     ssz_ob_t header_data = ssz_get(&ctx->proof, "header_data");
     if (!header_data.bytes.data) RETURN_VERIFY_ERROR(ctx, "missing header_data in hybrid block header proof");
-    if (json_len(ctx->args) >= 1 && !matches_blocknumber(ctx, header_data, json_at(ctx->args, 0))) return false;
+    if (json_len(ctx->args) >= 1 && !c4_eth_matches_blocknumber(ctx, header_data, json_at(ctx->args, 0))) return false;
     if (!eth_check_latest_freshness(ctx, is_latest, true, ssz_get_uint64(&header_data, "timestamp"))) return false;
 
     ctx->data = header_data;
@@ -354,7 +354,7 @@ bool verify_block_header_proof(verify_ctx_t* ctx) {
   if (memcmp(body_root, ssz_get(&header, "bodyRoot").bytes.data, 32) != 0)
     RETURN_VERIFY_ERROR(ctx, "invalid body root!");
   if (c4_verify_header(ctx, header, ctx->proof) != C4_SUCCESS) return false;
-  if (json_len(ctx->args) >= 1 && !matches_blocknumber(ctx, ctx->data, json_at(ctx->args, 0))) return false;
+  if (json_len(ctx->args) >= 1 && !c4_eth_matches_blocknumber(ctx, ctx->data, json_at(ctx->args, 0))) return false;
   if (!eth_check_latest_freshness(ctx, is_latest, true, ssz_get_uint64(&ctx->data, "timestamp"))) return false;
 
   return verify_block_header_derived_methods(ctx);

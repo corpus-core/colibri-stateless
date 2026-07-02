@@ -212,6 +212,21 @@ void c4_rpc_ctx_set_min_latest_block_ts(c4_rpc_ctx_t* ctx, uint64_t ts);
  */
 void c4_rpc_ctx_free(c4_rpc_ctx_t* ctx);
 
+/**
+ * Returns whether a prover request for `method` is delegated to the remote prover
+ * in hybrid mode (served via a CDN-cacheable block proof) instead of being handled
+ * by the local sub-prover.
+ *
+ * Only block/header methods that produce immutable, CDN-cacheable proofs are
+ * delegated. Internal whole-block methods such as `colibri_proofBlock` are handled
+ * locally so they can reuse the prover-side header cache without exposing the
+ * caller's intent (e.g. which transaction is being looked up) to the remote prover.
+ *
+ * @param method the JSON-RPC / internal method name (may be `NULL`)
+ * @return `true` if the method is delegated to the remote prover in hybrid mode
+ */
+bool c4_is_remote_delegated_prover_method(const char* method);
+
 /* ── JSON serialization helpers shared by colibri.c and ems.c ── */
 
 /**
