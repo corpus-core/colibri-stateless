@@ -51,7 +51,22 @@ class ColibriTest {
 //            println("createMockRequestHandler: url: $url, payload: $payload, encoding: $encoding")
 
             if (url.isNotEmpty()) {
-                name = url
+                // Mirror `c4_req_mockname` in src/util/state.c: cache-friendly proof URLs of the
+                // form `proof/<method>/<block>/<version>/<zk|std>/<c4>` are compressed to
+                // `proof/<method>/<block>` so fixtures stay stable across client-version bumps,
+                // the zk/std flag, and client-state changes.
+                name = if (url.startsWith("proof/")) {
+                    val rest = url.substring(6)
+                    val firstSlash = rest.indexOf('/')
+                    val secondSlash = if (firstSlash >= 0) rest.indexOf('/', firstSlash + 1) else -1
+                    if (firstSlash >= 0 && secondSlash >= 0) {
+                        "proof/" + rest.substring(0, secondSlash)
+                    } else {
+                        url
+                    }
+                } else {
+                    url
+                }
             } else if (payload != null && payload.has("method")) {
                 // Reconstruct name from payload like in JS
                 val methodName = payload.getString("method")

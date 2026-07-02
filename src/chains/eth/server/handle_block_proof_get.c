@@ -90,9 +90,14 @@ void c4_eth_block_cache_control(char* out, size_t cap, const char* block, chain_
     snprintf(out, cap, "public, max-age=%u", (spe / 2) * block_time);
   else if (strcmp(block, "finalized") == 0)
     snprintf(out, cap, "public, max-age=%u", spe * block_time);
-  else
-    // concrete block number/hash (and genesis) are immutable
+  else if (block[0] == '0' && (block[1] == 'x' || block[1] == 'X'))
+    // Concrete block number/hash (and genesis): the proof for a given hash/number is immutable.
     snprintf(out, cap, "public, max-age=31536000, immutable");
+  else
+    // Any other alphanumeric token (e.g. an unknown/future tag): the prover will reject it with
+    // an error, but out of caution mark the response as non-cacheable so a shared CDN can never
+    // pin a bad answer for a year.
+    snprintf(out, cap, "no-store");
 }
 
 /**
@@ -133,9 +138,10 @@ bool c4_handle_proof_get_request(client_t* client) {
     return true;
   }
 
-  bool is_header = strcmp(s_method, "eth_getBlockHeader") == 0;
-  bool is_block  = strcmp(s_method, "eth_getBlockByNumber") == 0;
-  if (!is_header && !is_block) {
+  bool is_header   = strcmp(s_method, "eth_getBlockHeader") == 0;
+  bool is_block    = strcmp(s_method, "eth_getBlockByNumber") == 0;
+  bool is_receipts = strcmp(s_method, "eth_getBlockReceipts") == 0;
+  if (!is_header && !is_block && !is_receipts) {
     proof_get_error(client, 400, "Unsupported method for proof GET");
     return true;
   }
@@ -176,6 +182,8 @@ bool c4_handle_proof_get_request(client_t* client) {
   bytes_t wk = parse_signers_query(qmark ? qmark + 1 : NULL);
 
   // s_block is validated to be alphanumeric-only, so it cannot break out of the JSON string.
+  // eth_getBlockByNumber keeps the includeTx=false suffix to match the payload the client would
+  // send in POST mode; header/receipts only take the block identifier.
   char* method_str = strdup(s_method);
   char* params_str = is_block ? bprintf(NULL, "[\"%s\",false]", s_block)
                               : bprintf(NULL, "[\"%s\"]", s_block);

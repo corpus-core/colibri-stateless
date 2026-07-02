@@ -426,8 +426,18 @@ class FileBasedMockRequestHandler:
         
         # Convert request to filename base (without extension) - matching C implementation
         if request.url:
-            # Sanitize URL to create filename base
+            # Sanitize URL to create filename base. Mirror `c4_req_mockname` in
+            # src/util/state.c: cache-friendly proof URLs of the form
+            # `proof/<method>/<block>/<version>/<zk|std>/<c4>` are compressed to
+            # `proof/<method>/<block>` so fixtures stay stable across client-version bumps,
+            # the zk/std flag, and client-state changes.
             base_name = request.url
+            if base_name.startswith('proof/'):
+                rest = base_name[6:]
+                first_slash = rest.find('/')
+                second_slash = rest.find('/', first_slash + 1) if first_slash >= 0 else -1
+                if first_slash >= 0 and second_slash >= 0:
+                    base_name = 'proof/' + rest[:second_slash]
             # Replace problematic characters with underscore (matching C implementation)
             for char in ['/', '.', ',', ' ', ':', '=', '?', '"', '&', '[', ']', '{', '}']:
                 base_name = base_name.replace(char, '_')

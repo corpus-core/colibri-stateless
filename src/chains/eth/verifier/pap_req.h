@@ -68,11 +68,14 @@ c4_status_t pap_request_proof(verify_ctx_t* ctx, const char* method, const char*
  *
  * @param ctx verification context
  * @param path URL path (e.g. `"/tx_cache"`)
+ * @param ttl cache freshness hint in seconds (0 = no hint). Forwarded by the host as a
+ *        `Cache-Control: max-age=<n>` request header so a shared cache/CDN never returns
+ *        a response older than this bound.
  * @param out receives the response bytes on `C4_SUCCESS`
  * @return `C4_SUCCESS` when response is available, `C4_PENDING` when
  *         the request has been emitted, `C4_ERROR` on failure
  */
-c4_status_t pap_request_get(verify_ctx_t* ctx, const char* path, bytes_t* out);
+c4_status_t pap_request_get(verify_ctx_t* ctx, const char* path, uint32_t ttl, bytes_t* out);
 
 /**
  * Sends a JSON-RPC request to the ETH execution client.

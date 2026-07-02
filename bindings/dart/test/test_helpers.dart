@@ -259,6 +259,19 @@ class FileBasedMockResponder {
       baseName = path + query;
     }
 
+    /// Mirror `c4_req_mockname` in src/util/state.c: cache-friendly proof URLs of the form
+    /// `proof/<method>/<block>/<version>/<zk|std>/<c4>` are compressed to
+    /// `proof/<method>/<block>` so fixtures stay stable across client-version bumps,
+    /// the zk/std flag, and client-state changes.
+    if (baseName.startsWith('proof/')) {
+      final rest = baseName.substring(6);
+      final firstSlash = rest.indexOf('/');
+      final secondSlash = firstSlash >= 0 ? rest.indexOf('/', firstSlash + 1) : -1;
+      if (firstSlash >= 0 && secondSlash >= 0) {
+        baseName = 'proof/${rest.substring(0, secondSlash)}';
+      }
+    }
+
     /// Sanitize to match fixture naming constraints.
     baseName = _sanitize(baseName);
     if (baseName.length > 100) {

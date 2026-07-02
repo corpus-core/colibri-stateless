@@ -97,6 +97,7 @@ set(VERIFIER_SOURCES
   verifier/eth_verify.c
   verifier/patricia_trie.c
   verifier/patricia.c
+  verifier/prover_cache_url.c
   verifier/rlp.c
   ssz/verify_types.c
   ssz/beacon_types.c
@@ -172,6 +173,7 @@ add_verifier(
   VERIFY c4_eth_verify
   METHOD_TYPE c4_eth_get_method_type
   PROVER_PAYLOAD c4_eth_get_prover_payload
+  PROVER_CACHE_URL c4_eth_get_prover_cache_request
 )
 
 # Register ETH chain properties provider

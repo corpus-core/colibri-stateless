@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: MIT
  *
  * Tests for the cache-friendly hybrid block proof GET endpoint:
- *  - client-side URL builder (eth_build_delegated_block_get_url)
+ *  - client-side URL builder (c4_eth_build_delegated_block_get_url)
  *  - server-side GET path parsing / validation
  */
 
@@ -13,13 +13,12 @@
 #ifdef HTTP_SERVER
 
 #include "../../bindings/colibri_common.h"
-#include "../../src/prover/prover.h"
 #include "../../src/util/json.h"
 #include "test_server_helper.h"
 
-// Declared in src/chains/eth/prover/beacon.h (avoid the header's relative includes here).
-extern char* eth_build_delegated_block_get_url(const char* method, json_t block, uint32_t version,
-                                               prover_flags_t flags, bytes_t client_state, bytes_t witness_key);
+// Declared in src/chains/eth/verifier/prover_cache_url.h (avoid the header's relative includes here).
+extern char* c4_eth_build_delegated_block_get_url(const char* method, json_t block, uint32_t version,
+                                                  bool zk_proof, bytes_t client_state, bytes_t witness_key);
 
 // Declared in src/chains/eth/server/handler.h.
 extern void c4_eth_block_cache_control(char* out, size_t cap, const char* block, chain_id_t chain_id);
@@ -41,7 +40,7 @@ void tearDown(void) {
 void test_url_builder_header_tag(void) {
   json_t   block = json_parse("\"latest\"");
   uint8_t  cs[]  = {0x01, 0x02};
-  char*    url   = eth_build_delegated_block_get_url("eth_getBlockHeader", block, 3, 0, bytes(cs, 2), NULL_BYTES);
+  char*    url   = c4_eth_build_delegated_block_get_url("eth_getBlockHeader", block, 3, false, bytes(cs, 2), NULL_BYTES);
   TEST_ASSERT_NOT_NULL(url);
   TEST_ASSERT_EQUAL_STRING("proof/eth_getBlockHeader/latest/3/std/0x0102", url);
   safe_free(url);
@@ -50,7 +49,7 @@ void test_url_builder_header_tag(void) {
 void test_url_builder_block_by_number_omits_include_tx(void) {
   // The includeTx boolean must NOT appear in the URL; only method/block are relevant.
   json_t block = json_parse("\"0x64\"");
-  char*  url   = eth_build_delegated_block_get_url("eth_getBlockByNumber", block, 5, C4_PROVER_FLAG_ZK_PROOF, NULL_BYTES, NULL_BYTES);
+  char*  url   = c4_eth_build_delegated_block_get_url("eth_getBlockByNumber", block, 5, true, NULL_BYTES, NULL_BYTES);
   TEST_ASSERT_NOT_NULL(url);
   TEST_ASSERT_EQUAL_STRING("proof/eth_getBlockByNumber/0x64/5/zk/0x", url);
   safe_free(url);
@@ -60,7 +59,7 @@ void test_url_builder_with_signers_query(void) {
   json_t   block   = json_parse("\"finalized\"");
   uint8_t  cs[]    = {0x0a};
   uint8_t  keys[]  = {0xaa, 0xbb, 0xcc};
-  char*    url     = eth_build_delegated_block_get_url("eth_getBlockHeader", block, 7, 0, bytes(cs, 1), bytes(keys, 3));
+  char*    url     = c4_eth_build_delegated_block_get_url("eth_getBlockHeader", block, 7, false, bytes(cs, 1), bytes(keys, 3));
   TEST_ASSERT_NOT_NULL(url);
   TEST_ASSERT_EQUAL_STRING("proof/eth_getBlockHeader/finalized/7/std/0x0a?signers=0xaabbcc", url);
   safe_free(url);
@@ -69,7 +68,7 @@ void test_url_builder_with_signers_query(void) {
 void test_url_builder_version_zero(void) {
   // version == 0 (client did not pin a version) must still yield a well-formed segment.
   json_t block = json_parse("\"latest\"");
-  char*  url   = eth_build_delegated_block_get_url("eth_getBlockHeader", block, 0, 0, NULL_BYTES, NULL_BYTES);
+  char*  url   = c4_eth_build_delegated_block_get_url("eth_getBlockHeader", block, 0, false, NULL_BYTES, NULL_BYTES);
   TEST_ASSERT_NOT_NULL(url);
   TEST_ASSERT_EQUAL_STRING("proof/eth_getBlockHeader/latest/0/std/0x", url);
   safe_free(url);
@@ -80,8 +79,8 @@ void test_url_builder_zk_with_client_state_and_signers(void) {
   json_t   block = json_parse("\"0x1b4\"");
   uint8_t  cs[]  = {0xde, 0xad};
   uint8_t  keys[] = {0x01, 0x02, 0x03, 0x04};
-  char*    url   = eth_build_delegated_block_get_url("eth_getBlockByNumber", block, 12, C4_PROVER_FLAG_ZK_PROOF,
-                                                     bytes(cs, 2), bytes(keys, 4));
+  char*    url   = c4_eth_build_delegated_block_get_url("eth_getBlockByNumber", block, 12, true,
+                                                        bytes(cs, 2), bytes(keys, 4));
   TEST_ASSERT_NOT_NULL(url);
   TEST_ASSERT_EQUAL_STRING("proof/eth_getBlockByNumber/0x1b4/12/zk/0xdead?signers=0x01020304", url);
   safe_free(url);
@@ -91,7 +90,7 @@ void test_url_builder_empty_client_state_pointer(void) {
   // A non-NULL pointer with len 0 must be treated exactly like NULL_BYTES ("0x").
   json_t  block = json_parse("\"safe\"");
   uint8_t dummy = 0;
-  char*   url   = eth_build_delegated_block_get_url("eth_getBlockHeader", block, 3, 0, bytes(&dummy, 0), NULL_BYTES);
+  char*   url   = c4_eth_build_delegated_block_get_url("eth_getBlockHeader", block, 3, false, bytes(&dummy, 0), NULL_BYTES);
   TEST_ASSERT_NOT_NULL(url);
   TEST_ASSERT_EQUAL_STRING("proof/eth_getBlockHeader/safe/3/std/0x", url);
   safe_free(url);

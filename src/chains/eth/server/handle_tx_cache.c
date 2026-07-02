@@ -7,6 +7,8 @@
 #include "pap_tx_cache_types.h"
 #include "server.h"
 #include "tx_cache.h"
+#include "util/chain_props.h"
+#include <stdio.h>
 #include <string.h>
 
 #ifdef PROVER_CACHE
@@ -15,6 +17,32 @@
 #define TX_CACHE_MAX_BLOCKS_LIMIT   10000
 
 uint64_t c4_get_query(char* query, char* param);
+
+// The tx cache index is regenerated whenever a new block is observed on-chain (~every block_time
+// seconds), so a shared cache/CDN may serve the SSZ snapshot for half a block time without going
+// stale enough to hurt tx-hash lookups. The client fetches an incremental delta anyway, so a short
+// bound is preferable over a longer one.
+static void respond_txcache_ok(client_t* client, bytes_t body) {
+  chain_properties_t props         = {0};
+  uint64_t           block_time_ms = c4_chains_get_props((chain_id_t) http_server.chain_id, &props) ? props.block_time : 12000;
+  uint32_t           max_age_s     = (uint32_t) (block_time_ms / 2 / 1000);
+  if (max_age_s == 0) max_age_s = 1;
+  char hdr[96];
+  int  hdr_len = snprintf(hdr, sizeof hdr, "Cache-Control: public, max-age=%u\r\n", max_age_s);
+  if (hdr_len < 0 || hdr_len >= (int) sizeof hdr) {
+    c4_http_respond(client, 200, "application/octet-stream", body);
+    return;
+  }
+  c4_http_respond_ex(client, 200, "application/octet-stream", body, bytes((uint8_t*) hdr, (uint32_t) hdr_len));
+}
+
+static void respond_txcache_error(client_t* client, int status, const char* msg) {
+  buffer_t body = {0};
+  bprintf(&body, "{\"error\":\"%S\"}", msg);
+  const char* hdr = "Cache-Control: no-store\r\n";
+  c4_http_respond_ex(client, status, "application/json", body.data, bytes((uint8_t*) hdr, (uint32_t) strlen(hdr)));
+  buffer_free(&body);
+}
 
 typedef struct {
   ssz_builder_t list_builder;
@@ -58,12 +86,12 @@ bool c4_handle_tx_cache(client_t* client) {
   if (next && next != '?' && next != '/') return false;
 
   if (client->request.method != C4_DATA_METHOD_GET) {
-    c4_write_error_response(client, 405, "Method Not Allowed");
+    respond_txcache_error(client, 405, "Method Not Allowed");
     return true;
   }
 
   if (c4_eth_tx_cache_size() == 0) {
-    c4_http_respond(client, 200, "application/octet-stream", NULL_BYTES);
+    respond_txcache_ok(client, NULL_BYTES);
     return true;
   }
 
@@ -88,7 +116,7 @@ bool c4_handle_tx_cache(client_t* client) {
 
   uint32_t total_eligible = ctx.eligible;
   if (total_eligible == 0) {
-    c4_http_respond(client, 200, "application/octet-stream", NULL_BYTES);
+    respond_txcache_ok(client, NULL_BYTES);
     return true;
   }
 
@@ -103,7 +131,7 @@ bool c4_handle_tx_cache(client_t* client) {
   ssz_builder_fix_list_offsets(&ctx.list_builder, ctx.block_count);
 
   ssz_ob_t result = ssz_builder_to_bytes(&ctx.list_builder);
-  c4_http_respond(client, 200, "application/octet-stream", result.bytes);
+  respond_txcache_ok(client, result.bytes);
   safe_free(result.bytes.data);
   return true;
 }
@@ -114,7 +142,11 @@ bool c4_handle_tx_cache(client_t* client) {
   if (strncmp(client->request.path, "/tx_cache", 9) != 0) return false;
   char next = client->request.path[9];
   if (next && next != '?' && next != '/') return false;
-  c4_write_error_response(client, 503, "Transaction cache not available (PROVER_CACHE disabled)");
+  buffer_t    body = {0};
+  bprintf(&body, "{\"error\":\"%s\"}", "Transaction cache not available (PROVER_CACHE disabled)");
+  const char* hdr = "Cache-Control: no-store\r\n";
+  c4_http_respond_ex(client, 503, "application/json", body.data, bytes((uint8_t*) hdr, (uint32_t) strlen(hdr)));
+  buffer_free(&body);
   return true;
 }
 

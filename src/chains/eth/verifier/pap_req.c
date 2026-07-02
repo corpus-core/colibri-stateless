@@ -71,7 +71,7 @@ c4_status_t pap_request_proof(verify_ctx_t* ctx, const char* method, const char*
   return C4_ERROR;
 }
 
-c4_status_t pap_request_get(verify_ctx_t* ctx, const char* path, bytes_t* out) {
+c4_status_t pap_request_get(verify_ctx_t* ctx, const char* path, uint32_t ttl, bytes_t* out) {
   bytes32_t req_id;
   keccak(bytes((uint8_t*) path, (uint32_t) strlen(path)), req_id);
 
@@ -88,6 +88,7 @@ c4_status_t pap_request_get(verify_ctx_t* ctx, const char* path, bytes_t* out) {
     new_req->type           = C4_DATA_TYPE_PROVER;
     new_req->method         = C4_DATA_METHOD_GET;
     new_req->url            = strdup(path);
+    new_req->ttl            = ttl;
     memcpy(new_req->id, req_id, 32);
     c4_state_add_request(&ctx->state, new_req);
     return C4_PENDING;
