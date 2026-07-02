@@ -12,7 +12,7 @@ function(add_verifier)
 
     # Parse arguments
     set(options "")
-    set(oneValueArgs NAME GET_REQ_TYPE VERIFY METHOD_TYPE PROVER_PAYLOAD INIT_RPC_CTX)
+    set(oneValueArgs NAME GET_REQ_TYPE VERIFY METHOD_TYPE PROVER_PAYLOAD INIT_RPC_CTX PROVER_CACHE_URL)
     set(multiValueArgs SOURCES DEPENDS)
     cmake_parse_arguments(VERIFIER "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
 
@@ -29,8 +29,8 @@ function(add_verifier)
     # Get the current global list
     get_property(CURRENT_PROPERTIES CACHE VERIFIER_PROPERTIES PROPERTY VALUE)
     
-    # Append to the global list (PROVER_PAYLOAD and INIT_RPC_CTX may be empty)
-    list(APPEND CURRENT_PROPERTIES "${VERIFIER_NAME}:${VERIFIER_GET_REQ_TYPE}:${VERIFIER_VERIFY}:${VERIFIER_METHOD_TYPE}:${VERIFIER_PROVER_PAYLOAD}:${VERIFIER_INIT_RPC_CTX}")
+    # Append to the global list (PROVER_PAYLOAD, INIT_RPC_CTX and PROVER_CACHE_URL may be empty)
+    list(APPEND CURRENT_PROPERTIES "${VERIFIER_NAME}:${VERIFIER_GET_REQ_TYPE}:${VERIFIER_VERIFY}:${VERIFIER_METHOD_TYPE}:${VERIFIER_PROVER_PAYLOAD}:${VERIFIER_INIT_RPC_CTX}:${VERIFIER_PROVER_CACHE_URL}")
     set(VERIFIER_PROPERTIES "${CURRENT_PROPERTIES}" CACHE INTERNAL "List of all verifier properties" FORCE)
 endfunction()
 
@@ -211,6 +211,33 @@ function(generate_verifiers_header)
             endif()
         endif()
     endforeach()
+    file(APPEND ${VERIFIERS_H} "}\n\n")
+
+    # Add prover cache URL builder declarations for modules that provide one
+    foreach(prop ${VERIFIER_PROPERTIES})
+        string(REPLACE ":" ";" parts "${prop}")
+        list(LENGTH parts count)
+        if(count GREATER 6)
+            list(GET parts 6 prover_cache_url)
+            if(NOT "${prover_cache_url}" STREQUAL "")
+                file(APPEND ${VERIFIERS_H} "bool ${prover_cache_url}(chain_id_t chain_id, const char* method, json_t params, uint32_t version, bool zk_proof, bool light_client, bytes_t client_state, bytes_t witness_key, char** url_out, uint32_t* ttl_out);\n")
+            endif()
+        endif()
+    endforeach()
+
+    # Add c4_get_prover_cache_request dispatcher (returns false if no module handles the call)
+    file(APPEND ${VERIFIERS_H} "\nbool c4_get_prover_cache_request(chain_id_t chain_id, const char* method, json_t params, uint32_t version, bool zk_proof, bool light_client, bytes_t client_state, bytes_t witness_key, char** url_out, uint32_t* ttl_out) {\n")
+    foreach(prop ${VERIFIER_PROPERTIES})
+        string(REPLACE ":" ";" parts "${prop}")
+        list(LENGTH parts count)
+        if(count GREATER 6)
+            list(GET parts 6 prover_cache_url)
+            if(NOT "${prover_cache_url}" STREQUAL "")
+                file(APPEND ${VERIFIERS_H} "  if (${prover_cache_url}(chain_id, method, params, version, zk_proof, light_client, client_state, witness_key, url_out, ttl_out)) return true;\n")
+            endif()
+        endif()
+    endforeach()
+    file(APPEND ${VERIFIERS_H} "  return false;\n")
     file(APPEND ${VERIFIERS_H} "}\n\n")
 
     # Close header guard

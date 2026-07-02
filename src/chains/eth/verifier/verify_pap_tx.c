@@ -43,6 +43,13 @@
 
 /* ── tx cache fetch ── */
 
+// Cache-freshness bound for the tx_cache index. The server rebuilds the SSZ snapshot on every
+// new block (~every block_time seconds), so half a block time is short enough that lookups still
+// find recently included transactions while letting a shared cache/CDN absorb the read load.
+static uint32_t tx_cache_ttl_s(chain_id_t chain_id) {
+  return is_gnosis_chain(chain_id) ? 2 : 6;
+}
+
 static c4_status_t fetch_tx_cache_from_server(verify_ctx_t* ctx) {
   bytes_t  response;
   char     url_tmp[128];
@@ -63,7 +70,7 @@ static c4_status_t fetch_tx_cache_from_server(verify_ctx_t* ctx) {
     path = bprintf(&url_buf, "tx_cache?max_blocks=%d",
                    (uint32_t) PAP_TX_CACHE_MAX_BLOCKS);
 
-  TRY_ASYNC(pap_request_get(ctx, path, &response));
+  TRY_ASYNC(pap_request_get(ctx, path, tx_cache_ttl_s(ctx->chain_id), &response));
 
   if (response.len > PAP_TX_CACHE_MAX_SSZ_SIZE)
     THROW_ERROR("PAP: tx_cache response exceeds size limit");

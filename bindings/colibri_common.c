@@ -25,6 +25,7 @@
 #include "bytes.h"
 #include "compat.h"
 #include "plugin.h"
+#include "version.h"
 #ifdef CHAIN_ETH
 #include "sync_committee.h"
 #endif
@@ -54,12 +55,64 @@ static void append_proxy_fields(buffer_t* payload, c4_rpc_ctx_t* ctx) {
     bprintf(payload, ",\"beacon\":\"%s\"", ctx->proxy_beacon_urls);
 }
 
+// Attempts to rewrite the pending POST prover request into a cache-friendly GET (URL + ttl).
+// The chain-specific dispatcher decides which RPC methods are eligible (e.g. eth block/receipt
+// proofs whose result is a pure function of method+block+version+zk+client_state+witness_key).
+// Proxy mode is excluded because the proxy URL list needs to travel in the JSON body.
+// Returns true on successful in-place rewrite; false leaves the request untouched for the
+// classic POST-enrichment path.
+static bool promote_prover_request_to_get(data_request_t* req, c4_rpc_ctx_t* ctx) {
+  if (ctx->prover_mode == C4_PROVER_MODE_PROXY) return false;
+
+  // json_parse mutates its input, so copy the payload into a NUL-terminated scratch buffer.
+  char* scratch = safe_malloc(req->payload.len + 1);
+  memcpy(scratch, req->payload.data, req->payload.len);
+  scratch[req->payload.len] = '\0';
+
+  json_t root    = json_parse(scratch);
+  json_t jmethod = json_get(root, "method");
+  json_t jparams = json_get(root, "params");
+  if (jmethod.type != JSON_TYPE_STRING || jparams.type != JSON_TYPE_ARRAY) {
+    safe_free(scratch);
+    return false;
+  }
+
+  char*    method_str = bprintf(NULL, "%j", jmethod);
+  char*    url        = NULL;
+  uint32_t ttl        = 0;
+  bool     ok         = c4_get_prover_cache_request(
+      ctx->chain_id, method_str, jparams,
+      c4_current_version_number(),
+      (ctx->prover_flags & C4_PROVER_FLAG_ZK_PROOF) != 0,
+      (ctx->prover_flags & C4_PROVER_FLAG_LIGHT_CLIENT) != 0,
+      ctx->client_state, ctx->witness_keys,
+      &url, &ttl);
+  safe_free(method_str);
+  safe_free(scratch);
+
+  if (!ok || !url) return false;
+
+  safe_free(req->payload.data);
+  req->payload = NULL_BYTES;
+  req->method  = C4_DATA_METHOD_GET;
+  // POST prover requests emitted by the verifier never carry a url, but free defensively in case
+  // a future code path attaches one before enrichment.
+  if (req->url) safe_free(req->url);
+  req->url = url;
+  req->ttl = ttl;
+  return true;
+}
+
 static void enrich_pending_prover_requests(c4_rpc_ctx_t* ctx) {
   for (data_request_t* req = ctx->verifier.state.requests; req; req = req->next) {
     if (req->type != C4_DATA_TYPE_PROVER || !c4_state_is_pending(req)) continue;
     if (req->method != C4_DATA_METHOD_POST || !req->payload.data || req->payload.len < 2) continue;
     if (bytes_memmem(req->payload, "\"version\"")) continue;
     if (req->payload.data[req->payload.len - 1] != (uint8_t) '}') continue;
+
+    // Try the cache-friendly GET promotion first; if the chain module handles this method,
+    // the payload is consumed and the request is rewritten in place.
+    if (promote_prover_request_to_get(req, ctx)) continue;
 
     buffer_t out = {0};
     buffer_append(&out, bytes(req->payload.data, req->payload.len - 1));

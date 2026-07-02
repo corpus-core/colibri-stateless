@@ -169,7 +169,26 @@ char* c4_req_mockname(data_request_t* req) {
 
   // Generate base name from URL or RPC method/params
   if (req->url) {
-    bprintf(&buf, "%s", req->url);
+    // Cache-friendly proof URLs of the form `proof/<method>/<block>/<version>/<zk|std>/<c4>`
+    // contain fields that change independently of the underlying proof content: the client
+    // version bumps with every release, the `zk|std` segment reflects a build flag, and `<c4>`
+    // is the caller's local sync-committee snapshot. To keep test fixtures stable across those
+    // dimensions we compress the URL to `proof/<method>/<block>` before sanitization.
+    if (strncmp(req->url, "proof/", 6) == 0) {
+      const char* p_method = req->url + 6;
+      const char* p_block  = strchr(p_method, '/');
+      const char* p_after  = p_block ? strchr(p_block + 1, '/') : NULL;
+      if (p_block && p_after) {
+        buffer_append(&buf, bytes((uint8_t*) "proof/", 6));
+        buffer_append(&buf, bytes((uint8_t*) p_method, (uint32_t) (p_after - p_method)));
+      }
+      else {
+        bprintf(&buf, "%s", req->url);
+      }
+    }
+    else {
+      bprintf(&buf, "%s", req->url);
+    }
   }
   else if (req->payload.data) {
     // For RPC requests, use method name and parameters

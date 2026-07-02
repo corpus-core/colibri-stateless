@@ -214,6 +214,34 @@ void c4_get_prover_payload(chain_id_t chain_id, const char* method, const char* 
                            verify_flags_t flags, buffer_t* method_out, buffer_t* params_out);
 
 /**
+ * Rewrites a delegated remote-prover request into a cache-friendly GET (URL + TTL).
+ *
+ * Each chain module may opt-in for selected RPC methods that produce deterministic proofs
+ * per (method, block, version, zk_proof, client_state, witness_key). If the module supports
+ * caching for the given call, it writes the URL path to `url_out` (heap-allocated string body)
+ * and the `Cache-Control: max-age=<n>` bound in seconds to `ttl_out`, and returns true.
+ *
+ * Callers use the returned URL together with `C4_DATA_METHOD_GET` and drop the JSON POST body.
+ * On false, the caller must fall back to the classic POST + JSON payload path.
+ *
+ * @param chain_id the chain id
+ * @param method the RPC method name
+ * @param params the parsed JSON params array (typically `[<block>, ...]`)
+ * @param version the client version number to embed in the URL
+ * @param zk_proof whether the ZK proof variant is requested
+ * @param light_client whether the caller runs in light-client mode (affects `latest` TTL)
+ * @param client_state the client_state snapshot (may be empty)
+ * @param witness_key the witness/signer keys (may be empty)
+ * @param url_out output pointer receiving the heap-allocated URL path (ownership transferred to caller)
+ * @param ttl_out output pointer receiving the `max-age` bound in seconds (0 for immutable resources)
+ * @return true if a chain module produced a GET URL, false otherwise
+ */
+bool c4_get_prover_cache_request(chain_id_t chain_id, const char* method, json_t params,
+                                 uint32_t version, bool zk_proof, bool light_client,
+                                 bytes_t client_state, bytes_t witness_key,
+                                 char** url_out, uint32_t* ttl_out);
+
+/**
  * Helper context for chain-specific RPC initialization (`c4_init_rpc_ctx`).
  *
  * The caller (e.g. the bindings layer) populates `chain_id` and `client_state`
