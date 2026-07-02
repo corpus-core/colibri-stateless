@@ -61,7 +61,7 @@ bool eth_prover_execute(prover_ctx_t* ctx) {
     c4_proof_logs(ctx);
   else if (strcmp(ctx->method, "eth_call") == 0 || strcmp(ctx->method, "eth_estimateGas") == 0 || strcmp(ctx->method, "colibri_simulateTransaction") == 0 || strcmp(ctx->method, "colibri_proofCall") == 0)
     c4_proof_call(ctx);
-  else if (strcmp(ctx->method, "eth_getBlockByHash") == 0 || strcmp(ctx->method, "eth_getBlockByNumber") == 0)
+  else if (strcmp(ctx->method, "eth_getBlockByHash") == 0 || strcmp(ctx->method, "eth_getBlockByNumber") == 0 || strcmp(ctx->method, "colibri_proofBlock") == 0)
     c4_proof_block(ctx);
   else if (strcmp(ctx->method, "eth_blockNumber") == 0)
     c4_proof_block_number(ctx);

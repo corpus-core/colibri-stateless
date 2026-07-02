@@ -570,6 +570,13 @@ static void free_request_prover(c4_rpc_ctx_t* ctx) {
   ctx->request_prover = NULL;
 }
 
+bool c4_is_remote_delegated_prover_method(const char* method) {
+  if (!method) return false;
+  return strcmp(method, "eth_getBlockHeader") == 0 ||
+         strcmp(method, "eth_getBlockByNumber") == 0 ||
+         strcmp(method, "eth_getBlockByHash") == 0;
+}
+
 static bool is_remote_delegated_method(data_request_t* req) {
   if (req->method != C4_DATA_METHOD_POST) return req->method == C4_DATA_METHOD_GET;
   if (!req->payload.data || !req->payload.len || req->payload.len > (UINT32_MAX - 1)) return false;
@@ -581,9 +588,7 @@ static bool is_remote_delegated_method(data_request_t* req) {
   bool   remote = false;
   if (method.type == JSON_TYPE_STRING) {
     char* m = bprintf(NULL, "%j", method);
-    remote  = strcmp(m, "eth_getBlockHeader") == 0 ||
-             strcmp(m, "eth_getBlockByNumber") == 0 ||
-             strcmp(m, "eth_getBlockByHash") == 0;
+    remote  = c4_is_remote_delegated_prover_method(m);
     safe_free(m);
   }
   safe_free(tmp);
