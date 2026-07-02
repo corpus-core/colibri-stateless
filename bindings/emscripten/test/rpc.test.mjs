@@ -22,7 +22,23 @@ function create_cache(dir) {
         },
         get(req) {
             let name = ''
-            if (req.url) name = req.url
+            if (req.url) {
+                // Mirror `c4_req_mockname` in src/util/state.c: cache-friendly proof URLs of the
+                // form `proof/<method>/<block>/<version>/<zk|std>/<c4>` are compressed to
+                // `proof/<method>/<block>` so fixtures survive client-version bumps, zk toggles
+                // and client-state changes.
+                if (req.url.startsWith('proof/')) {
+                    const rest = req.url.slice(6)
+                    const firstSlash = rest.indexOf('/')
+                    const secondSlash = firstSlash >= 0 ? rest.indexOf('/', firstSlash + 1) : -1
+                    if (firstSlash >= 0 && secondSlash >= 0)
+                        name = 'proof/' + rest.slice(0, secondSlash)
+                    else
+                        name = req.url
+                } else {
+                    name = req.url
+                }
+            }
             else if (req.payload)
                 name = req.payload.method + req.payload.params.map(p => '_' + ((typeof p == 'string' ? p : JSON.stringify(p)))).join('')
 
