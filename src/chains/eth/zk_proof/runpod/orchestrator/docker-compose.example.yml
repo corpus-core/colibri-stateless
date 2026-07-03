@@ -11,6 +11,29 @@
 #   - a REST API key (used to create / terminate GPU pods)
 #   - an S3 access key + secret key pair for the network volume
 #   - the network-volume id (visible in the RunPod Storage page)
+#
+# =============================================================================
+# CREDENTIAL HANDLING
+# =============================================================================
+#
+# Local / staging: put the four RunPod secrets into a plain `.env` file at the
+# repository root and let the `env_file:` block below load them. Docker Compose
+# picks the file up automatically when you `docker compose up` from this
+# directory. The `.env` file is gitignored - never commit real credentials.
+#
+# Repo-root .env should look like this:
+#
+#   RUNPOD_API_KEY=rpa_...
+#   RUNPOD_S3_ACCESS_KEY=user_...
+#   RUNPOD_S3_SECRET_KEY=rps_...
+#   NETWORK_VOLUME_ID=...
+#   RUNPOD_DATACENTER=EU-RO-1
+#
+# Production: comment out the `env_file:` block, enable the `secrets:` block at
+# the bottom and the matching `<NAME>_FILE` entries in `environment:` below.
+# `orchestrator.js` transparently resolves any `<NAME>_FILE` variable by
+# reading the referenced path (see the `requireEnv` helper in orchestrator.js).
+# That keeps the raw secret out of `docker inspect` and `/proc/<pid>/environ`.
 
 services:
   zkproof-runpod-orchestrator:
@@ -21,37 +44,24 @@ services:
       dockerfile: src/chains/eth/zk_proof/runpod/orchestrator/Dockerfile
     image: zkprover-runpod-orchestrator:latest
     restart: unless-stopped
+
+    # ------------------------------------------------------------------
+    # LOCAL: load RunPod credentials from the repo-root .env file.
+    # Comment this block out in production and enable the `secrets:`
+    # block at the bottom of this file instead.
+    # ------------------------------------------------------------------
+    env_file:
+      - ../../../../../../.env
+
     environment:
       # Which chain to service. Must match the docker-volume you mount below.
       CHAIN: mainnet
 
-      # RunPod REST API key (create at Console -> Settings -> API Keys).
-      #
-      # For production, prefer the `<NAME>_FILE` variant with a Docker secret
-      # bind-mount so the value is not visible via `docker inspect` and does
-      # not end up in `/proc/<pid>/environ`. The orchestrator resolves any
-      # `<NAME>_FILE` variable by reading the referenced path (see the
-      # `requireEnv` helper). Example:
-      #
-      #   RUNPOD_API_KEY_FILE: /run/secrets/runpod_api_key
-      #   RUNPOD_S3_ACCESS_KEY_FILE: /run/secrets/runpod_s3_access_key
-      #   RUNPOD_S3_SECRET_KEY_FILE: /run/secrets/runpod_s3_secret_key
-      #
-      # combined with a Docker Compose `secrets:` section and matching
-      # `secrets:` entries at the top level.
-      RUNPOD_API_KEY: "REPLACE_ME"
-
-      # S3-compatible network-volume credentials (Console -> Storage -> S3 API).
-      RUNPOD_S3_ACCESS_KEY: "REPLACE_ME_user_..."
-      RUNPOD_S3_SECRET_KEY: "REPLACE_ME_rps_..."
-
-      # Network-volume identifiers.
-      NETWORK_VOLUME_ID: "REPLACE_ME_volume_id"
-      RUNPOD_DATACENTER: "EU-RO-1"
-
-      # The prover-gpu image (Image 2) pushed to your registry. It must be
-      # built from src/chains/eth/zk_proof/runpod/prover-gpu/Dockerfile.
-      RUNPOD_IMAGE: "your-registry/zkprover-gpu:v5.2.3"
+      # The prover-gpu image (Image 2). Built and published to GHCR by the
+      # `Docker Prover GPU (RunPod)` workflow (see
+      # .github/workflows/prover-gpu-docker.yml). Pin to a version tag that
+      # matches the sp1-sdk version used to compile the host binary.
+      RUNPOD_IMAGE: "ghcr.io/corpus-core/colibri-prover-gpu:v5.2.3"
 
       # GPU selection. Multiple types can be given comma-separated. Any GPU
       # with >=24 GB VRAM and CUDA Compute Capability >= 8.6 works for SP1 v5.
@@ -65,6 +75,19 @@ services:
 
       # Docker-volume mount path inside this container.
       OUTPUT_DIR: /data
+
+      # ------------------------------------------------------------------
+      # PRODUCTION (docker secrets): uncomment the block below AND the
+      # top-level `secrets:` section, and comment out the `env_file:`
+      # block above. orchestrator.js reads the file at the referenced
+      # path via `requireEnv(<NAME>)` -> `<NAME>_FILE`.
+      # ------------------------------------------------------------------
+      # RUNPOD_API_KEY_FILE:        /run/secrets/runpod_api_key
+      # RUNPOD_S3_ACCESS_KEY_FILE:  /run/secrets/runpod_s3_access_key
+      # RUNPOD_S3_SECRET_KEY_FILE:  /run/secrets/runpod_s3_secret_key
+      # NETWORK_VOLUME_ID_FILE:     /run/secrets/runpod_volume_id
+      # RUNPOD_DATACENTER_FILE:     /run/secrets/runpod_datacenter
+
     volumes:
       # Mount the existing docker volume that the Colibri server reads from.
       # This is the same volume that `scripts/build_proof` accesses today via
@@ -73,6 +96,33 @@ services:
       # Replace the volume name to match your chain (e.g. gnosis_blocks).
       - mainnet_blocks:/data
 
+    # ------------------------------------------------------------------
+    # PRODUCTION: mount secrets into the container's filesystem.
+    # ------------------------------------------------------------------
+    # secrets:
+    #   - runpod_api_key
+    #   - runpod_s3_access_key
+    #   - runpod_s3_secret_key
+    #   - runpod_volume_id
+    #   - runpod_datacenter
+
 volumes:
   mainnet_blocks:
     external: true
+
+# ------------------------------------------------------------------
+# PRODUCTION: define the docker secrets. Use either `file:` (bind a
+# file that only root can read) or `external: true` (managed via
+# `docker secret create ...` in swarm mode).
+# ------------------------------------------------------------------
+# secrets:
+#   runpod_api_key:
+#     file: /etc/colibri/secrets/runpod_api_key
+#   runpod_s3_access_key:
+#     file: /etc/colibri/secrets/runpod_s3_access_key
+#   runpod_s3_secret_key:
+#     file: /etc/colibri/secrets/runpod_s3_secret_key
+#   runpod_volume_id:
+#     file: /etc/colibri/secrets/runpod_volume_id
+#   runpod_datacenter:
+#     file: /etc/colibri/secrets/runpod_datacenter

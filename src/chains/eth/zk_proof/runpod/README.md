@@ -105,25 +105,75 @@ Artifacts written back to the server volume (same set as
 
 The prover image bundles the SP1 host binary (built with `--features cuda`),
 the frozen guest ELF, `run_zk_proof.sh`, `moongate-server` (extracted from
-`public.ecr.aws/succinct-labs/moongate`) and the entrypoint. Build it from
-the repository root:
+`public.ecr.aws/succinct-labs/moongate`) and the entrypoint. The build takes
+around 20-30 min on a native x86_64 runner because of the Rust release build
+and the moongate-server extract; on an Apple-Silicon MacBook it takes hours
+under QEMU emulation, so the CI workflow below is the recommended path.
+
+#### Option A - GitHub Actions (recommended)
+
+The repository ships a dedicated workflow that publishes the image to
+`ghcr.io/corpus-core/colibri-prover-gpu`:
+
+- **File**: [`.github/workflows/prover-gpu-docker.yml`](../../../../../.github/workflows/prover-gpu-docker.yml)
+- **Triggers**:
+  - `workflow_dispatch` for on-demand rebuilds (with an optional extra tag).
+  - Git tags matching `v*` (also tags the image as `latest`).
+  - Pushes to `main` / `dev` that touch the prover-gpu sources, the SP1 host
+    script or `scripts/run_zk_proof.sh`.
+- **Authentication**: uses the built-in `GITHUB_TOKEN` with `packages: write`,
+  so no PAT or secret setup is required. Once merged to `main`, run:
+
+  ```bash
+  # from your workstation
+  gh workflow run "Docker Prover GPU (RunPod)" \
+    --ref main \
+    -f tag=v5.2.3
+  ```
+
+  or click "Run workflow" in the Actions tab. The resulting image appears
+  under [https://github.com/orgs/corpus-core/packages](https://github.com/orgs/corpus-core/packages)
+  as `colibri-prover-gpu` with the tag you passed.
+
+- **Visibility**: newly-created GHCR packages default to *private*. RunPod
+  pulls images anonymously by default, so after the first successful push
+  open the package page, go to *Package settings -> Danger zone -> Change
+  visibility* and pick **Public**. Alternatively keep the package private
+  and register a container-registry credential in the RunPod console
+  (Console -> Settings -> Container Registries) before the orchestrator
+  creates its first pod.
+
+#### Option B - Local `docker buildx` (fallback)
+
+Only convenient on a native amd64 host (Linux server, x86_64 build VM). On
+Apple-Silicon this cross-compiles the Rust host binary under QEMU and is
+significantly slower than the CI job. Login with a personal access token
+that has the `write:packages` scope:
 
 ```bash
-docker build \
+echo "$GHCR_PAT" | docker login ghcr.io -u <your-gh-username> --password-stdin
+
+docker buildx build \
+  --platform linux/amd64 \
   -f src/chains/eth/zk_proof/runpod/prover-gpu/Dockerfile \
-  -t <your-registry>/zkprover-gpu:v5.2.3 \
+  -t ghcr.io/corpus-core/colibri-prover-gpu:v5.2.3 \
+  -t ghcr.io/corpus-core/colibri-prover-gpu:latest \
+  --push \
   .
-
-docker push <your-registry>/zkprover-gpu:v5.2.3
 ```
-
-The image must be publicly pullable or its registry credentials must be
-configured in the RunPod project settings, because pods are created via the
-REST API without embedding image-pull credentials in the pod spec.
 
 The `--features cuda` build only enables the SDK's CUDA client; it does not
 require CUDA to be installed at *build* time. The build stage uses a plain
 `rust:1.81-slim` base.
+
+#### Version pinning
+
+Bump the `v5.2.3` tag in lockstep with `sp1-sdk`: `Cargo.toml` in
+`src/chains/eth/zk_proof/script/`, the `MOONGATE_IMAGE` build arg in
+`src/chains/eth/zk_proof/runpod/prover-gpu/Dockerfile`, and the `RUNPOD_IMAGE`
+in `orchestrator/docker-compose.example.yml`. The Frozen-Guest-ELF and the
+Groth16 v5.0.0 circuit must remain unchanged so the on-chain VK and the
+`zk_sync_keys_root` trust anchor stay stable.
 
 ### Running the orchestrator
 

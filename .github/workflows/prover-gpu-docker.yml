@@ -1,0 +1,92 @@
+name: Docker Prover GPU (RunPod)
+
+# Builds and pushes the RunPod GPU-prover image to GHCR.
+#
+# The image is expensive to build (Rust release build with the sp1-sdk `cuda`
+# feature, plus a CUDA 12 runtime base and a moongate-server extract), so we
+# only trigger it on demand:
+#
+#   - manual dispatch (with an optional tag override for hotfix rebuilds)
+#   - version tags (v*) so a release rebuilds the image alongside the rest
+#   - pushes to main/dev that actually touch the prover-gpu Dockerfile,
+#     entrypoint, the SP1 host script (main.rs / Cargo.toml) or the
+#     scripts/run_zk_proof.sh helper the image copies in verbatim.
+#
+# RunPod pods run x86_64 with NVIDIA CUDA, so we only build linux/amd64.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Extra tag to publish (in addition to the auto-derived ones)'
+        required: false
+        type: string
+        default: ''
+  push:
+    tags:
+      - 'v*'
+    branches:
+      - main
+      - dev
+    paths:
+      - 'src/chains/eth/zk_proof/runpod/prover-gpu/**'
+      - 'src/chains/eth/zk_proof/script/**'
+      - 'src/chains/eth/zk_proof/program/elf/eth_sync_program'
+      - 'src/chains/eth/zk_proof/Cargo.toml'
+      - 'src/chains/eth/zk_proof/Cargo.lock'
+      - 'scripts/run_zk_proof.sh'
+      - '.github/workflows/prover-gpu-docker.yml'
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: prover-gpu-docker-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  docker-prover-gpu:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/corpus-core/colibri-prover-gpu
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest,enable=${{ github.ref_type == 'tag' && startsWith(github.ref_name, 'v') }}
+            type=raw,value=${{ inputs.tag }},enable=${{ inputs.tag != '' }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: src/chains/eth/zk_proof/runpod/prover-gpu/Dockerfile
+          # RunPod GPU nodes are all x86_64 - single-arch keeps the image
+          # small (~5-6 GB) and the build under 30 min on a GH runner.
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=prover-gpu
+          cache-to: type=gha,mode=max,scope=prover-gpu
+          provenance: false
+          sbom: false

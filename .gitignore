@@ -77,3 +77,11 @@ bindings/dart/flutter/colibri_flutter/ios/Frameworks/c4_swift.xcframework/
 
 audit-workspace/
 .colibri-audit*/
+
+# Local secrets for the RunPod orchestrator (see
+# src/chains/eth/zk_proof/runpod/orchestrator/docker-compose.example.yml).
+# Never commit real credentials; use docker secrets in production instead.
+.env
+# Users copy docker-compose.example.yml to docker-compose.yml and fill in
+# their own image tag / GPU preferences - that file is deployment-specific.
+src/chains/eth/zk_proof/runpod/orchestrator/docker-compose.yml
