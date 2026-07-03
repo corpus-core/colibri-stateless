@@ -48,6 +48,11 @@ IN_DIR="${WORK}/in"
 OUT_DIR="${WORK}/out"
 mkdir -p "${OUT_DIR}"
 
+# Persist all stdout/stderr onto the network volume so a failed run stays
+# diagnosable after the ephemeral pod is terminated. The orchestrator can pull
+# ${OUT_DIR}/pod.log via the S3 API. `tee` keeps the RunPod console log intact.
+exec > >(tee -a "${OUT_DIR}/pod.log") 2>&1
+
 # From here on, any error path writes the FAILED marker before exiting.
 mark_failed() {
     log "writing FAILED marker to ${OUT_DIR}/FAILED"

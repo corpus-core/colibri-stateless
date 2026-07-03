@@ -260,7 +260,14 @@ the same credentials on the laptop workflow.
   the existing server-side verifier chain (Colibri C verifier) confirms
   correctness end-to-end.
 - **`moongate-server` tag**. The `MOONGATE_IMAGE` build arg defaults to
-  `public.ecr.aws/succinct-labs/moongate:v5.0.0`. Verify at build time that
-  this matches the `sp1-sdk` version (`5.2.3` in this workspace). If Succinct
-  ever bumps the moongate image and the wire protocol, pin an appropriate
-  tag with `--build-arg MOONGATE_IMAGE=...`.
+  `public.ecr.aws/succinct-labs/moongate:v5.0.8`. This must be the exact
+  moongate tag the compiled `sp1-cuda` expects: sp1-cuda 5.2.3 hard-codes
+  `moongate:v5.0.8` as its default GPU image (see
+  `sp1-cuda-5.2.3/src/lib.rs`, `start_moongate_server`). A mismatched moongate
+  (e.g. the older v5.0.0) makes the CUDA prove step fail. If you bump `sp1-sdk`,
+  re-check that default and pin the matching tag via
+  `--build-arg MOONGATE_IMAGE=...`.
+- **Pod logs**. `entrypoint.sh` tees all output to
+  `jobs/<chain>/<period>/out/pod.log` on the network volume, so a failed run
+  stays diagnosable after the pod is terminated. Pull it via the S3 API
+  (`s3://<VOLUME_ID>/jobs/<chain>/<period>/out/pod.log`).

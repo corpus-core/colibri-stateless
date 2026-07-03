@@ -20,6 +20,7 @@ const {
     DeleteObjectCommand,
     ListObjectsV2Command,
 } = require('@aws-sdk/client-s3');
+const { NodeHttpHandler } = require('@smithy/node-http-handler');
 
 // --- Config -----------------------------------------------------------------
 
@@ -118,6 +119,32 @@ function err(...args) {
 
 // --- S3 client (RunPod S3-compatible API) -----------------------------------
 
+/**
+ * RunPod's S3 gateway emits HTTP date headers (`Date`, `Last-Modified`) with a
+ * `UTC` suffix, e.g. `Fri, 03 Jul 2026 21:51:16 UTC`. RFC 7231 (and the AWS SDK
+ * v3 timestamp parser) mandate the `GMT` suffix, so the SDK throws
+ * `Invalid RFC7231 date-time value ...` whenever it deserializes a 200 response
+ * that carries `Last-Modified` (HeadObject / GetObject on an existing object).
+ * We normalize the offending headers at the transport layer, before the SDK's
+ * deserializer parses them. `UTC` and `GMT` both denote UTC, so the rewrite is
+ * value-preserving.
+ */
+class RunpodDateFixHandler extends NodeHttpHandler {
+    async handle(request, options) {
+        const result = await super.handle(request, options);
+        const headers = result.response && result.response.headers;
+        if (headers) {
+            for (const key of ['date', 'last-modified']) {
+                const v = headers[key];
+                if (typeof v === 'string' && v.endsWith(' UTC')) {
+                    headers[key] = v.slice(0, -4) + ' GMT';
+                }
+            }
+        }
+        return result;
+    }
+}
+
 const s3 = new S3Client({
     region: S3_REGION,
     endpoint: S3_ENDPOINT,
@@ -127,6 +154,8 @@ const s3 = new S3Client({
     },
     // The RunPod S3 API expects path-style addressing (bucket = volume id).
     forcePathStyle: true,
+    // Work around RunPod's non-RFC7231 date headers (see handler docstring).
+    requestHandler: new RunpodDateFixHandler(),
 });
 
 async function s3ObjectExists(key) {
