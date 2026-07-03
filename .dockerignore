@@ -41,6 +41,10 @@ venv/
 target/
 **/target/
 Cargo.lock
+# The zk_proof workspace ships a checked-in Cargo.lock and the RunPod GPU
+# prover image builds the host binary reproducibly from it - so allow it back
+# into the build context.
+!src/chains/eth/zk_proof/Cargo.lock
 
 # Node
 node_modules/
