@@ -59,9 +59,10 @@ services:
 
       # The prover-gpu image (Image 2). Built and published to GHCR by the
       # `Docker Prover GPU (RunPod)` workflow (see
-      # .github/workflows/prover-gpu-docker.yml). Pin to a version tag that
-      # matches the sp1-sdk version used to compile the host binary.
-      RUNPOD_IMAGE: "ghcr.io/corpus-core/colibri-prover-gpu:v5.2.3"
+      # .github/workflows/prover-gpu-docker.yml) on every push to the `v5_pod`
+      # branch. Since this is a temporary, branch-local pipeline we track the
+      # `latest` tag instead of a version tag.
+      RUNPOD_IMAGE: "ghcr.io/corpus-core/colibri-prover-gpu:latest"
 
       # GPU selection. Multiple types can be given comma-separated. Any GPU
       # with >=24 GB VRAM and CUDA Compute Capability >= 8.6 works for SP1 v5.

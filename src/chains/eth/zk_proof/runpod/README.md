@@ -112,28 +112,31 @@ under QEMU emulation, so the CI workflow below is the recommended path.
 
 #### Option A - GitHub Actions (recommended)
 
-The repository ships a dedicated workflow that publishes the image to
-`ghcr.io/corpus-core/colibri-prover-gpu`:
+This is a temporary, branch-local pipeline. The v5 pod solution lives only on
+the `v5_pod` branch and is intentionally **not** merged into `dev`/`main` (the
+main branches already build v6 proofs via the SP1 prover network). Because of
+that, the workflow is driven purely by pushes to `v5_pod`:
 
 - **File**: [`.github/workflows/prover-gpu-docker.yml`](../../../../../.github/workflows/prover-gpu-docker.yml)
-- **Triggers**:
-  - `workflow_dispatch` for on-demand rebuilds (with an optional extra tag).
-  - Git tags matching `v*` (also tags the image as `latest`).
-  - Pushes to `main` / `dev` that touch the prover-gpu sources, the SP1 host
-    script or `scripts/run_zk_proof.sh`.
+- **Trigger**: `push` to the `v5_pod` branch. A `push` trigger uses the
+  workflow file of the pushed branch, so it does **not** need to exist on the
+  default branch (`dev`). This is deliberate - `workflow_dispatch` /
+  `gh workflow run` would require the file on `dev`, which we avoid.
 - **Authentication**: uses the built-in `GITHUB_TOKEN` with `packages: write`,
-  so no PAT or secret setup is required. Once merged to `main`, run:
+  so no PAT or secret setup is required.
+- **How to (re)deploy**: push to `v5_pod`. To force a rebuild without source
+  changes, push an empty commit:
 
   ```bash
-  # from your workstation
-  gh workflow run "Docker Prover GPU (RunPod)" \
-    --ref main \
-    -f tag=v5.2.3
+  git commit --allow-empty -m "rebuild prover-gpu image"
+  git push origin v5_pod
   ```
 
-  or click "Run workflow" in the Actions tab. The resulting image appears
-  under [https://github.com/orgs/corpus-core/packages](https://github.com/orgs/corpus-core/packages)
-  as `colibri-prover-gpu` with the tag you passed.
+  The image is published as
+  `ghcr.io/corpus-core/colibri-prover-gpu:latest` (plus `v5_pod` and a
+  short-SHA tag) and appears under
+  [https://github.com/orgs/corpus-core/packages](https://github.com/orgs/corpus-core/packages)
+  as `colibri-prover-gpu`.
 
 - **Visibility**: newly-created GHCR packages default to *private*. RunPod
   pulls images anonymously by default, so after the first successful push
@@ -156,7 +159,6 @@ echo "$GHCR_PAT" | docker login ghcr.io -u <your-gh-username> --password-stdin
 docker buildx build \
   --platform linux/amd64 \
   -f src/chains/eth/zk_proof/runpod/prover-gpu/Dockerfile \
-  -t ghcr.io/corpus-core/colibri-prover-gpu:v5.2.3 \
   -t ghcr.io/corpus-core/colibri-prover-gpu:latest \
   --push \
   .
@@ -166,14 +168,15 @@ The `--features cuda` build only enables the SDK's CUDA client; it does not
 require CUDA to be installed at *build* time. The build stage uses a plain
 `rust:1.81-slim` base.
 
-#### Version pinning
+#### Version stability
 
-Bump the `v5.2.3` tag in lockstep with `sp1-sdk`: `Cargo.toml` in
-`src/chains/eth/zk_proof/script/`, the `MOONGATE_IMAGE` build arg in
-`src/chains/eth/zk_proof/runpod/prover-gpu/Dockerfile`, and the `RUNPOD_IMAGE`
-in `orchestrator/docker-compose.example.yml`. The Frozen-Guest-ELF and the
-Groth16 v5.0.0 circuit must remain unchanged so the on-chain VK and the
-`zk_sync_keys_root` trust anchor stay stable.
+The image tracks `:latest` off the `v5_pod` branch, so there is no version tag
+to bump. The pieces that must stay frozen for the v5 proofs to keep verifying
+are the `sp1-sdk` version (`Cargo.lock` in `src/chains/eth/zk_proof/`), the
+matching `MOONGATE_IMAGE` build arg in
+`src/chains/eth/zk_proof/runpod/prover-gpu/Dockerfile`, the Frozen-Guest-ELF
+and the Groth16 v5.0.0 circuit. Keep all four unchanged so the on-chain VK and
+the `zk_sync_keys_root` trust anchor stay stable.
 
 ### Running the orchestrator
 

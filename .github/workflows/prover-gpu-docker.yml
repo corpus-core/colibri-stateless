@@ -2,40 +2,28 @@ name: Docker Prover GPU (RunPod)
 
 # Builds and pushes the RunPod GPU-prover image to GHCR.
 #
-# The image is expensive to build (Rust release build with the sp1-sdk `cuda`
-# feature, plus a CUDA 12 runtime base and a moongate-server extract), so we
-# only trigger it on demand:
+# This is a temporary, branch-local pipeline: the v5 pod solution lives only on
+# the `v5_pod` branch and is intentionally NOT merged into dev/main (the main
+# branches already produce v6 proofs via the SP1 prover network). We therefore
+# drive the build purely from pushes to `v5_pod` - no default-branch presence
+# and no version tag required:
 #
-#   - manual dispatch (with an optional tag override for hotfix rebuilds)
-#   - version tags (v*) so a release rebuilds the image alongside the rest
-#   - pushes to main/dev that actually touch the prover-gpu Dockerfile,
-#     entrypoint, the SP1 host script (main.rs / Cargo.toml) or the
-#     scripts/run_zk_proof.sh helper the image copies in verbatim.
+#   * A `workflow_dispatch` / `gh workflow run` trigger would need this file on
+#     the default branch (`dev`), which we explicitly want to avoid.
+#   * A `push` trigger uses the workflow file of the pushed branch, so keeping
+#     it on `v5_pod` alone is enough.
+#
+# To (re)deploy: commit to `v5_pod` and push. To force a rebuild without source
+# changes, push an empty commit:
+#
+#   git commit --allow-empty -m "rebuild prover-gpu image" && git push
 #
 # RunPod pods run x86_64 with NVIDIA CUDA, so we only build linux/amd64.
 
 on:
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: 'Extra tag to publish (in addition to the auto-derived ones)'
-        required: false
-        type: string
-        default: ''
   push:
-    tags:
-      - 'v*'
     branches:
-      - main
-      - dev
-    paths:
-      - 'src/chains/eth/zk_proof/runpod/prover-gpu/**'
-      - 'src/chains/eth/zk_proof/script/**'
-      - 'src/chains/eth/zk_proof/program/elf/eth_sync_program'
-      - 'src/chains/eth/zk_proof/Cargo.toml'
-      - 'src/chains/eth/zk_proof/Cargo.lock'
-      - 'scripts/run_zk_proof.sh'
-      - '.github/workflows/prover-gpu-docker.yml'
+      - v5_pod
 
 permissions:
   contents: read
@@ -68,12 +56,9 @@ jobs:
         with:
           images: ghcr.io/corpus-core/colibri-prover-gpu
           tags: |
+            type=raw,value=latest
             type=ref,event=branch
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=raw,value=latest,enable=${{ github.ref_type == 'tag' && startsWith(github.ref_name, 'v') }}
-            type=raw,value=${{ inputs.tag }},enable=${{ inputs.tag != '' }}
+            type=sha,format=short
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
