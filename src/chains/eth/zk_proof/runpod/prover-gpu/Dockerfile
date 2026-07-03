@@ -43,13 +43,28 @@ FROM ${MOONGATE_IMAGE} AS moongate
 # ---- 2. Build the SP1 host binary with the `cuda` feature -------------------
 FROM rust:${RUST_VERSION}-slim-bookworm AS builder
 
+# clang/libclang: required by bindgen (build-dep of sp1-recursion-gnark-ffi's
+#   `native` feature) to generate the FFI bindings for the gnark library.
+# curl: used to fetch the official Go toolchain below.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       pkg-config \
       libssl-dev \
       ca-certificates \
       git \
       build-essential \
+      clang \
+      libclang-dev \
+      curl \
     && rm -rf /var/lib/apt/lists/*
+
+# Go toolchain for sp1-recursion-gnark-ffi's `native` feature: its build.rs runs
+# `go build -buildmode=c-archive` to produce libsp1gnark.a which is then linked
+# statically into the host binary. Debian bookworm's packaged Go is older than
+# the module's `go 1.22` requirement, so install the official toolchain instead.
+ARG GO_VERSION=1.23.4
+RUN curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" \
+      | tar -C /usr/local -xz
+ENV PATH="/usr/local/go/bin:${PATH}"
 
 WORKDIR /src
 
@@ -63,6 +78,10 @@ COPY src/chains/eth/zk_proof/export_vk /src/zk_proof/export_vk
 
 # The host binary talks to moongate via HTTP; the `cuda` feature only pulls in
 # the client-side pieces, so no CUDA linker deps are required at build time.
+# The `cuda` feature also turns on `native-gnark`, so this step additionally
+# runs the gnark `go build` (needs the Go toolchain + libclang installed above)
+# and links libsp1gnark.a into the binary, making the Groth16 wrap run in-process
+# instead of shelling out to Docker.
 # zk_proof is a cargo workspace, so the build output lands in the workspace
 # target dir (/src/zk_proof/target), not under the script member.
 RUN cd /src/zk_proof/script \

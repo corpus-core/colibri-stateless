@@ -9,7 +9,15 @@ default = []
 # additionally build a CudaProver that connects to an externally-hosted
 # Moongate server via `SP1_MOONGATE_ENDPOINT` (avoids docker-in-docker in
 # GPU containers such as the RunPod prover image).
-cuda = ["sp1-sdk/cuda"]
+#
+# `native-gnark` links the gnark Groth16 prover statically into the host binary
+# (via sp1-recursion-gnark-ffi's `native` feature -> a cgo `go build`). Without
+# it the SDK falls back to running the gnark prover in a Docker container, which
+# is impossible inside an ephemeral RunPod pod (no docker daemon). Building it
+# natively requires a Go toolchain and libclang at compile time (see the
+# runpod/prover-gpu/Dockerfile builder stage); the default (non-cuda) build used
+# by the local laptop workflow keeps the docker-based gnark path unchanged.
+cuda = ["sp1-sdk/cuda", "sp1-sdk/native-gnark"]
 
 [dependencies]
 sp1-sdk = { workspace = true }
