@@ -49,6 +49,14 @@ const JOB_TIMEOUT_MS = parseInt(process.env.JOB_TIMEOUT_MS || '3600000', 10);   
 const POLL_INTERVAL_MS = parseInt(process.env.POLL_INTERVAL_MS || '15000', 10);    // 15 s
 const CONTAINER_DISK_GB = parseInt(process.env.CONTAINER_DISK_GB || '20', 10);
 
+// Quiescence window for the input `sync.ssz`. The prover-service on the server
+// writes it non-atomically (fopen("wb") + write, see
+// src/chains/eth/server/period_store_zk_prover.c), so a scan that catches the
+// file mid-write would upload a truncated input. We only accept a `sync.ssz`
+// whose mtime is at least this old, i.e. the write has provably settled. The
+// file is tens of KB and written in milliseconds, so a small window is ample.
+const SYNC_STABLE_MS = parseInt(process.env.SYNC_STABLE_MS || '30000', 10);        // 30 s
+
 // Artifacts the GPU pod produces and that we need on the server. Same set as
 // scripts/build_proof (UPLOAD_FILES).
 const ARTIFACTS = [
@@ -247,8 +255,8 @@ async function findMissingPeriod() {
 
     for (const period of periods) {
         const dir = path.join(OUTPUT_DIR, String(period));
-        const syncOk = await isNonEmpty(path.join(dir, 'sync.ssz'));
-        if (!syncOk) continue;
+        const syncStat = await statFile(path.join(dir, 'sync.ssz'));
+        if (!syncStat || syncStat.size === 0) continue;
         const g16Ok = await isNonEmpty(path.join(dir, 'zk_proof_g16.bin'));
         if (g16Ok) continue;
 
@@ -267,18 +275,34 @@ async function findMissingPeriod() {
             warn(`skipping period ${period}: previous period ${prev} is missing ${missingPrev.join(', ')} - build ${prev} first`);
             continue;
         }
+
+        // Guard against reading a `sync.ssz` that the prover-service is still
+        // writing. If it was modified within the last SYNC_STABLE_MS, defer it
+        // to a later tick so the write can settle. Higher periods depend on
+        // this one's proof, so deferring here does not starve them.
+        const age = Date.now() - syncStat.mtimeMs;
+        if (age < SYNC_STABLE_MS) {
+            log(`deferring period ${period}: sync.ssz was modified ${Math.round(age)}ms ago (< ${SYNC_STABLE_MS}ms), waiting for the write to settle`);
+            continue;
+        }
         return { period, prev };
     }
     return null;
 }
 
-async function isNonEmpty(p) {
+async function statFile(p) {
     try {
         const st = await fsp.stat(p);
-        return st.isFile() && st.size > 0;
+        if (!st.isFile()) return null;
+        return { size: st.size, mtimeMs: st.mtimeMs };
     } catch {
-        return false;
+        return null;
     }
+}
+
+async function isNonEmpty(p) {
+    const st = await statFile(p);
+    return st !== null && st.size > 0;
 }
 
 // --- Job upload / download -------------------------------------------------

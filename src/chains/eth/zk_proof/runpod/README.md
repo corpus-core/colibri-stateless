@@ -215,6 +215,7 @@ entirely via the pod-create call (`CHAIN` + `PERIOD`).
 | `JOB_TIMEOUT_MS` | no | `3600000` | Max time to wait for one pod to publish `DONE` (60 min default). |
 | `POLL_INTERVAL_MS` | no | `15000` | How often to check pod status + S3 markers while a job runs. |
 | `CONTAINER_DISK_GB` | no | `20` | Pod container-disk size (GB). |
+| `SYNC_STABLE_MS` | no | `30000` | Quiescence window: a `sync.ssz` is only processed once its mtime is at least this old, so a period is never uploaded while the prover-service is still writing the file. |
 
 For every required variable you can alternatively set `<NAME>_FILE` (for
 example `RUNPOD_API_KEY_FILE=/run/secrets/runpod_api_key`). The orchestrator
