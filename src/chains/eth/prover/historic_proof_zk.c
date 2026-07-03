@@ -52,8 +52,8 @@ c4_status_t c4_fetch_zk_proof_data(prover_ctx_t* ctx, zk_proof_data_t* zk_proof,
   c4_status_t proof_status = c4_send_internal_request(ctx, bprintf(&buf, "period_store/%l/%s", period, proof_name), NULL, 0, &zk_proof->sync_proof.bytes);
   // Once legacy v5 generation stops, an old client will no longer find its file.
   // Return an explicit upgrade hint instead of a generic "not found" error.
-  if (proof_status == C4_ERROR && !is_v6)
-    THROW_ERROR("zk sync proofs for verifier versions < " C4_ZK_FIRST_V6_VERSION_STR " are no longer supported; please upgrade colibri to >= " C4_ZK_FIRST_V6_VERSION_STR);
+  if (proof_status == C4_ERROR)
+    THROW_ERROR(is_v6 ? "no zk sync proof has not yet been generated for this period" : "zk sync proofs for verifier versions < " C4_ZK_FIRST_V6_VERSION_STR " are no longer supported; please upgrade colibri to >= " C4_ZK_FIRST_V6_VERSION_STR);
   TRY_ADD_ASYNC(status, proof_status);
 
   if (ctx->witness_key.len && ctx->witness_key.len % 20 == 0) {
