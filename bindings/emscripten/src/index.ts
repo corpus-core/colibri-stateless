@@ -371,6 +371,11 @@ export default class C4Client {
           case "revert":
             throwRevert(state.data);
           case "error":
+            if (state.error.includes("zk sync proof") && this.config.zk_proof) {
+              // try without zk proof
+              this.config.zk_proof = false;
+              return await this.rpc(method, args, method_type);
+            }
             throw new Error(state.error);
           case "pending":
             await Promise.all(state.requests.map((req: DataRequest) => handle_request(req, this.config)));
