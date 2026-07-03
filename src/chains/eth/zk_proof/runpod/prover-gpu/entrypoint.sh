@@ -109,7 +109,17 @@ cleanup_moongate() {
         wait "${MOONGATE_PID}" 2>/dev/null || true
     fi
 }
-trap 'rc=$?; cleanup_moongate; if [ "$rc" -ne 0 ]; then mark_failed; fi' EXIT
+
+# On failure, fold moongate's own log into the captured output (pod.log) so a
+# moongate-side problem is diagnosable from the network volume alone.
+dump_moongate_log() {
+    if [ -f /tmp/moongate.log ]; then
+        log "--- moongate-server log (tail) ---"
+        tail -n 200 /tmp/moongate.log || true
+        log "--- end moongate-server log ---"
+    fi
+}
+trap 'rc=$?; cleanup_moongate; if [ "$rc" -ne 0 ]; then dump_moongate_log; mark_failed; fi' EXIT
 
 # Wait until the port is accepting connections or moongate has died.
 READY=0
@@ -136,7 +146,12 @@ log "moongate-server ready"
 # skips the toolchain / rebuild path. It also auto-detects the previous period
 # from ${STORE}/${PREV}/ so we do not need to pass --prev-period explicitly.
 export SP1_PROVER=cuda
-export SP1_MOONGATE_ENDPOINT="http://127.0.0.1:${MOONGATE_PORT}"
+# The endpoint must be the Twirp base URL and end in `/twirp/`: sp1-cuda uses it
+# verbatim as the twirp client base (Client::new(Url::parse(endpoint))), and the
+# SDK's own docker path uses `http://localhost:<port>/twirp/`. Passing the bare
+# `http://host:port` makes every RPC (including the readiness probe) hit the
+# wrong path, so CUDA init times out with "proving server did not become ready".
+export SP1_MOONGATE_ENDPOINT="http://127.0.0.1:${MOONGATE_PORT}/twirp/"
 # The Groth16 wrap is verified locally by the SDK; inside a container we skip
 # it (there is no separate Docker verifier available) and rely on the
 # orchestrator's verify_zk_proof_cli step on the server side instead.
