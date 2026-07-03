@@ -6,15 +6,130 @@ use k256::SecretKey;
 use sha2::{Digest, Sha256};
 use sha3::{Digest as Sha3Digest, Keccak256};
 use sp1_sdk::{
-    HashableKey, Prover, ProverClient, SP1Proof, SP1ProofWithPublicValues, SP1Stdin,
-    SP1VerifyingKey, SP1_CIRCUIT_VERSION,
+    EnvProver, ExecutionReport, HashableKey, Prover, ProverClient, SP1Proof,
+    SP1ProofWithPublicValues, SP1ProvingKey, SP1PublicValues, SP1Stdin, SP1VerifyingKey,
+    SP1_CIRCUIT_VERSION,
 };
+#[cfg(feature = "cuda")]
+use sp1_sdk::CudaProver;
 use sp1_stark::SP1ProverOpts;
 use std::fs::File;
 use std::io::Read;
 use std::time::Instant;
 
 const PROOF_OFFSET: usize = 49358;
+
+/// Environment variable that selects an externally hosted Moongate (GPU
+/// prover) server for the SP1 CUDA prover. When set (and the `cuda` feature is
+/// enabled at build time) the host uses `ProverClient::builder().cuda().server(...)`
+/// so that the SDK does not spawn its own Moongate Docker container.
+///
+/// This is what allows the GPU prover to run inside a container that does not
+/// have docker-in-docker (e.g. the RunPod prover image where `moongate-server`
+/// runs natively next to the host binary).
+#[cfg_attr(not(feature = "cuda"), allow(dead_code))]
+const MOONGATE_ENV: &str = "SP1_MOONGATE_ENDPOINT";
+
+/// Prover client selection. The default path (`Env`) preserves the existing
+/// behaviour (`ProverClient::from_env()`, respecting `SP1_PROVER`), which is
+/// what all local and network proving flows use.
+///
+/// The `Cuda` variant is only reachable when the crate is compiled with the
+/// `cuda` feature AND `SP1_MOONGATE_ENDPOINT` is set at runtime. It builds a
+/// `CudaProver` that connects to an externally started `moongate-server` at
+/// the given endpoint, which is the docker-free way to drive the GPU prover.
+enum Client {
+    Env(EnvProver),
+    #[cfg(feature = "cuda")]
+    Cuda(CudaProver),
+}
+
+fn build_client() -> Client {
+    #[cfg(feature = "cuda")]
+    {
+        if let Ok(raw) = std::env::var(MOONGATE_ENV) {
+            let ep = raw.trim();
+            if !ep.is_empty() {
+                println!(
+                    "Building SP1 CUDA prover with external Moongate endpoint: {}",
+                    ep
+                );
+                let prover = ProverClient::builder().cuda().server(ep).build();
+                return Client::Cuda(prover);
+            }
+        }
+    }
+    Client::Env(ProverClient::from_env())
+}
+
+impl Client {
+    /// Runs the executor and returns the public values + execution report.
+    fn execute(
+        &self,
+        elf: &[u8],
+        stdin: &SP1Stdin,
+    ) -> Result<(SP1PublicValues, ExecutionReport), String> {
+        match self {
+            Client::Env(p) => p.execute(elf, stdin).run().map_err(|e| e.to_string()),
+            #[cfg(feature = "cuda")]
+            Client::Cuda(p) => p.execute(elf, stdin).run().map_err(|e| e.to_string()),
+        }
+    }
+
+    fn setup(&self, elf: &[u8]) -> (SP1ProvingKey, SP1VerifyingKey) {
+        match self {
+            Client::Env(p) => p.setup(elf),
+            #[cfg(feature = "cuda")]
+            Client::Cuda(p) => p.setup(elf),
+        }
+    }
+
+    /// Generates a compressed SP1 proof. Compressed proofs are the input for
+    /// the manual `shrink -> wrap_bn254 -> wrap_groth16_bn254` pipeline below
+    /// and are also the recursion input for the next period.
+    fn prove_compressed(
+        &self,
+        pk: &SP1ProvingKey,
+        stdin: &SP1Stdin,
+    ) -> Result<SP1ProofWithPublicValues, String> {
+        match self {
+            Client::Env(p) => p
+                .prove(pk, stdin)
+                .compressed()
+                .run()
+                .map_err(|e| e.to_string()),
+            #[cfg(feature = "cuda")]
+            Client::Cuda(p) => p
+                .prove(pk, stdin)
+                .compressed()
+                .run()
+                .map_err(|e| e.to_string()),
+        }
+    }
+
+    fn verify(
+        &self,
+        bundle: &SP1ProofWithPublicValues,
+        vkey: &SP1VerifyingKey,
+    ) -> Result<(), sp1_sdk::SP1VerificationError> {
+        match self {
+            Client::Env(p) => p.verify(bundle, vkey),
+            #[cfg(feature = "cuda")]
+            Client::Cuda(p) => p.verify(bundle, vkey),
+        }
+    }
+
+    /// Returns the inner `SP1Prover` used for the manual Groth16 wrap pipeline
+    /// (`shrink`, `wrap_bn254`, `wrap_groth16_bn254`). The default type
+    /// parameter `C = CpuProverComponents` applies to both variants.
+    fn inner(&self) -> &sp1_prover::SP1Prover {
+        match self {
+            Client::Env(p) => p.inner(),
+            #[cfg(feature = "cuda")]
+            Client::Cuda(p) => p.inner(),
+        }
+    }
+}
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -109,7 +224,7 @@ async fn main() {
     let skip_local_verify = std::env::var("SP1_SKIP_VERIFY").is_ok();
 
     log_network_identity();
-    let client = ProverClient::from_env();
+    let client = build_client();
     let mut stdin = SP1Stdin::new();
 
     println!("Reading proof data from {}", args.input_file);
@@ -176,7 +291,7 @@ async fn main() {
     if args.execute {
         println!("Executing program...");
         let start = Instant::now();
-        let (mut output, report) = client.execute(elf, &stdin).run().unwrap();
+        let (mut output, report) = client.execute(elf, &stdin).unwrap();
         println!("Execution finished in {:?}", start.elapsed());
         println!("Cycles: {}", report.total_instruction_count());
 
@@ -201,7 +316,7 @@ async fn main() {
 
             // 1. Generate Compressed Proof first (needed for recursion chain)
             println!("1. Generating Compressed Proof (for recursion)...");
-            let compressed = client.prove(&pk, &stdin).compressed().run().unwrap();
+            let compressed = client.prove_compressed(&pk, &stdin).unwrap();
 
             // Save Compressed Proof
             let proof_output =
@@ -297,7 +412,7 @@ async fn main() {
             }
         } else {
             println!("Generating Core/Compressed proof (default)...");
-            let proof = client.prove(&pk, &stdin).compressed().run().unwrap();
+            let proof = client.prove_compressed(&pk, &stdin).unwrap();
             println!("Proof generated successfully in {:?}", start.elapsed());
 
             let proof_output =

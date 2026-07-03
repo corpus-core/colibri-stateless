@@ -1,0 +1,16 @@
+{
+  "name": "colibri-zkproof-runpod-orchestrator",
+  "version": "0.1.0",
+  "description": "Orchestrator: watches the Colibri period store on the prover server, ships proof inputs to a RunPod network volume, starts an ephemeral GPU pod per missing period, and writes the produced artifacts back into the volume.",
+  "private": true,
+  "main": "orchestrator.js",
+  "scripts": {
+    "start": "node orchestrator.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.665.0"
+  }
+}

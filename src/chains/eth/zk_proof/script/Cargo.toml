@@ -3,6 +3,14 @@ name = "eth-sync-script"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = []
+# Enable the SP1 CUDA prover. When this feature is on the host binary can
+# additionally build a CudaProver that connects to an externally-hosted
+# Moongate server via `SP1_MOONGATE_ENDPOINT` (avoids docker-in-docker in
+# GPU containers such as the RunPod prover image).
+cuda = ["sp1-sdk/cuda"]
+
 [dependencies]
 sp1-sdk = { workspace = true }
 sp1-stark = "=5.2.3"

@@ -1,0 +1,78 @@
+# docker-compose.example.yml - deployment template for the RunPod orchestrator.
+#
+# Runs on the Colibri prover server next to the existing daemon. It mounts the
+# same period-store docker volume that the server (and the current
+# scripts/build_proof workflow) reads/writes.
+#
+# Copy this file to `docker-compose.yml`, fill in the placeholders below, and
+# start with `docker compose up -d --build`.
+#
+# You need three RunPod credentials on hand (from https://runpod.io/console):
+#   - a REST API key (used to create / terminate GPU pods)
+#   - an S3 access key + secret key pair for the network volume
+#   - the network-volume id (visible in the RunPod Storage page)
+
+services:
+  zkproof-runpod-orchestrator:
+    build:
+      # Build context is the repository root so the Dockerfile can COPY the
+      # orchestrator sources plus the docker sub-tree it lives in.
+      context: ../../../../../..
+      dockerfile: src/chains/eth/zk_proof/runpod/orchestrator/Dockerfile
+    image: zkprover-runpod-orchestrator:latest
+    restart: unless-stopped
+    environment:
+      # Which chain to service. Must match the docker-volume you mount below.
+      CHAIN: mainnet
+
+      # RunPod REST API key (create at Console -> Settings -> API Keys).
+      #
+      # For production, prefer the `<NAME>_FILE` variant with a Docker secret
+      # bind-mount so the value is not visible via `docker inspect` and does
+      # not end up in `/proc/<pid>/environ`. The orchestrator resolves any
+      # `<NAME>_FILE` variable by reading the referenced path (see the
+      # `requireEnv` helper). Example:
+      #
+      #   RUNPOD_API_KEY_FILE: /run/secrets/runpod_api_key
+      #   RUNPOD_S3_ACCESS_KEY_FILE: /run/secrets/runpod_s3_access_key
+      #   RUNPOD_S3_SECRET_KEY_FILE: /run/secrets/runpod_s3_secret_key
+      #
+      # combined with a Docker Compose `secrets:` section and matching
+      # `secrets:` entries at the top level.
+      RUNPOD_API_KEY: "REPLACE_ME"
+
+      # S3-compatible network-volume credentials (Console -> Storage -> S3 API).
+      RUNPOD_S3_ACCESS_KEY: "REPLACE_ME_user_..."
+      RUNPOD_S3_SECRET_KEY: "REPLACE_ME_rps_..."
+
+      # Network-volume identifiers.
+      NETWORK_VOLUME_ID: "REPLACE_ME_volume_id"
+      RUNPOD_DATACENTER: "EU-RO-1"
+
+      # The prover-gpu image (Image 2) pushed to your registry. It must be
+      # built from src/chains/eth/zk_proof/runpod/prover-gpu/Dockerfile.
+      RUNPOD_IMAGE: "your-registry/zkprover-gpu:v5.2.3"
+
+      # GPU selection. Multiple types can be given comma-separated. Any GPU
+      # with >=24 GB VRAM and CUDA Compute Capability >= 8.6 works for SP1 v5.
+      RUNPOD_GPU_TYPES: "NVIDIA GeForce RTX 4090,NVIDIA RTX A6000,NVIDIA L40S"
+
+      # How often to scan the volume, and how long to wait for a single proof
+      # before giving up on the pod.
+      CHECK_INTERVAL_MS: "600000"    # 10 minutes
+      JOB_TIMEOUT_MS: "3600000"      # 60 minutes
+      POLL_INTERVAL_MS: "15000"      # 15 seconds
+
+      # Docker-volume mount path inside this container.
+      OUTPUT_DIR: /data
+    volumes:
+      # Mount the existing docker volume that the Colibri server reads from.
+      # This is the same volume that `scripts/build_proof` accesses today via
+      # `ssh <server> "docker run -v <volume>:/data alpine ..."`.
+      #
+      # Replace the volume name to match your chain (e.g. gnosis_blocks).
+      - mainnet_blocks:/data
+
+volumes:
+  mainnet_blocks:
+    external: true
