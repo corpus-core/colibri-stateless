@@ -22,10 +22,14 @@
 #                    Must match the sp1-sdk version compiled into the host
 #                    binary (5.2.3 in this workspace).
 #   CUDA_RUNTIME   - CUDA 12 runtime base image for the final stage.
-#   RUST_VERSION   - toolchain for the host build stage.
+#   RUST_VERSION   - toolchain for the host build stage. Must be >= 1.85 because
+#                    the alloy dependency tree pulled in by sp1-sdk 5.2.3
+#                    requires the stabilized `edition2024` Cargo feature
+#                    (stabilized in Rust 1.85). Pinned to the same toolchain the
+#                    laptop workflow builds with (1.91) to avoid MSRV surprises.
 ARG MOONGATE_IMAGE=public.ecr.aws/succinct-labs/moongate:v5.0.0
 ARG CUDA_RUNTIME=nvidia/cuda:12.2.2-runtime-ubuntu22.04
-ARG RUST_VERSION=1.81
+ARG RUST_VERSION=1.91
 
 # ---- 1. Extract moongate-server from the official Succinct image ------------
 # This gives us a native `moongate-server` binary we can run directly next to

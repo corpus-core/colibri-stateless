@@ -166,7 +166,8 @@ docker buildx build \
 
 The `--features cuda` build only enables the SDK's CUDA client; it does not
 require CUDA to be installed at *build* time. The build stage uses a plain
-`rust:1.81-slim` base.
+`rust:1.91-slim` base (>= 1.85 is required because the alloy crates pulled in
+by sp1-sdk 5.2.3 need the `edition2024` Cargo feature).
 
 #### Version stability
 
