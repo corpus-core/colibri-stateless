@@ -18,7 +18,6 @@ const {
     PutObjectCommand,
     GetObjectCommand,
     DeleteObjectCommand,
-    ListObjectsV2Command,
 } = require('@aws-sdk/client-s3');
 const { NodeHttpHandler } = require('@smithy/node-http-handler');
 
@@ -212,25 +211,19 @@ async function s3DownloadFile(key, localPath) {
     await pipeline(res.Body, fs.createWriteStream(localPath));
 }
 
-async function s3DeletePrefix(prefix) {
-    // The RunPod S3 API does not implement DeleteObjects (batch delete), so
-    // we list + delete one object at a time. Prefixes are small (a handful
-    // of files per job), so this is fine.
-    let continuationToken;
-    do {
-        const list = await s3.send(new ListObjectsV2Command({
-            Bucket: NETWORK_VOLUME_ID,
-            Prefix: prefix,
-            ContinuationToken: continuationToken,
-        }));
-        for (const obj of list.Contents || []) {
-            await s3.send(new DeleteObjectCommand({
-                Bucket: NETWORK_VOLUME_ID,
-                Key: obj.Key,
-            })).catch((e) => warn(`failed to delete ${obj.Key}: ${e.message}`));
+async function s3DeleteKey(key) {
+    // DeleteObject is idempotent on RunPod's S3 (deleting a missing key
+    // succeeds). We still tolerate the not-found variants a strict gateway
+    // might return so a partially-populated job dir cleans up cleanly.
+    try {
+        await s3.send(new DeleteObjectCommand({ Bucket: NETWORK_VOLUME_ID, Key: key }));
+    } catch (e) {
+        const status = e && e.$metadata && e.$metadata.httpStatusCode;
+        const label = `${e && e.name} ${e && e.message}`;
+        if (status !== 404 && !/NoSuchKey|NotFound|Invalid object path/i.test(label)) {
+            warn(`failed to delete ${key}: ${e.message}`);
         }
-        continuationToken = list.IsTruncated ? list.NextContinuationToken : undefined;
-    } while (continuationToken);
+    }
 }
 
 // --- Local volume scanning --------------------------------------------------
@@ -311,6 +304,24 @@ function jobPrefix(period) {
     return `jobs/${CHAIN}/${period}/`;
 }
 
+/**
+ * All S3 keys a job may create on the network volume. Used by cleanupJobDir
+ * to wipe a job scratch dir without relying on ListObjectsV2 (which RunPod's
+ * S3 gateway rejects with "Invalid object path" for prefixes).
+ */
+function jobKeys(period) {
+    const p = jobPrefix(period);
+    return [
+        `${p}in/sync.ssz`,
+        `${p}in/prev_zk_proof.bin`,
+        `${p}in/prev_zk_vk_raw.bin`,
+        `${p}out/DONE`,
+        `${p}out/FAILED`,
+        `${p}out/pod.log`,
+        ...ARTIFACTS.map((f) => `${p}out/${f}`),
+    ];
+}
+
 async function uploadInputs(period, prev) {
     const p = jobPrefix(period);
     const dir = path.join(OUTPUT_DIR, String(period));
@@ -381,7 +392,10 @@ async function downloadArtifacts(period) {
 }
 
 async function cleanupJobDir(period) {
-    await s3DeletePrefix(jobPrefix(period)).catch((e) => warn(`cleanup failed: ${e.message}`));
+    // Delete the known keys directly; RunPod's S3 does not support prefix
+    // listing, and a stale DONE/FAILED marker from a previous attempt would
+    // otherwise make pollJob return immediately with the wrong outcome.
+    await Promise.all(jobKeys(period).map((k) => s3DeleteKey(k)));
 }
 
 // --- RunPod REST API --------------------------------------------------------
