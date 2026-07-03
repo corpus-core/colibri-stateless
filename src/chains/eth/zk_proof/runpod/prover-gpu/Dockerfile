@@ -59,9 +59,11 @@ COPY src/chains/eth/zk_proof/export_vk /src/zk_proof/export_vk
 
 # The host binary talks to moongate via HTTP; the `cuda` feature only pulls in
 # the client-side pieces, so no CUDA linker deps are required at build time.
+# zk_proof is a cargo workspace, so the build output lands in the workspace
+# target dir (/src/zk_proof/target), not under the script member.
 RUN cd /src/zk_proof/script \
     && cargo build --release --features cuda --bin eth-sync-script \
-    && { strip target/release/eth-sync-script || true; }
+    && { strip /src/zk_proof/target/release/eth-sync-script || true; }
 
 # ---- 3. Runtime stage: CUDA runtime + moongate + host binary ---------------
 FROM ${CUDA_RUNTIME}
@@ -84,7 +86,7 @@ RUN chmod +x /usr/local/bin/moongate-server
 # Host binary + frozen guest ELF. run_zk_proof.sh detects this /app layout
 # (see its `if [ -f "/app/eth_sync_program" ] && ...` branch) and skips both
 # the toolchain check and the host rebuild - the image is fully self-contained.
-COPY --from=builder /src/zk_proof/script/target/release/eth-sync-script /app/eth-sync-script
+COPY --from=builder /src/zk_proof/target/release/eth-sync-script /app/eth-sync-script
 COPY src/chains/eth/zk_proof/program/elf/eth_sync_program /app/eth_sync_program
 COPY scripts/run_zk_proof.sh /app/scripts/run_zk_proof.sh
 COPY src/chains/eth/zk_proof/runpod/prover-gpu/entrypoint.sh /app/entrypoint.sh
