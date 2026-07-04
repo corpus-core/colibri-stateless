@@ -58,7 +58,20 @@ mark_failed() {
     log "writing FAILED marker to ${OUT_DIR}/FAILED"
     : > "${OUT_DIR}/FAILED" || true
 }
-trap 'rc=$?; if [ "$rc" -ne 0 ]; then mark_failed; fi' EXIT
+
+# Keep the container alive after publishing the DONE/FAILED marker. RunPod
+# restarts a pod whose entrypoint exits (GPU pods have no run-once policy), and
+# every restart re-runs the `rm -f DONE FAILED` below plus the full proof. That
+# both wastes GPU time and makes the marker flap: it exists only for the couple
+# of seconds between being written and the next restart wiping it, so the
+# orchestrator - which only polls every POLL_INTERVAL_MS - almost always misses
+# it and waits out the whole JOB_TIMEOUT_MS. Blocking here holds the marker in
+# place until the orchestrator observes it and terminates the pod.
+hold_for_orchestrator() {
+    log "results published; holding pod open until the orchestrator terminates it"
+    while true; do sleep 3600; done
+}
+trap 'rc=$?; if [ "$rc" -ne 0 ]; then mark_failed; fi; hold_for_orchestrator' EXIT
 
 # Ensure the FAILED marker from a previous attempt is not confused with the
 # current one. DONE is only ever written at the very end of a successful run.
@@ -119,7 +132,7 @@ dump_moongate_log() {
         log "--- end moongate-server log ---"
     fi
 }
-trap 'rc=$?; cleanup_moongate; if [ "$rc" -ne 0 ]; then dump_moongate_log; mark_failed; fi' EXIT
+trap 'rc=$?; cleanup_moongate; if [ "$rc" -ne 0 ]; then dump_moongate_log; mark_failed; fi; hold_for_orchestrator' EXIT
 
 # Wait until the port is accepting connections or moongate has died.
 READY=0
