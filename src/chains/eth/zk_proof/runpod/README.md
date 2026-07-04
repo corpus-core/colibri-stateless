@@ -217,6 +217,7 @@ entirely via the pod-create call (`CHAIN` + `PERIOD`).
 | `CONTAINER_DISK_GB` | no | `20` | Pod container-disk size (GB). |
 | `SYNC_STABLE_MS` | no | `30000` | Quiescence window: a `sync.ssz` is only processed once its mtime is at least this old, so a period is never uploaded while the prover-service is still writing the file. |
 | `PROVE_LEAD_MS` | no | `3600000` | Lead time before a period's deadline (its start time) at which a GPU pod may be launched. Until then the period is deferred, leaving almost a full period for a free manual `scripts/build_proof` run. Only gated for chains with a known timing table (mainnet, sepolia, gnosis, chiado); set to `0` to always prove as soon as inputs appear. |
+| `METRICS_FILE` | no | (disabled) | Path to a Prometheus textfile written atomically on every scan (see [Monitoring](#monitoring)). Point it inside the node_exporter textfile_collector dir. |
 
 For every required variable you can alternatively set `<NAME>_FILE` (for
 example `RUNPOD_API_KEY_FILE=/run/secrets/runpod_api_key`). The orchestrator
@@ -259,6 +260,34 @@ the same credentials on the laptop workflow.
   with `verify_zk_proof_cli` before they are marked as "final" for clients.
   This orchestrator relies on the same downstream verification pass; do not
   disable it.
+
+## Monitoring
+
+Every scan logs the deadline of any period that has a `sync.ssz` but no proof
+yet, so you can see from the log alone when a pod will be launched and whether
+it is still worth building the proof yourself:
+
+```
+selected period 1794 (prev 1793) for proving on RunPod - proof due 2026-07-04T16:09:59.000Z (start of period 1794)
+deferring period 1795: proof due 2026-07-05T19:28:23.000Z (period start); launching in ~2013 min (lead 60 min)
+```
+
+Set `METRICS_FILE` to also emit a Prometheus textfile for the node_exporter
+[textfile collector](https://github.com/prometheus/node_exporter#textfile-collector).
+It is rewritten atomically on every scan and carries a `chain` label:
+
+| Metric | Meaning |
+|--------|---------|
+| `colibri_zkproof_orchestrator_up` | `1` while the orchestrator runs. |
+| `colibri_zkproof_orchestrator_last_scan_timestamp_seconds` | Unix time of the most recent scan (freshness). |
+| `colibri_zkproof_orchestrator_last_proof_timestamp_seconds` | Modification time of the most recent client-facing `zk_proof.ssz`. |
+| `colibri_zkproof_orchestrator_last_proof_period` | Highest period with a built `zk_proof.ssz`. |
+| `colibri_zkproof_orchestrator_next_period` | Lowest period that has `sync.ssz` but no proof yet (absent when idle). |
+| `colibri_zkproof_orchestrator_next_deadline_timestamp_seconds` | Unix time by which that next proof must exist (start of that period). |
+
+In Grafana this lets you chart when the last proof was built and how long until
+the next deadline; alert if `now - last_proof_timestamp` grows unexpectedly or
+if `next_deadline - now` drops below your comfort margin.
 
 ## Notes and known constraints
 

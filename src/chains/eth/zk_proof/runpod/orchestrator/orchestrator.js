@@ -78,6 +78,15 @@ const CHAIN_TIMING = {
 // to disable the gate and always prove as soon as inputs are present.
 const PROVE_LEAD_MS = parseInt(process.env.PROVE_LEAD_MS || '3600000', 10);        // 1 h
 
+// Optional Prometheus textfile-collector output. When set, the orchestrator
+// writes a `.prom` file (atomically, via write+rename) on every scan exposing
+// the last built proof and the next deadline, so Grafana can show when the
+// last proof was produced and when the next one is due. Point it at a file
+// inside the node_exporter textfile_collector directory (e.g.
+// `/metrics/colibri_zkproof.prom`) and mount that directory into the
+// container. Empty = disabled.
+const METRICS_FILE = process.env.METRICS_FILE || '';
+
 // Artifacts the GPU pod produces and that we need on the server. Same set as
 // scripts/build_proof (UPLOAD_FILES).
 const ARTIFACTS = [
@@ -308,7 +317,8 @@ async function findMissingPeriod() {
             if (!(await isNonEmpty(path.join(prevDir, f)))) missingPrev.push(f);
         }
         if (missingPrev.length > 0) {
-            warn(`skipping period ${period}: previous period ${prev} is missing ${missingPrev.join(', ')} - build ${prev} first`);
+            const dueStr = deadlineMs !== null ? `, proof due ${new Date(deadlineMs).toISOString()}` : '';
+            warn(`skipping period ${period}: previous period ${prev} is missing ${missingPrev.join(', ')} - build ${prev} first${dueStr}`);
             continue;
         }
 
@@ -321,7 +331,7 @@ async function findMissingPeriod() {
             log(`deferring period ${period}: sync.ssz was modified ${Math.round(age)}ms ago (< ${SYNC_STABLE_MS}ms), waiting for the write to settle`);
             continue;
         }
-        return { period, prev };
+        return { period, prev, deadlineMs };
     }
     return null;
 }
@@ -350,6 +360,89 @@ async function statFile(p) {
 async function isNonEmpty(p) {
     const st = await statFile(p);
     return st !== null && st.size > 0;
+}
+
+/**
+ * Stat-only scan of the volume for monitoring: the most recent client-facing
+ * proof (`zk_proof.ssz`, written by the prover-service once the artifacts are
+ * present) and the next period that still needs a proof, with its deadline.
+ * Returns null fields when nothing matches / the dir is unreadable.
+ */
+async function collectMetrics() {
+    const empty = { lastProofPeriod: null, lastProofMtimeMs: null, nextPeriod: null, nextDeadlineMs: null };
+    let entries;
+    try {
+        entries = await fsp.readdir(OUTPUT_DIR, { withFileTypes: true });
+    } catch {
+        return empty;
+    }
+    const periods = entries
+        .filter((d) => d.isDirectory() && /^[0-9]+$/.test(d.name))
+        .map((d) => parseInt(d.name, 10))
+        .sort((a, b) => a - b);
+
+    const m = { ...empty };
+    for (const period of periods) {
+        const dir = path.join(OUTPUT_DIR, String(period));
+        const sszStat = await statFile(path.join(dir, 'zk_proof.ssz'));
+        if (sszStat && sszStat.size > 0) {
+            // Ascending order, so the last match is the highest period.
+            m.lastProofPeriod = period;
+            m.lastProofMtimeMs = sszStat.mtimeMs;
+        }
+        if (m.nextPeriod === null) {
+            const syncStat = await statFile(path.join(dir, 'sync.ssz'));
+            const hasG16 = await isNonEmpty(path.join(dir, 'zk_proof_g16.bin'));
+            if (syncStat && syncStat.size > 0 && !hasG16) {
+                m.nextPeriod = period;
+                m.nextDeadlineMs = periodStartMs(period);
+            }
+        }
+    }
+    return m;
+}
+
+/**
+ * Write the Prometheus textfile if METRICS_FILE is configured. The file is
+ * written atomically (write to `.tmp`, then rename) as required by the
+ * node_exporter textfile collector, which must never observe a partial file.
+ */
+async function writeMetricsFile() {
+    if (!METRICS_FILE) return;
+    let m;
+    try {
+        m = await collectMetrics();
+    } catch (e) {
+        warn(`metrics scan failed: ${e.message}`);
+        return;
+    }
+    const lbl = `{chain="${CHAIN.toLowerCase()}"}`;
+    const lines = [];
+    const gauge = (name, help, value) => {
+        lines.push(`# HELP ${name} ${help}`);
+        lines.push(`# TYPE ${name} gauge`);
+        lines.push(`${name}${lbl} ${value}`);
+    };
+    gauge('colibri_zkproof_orchestrator_up', 'Orchestrator liveness (1 while running).', 1);
+    gauge('colibri_zkproof_orchestrator_last_scan_timestamp_seconds', 'Unix time of the most recent volume scan.', Math.floor(Date.now() / 1000));
+    if (m.lastProofMtimeMs !== null) {
+        gauge('colibri_zkproof_orchestrator_last_proof_timestamp_seconds', 'Modification time of the most recent client-facing zk_proof.ssz.', Math.floor(m.lastProofMtimeMs / 1000));
+        gauge('colibri_zkproof_orchestrator_last_proof_period', 'Highest period that has a built zk_proof.ssz.', m.lastProofPeriod);
+    }
+    if (m.nextPeriod !== null) {
+        gauge('colibri_zkproof_orchestrator_next_period', 'Lowest period that has sync.ssz but no proof yet.', m.nextPeriod);
+        if (m.nextDeadlineMs !== null) {
+            gauge('colibri_zkproof_orchestrator_next_deadline_timestamp_seconds', 'Unix time by which the next missing proof must exist (start of that period).', Math.floor(m.nextDeadlineMs / 1000));
+        }
+    }
+    const body = lines.join('\n') + '\n';
+    const tmp = `${METRICS_FILE}.tmp`;
+    try {
+        await fsp.writeFile(tmp, body);
+        await fsp.rename(tmp, METRICS_FILE);
+    } catch (e) {
+        warn(`failed to write metrics file ${METRICS_FILE}: ${e.message}`);
+    }
 }
 
 // --- Job upload / download -------------------------------------------------
@@ -634,8 +727,11 @@ async function processOne() {
         log('no periods missing zk_proof_g16.bin - idle');
         return false;
     }
-    const { period, prev } = missing;
-    log(`selected period ${period} (prev ${prev}) for proving on RunPod`);
+    const { period, prev, deadlineMs } = missing;
+    const dueStr = deadlineMs !== null
+        ? `proof due ${new Date(deadlineMs).toISOString()} (start of period ${period})`
+        : 'no deadline table for this chain';
+    log(`selected period ${period} (prev ${prev}) for proving on RunPod - ${dueStr}`);
 
     // Fresh scratch dir on the volume - remove any leftovers from a previous
     // failed attempt so the pod does not see stale DONE/FAILED markers.
@@ -699,6 +795,7 @@ async function main() {
     const timingKnown = !!CHAIN_TIMING[CHAIN.toLowerCase()];
     log(`  prove_lead=${PROVE_LEAD_MS}ms deadline_gating=${PROVE_LEAD_MS > 0 && timingKnown ? 'on' : 'off'}${PROVE_LEAD_MS > 0 && !timingKnown ? ` (no timing table for chain '${CHAIN}')` : ''}`);
     log(`  s3_endpoint=${S3_ENDPOINT} region=${S3_REGION}`);
+    log(`  metrics_file=${METRICS_FILE || '(disabled)'}`);
     log(`  hostname=${os.hostname()}`);
 
     let running = false;
@@ -722,6 +819,9 @@ async function main() {
         } catch (e) {
             err(`tick failed: ${e.stack || e.message}`);
         } finally {
+            // Refresh the Prometheus textfile after every tick so the "next
+            // deadline" and "last proof" gauges reflect the post-tick state.
+            await writeMetricsFile();
             running = false;
         }
     };

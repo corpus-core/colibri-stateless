@@ -82,6 +82,13 @@ services:
       # inputs appear. Set to 0 to disable the gate entirely.
       PROVE_LEAD_MS: "3600000"       # 1 hour
 
+      # Optional Prometheus textfile-collector output. When set, the orchestrator
+      # writes this file atomically on every scan with gauges for the last built
+      # proof (zk_proof.ssz timestamp + period) and the next deadline (period
+      # start time). Point it inside the node_exporter textfile_collector dir and
+      # mount that dir below. Leave unset/empty to disable.
+      # METRICS_FILE: "/metrics/colibri_zkproof.prom"
+
       # Docker-volume mount path inside this container.
       OUTPUT_DIR: /data
 
@@ -104,6 +111,10 @@ services:
       #
       # Replace the volume name to match your chain (e.g. gnosis_blocks).
       - mainnet_blocks:/data
+      # Optional: expose METRICS_FILE to the host's node_exporter textfile
+      # collector. Uncomment together with the METRICS_FILE env above and adjust
+      # the host path to your collector directory.
+      # - /var/lib/node_exporter/textfile_collector:/metrics
 
     # ------------------------------------------------------------------
     # PRODUCTION: mount secrets into the container's filesystem.
