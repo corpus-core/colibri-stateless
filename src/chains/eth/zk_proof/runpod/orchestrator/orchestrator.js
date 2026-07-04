@@ -55,6 +55,29 @@ const CONTAINER_DISK_GB = parseInt(process.env.CONTAINER_DISK_GB || '20', 10);
 // file is tens of KB and written in milliseconds, so a small window is ample.
 const SYNC_STABLE_MS = parseInt(process.env.SYNC_STABLE_MS || '30000', 10);        // 30 s
 
+// Beacon-chain timing per orchestrated chain, used to work out when a period's
+// proof is actually needed. All supported chains use 8192 slots per
+// sync-committee period (mainnet/sepolia = 2^(5+8), gnosis/chiado = 2^(4+9);
+// see chain_spec_t in src/chains/eth/ssz/beacon_types.c); only the genesis time
+// and the slot duration differ.
+const SLOTS_PER_PERIOD = 8192;
+const CHAIN_TIMING = {
+    mainnet: { genesis: 1606824023, secondsPerSlot: 12 },
+    sepolia: { genesis: 1655733600, secondsPerSlot: 12 },
+    gnosis:  { genesis: 1638993340, secondsPerSlot: 5 },
+    chiado:  { genesis: 1665396300, secondsPerSlot: 5 },
+};
+
+// How long before a period's start we are willing to launch the (paid) GPU pod.
+// The prover-service writes the next_sync_committee into `{P+1}/sync.ssz` while
+// period P runs, so a `sync.ssz` found in dir <period> is due when sync
+// committee period <period> begins. We hold off launching until LEAD before
+// that deadline: this leaves a large window (almost a full period) for a manual
+// local `scripts/build_proof` run to produce the artifacts for free, and only
+// falls back to RunPod shortly before the proof is genuinely required. Set to 0
+// to disable the gate and always prove as soon as inputs are present.
+const PROVE_LEAD_MS = parseInt(process.env.PROVE_LEAD_MS || '3600000', 10);        // 1 h
+
 // Artifacts the GPU pod produces and that we need on the server. Same set as
 // scripts/build_proof (UPLOAD_FILES).
 const ARTIFACTS = [
@@ -258,6 +281,21 @@ async function findMissingPeriod() {
         const g16Ok = await isNonEmpty(path.join(dir, 'zk_proof_g16.bin'));
         if (g16Ok) continue;
 
+        // Hold off until the proof is close to being needed. Launching a paid
+        // GPU pod as soon as inputs appear would waste money and pre-empt a
+        // manual local build; instead we defer until PROVE_LEAD_MS before the
+        // period's start (its proof deadline). Deadlines grow with the period
+        // number, so deferring the lowest not-yet-due period does not starve
+        // any higher one. Past-due periods (e.g. backfill) launch immediately.
+        const deadlineMs = periodStartMs(period);
+        if (deadlineMs !== null && PROVE_LEAD_MS > 0) {
+            const waitMs = deadlineMs - PROVE_LEAD_MS - Date.now();
+            if (waitMs > 0) {
+                log(`deferring period ${period}: proof due ${new Date(deadlineMs).toISOString()} (period start); launching in ~${Math.round(waitMs / 60000)} min (lead ${Math.round(PROVE_LEAD_MS / 60000)} min)`);
+                continue;
+            }
+        }
+
         // Verify recursion inputs on the previous period. If missing, skip
         // (the chain must not be broken; the prev period has to be proved
         // first). We deliberately do NOT try to auto-fill it here - if the
@@ -286,6 +324,17 @@ async function findMissingPeriod() {
         return { period, prev };
     }
     return null;
+}
+
+/**
+ * Epoch-ms at which sync-committee `period` begins on the configured chain -
+ * i.e. the moment its proof must be available. Returns null for chains we have
+ * no timing table for, in which case deadline gating is skipped.
+ */
+function periodStartMs(period) {
+    const t = CHAIN_TIMING[CHAIN.toLowerCase()];
+    if (!t) return null;
+    return (t.genesis + period * SLOTS_PER_PERIOD * t.secondsPerSlot) * 1000;
 }
 
 async function statFile(p) {
@@ -647,6 +696,8 @@ async function main() {
     log(`  image=${RUNPOD_IMAGE} gpus=${RUNPOD_GPU_TYPES.join('|')}`);
     log(`  output_dir=${OUTPUT_DIR}`);
     log(`  check_interval=${CHECK_INTERVAL_MS}ms job_timeout=${JOB_TIMEOUT_MS}ms`);
+    const timingKnown = !!CHAIN_TIMING[CHAIN.toLowerCase()];
+    log(`  prove_lead=${PROVE_LEAD_MS}ms deadline_gating=${PROVE_LEAD_MS > 0 && timingKnown ? 'on' : 'off'}${PROVE_LEAD_MS > 0 && !timingKnown ? ` (no timing table for chain '${CHAIN}')` : ''}`);
     log(`  s3_endpoint=${S3_ENDPOINT} region=${S3_REGION}`);
     log(`  hostname=${os.hostname()}`);
 

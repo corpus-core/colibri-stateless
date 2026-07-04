@@ -216,6 +216,7 @@ entirely via the pod-create call (`CHAIN` + `PERIOD`).
 | `POLL_INTERVAL_MS` | no | `15000` | How often to check pod status + S3 markers while a job runs. |
 | `CONTAINER_DISK_GB` | no | `20` | Pod container-disk size (GB). |
 | `SYNC_STABLE_MS` | no | `30000` | Quiescence window: a `sync.ssz` is only processed once its mtime is at least this old, so a period is never uploaded while the prover-service is still writing the file. |
+| `PROVE_LEAD_MS` | no | `3600000` | Lead time before a period's deadline (its start time) at which a GPU pod may be launched. Until then the period is deferred, leaving almost a full period for a free manual `scripts/build_proof` run. Only gated for chains with a known timing table (mainnet, sepolia, gnosis, chiado); set to `0` to always prove as soon as inputs appear. |
 
 For every required variable you can alternatively set `<NAME>_FILE` (for
 example `RUNPOD_API_KEY_FILE=/run/secrets/runpod_api_key`). The orchestrator
@@ -240,6 +241,16 @@ the same credentials on the laptop workflow.
   fails, the orchestrator backs off to the next tick interval instead of
   retrying immediately, so a persistent error (e.g. bad image tag or expired
   credentials) cannot burn a series of GPU-hours before an operator notices.
+- **Deadline gating (`PROVE_LEAD_MS`)**: a period's proof is only needed when
+  that sync-committee period begins (the prover-service writes the
+  `next_sync_committee` into `{P+1}/sync.ssz` while period `P` runs, so a
+  `sync.ssz` in dir `<P>` is due at the start of `<P>`). The orchestrator
+  therefore holds off launching a pod until `PROVE_LEAD_MS` before that start
+  time - almost a full period (~27 h on mainnet, ~11 h on gnosis). This leaves
+  ample room to build the proof for free with `scripts/build_proof` on any
+  machine: if the artifacts show up first, the orchestrator sees the period is
+  done and never provisions a pod. Past-due periods (backfill) launch
+  immediately.
 - **Graceful shutdown**: on `SIGTERM`/`SIGINT` (e.g. `docker compose down`,
   restart on OOM) the orchestrator terminates the active RunPod pod before
   exiting so credits are not billed for an orphaned job.
