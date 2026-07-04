@@ -11,6 +11,7 @@ const fs = require('fs');
 const fsp = require('fs/promises');
 const path = require('path');
 const os = require('os');
+const { execFile } = require('child_process');
 const { pipeline } = require('stream/promises');
 const {
     S3Client,
@@ -86,6 +87,17 @@ const PROVE_LEAD_MS = parseInt(process.env.PROVE_LEAD_MS || '3600000', 10);     
 // `/metrics/colibri_zkproof.prom`) and mount that directory into the
 // container. Empty = disabled.
 const METRICS_FILE = process.env.METRICS_FILE || '';
+
+// Verify every freshly built Groth16 proof before publishing it into the
+// volume. The server assembles `zk_proof.ssz` for v5 clients from these files
+// but cannot verify a v5 proof itself: its own `verify_zk_proof` is pinned to
+// the v6 program hash. So we gate here against the v5 verification key baked
+// into the bundled `verify_zk_proof_cli` (built from this branch). Fail-closed
+// - an invalid or unverifiable proof is dropped and never installed. Set
+// VERIFY_PROOF=0/false to disable (e.g. for debugging).
+const VERIFY_PROOF = !/^(0|false|no|off)$/i.test((process.env.VERIFY_PROOF || '1').trim());
+const VERIFIER_BIN = process.env.VERIFIER_BIN || '/app/verify_zk_proof_cli';
+const VERIFY_TIMEOUT_MS = parseInt(process.env.VERIFY_TIMEOUT_MS || '120000', 10); // 2 min
 
 // Artifacts the GPU pod produces and that we need on the server. Same set as
 // scripts/build_proof (UPLOAD_FILES).
@@ -481,6 +493,29 @@ async function uploadInputs(period, prev) {
 }
 
 /**
+ * Verify a Groth16 proof with the bundled v5 verifier CLI. Resolves on a valid
+ * proof (CLI exit 0) and rejects otherwise, so callers can fail-closed. The CLI
+ * signature is `verify_zk_proof_cli <proof_file> <public_values_file>`; a
+ * missing binary (ENOENT) is surfaced as a distinct, actionable error so it is
+ * never silently treated as "invalid proof".
+ */
+function verifyProofFiles(proofPath, pubPath) {
+    return new Promise((resolve, reject) => {
+        execFile(VERIFIER_BIN, [proofPath, pubPath], { timeout: VERIFY_TIMEOUT_MS }, (error, stdout, stderr) => {
+            if (!error) return resolve();
+            if (error.code === 'ENOENT') {
+                return reject(new Error(`verifier binary not found at ${VERIFIER_BIN} (set VERIFIER_BIN, or VERIFY_PROOF=0 to skip verification)`));
+            }
+            if (error.killed || error.signal) {
+                return reject(new Error(`verifier ${VERIFIER_BIN} timed out or was killed (signal ${error.signal || 'n/a'})`));
+            }
+            const detail = (stderr || stdout || '').toString().trim().split('\n').slice(-3).join(' | ');
+            return reject(new Error(`groth16 proof rejected by ${VERIFIER_BIN}${detail ? `: ${detail}` : ''}`));
+        });
+    });
+}
+
+/**
  * Download all published artifacts for `period` from the network volume and
  * atomically publish them into OUTPUT_DIR/<period>/.
  *
@@ -530,6 +565,26 @@ async function downloadArtifacts(period) {
         if (!(await isNonEmpty(path.join(staging, f)))) {
             throw new Error(`mandatory artifact ${f} missing or empty after staged download`);
         }
+    }
+
+    // Verify the staged proof before publishing it. Throwing here leaves the
+    // staged files in `.staging/` (wiped at the start of the next attempt) and
+    // aborts the publish, so a proof the built-in v5 verifier rejects never
+    // becomes visible to the prover-service (which would otherwise package it
+    // into zk_proof.ssz and serve it to v5 clients).
+    //
+    // NOTE: this checks the Groth16 proof's *cryptographic validity* against the
+    // embedded v5 verification key and sha256(public_inputs). It does not by
+    // itself bind the proof to this specific period - that semantic check
+    // happens downstream when the client verifies zk_proof.ssz against its own
+    // sync-committee state. So this gate is defense-in-depth, not a full
+    // period-correctness proof.
+    if (VERIFY_PROOF) {
+        log(`verifying groth16 proof for period ${period} with ${VERIFIER_BIN}`);
+        await verifyProofFiles(path.join(staging, 'zk_proof_g16.bin'), path.join(staging, 'zk_pub.bin'));
+        log(`groth16 proof for period ${period} verified OK`);
+    } else {
+        warn(`publishing period ${period} WITHOUT proof verification (VERIFY_PROOF is off)`);
     }
 
     // Publish everything except the trigger file first, then rename the
@@ -796,6 +851,7 @@ async function main() {
     log(`  prove_lead=${PROVE_LEAD_MS}ms deadline_gating=${PROVE_LEAD_MS > 0 && timingKnown ? 'on' : 'off'}${PROVE_LEAD_MS > 0 && !timingKnown ? ` (no timing table for chain '${CHAIN}')` : ''}`);
     log(`  s3_endpoint=${S3_ENDPOINT} region=${S3_REGION}`);
     log(`  metrics_file=${METRICS_FILE || '(disabled)'}`);
+    log(`  verify_proof=${VERIFY_PROOF ? `on (${VERIFIER_BIN})` : 'off'}`);
     log(`  hostname=${os.hostname()}`);
 
     let running = false;

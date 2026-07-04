@@ -92,6 +92,14 @@ services:
       # Docker-volume mount path inside this container.
       OUTPUT_DIR: /data
 
+      # Verify every freshly built Groth16 proof against the bundled v5
+      # verifier CLI before it is published into the volume (fail-closed: a
+      # rejected proof is never installed). On by default. Set to 0 only for
+      # debugging; VERIFIER_BIN overrides the CLI path (default
+      # /app/verify_zk_proof_cli, built into the image).
+      # VERIFY_PROOF: "1"
+      # VERIFIER_BIN: /app/verify_zk_proof_cli
+
       # ------------------------------------------------------------------
       # PRODUCTION (docker secrets): uncomment the block below AND the
       # top-level `secrets:` section, and comment out the `env_file:`

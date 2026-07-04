@@ -218,6 +218,8 @@ entirely via the pod-create call (`CHAIN` + `PERIOD`).
 | `SYNC_STABLE_MS` | no | `30000` | Quiescence window: a `sync.ssz` is only processed once its mtime is at least this old, so a period is never uploaded while the prover-service is still writing the file. |
 | `PROVE_LEAD_MS` | no | `3600000` | Lead time before a period's deadline (its start time) at which a GPU pod may be launched. Until then the period is deferred, leaving almost a full period for a free manual `scripts/build_proof` run. Only gated for chains with a known timing table (mainnet, sepolia, gnosis, chiado); set to `0` to always prove as soon as inputs appear. |
 | `METRICS_FILE` | no | (disabled) | Path to a Prometheus textfile written atomically on every scan (see [Monitoring](#monitoring)). Point it inside the node_exporter textfile_collector dir. |
+| `VERIFY_PROOF` | no | `1` | Verify each freshly built Groth16 proof with the bundled v5 `verify_zk_proof_cli` before publishing it (fail-closed). Set to `0`/`false` to disable. |
+| `VERIFIER_BIN` | no | `/app/verify_zk_proof_cli` | Path to the verifier CLI used when `VERIFY_PROOF` is on. |
 
 For every required variable you can alternatively set `<NAME>_FILE` (for
 example `RUNPOD_API_KEY_FILE=/run/secrets/runpod_api_key`). The orchestrator
@@ -255,11 +257,14 @@ the same credentials on the laptop workflow.
 - **Graceful shutdown**: on `SIGTERM`/`SIGINT` (e.g. `docker compose down`,
   restart on OOM) the orchestrator terminates the active RunPod pod before
   exiting so credits are not billed for an orphaned job.
-- **Verification (optional enhancement)**: the daemon in
-  [`src/chains/eth/zk_proof/daemon`](../daemon) verifies newly-created proofs
-  with `verify_zk_proof_cli` before they are marked as "final" for clients.
-  This orchestrator relies on the same downstream verification pass; do not
-  disable it.
+- **Proof verification (fail-closed)**: before a proof is published into the
+  volume, the orchestrator runs the bundled `verify_zk_proof_cli` on the staged
+  `zk_proof_g16.bin` + `zk_pub.bin`. The CLI is built from this branch and
+  carries the **v5** verification key, so it can validate these proofs even
+  though the server's own `verify_zk_proof` is pinned to the v6 program hash and
+  cannot. A rejected or unverifiable proof is dropped (never renamed into
+  `/data/<period>/`) and the period is retried on the next tick. Toggle with
+  `VERIFY_PROOF` (see the env table).
 
 ## Monitoring
 
@@ -296,10 +301,11 @@ if `next_deadline - now` drops below your comfort margin.
   present. If a proof was skipped for an earlier period, run
   `scripts/build_proof` (or trigger this orchestrator for that period) first
   to restore the chain.
-- **`SP1_SKIP_VERIFY=1`** is set inside the GPU pod because container images
-  do not ship a separate verifier. The orchestrator downloads the proof and
-  the existing server-side verifier chain (Colibri C verifier) confirms
-  correctness end-to-end.
+- **`SP1_SKIP_VERIFY=1`** is set inside the GPU pod because the pod image does
+  not ship a verifier. Correctness is instead confirmed by the orchestrator,
+  which runs the bundled v5 `verify_zk_proof_cli` on the downloaded proof before
+  publishing it (see "Proof verification" above). The server-side C verifier
+  cannot be relied on here because it is pinned to the v6 program hash.
 - **`moongate-server` tag**. The `MOONGATE_IMAGE` build arg defaults to
   `public.ecr.aws/succinct-labs/moongate:v5.0.8`. This must be the exact
   moongate tag the compiled `sp1-cuda` expects: sp1-cuda 5.2.3 hard-codes
