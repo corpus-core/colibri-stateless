@@ -14,7 +14,6 @@ const os = require('os');
 const { pipeline } = require('stream/promises');
 const {
     S3Client,
-    HeadObjectCommand,
     PutObjectCommand,
     GetObjectCommand,
     DeleteObjectCommand,
@@ -167,11 +166,17 @@ const s3 = new S3Client({
 
 async function s3ObjectExists(key) {
     try {
-        await s3.send(new HeadObjectCommand({ Bucket: NETWORK_VOLUME_ID, Key: key }));
+        // RunPod's S3 gateway returns spurious HTTP 403 for HeadObject on some
+        // existing keys (empirically: GetObject succeeds for the very same key
+        // that HeadObject 403s). GetObject is reliable, so we probe with it and
+        // immediately discard the body. Markers (DONE/FAILED) are 0 bytes and
+        // the other callers only check tiny objects, so this is cheap.
+        const res = await s3.send(new GetObjectCommand({ Bucket: NETWORK_VOLUME_ID, Key: key }));
+        if (res.Body && typeof res.Body.destroy === 'function') res.Body.destroy();
         return true;
     } catch (e) {
         const status = e && e.$metadata?.httpStatusCode;
-        if (status === 404 || e?.name === 'NotFound' || e?.Code === 'NotFound') {
+        if (status === 404 || e?.name === 'NoSuchKey' || e?.name === 'NotFound' || e?.Code === 'NoSuchKey' || e?.Code === 'NotFound') {
             return false;
         }
         if (status === 401 || status === 403) {
@@ -360,13 +365,23 @@ async function downloadArtifacts(period) {
     const staged = [];
     for (const f of ARTIFACTS) {
         const key = `${p}out/${f}`;
-        if (!(await s3ObjectExists(key))) {
-            warn(`artifact ${key} not present on network volume`);
-            continue;
-        }
         const stagedPath = path.join(staging, f);
-        await s3DownloadFile(key, stagedPath);
-        staged.push(f);
+        // Download directly and treat a missing key as "not produced". We avoid
+        // a separate existence probe on purpose: RunPod's S3 HeadObject is
+        // unreliable (see s3ObjectExists) and a GET probe would just download
+        // the object twice.
+        try {
+            await s3DownloadFile(key, stagedPath);
+            staged.push(f);
+        } catch (e) {
+            const status = e && e.$metadata?.httpStatusCode;
+            if (status === 404 || e?.name === 'NoSuchKey' || e?.Code === 'NoSuchKey') {
+                warn(`artifact ${key} not present on network volume`);
+                await fsp.rm(stagedPath, { force: true });
+                continue;
+            }
+            throw e;
+        }
     }
 
     for (const f of ['zk_proof_g16.bin', 'zk_pub.bin']) {
