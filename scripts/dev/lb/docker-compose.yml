@@ -1,0 +1,26 @@
+# Local dev Caddy: serves the repo statically on :8080 (replacing
+# `python3 -m http.server`) and proxies the local prover with CORS on :8091.
+#
+# Start via scripts/dev/run_caddy.sh (which also opens the debug page).
+#
+# The repo root is bind-mounted read-only, so edits to debug.html and friends
+# are picked up immediately -- no image rebuild needed.
+
+services:
+  caddy:
+    # Defaults to the official image; run_caddy.sh sets CADDY_IMAGE to a locally
+    # present image (e.g. caddy-lb:latest) when available to avoid slow pulls.
+    image: ${CADDY_IMAGE:-caddy:2.10.0}
+    container_name: colibri-dev-caddy
+    ports:
+      - "8080:8080" # static file server (debug.html)
+      - "8091:8091" # CORS proxy -> prover
+    environment:
+      PROVER_UPSTREAM: host.docker.internal:8090
+      STATIC_ROOT: /srv
+    # Makes host.docker.internal resolve on Linux too (no-op on Docker Desktop).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ../../..:/srv:ro
