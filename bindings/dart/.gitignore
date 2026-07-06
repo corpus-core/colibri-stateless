@@ -1,6 +1,8 @@
 .dart_tool/
 .packages
 build/
+build-dart/
+build-dart-debug/
 native/
 .env
 test/coverage/

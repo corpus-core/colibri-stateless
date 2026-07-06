@@ -1,3 +1,44 @@
+## 0.1.16
+
+- **ZK verification (all platforms):** Build the bundled native binaries with a v6-capable client version (`C4_VERSION >= 2.0.0`). ZK sync verification uses SP1 v6, and the prover only serves v6 sync proofs to clients reporting version `>= 2.0.0`; binaries built from the current 1.x git tag requested the legacy v5 proof, which the v6-only verifier rejected with `VK not found for program hash` -> `invalid zk_proof!` (seen on macOS with `zkProof: true`). Build scripts now force a v6-capable version unless one is provided explicitly.
+
+## 0.1.15
+
+- **macOS (SPM):** Move native binaries to `macos/colibri_flutter/Frameworks/` and reference `Frameworks/libcolibri.xcframework` from `Package.swift` (fixes Flutter SPM resolving `../Frameworks/…` to a non-existent ephemeral path in 0.1.14).
+
+## 0.1.14
+
+- **macOS (SPM):** Bundle `libcolibri.xcframework` via Swift Package Manager `.binaryTarget` so Xcode embeds `libcolibri.dylib` into `<App>.app/Contents/Frameworks/` when using Flutter's Swift Package Manager integration (fixes `Failed to load dynamic library` on first FFI call).
+- **macOS (SPM):** `Package.swift` declares `ColibriNative` binary target and FlutterFramework dependency per Flutter 3.44+ plugin SPM template.
+- **macOS:** Build scripts now produce both `macos/colibri_flutter/Frameworks/libcolibri.dylib` (CocoaPods) and `macos/colibri_flutter/Frameworks/libcolibri.xcframework` (SPM). Publish builds use universal slices when `BUILD_MACOS_UNIVERSAL=1`.
+- **macOS:** `colibriFlutterLibraryPath` probes `libcolibri.dylib` and `libcolibri.framework/libcolibri` under `Contents/Frameworks/`.
+
+## 0.1.13
+
+- **macOS:** Swift Package Manager support (`macos/colibri_flutter/Package.swift`); silences Flutter 3.44+ SPM migration warnings for this plugin.
+
+## 0.1.12
+
+- **macOS:** Rebuilt `libcolibri.dylib` against current C core (fixes missing `c4_rpc_set_min_latest_block_ts` / proof-freshness APIs in 0.1.11).
+- **Build:** `build_native_libs.sh` now builds macOS (and Linux on Linux hosts); publish script verifies macOS binary freshness.
+- **Build:** `build_flutter_binaries.sh` builds host architecture by default on macOS (`BUILD_MACOS_UNIVERSAL=1` for arm64+x86_64).
+- Requires `colibri_stateless: ^0.1.12`.
+
+## 0.1.11
+
+- Migrates Android build to Flutter built-in Kotlin (removes `kotlin-android` / KGP from the plugin).
+- Requires Flutter `>=3.44.0` and Dart `>=3.12.0`.
+
+## 0.1.10
+
+- Requires `colibri_stateless: ^0.1.10`.
+- iOS: `force_link.c` updated for `c4_rpc_set_min_latest_block_ts`.
+- Native binaries rebuilt against current C core (freshness, oblivious RPC, EVM revert handling).
+
+## 0.1.9
+
+- Published on pub.dev; use 0.1.10 for the current release.
+
 ## 0.1.8
 
 - Requires `colibri_stateless: ^0.1.8`.

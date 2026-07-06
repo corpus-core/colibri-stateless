@@ -4,9 +4,11 @@ Flutter plugin for Colibri Stateless with **bundled native binaries** (Android, 
 
 ## Install (pub.dev)
 
+Requires **Flutter >= 3.44** (built-in Kotlin on Android).
+
 ```yaml
 dependencies:
-  colibri_flutter: ^0.1.7
+  colibri_flutter: ^0.1.16
 ```
 
 Then:
@@ -94,7 +96,7 @@ Native binaries (`.so`, `.xcframework`) are **not** checked into git. They must 
 # Or per platform:
 ./scripts/build_flutter_binaries.sh --android
 ./scripts/build_flutter_binaries.sh --ios
-./scripts/build_flutter_binaries.sh --macos   # macOS only (universal arm64 + x86_64)
+./scripts/build_flutter_binaries.sh --macos   # macOS dylib + xcframework (BUILD_MACOS_UNIVERSAL=1 for arm64+x86_64)
 ./scripts/build_flutter_binaries.sh --linux   # Linux host only
 ./scripts/build_flutter_binaries.sh --windows
 ```
@@ -103,7 +105,8 @@ Output locations:
 
 - `android/src/main/jniLibs/<abi>/libcolibri.so`
 - `ios/Frameworks/c4_swift.xcframework`
-- `macos/Frameworks/libcolibri.dylib` (universal; repo-root script only)
+- `macos/colibri_flutter/Frameworks/libcolibri.dylib` (CocoaPods)
+- `macos/colibri_flutter/Frameworks/libcolibri.xcframework` (Swift Package Manager)
 - `linux/lib/libcolibri.so` (repo-root script only)
 
 ## Publishing (pub.dev)

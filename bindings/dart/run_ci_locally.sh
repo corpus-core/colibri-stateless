@@ -9,7 +9,10 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT"
 
 echo "=== 1. Build native library (DART=ON) ==="
-cmake -S . -B build-dart -DDART=ON -DCMAKE_BUILD_TYPE=Release
+# shellcheck source=bindings/dart/scripts/cmake_osx_args.sh
+source "$REPO_ROOT/bindings/dart/scripts/cmake_osx_args.sh"
+dart_cmake_osx_args
+cmake -S . -B build-dart -DDART=ON -DCMAKE_BUILD_TYPE=Release "${DART_CMAKE_OSX_ARGS[@]}"
 cmake --build build-dart --target colibri_dart
 ls -la bindings/dart/native/ || true
 

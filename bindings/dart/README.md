@@ -161,6 +161,8 @@ cd flutter/colibri_flutter
 ./scripts/publish_colibri_flutter.sh             # build + publish
 ```
 
+The script builds Android/iOS natives, copies the plugin to a temp directory (so monorepo `bindings/dart/.pubignore` and gitignored `jniLibs`/XCFramework do not block pub.dev), then runs `dart pub publish`.
+
 This script builds the Android `.so` files (requires `ANDROID_NDK_HOME`) and the iOS XCFramework (requires macOS + Xcode), then runs `dart pub publish`. The binaries are **not** checked into git; they are built on demand before each publish.
 
 Alternatively, build binaries separately and publish manually:

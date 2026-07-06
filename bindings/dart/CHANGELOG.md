@@ -1,3 +1,24 @@
+## 0.1.12
+
+- CHANGELOG: document 0.1.10/0.1.11 features (no Dart API changes since 0.1.11).
+
+## 0.1.11
+
+- Same Dart API as 0.1.10 (published for dependency alignment with downstream packages).
+
+## 0.1.10
+
+- **Latest-proof freshness:** `maxLatestAgeSeconds` (default 60) rejects stale `"latest"` proofs via `c4_rpc_set_min_latest_block_ts`; set `0` to disable.
+- **Oblivious RPC:** `obliviousNodes` for privacy-preserving `eth_getProof` / PAP flows; auto-enables PAP verify flags when non-empty.
+- **EVM reverts:** verified revert data is surfaced from the C verifier (CCIP-Read / EIP-3668).
+- **Checkpointz defaults:** chain-aware default checkpointz URLs.
+- **Oblivious retry:** honors request delay/backoff for same-node `eth_getProof` retries.
+- **Build:** `build.sh` / `build_debug.sh` auto-detect macOS SDK via `xcrun`.
+
+## 0.1.9
+
+- Published on pub.dev; use 0.1.10 for the current `dev` feature set above.
+
 ## 0.1.8
 
 - Configurable timeouts: added `rpcTimeout` (default 30s) and `proverTimeout` (default 120s) to `Colibri` constructor, replacing hardcoded 30s timeouts.

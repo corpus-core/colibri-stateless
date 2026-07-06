@@ -3,8 +3,30 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DART_NATIVE_DIR="$ROOT_DIR/bindings/dart/native"
+# shellcheck source=bindings/dart/scripts/cmake_osx_args.sh
+source "$ROOT_DIR/bindings/dart/scripts/cmake_osx_args.sh"
 BUILD_ROOT="$ROOT_DIR/build/flutter"
 FLUTTER_PLUGIN_DIR="$ROOT_DIR/bindings/dart/flutter/colibri_flutter"
+
+# ZK sync verification uses SP1 v6 (356-byte groth16 proof). The prover only serves
+# v6 sync proofs to clients that report version >= 2.0.0 (C4_ZK_FIRST_V6_VERSION);
+# older clients receive the legacy v5 proof, which the v6-only verifier cannot check
+# ("VK not found for program hash" -> "invalid zk_proof!"). The repo git tag is still
+# 1.x, so force a v6-capable client version for the bundled binaries unless one is
+# explicitly provided (e.g. a real >= 2.0.0 tag in CI).
+ensure_zk_v6_version() {
+  if [[ -n "${C4_VERSION:-}" ]]; then return; fi
+  local gitv major
+  gitv="$(git -C "$ROOT_DIR" describe --tags --always --dirty 2>/dev/null || true)"
+  major="$(printf '%s' "${gitv#v}" | cut -d. -f1)"
+  if [[ "$major" =~ ^[0-9]+$ ]] && ((major >= 2)); then
+    export C4_VERSION="$gitv"
+  else
+    export C4_VERSION="2.0.0"
+  fi
+}
+ensure_zk_v6_version
+echo "Using C4_VERSION=$C4_VERSION (ZK SP1 v6 requires client >= 2.0.0)"
 
 mkdir -p "$BUILD_ROOT"
 
@@ -172,22 +194,54 @@ build_ios() {
   fi
 }
 
+prepare_macos_dylib() {
+  chmod +w "$1"
+  install_name_tool -id "@rpath/libcolibri.dylib" "$1"
+}
+
+create_macos_xcframework() {
+  local frameworks_dir="$1"
+  shift
+  local -a slice_dylibs=("$@")
+  local xcframework="$frameworks_dir/libcolibri.xcframework"
+
+  rm -rf "$xcframework"
+  if [[ ${#slice_dylibs[@]} -eq 1 ]]; then
+    xcodebuild -create-xcframework \
+      -library "${slice_dylibs[0]}" \
+      -output "$xcframework"
+  else
+    xcodebuild -create-xcframework \
+      -library "${slice_dylibs[0]}" \
+      -library "${slice_dylibs[1]}" \
+      -output "$xcframework"
+  fi
+  echo "Created: $xcframework"
+}
+
 build_macos() {
   if [[ "$host_os" != "Darwin" ]]; then
     echo "macOS build requires a Mac host. Skipping macOS."
     return
   fi
 
-  local macos_archs=("arm64" "x86_64")
+  local macos_archs=("$host_arch")
+  # Universal (arm64 + x86_64) only when explicitly requested; host arch is enough for most dev machines.
+  if [[ "${BUILD_MACOS_UNIVERSAL:-}" == "1" ]]; then
+    macos_archs=("arm64" "x86_64")
+  fi
+
   local dylibs=()
   for arch in "${macos_archs[@]}"; do
     echo "Building macOS ($arch)..."
     local build_dir="$BUILD_ROOT/macos_$arch"
+    dart_cmake_osx_args
     cmake -S "$ROOT_DIR" -B "$build_dir" \
       -DDART=ON \
       -DETH_ZKPROOF=ON \
       -DCMAKE_BUILD_TYPE=Release \
-      -DCMAKE_OSX_ARCHITECTURES="$arch"
+      -DCMAKE_OSX_ARCHITECTURES="$arch" \
+      "${DART_CMAKE_OSX_ARGS[@]}"
     cmake --build "$build_dir" --target colibri_dart
 
     local src_lib="$DART_NATIVE_DIR/libcolibri.dylib"
@@ -195,23 +249,32 @@ build_macos() {
       echo "Missing macOS output for $arch: $src_lib"
       exit 1
     fi
-    local arch_lib="$BUILD_ROOT/macos/libcolibri_$arch.dylib"
-    mkdir -p "$BUILD_ROOT/macos"
+    local arch_dir="$BUILD_ROOT/macos/$arch"
+    local arch_lib="$arch_dir/libcolibri.dylib"
+    mkdir -p "$arch_dir"
     cp "$src_lib" "$arch_lib"
+    prepare_macos_dylib "$arch_lib"
     dylibs+=("$arch_lib")
   done
 
   local dest_dir="$DART_NATIVE_DIR/macos"
   mkdir -p "$dest_dir"
   local universal="$dest_dir/libcolibri.dylib"
-  lipo -create "${dylibs[@]}" -output "$universal"
-  echo "Copied: $universal (universal)"
+  if [[ ${#dylibs[@]} -eq 1 ]]; then
+    cp "${dylibs[0]}" "$universal"
+    echo "Copied: $universal (${macos_archs[0]})"
+  else
+    lipo -create "${dylibs[@]}" -output "$universal"
+    prepare_macos_dylib "$universal"
+    echo "Copied: $universal (universal)"
+  fi
 
-  local plugin_frameworks="$FLUTTER_PLUGIN_DIR/macos/Frameworks"
+  local plugin_frameworks="$FLUTTER_PLUGIN_DIR/macos/colibri_flutter/Frameworks"
   if [[ -d "$FLUTTER_PLUGIN_DIR/macos" ]]; then
     mkdir -p "$plugin_frameworks"
     cp "$universal" "$plugin_frameworks/libcolibri.dylib"
     echo "Copied: $plugin_frameworks/libcolibri.dylib"
+    create_macos_xcframework "$plugin_frameworks" "${dylibs[@]}"
   fi
 }
 

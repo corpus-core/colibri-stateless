@@ -77,3 +77,5 @@ bindings/dart/flutter/colibri_flutter/ios/Frameworks/c4_swift.xcframework/
 
 audit-workspace/
 .colibri-audit*/
+bindings/dart/flutter/colibri_flutter/macos/colibri_flutter/Frameworks/libcolibri.dylib
+bindings/dart/flutter/colibri_flutter/macos/colibri_flutter/Frameworks/libcolibri.xcframework/
