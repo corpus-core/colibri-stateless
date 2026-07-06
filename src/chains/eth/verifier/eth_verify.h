@@ -96,6 +96,18 @@ void c4_eth_eip191_digest_32(const bytes32_t message, bytes32_t out_digest);
 bool eth_json_is_latest(json_t block_tag);
 
 /**
+ * Returns `true` if `block_tag` is a block tag that cannot be proven via the beacon chain.
+ *
+ * These are `"pending"` (no beacon block exists yet) and `"earliest"` (genesis / block 0
+ * predates the beacon chain). Requests for such tags must fall back to a direct RPC call
+ * (`METHOD_UNPROOFABLE`) and must never be accepted as a wildcard match during verification.
+ *
+ * @param block_tag JSON token from `ctx->args` (usually `json_at(args, idx)`)
+ * @return `true` if the token is exactly `"pending"` or `"earliest"`
+ */
+bool eth_json_is_unproofable_tag(json_t block_tag);
+
+/**
  * Shared freshness gate for proofs targeting the `"latest"` block tag.
  *
  * Reject proofs whose block timestamp is older than `ctx->min_latest_block_ts`.

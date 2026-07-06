@@ -171,7 +171,9 @@ static const char* check_hex(json_t val, int len, bool isuint, const char* error
 
 static const char* check_block(json_t val, const char* error_prefix) {
   if (val.type != JSON_TYPE_STRING) ERROR("%sExpected block number", error_prefix);
-  if (strncmp("\"latest\"", val.start, 8) == 0 || strncmp("\"safe\"", val.start, 6) == 0 || strncmp("\"finalized\"", val.start, 11) == 0) return NULL;
+  if (strncmp("\"latest\"", val.start, 8) == 0 || strncmp("\"safe\"", val.start, 6) == 0 ||
+      strncmp("\"finalized\"", val.start, 11) == 0 || strncmp("\"earliest\"", val.start, 10) == 0 ||
+      strncmp("\"pending\"", val.start, 9) == 0) return NULL;
   return check_hex(val, 0, true, error_prefix);
 }
 
