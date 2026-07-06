@@ -1,0 +1,81 @@
+# Local development reverse proxy + static server for Colibri.
+#
+# Two jobs in one Caddy instance (see scripts/dev/run_caddy.sh + docker-compose.yml):
+#
+#   :8080  -> static file server for the repo root, so the browser can load
+#             http://localhost:8080/bindings/emscripten/test/debug.html
+#             (replaces the previous `python3 -m http.server 8080`).
+#
+#   :8091  -> CORS-enabled reverse proxy to the locally running prover (:8090).
+#             Mirrors the production edge (CORS headers + preflight) but without
+#             TLS, GeoIP, rate limiting and remote logging.
+#
+# Point the browser bindings' prover URL to http://localhost:8091 (the prover
+# itself keeps running on :8090). Both ports and upstreams are overridable via
+# environment variables (see the compose file).
+
+{
+	# Plain HTTP locally: no automatic TLS / certificate provisioning.
+	auto_https off
+	# Keep the admin API bound to loopback only.
+	admin localhost:2019
+}
+
+# --- Static file server (replaces python3 -m http.server) --------------------
+:{$STATIC_PORT:8080} {
+	root * {$STATIC_ROOT:/srv}
+	encode gzip
+	file_server browse
+}
+
+# --- CORS reverse proxy to the local prover ----------------------------------
+:{$LB_PORT:8091} {
+	# Same CORS policy as the production edge. Applied to every response,
+	# including the proxied prover responses and the preflight below.
+	header {
+		Access-Control-Allow-Origin  *
+		Access-Control-Allow-Methods "GET, POST, OPTIONS"
+		# Cache-Control is sent by the browser for `latest` block proofs and is
+		# NOT a CORS-safelisted request header, so it must be allowed explicitly.
+		Access-Control-Allow-Headers "Content-Type, Authorization, Cache-Control"
+		Access-Control-Max-Age       86400
+	}
+
+	# Answer CORS preflight requests directly. The prover itself does not
+	# understand OPTIONS, so it must be terminated here.
+	@preflight method OPTIONS
+	respond @preflight "" 204
+
+	# --- Optional: route execution-layer RPC through the same origin ---------
+	# Uncomment and set <RPC_HOST:PORT> to expose eth RPC under /execution*.
+	# Upstream CORS headers are stripped so only ours remain.
+	# @executionPost {
+	#	path /execution*
+	#	method POST
+	# }
+	# handle @executionPost {
+	#	uri strip_prefix /execution
+	#	reverse_proxy <RPC_HOST:PORT> {
+	#		header_down -Access-Control-Allow-Origin
+	#		header_down -Access-Control-Allow-Methods
+	#		header_down -Access-Control-Allow-Headers
+	#		header_down -Access-Control-Max-Age
+	#	}
+	# }
+
+	# --- Optional: route consensus/beacon API through the same origin --------
+	# @consensus path /consensus*
+	# handle @consensus {
+	#	uri strip_prefix /consensus
+	#	reverse_proxy <BEACON_HOST:PORT> {
+	#		header_down -Access-Control-Allow-Origin
+	#		header_down -Access-Control-Allow-Methods
+	#		header_down -Access-Control-Allow-Headers
+	#		header_down -Access-Control-Max-Age
+	#	}
+	# }
+
+	# Default: everything else goes to the local prover.
+	# Override with PROVER_UPSTREAM (e.g. host.docker.internal:8090 in Docker).
+	reverse_proxy {$PROVER_UPSTREAM:localhost:8090}
+}
