@@ -70,6 +70,23 @@ void test_json() {
   buffer_free(&buffer);
 }
 
+void test_json_validate_block() {
+  // All standard block tags must be accepted by the "block" type.
+  const char* tags[] = {"\"latest\"", "\"safe\"", "\"finalized\"", "\"earliest\"", "\"pending\"", "\"0x1b4\"", "\"0x0\""};
+  for (size_t i = 0; i < sizeof(tags) / sizeof(tags[0]); i++) {
+    const char* err = json_validate(json_parse(tags[i]), "block", "");
+    TEST_ASSERT_NULL_MESSAGE(err, tags[i]);
+  }
+
+  // Non-block strings and non-hex tags must be rejected.
+  const char* invalid[] = {"\"head\"", "\"0xzz\"", "\"foobar\"", "5"};
+  for (size_t i = 0; i < sizeof(invalid) / sizeof(invalid[0]); i++) {
+    const char* err = json_validate(json_parse(invalid[i]), "block", "");
+    TEST_ASSERT_NOT_NULL_MESSAGE(err, invalid[i]);
+    safe_free((char*) err);
+  }
+}
+
 void test_buffer() {
   // Test: buffer_append mit dynamischer Allokation
   buffer_t buf   = {0};
@@ -770,6 +787,7 @@ void test_edge_cases() {
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_json);
+  RUN_TEST(test_json_validate_block);
   RUN_TEST(test_bprintf);
   RUN_TEST(test_bprintf_extended);
   RUN_TEST(test_bprintf_json_ssz);

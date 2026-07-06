@@ -166,12 +166,59 @@ static bool is_pap_tx_method(char* method) {
 static bool no_proof(verify_ctx_t* ctx) {
   return ctx->proof.def->type == SSZ_TYPE_NONE;
 }
+
+// Returns true if `block_tag` is the JSON string `literal` (which must include the surrounding
+// quotes, e.g. `"\"pending\""`). Matches the exact-length comparison used by `eth_json_is_latest`.
+static bool eth_json_is_tag(json_t block_tag, const char* literal, size_t literal_len) {
+  return block_tag.type == JSON_TYPE_STRING &&
+         block_tag.len == literal_len &&
+         strncmp(block_tag.start, literal, literal_len) == 0;
+}
+
+// A block tag that cannot be proven via the beacon chain: `"pending"` has no beacon block and
+// `"earliest"` (genesis / block 0) predates the beacon chain. Such requests must fall back to a
+// direct RPC call instead of proof generation/verification.
+bool eth_json_is_unproofable_tag(json_t block_tag) {
+  return eth_json_is_tag(block_tag, "\"pending\"", sizeof("\"pending\"") - 1) ||
+         eth_json_is_tag(block_tag, "\"earliest\"", sizeof("\"earliest\"") - 1);
+}
+
+// Parameter index of the block-tag argument for a given method, or:
+//   -1 : the method has no block-tag argument
+//   -2 : the block tag lives inside the filter object at params[0] (`fromBlock`/`toBlock`)
+// Positions mirror the prover modules (proof_account.c, proof_call.c, proof_block.c, logs_cache.c).
+static int eth_block_tag_index(const char* method) {
+  if (strcmp(method, "eth_getStorageAt") == 0 || strcmp(method, "eth_getProof") == 0) return 2;
+  if (strcmp(method, "eth_call") == 0 || strcmp(method, "eth_estimateGas") == 0 ||
+      strcmp(method, "colibri_simulateTransaction") == 0 || strcmp(method, "eth_getBalance") == 0 ||
+      strcmp(method, "eth_getCode") == 0 || strcmp(method, "eth_getTransactionCount") == 0) return 1;
+  if (strcmp(method, "eth_getBlockByNumber") == 0 || strcmp(method, "eth_getBlockHeader") == 0 ||
+      strcmp(method, "eth_getBlockReceipts") == 0 || strcmp(method, "eth_getTransactionByBlockNumberAndIndex") == 0) return 0;
+  if (strcmp(method, "eth_getLogs") == 0 || strcmp(method, "eth_verifyLogs") == 0) return -2;
+  return -1;
+}
+
+// Returns true if the request targets an unprovable block tag (`"pending"`/`"earliest"`),
+// in which case the method must be treated as `METHOD_UNPROOFABLE`.
+static bool eth_has_unproofable_block_tag(char* method, json_t params) {
+  int idx = eth_block_tag_index(method);
+  if (idx == -1) return false;
+  if (idx == -2) {
+    json_t filter = json_at(params, 0);
+    return eth_json_is_unproofable_tag(json_get(filter, "fromBlock")) ||
+           eth_json_is_unproofable_tag(json_get(filter, "toBlock"));
+  }
+  return eth_json_is_unproofable_tag(json_at(params, idx));
+}
+
 method_type_t c4_eth_get_method_type(chain_id_t chain_id, char* method, json_t params, verify_flags_t flags) {
-  (void) params;
   if (c4_chain_type(chain_id) != C4_CHAIN_TYPE_ETHEREUM) return METHOD_UNDEFINED;
 
   for (int i = 0; i < sizeof(proofable_methods) / sizeof(proofable_methods[0]); i++) {
     if (strcmp(method, proofable_methods[i]) == 0) {
+      // Unprovable block tags (pending/earliest) fall back to a direct RPC call.
+      if (eth_has_unproofable_block_tag(method, params))
+        return METHOD_UNPROOFABLE;
       if (strcmp(method, "eth_estimateGas") == 0)
         return ((flags & VERIFY_FLAG_PAP) ? METHOD_LOCAL : METHOD_UNPROOFABLE);
 #ifdef PAP

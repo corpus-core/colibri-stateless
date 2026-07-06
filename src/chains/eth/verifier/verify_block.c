@@ -128,7 +128,11 @@ bool c4_eth_matches_blocknumber(verify_ctx_t* ctx, ssz_ob_t block, json_t req_bl
     ctx->success = false;
     return false;
   }
-  if (req_block.start[1] != '0' || req_block.start[2] != 'x') return true; // already validated as 'latest' or 'finalized'
+  // Unprovable tags (pending/earliest) must never wildcard-match a proof: they are routed to a
+  // direct RPC call and can never legitimately back a sync-committee proof. Rejecting them here
+  // keeps the guard that `check_block` used to provide before it accepted these tags.
+  if (eth_json_is_unproofable_tag(req_block)) RETURN_VERIFY_ERROR(ctx, "block tag not provable");
+  if (req_block.start[1] != '0' || req_block.start[2] != 'x') return true; // already validated as 'latest'/'safe'/'finalized'
   if (req_block.len == 68) {                                               // hash
     bytes32_t hash = {0};
     buffer_t  buf  = stack_buffer(hash);
