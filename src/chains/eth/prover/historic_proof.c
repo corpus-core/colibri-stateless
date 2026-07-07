@@ -168,11 +168,17 @@ static c4_status_t check_historic_proof_direct(prover_ctx_t* ctx, blockroot_proo
   bytes_t             blocks        = {0};
 
   if (chain == NULL) THROW_ERROR("unsupported chain id!");
-  if (!ctx->client_state.len || !(ctx->flags & C4_PROVER_FLAG_CHAIN_STORE)) return C4_SUCCESS;                                       // no client state means we can't check for historic proofs and assume we simply use the synccommittee for this block.
-  uint64_t state_period = block_proof->sync.post_sync_period ? block_proof->sync.post_sync_period : block_proof->sync.oldest_period; // this is the oldest period we have in the client state
+  // A historic-direct proof needs the server-side period_store (blocks.ssz + summaries),
+  // so CHAIN_STORE is required. We intentionally no longer bail out when the client has no
+  // state: a fresh client that requests a block older than the (finalized) period it is
+  // about to sync to must also receive a historical_summaries proof -- otherwise it would
+  // need the block's own, older sync committee (which the finalized-anchored CheckpointProof
+  // cannot vouch for).
+  if (!(ctx->flags & C4_PROVER_FLAG_CHAIN_STORE)) return C4_SUCCESS;
+  uint64_t state_period = block_proof->sync.post_sync_period ? block_proof->sync.post_sync_period : block_proof->sync.oldest_period; // the newest period the client will hold after syncing
   uint64_t block_period = block_proof->sync.block_period ? block_proof->sync.block_period : block_proof->sync.required_period;       // the period of the target block
-  if (!state_period) return C4_SUCCESS;                                                                                              // the client does not have a state yet, so he might as well get the head and verify the block.
-  if (block_period >= state_period) return C4_SUCCESS;                                                                               // the target block is within the current range of the client
+  if (!state_period) return C4_SUCCESS;        // the client does not have a state yet, so he might as well get the head and verify the block.
+  if (block_period >= state_period) return C4_SUCCESS; // the target block is within the current range of the client
 
   // Historic-direct path: the actual sub-requests below are billed via their
   // respective helpers; this constant covers the server-side composition work
@@ -484,6 +490,20 @@ static c4_status_t update_syncdata_state(prover_ctx_t* ctx, syncdata_state_t* sy
   switch (sync_data->status) {
     case C4_STATE_SYNC_EMPTY:
       if (ctx->flags & C4_PROVER_FLAG_ZK_PROOF && ctx->flags & C4_PROVER_FLAG_CHAIN_STORE) {
+        // Anchor the sync committee to the current *finalized* period. The double-trust
+        // CheckpointProof is always built from the `finalized` bootstrap
+        // (`fetch_finalized_checkpoint_proof`), so the ZK proof's committee MUST be for the
+        // finalized period as well -- otherwise the verifier's checkpoint cross-check
+        // (hash(zk_pubkeys) through currentSyncCommitteeBranch == header.stateRoot) fails
+        // whenever the requested block sits in an older period than the finalized head.
+        // The block itself is then verified against a recent state via historical_summaries
+        // (HISTORIC_PROOF_DIRECT, see `check_historic_proof_direct`), not by pulling its own
+        // (older) sync committee.
+        beacon_block_t fin = {0};
+        TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, json_parse("\"finalized\""), &fin));
+        uint64_t fin_period = (uint64_t) (fin.slot >> (chain->slots_per_epoch_bits + chain->epochs_per_period_bits));
+        if (fin_period > sync_data->required_period) sync_data->required_period = fin_period;
+
         // we only fetch them so we safe time in case we download the proof files later.
         c4_status_t status          = c4_fetch_zk_proof_data(ctx, &zk_proof, sync_data->required_period);
         sync_data->post_sync_period = sync_data->required_period;
