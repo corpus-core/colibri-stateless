@@ -115,20 +115,27 @@ describe('Integration Tests', { skip: !RUN_INTEGRATION, timeout: TIMEOUT, concur
   });
 
   before(async () => {
-    const blockNum = await fetch('https://mainnet1.colibri-proof.tech/execution', {
-      method: 'POST',
-      body: JSON.stringify({ jsonrpc: '2.0', method: 'eth_blockNumber', params: [], id: 1 }),
-      headers: { 'Content-Type': 'application/json' },
-    })
-      .then(res => res.json())
-      .then(data => data.result);
-    const older = '0x' + (parseInt(blockNum, 16) - 10000).toString(16);
-    console.log({ blockNum, older });
+    // Populate `oldStateStorage` with a sync-committee state for the PREVIOUS period
+    // (P-1) so the "old storage" tests below genuinely exercise the forward update to
+    // the current period (P).
+    //
+    // Note: we can no longer do this by simply proving an old block. Historic blocks are
+    // now proven via `historical_summaries` anchored to the *current* finalized period,
+    // so fetching an old block leaves the cache at P (not P-1). Instead we bootstrap from
+    // a trusted checkpoint located one period back and prove the checkpoint's own block,
+    // which lives in that same period -- no forward sync happens, so the cache stays at P-1.
+    const checkpoint  = await resolveCheckpointByPeriods(BEACON_API, 1);
+    const cpBlockRes  = await fetchWithRetry(`${BEACON_API}/eth/v2/beacon/blocks/${checkpoint}`);
+    const cpBlockJson = await cpBlockRes.json();
+    const oldBlockNumber =
+      '0x' + Number(cpBlockJson.data.message.body.execution_payload.block_number).toString(16);
+    console.log({ checkpoint, oldBlockNumber });
+
     oldStateStorage = createMemoryStorage();
     Colibri.register_storage(oldStateStorage);
 
-    const c4 = new Colibri({ chainId: CHAIN_ID, zk_proof: true });
-    await c4.rpc('eth_getBlockByNumber', [older, false]);
+    const c4 = new Colibri({ chainId: CHAIN_ID, trusted_checkpoint: checkpoint, zk_proof: false });
+    await c4.rpc('eth_getBlockByNumber', [oldBlockNumber, false]);
     assert.ok(oldStateStorage._map.size > 0, 'Storage should be populated after initial request');
   });
 
@@ -245,6 +252,10 @@ describe('Integration Tests', { skip: !RUN_INTEGRATION, timeout: TIMEOUT, concur
       Colibri.register_storage(storage);
       const spy = createSpyCache();
 
+      // periods present in the starting (P-1) state
+      const syncKey        = (k) => k.startsWith(`sync_${CHAIN_ID}_`);
+      const periodsBefore  = [...storage._map.keys()].filter(syncKey);
+
       const c4 = new Colibri({ chainId: CHAIN_ID, zk_proof: true, cache: spy });
       const result = await c4.rpc('eth_blockNumber', []);
       assertIsHexBlockNumber(result);
@@ -253,6 +264,12 @@ describe('Integration Tests', { skip: !RUN_INTEGRATION, timeout: TIMEOUT, concur
         r.url && r.url.includes('light_client_bootstrap')
       );
       assert.strictEqual(bootstrapReqs.length, 0, 'Should NOT fetch bootstrap with existing state + zk_proof');
+
+      // Core scenario: the existing P-1 state must be updated FORWARD to the current
+      // period (P) via the ZK sync data -- a new sync-committee period gets persisted.
+      const periodsAfter = [...storage._map.keys()].filter(syncKey);
+      assert.ok(periodsAfter.length > periodsBefore.length,
+        `Existing state (${periodsBefore.join(',')}) should be updated forward to the current period via zk_proof (got ${periodsAfter.join(',')})`);
     });
 
     test('old storage + zk_proof false', { timeout: TIMEOUT }, async () => {
