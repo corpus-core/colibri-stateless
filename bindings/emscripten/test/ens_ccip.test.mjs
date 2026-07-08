@@ -78,14 +78,59 @@ async function fetchWithRetry(url, retries = 3, delayMs = 2000) {
   throw new Error('Unreachable');
 }
 
+// Fetches a beacon block header by slot number or a named id ("head").
+// Returns the parsed `data` object, or `null` when the slot was skipped
+// (no block proposed -> HTTP 404). Transient errors and 429 are retried;
+// any other non-OK status throws with status/body context for diagnostics.
+async function fetchBeaconHeader(beaconApiUrl, slotOrId, retries = 3, delayMs = 2000) {
+  const url = `${beaconApiUrl}/eth/v1/beacon/headers/${slotOrId}`;
+  for (let i = 0; i < retries; i++) {
+    try {
+      const res = await fetch(url);
+      if (res.ok) return (await res.json()).data;
+      // A skipped slot has no block; treat it as "not found" rather than fatal.
+      if (res.status === 404) return null;
+      if (res.status === 429 && i < retries - 1) {
+        await new Promise((r) => setTimeout(r, delayMs * (i + 1)));
+        continue;
+      }
+      const body = await res.text().catch(() => '');
+      throw new Error(`Fetch ${url} failed: ${res.status} ${res.statusText}${body ? ` -- ${body.slice(0, 200)}` : ''}`);
+    } catch (err) {
+      if (i === retries - 1) throw err;
+      await new Promise((r) => setTimeout(r, delayMs * (i + 1)));
+    }
+  }
+  throw new Error('Unreachable');
+}
+
+// Resolves a trusted checkpoint root near the current head.
+//
+// The head slot is rounded down to an epoch boundary. That exact slot may be
+// skipped (no block proposed), in which case the beacon API returns 404. We
+// then walk backwards slot-by-slot until we find an existing block -- which is
+// exactly the block the epoch checkpoint is anchored to.
 async function resolveLatestCheckpoint(beaconApiUrl) {
-  const headRes = await fetchWithRetry(`${beaconApiUrl}/eth/v1/beacon/headers/head`);
-  const headJson = await headRes.json();
-  let slot = Number(headJson.data.header.message.slot);
-  slot -= slot % SLOTS_PER_EPOCH;
-  const cpRes = await fetchWithRetry(`${beaconApiUrl}/eth/v1/beacon/headers/${slot}`);
-  const cpJson = await cpRes.json();
-  return cpJson.data.root;
+  const head = await fetchBeaconHeader(beaconApiUrl, 'head');
+  if (!head) throw new Error(`Beacon API ${beaconApiUrl} returned no head header`);
+  const headSlot = Number(head.header.message.slot);
+  const boundarySlot = headSlot - (headSlot % SLOTS_PER_EPOCH);
+
+  for (let skipped = 0; skipped < SLOTS_PER_EPOCH; skipped++) {
+    const slot = boundarySlot - skipped;
+    if (slot < 0) break;
+    const data = await fetchBeaconHeader(beaconApiUrl, slot);
+    if (data) {
+      console.log(
+        `  checkpoint: slot ${slot}, root ${data.root} ` +
+          `(head ${headSlot}, epoch boundary ${boundarySlot}${skipped ? `, skipped ${skipped} slot(s)` : ''})`,
+      );
+      return data.root;
+    }
+  }
+  throw new Error(
+    `No beacon block found in slots ${boundarySlot - SLOTS_PER_EPOCH + 1}..${boundarySlot} (head ${headSlot})`,
+  );
 }
 
 function buildCallData(selector, name) {
@@ -111,18 +156,32 @@ describe('ENS CCIP-Read (EIP-3668) end-to-end', { skip: !RUN_INTEGRATION, timeou
   let provider;
 
   before(async () => {
-    Colibri.register_storage(createMemoryStorage());
-    const trusted_checkpoint = await resolveLatestCheckpoint(BEACON_API);
-    const colibri = new Colibri({
-      chainId: CHAIN_ID,
-      trusted_checkpoint,
-      zk_proof: false,
-    });
-    // ethers v6 BrowserProvider expects an EIP-1193 provider: { request(args) }.
-    provider = new ethers.BrowserProvider(colibri);
-    // Sanity check: confirm chain id round-trip through Colibri/ethers wrapping.
-    const network = await provider.getNetwork();
-    assert.strictEqual(Number(network.chainId), CHAIN_ID, 'BrowserProvider should report mainnet chain id');
+    let trusted_checkpoint;
+    try {
+      Colibri.register_storage(createMemoryStorage());
+      trusted_checkpoint = await resolveLatestCheckpoint(BEACON_API);
+      const colibri = new Colibri({
+        chainId: CHAIN_ID,
+        trusted_checkpoint,
+        zk_proof: false,
+      });
+      // ethers v6 BrowserProvider expects an EIP-1193 provider: { request(args) }.
+      provider = new ethers.BrowserProvider(colibri);
+      // Sanity check: confirm chain id round-trip through Colibri/ethers wrapping.
+      const network = await provider.getNetwork();
+      assert.strictEqual(Number(network.chainId), CHAIN_ID, 'BrowserProvider should report mainnet chain id');
+    } catch (err) {
+      // The setup runs in the suite `before` hook, so on failure Node reports
+      // all subtests as "cancelledByParent" without the real cause. Surface the
+      // context explicitly so CI logs are actionable.
+      console.error('[ens_ccip] setup failed in before() hook:', {
+        beaconApi: BEACON_API,
+        chainId: CHAIN_ID,
+        trusted_checkpoint: trusted_checkpoint ?? '(not resolved)',
+        error: err?.message ?? String(err),
+      });
+      throw err;
+    }
   });
 
   after(() => {
