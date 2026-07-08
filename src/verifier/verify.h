@@ -87,6 +87,7 @@ typedef enum {
   VERIFY_FLAG_REVERTED       = 1 << 5, // set by the verifier when an `eth_call` / `eth_estimateGas` was successfully verified but the underlying EVM execution reverted. The revert data is exposed via `verify_ctx_t.data` (raw `bytes` SSZ type). Bindings/hosts should surface this as a structured error (e.g. JSON-RPC code 3) so callers like ethers can decode `OffchainLookup` (EIP-3668 / CCIP-Read) reverts.
   VERIFY_FLAG_OBLIVIOUS      = 1 << 6, // if set, the verifier will use the oblivious_node
   VERIFY_FLAG_SKIP_WSP_CHECK = 1 << 7, // if set, skip the Weak Subjectivity Period check for prover-provided or fetched sync committee data. SECURITY: Only use when an alternative trust anchor (witness signatures, hard-coded checkpoint, signed package) is available. Disabling increases the risk of long-range attacks when syncing across periods older than the WSP.
+  VERIFY_FLAG_SYNC_REINIT_TRIED = 1 << 8, // internal transient flag: set by the verifier once it has attempted a full sync-state reinitialization (clear + re-bootstrap from a trusted checkpoint) during this verification. Prevents an infinite reinit loop when the requested period is genuinely older than any obtainable committee. Not intended to be set by hosts.
 } verify_flag_t;
 
 /**

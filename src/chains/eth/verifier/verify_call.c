@@ -529,8 +529,10 @@ static bool pap_verify_proof_response(verify_ctx_t* ctx, call_account_t* call_ac
   // policy flags (VERIFY_FLAG_SKIP_WSP_CHECK, VERIFY_FLAG_HYBRID, VERIFY_FLAG_OBLIVIOUS, …)
   // behave consistently across both contexts. VERIFY_FLAG_FREE_DATA must be masked out:
   // proof_ctx.data points into the prover response (owned by the data_request_t), so
-  // c4_verify_free_data must not free it.
-  verify_flags_t inner_flags = ctx->flags & ~VERIFY_FLAG_FREE_DATA;
+  // c4_verify_free_data must not free it. VERIFY_FLAG_SYNC_REINIT_TRIED is a transient
+  // internal guard scoped to a single verification context; the inner sub-proof must be
+  // allowed its own one-time sync-state recovery, so it is masked out as well.
+  verify_flags_t inner_flags = ctx->flags & ~(VERIFY_FLAG_FREE_DATA | VERIFY_FLAG_SYNC_REINIT_TRIED);
   if (c4_verify_init(&proof_ctx, response, "eth_call", ctx->args, ctx->chain_id, inner_flags) != C4_SUCCESS) {
     if (proof_ctx.state.error) c4_state_add_error(&ctx->state, proof_ctx.state.error);
     goto cleanup;
