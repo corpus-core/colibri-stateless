@@ -84,7 +84,7 @@ jobs:
       - name: Run integration tests (real infrastructure)
         run: |
           cd bindings/emscripten
-          npm run test:integration || exit 0 # Ignore integration tests for now
+          npm run test:integration
           cd ../../
 
       - name: Run CCIP tests (real infrastructure)
