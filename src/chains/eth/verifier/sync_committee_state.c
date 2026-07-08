@@ -546,6 +546,9 @@ static void clear_sync_state(chain_id_t chain_id) {
   storage_plugin_t storage_conf = {0};
   c4_get_storage_config(&storage_conf);
 
+  // A host may register a storage plugin without a delete hook; nothing to clear then.
+  if (!storage_conf.del) return;
+
   // Delete all sync states for this chain
   c4_chain_state_t chain_state = c4_get_chain_state(chain_id);
   for (uint32_t i = 0; chain_state.status == C4_STATE_SYNC_PERIODS && i < MAX_SYNC_PERIODS && chain_state.data.periods[i] != 0; i++) {
@@ -1076,7 +1079,56 @@ INTERNAL const c4_status_t c4_get_validators(verify_ctx_t* ctx, uint32_t period,
   if (sync_state.validators.data == NULL) {
     // Strategy 1: No cached periods exist - initialize from trusted checkpoint
     if (sync_state.lowest_period == 0) {
-      if (sync_state.highest_period) THROW_ERROR("the last sync state is higher than the required period, but we cannot sync backwards");
+      if (sync_state.highest_period) {
+        // The cache only holds periods *newer* than the requested one, so there is no
+        // period we could sync forward from. A forward-only light client cannot obtain an
+        // older committee, hence the "cannot sync backwards" error.
+        //
+        // We attempt a *one-time*, *evidence-gated* self-healing recovery for the single
+        // legitimate case that produces this state: the cache advanced ahead of the real
+        // finalized head (e.g. via an earlier head-based update near a period boundary) and
+        // a later request needs a finalized block from a slightly older period.
+        //
+        // SECURITY: `period` is derived from the slot of an untrusted proof header and is
+        // signature-verified only *after* this call (see beacon_header.c). We must therefore
+        // NOT clear the validated sync-committee cache based on `period` alone -- a malicious
+        // prover could otherwise supply an artificially old slot to force a repeated cache
+        // wipe + re-bootstrap (DoS). Instead we require independent evidence from the trusted
+        // checkpointz finalized head that the cache is genuinely ahead of the chain tip.
+        if (ctx->flags & VERIFY_FLAG_SYNC_REINIT_TRIED)
+          THROW_ERROR("the last sync state is higher than the required period, but we cannot sync backwards");
+
+#ifdef USE_CHECKPOINTZ
+        // Fail closed: never wipe a validated cache without a valid chain spec.
+        const chain_spec_t* spec = c4_eth_get_chain_spec(ctx->chain_id);
+        if (!spec) THROW_ERROR("unsupported chain id!");
+
+        uint64_t  checkpoint_epoch = 0;
+        bytes32_t checkpoint_root  = {0};
+        if (!c4_req_checkpointz_status(&ctx->state, ctx->chain_id, &checkpoint_epoch, checkpoint_root))
+          return ctx->state.error ? C4_ERROR : C4_PENDING;
+        uint32_t checkpoint_period = (uint32_t) (checkpoint_epoch >> spec->epochs_per_period_bits);
+
+        // Only self-heal the narrow legitimate case: the cache is genuinely ahead of the
+        // finalized head (`checkpoint_period < highest_period`) AND the requested period is
+        // reachable by re-bootstrapping to the finalized checkpoint and syncing forward
+        // (`period >= checkpoint_period`). Anything older than the finalized head is a true
+        // "cannot sync backwards" case that a forward-only client cannot serve -- surface the
+        // error without touching the validated cache.
+        if (checkpoint_period >= sync_state.highest_period || period < checkpoint_period)
+          THROW_ERROR("the last sync state is higher than the required period, but we cannot sync backwards");
+
+        // Discard the stale (ahead-of-finality) state and re-bootstrap from the trusted
+        // checkpoint. The guard flag (persisted on the ctx across C4_PENDING rounds) ensures
+        // this is attempted at most once, so a genuinely-older `period` cannot loop.
+        ctx->flags |= VERIFY_FLAG_SYNC_REINIT_TRIED;
+        clear_sync_state(ctx->chain_id);
+        TRY_ASYNC(init_sync_state(ctx));
+        return c4_get_validators(ctx, period, target_state, pubkey_hash);
+#else
+        THROW_ERROR("the last sync state is higher than the required period, but we cannot sync backwards");
+#endif
+      }
       TRY_ASYNC(init_sync_state(ctx));
       // Recursively call to retrieve the period after initialization
       return c4_get_validators(ctx, period, target_state, NULL);
