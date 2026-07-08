@@ -35,9 +35,9 @@ export const default_config: {
 } = {
   '1': { // mainnet
     alias: ["mainnet", "eth", "0x1"],
-    rpcs: ["https://mainnet1.colibri-proof.tech/execution"],
-    beacon_apis: ["https://mainnet1.colibri-proof.tech/consensus/"],
-    prover: ["https://mainnet1.colibri-proof.tech"],
+    rpcs: ["https://mainnet.colibri-proof.tech/execution"],
+    beacon_apis: ["https://mainnet.colibri-proof.tech/consensus/"],
+    prover: ["https://mainnet.colibri-proof.tech","https://mainnet-prover.incubed.net","https://mainnet.colibri.link"],
     checkpointz: [
       "https://sync-mainnet.beaconcha.in",
       "https://beaconstate.info",
@@ -50,7 +50,8 @@ export const default_config: {
     alias: ["sepolia", "0xaa36a7"],
     beacon_apis: ["https://ethereum-sepolia-beacon-api.publicnode.com"],
     rpcs: ["https://ethereum-sepolia-rpc.publicnode.com"],
-    prover: ["https://sepolia.colibri-proof.tech"],
+    prover: ["https://sepolia.colibri-proof.tech","https://sepolia-prover.incubed.net","https://sepolia.colibri.link"],
+
     checkpointz: [
       "https://sepolia.beaconstate.info",
       "https://checkpoint-sync.sepolia.ethpandaops.io",
@@ -61,7 +62,7 @@ export const default_config: {
     alias: ["gnosis", "xdai", "0x64"],
     beacon_apis: ["https://gnosis.colibri-proof.tech"],
     rpcs: ["https://rpc.ankr.com/gnosis"],
-    prover: ["https://gnosis.colibri-proof.tech"],
+    prover: ["https://gnosis.colibri-proof.tech","https://gnosis-prover.incubed.net","https://gnosis.colibri.link"],
     checkpointz: ["https://checkpoint.gnosischain.com"],
     pollingInterval: 5000,
   },
