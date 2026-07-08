@@ -85,10 +85,11 @@ c4_status_t eth_getBlockReceipts(prover_ctx_t* ctx, json_t block, json_t* receip
 }
 
 c4_status_t eth_get_logs(prover_ctx_t* ctx, json_t params, json_t* logs) {
-  uint8_t         tmp[1000];
-  buffer_t        buf = stack_buffer(tmp);
+  // Use a growable heap buffer: eth_getLogs params can be large (many addresses/topics)
+  // and would be silently truncated by a fixed stack buffer, producing an invalid request.
+  buffer_t        buf = {0};
   data_request_t* req = NULL;
-  TRY_ASYNC(c4_send_eth_rpc(ctx, "eth_getLogs", json_as_string(params, &buf), 12, logs, &req));
+  TRY_ASYNC_FINAL(c4_send_eth_rpc(ctx, "eth_getLogs", json_as_string(params, &buf), 12, logs, &req), buffer_free(&buf));
   if (req && !req->validated) {
     CHECK_JSON(*logs, "[" JSON_LOG_FIELDS "]", "Invalid results for Logs: ");
     req->validated = true;
