@@ -78,18 +78,58 @@ async function fetchWithRetry(url, retries = 3, delayMs = 2000) {
   }
 }
 
+// Fetches a beacon block header by slot number or a named id ("head").
+// Returns the parsed `data` object, or `null` when the slot was skipped
+// (no block proposed -> HTTP 404). Transient errors and 429 are retried;
+// any other non-OK status throws with status/body context for diagnostics.
+async function fetchBeaconHeader(beaconApiUrl, slotOrId, retries = 3, delayMs = 2000) {
+  const url = `${beaconApiUrl}/eth/v1/beacon/headers/${slotOrId}`;
+  for (let i = 0; i < retries; i++) {
+    try {
+      const res = await fetch(url);
+      if (res.ok) return (await res.json()).data;
+      // A skipped slot has no block; treat it as "not found" rather than fatal.
+      if (res.status === 404) return null;
+      if (res.status === 429 && i < retries - 1) {
+        await sleep(delayMs * (i + 1));
+        continue;
+      }
+      const body = await res.text().catch(() => '');
+      throw new Error(`Fetch ${url} failed: ${res.status} ${res.statusText}${body ? ` -- ${body.slice(0, 200)}` : ''}`);
+    } catch (err) {
+      if (i === retries - 1) throw err;
+      await sleep(delayMs * (i + 1));
+    }
+  }
+  throw new Error('Unreachable');
+}
+
 async function resolveCheckpointAtSlot(beaconApiUrl, slotOffsetFn) {
-  const headRes = await fetchWithRetry(`${beaconApiUrl}/eth/v1/beacon/headers/head`);
-  const headJson = await headRes.json();
-  const currentSlot = Number(headJson.data.header.message.slot);
+  const head = await fetchBeaconHeader(beaconApiUrl, 'head');
+  if (!head) throw new Error(`Beacon API ${beaconApiUrl} returned no head header`);
+  const currentSlot = Number(head.header.message.slot);
 
-  let checkpointSlot = slotOffsetFn(currentSlot);
-  checkpointSlot -= checkpointSlot % SLOTS_PER_EPOCH;
-  if (checkpointSlot < 0) checkpointSlot = 0;
+  let boundarySlot = slotOffsetFn(currentSlot);
+  boundarySlot -= boundarySlot % SLOTS_PER_EPOCH;
+  if (boundarySlot < 0) boundarySlot = 0;
 
-  const cpRes = await fetchWithRetry(`${beaconApiUrl}/eth/v1/beacon/headers/${checkpointSlot}`);
-  const cpJson = await cpRes.json();
-  return cpJson.data.root;
+  // The epoch boundary slot may be skipped (no block proposed -> 404). Walk
+  // backwards until we find the block the checkpoint is anchored to.
+  for (let skipped = 0; skipped < SLOTS_PER_EPOCH; skipped++) {
+    const slot = boundarySlot - skipped;
+    if (slot < 0) break;
+    const data = await fetchBeaconHeader(beaconApiUrl, slot);
+    if (data) {
+      console.log(
+        `  checkpoint: slot ${slot}, root ${data.root} ` +
+          `(head ${currentSlot}, epoch boundary ${boundarySlot}${skipped ? `, skipped ${skipped} slot(s)` : ''})`,
+      );
+      return data.root;
+    }
+  }
+  throw new Error(
+    `No beacon block found in slots ${Math.max(0, boundarySlot - SLOTS_PER_EPOCH + 1)}..${boundarySlot} (head ${currentSlot})`,
+  );
 }
 
 const resolveCheckpoint = (url, daysBack) =>
