@@ -304,6 +304,16 @@ jobs:
             
             **Android/Kotlin:** Download the AAR or JAR artifact
             
+            **Dart:**
+            ```bash
+            dart pub add colibri_stateless
+            ```
+            
+            **Flutter (Android/iOS/macOS/Linux):**
+            ```bash
+            flutter pub add colibri_flutter
+            ```
+            
             ## Included Artifacts
             
             - System installers (DEB, RPM, PKG, MSI)
@@ -312,6 +322,8 @@ jobs:
             - JavaScript/WASM package
             - Android AAR & JVM JAR
             - Python wheels
+            - Dart package (pub.dev)
+            - Flutter plugin with bundled binaries (pub.dev)
             
             If some artifacts are missing, they may not have been successfully built in the pipeline.
         env:

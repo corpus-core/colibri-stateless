@@ -2,14 +2,30 @@ name: Dart & Flutter CI
 
 on:
   workflow_call:
+  workflow_dispatch:
+    inputs:
+      test_publish:
+        description: 'Run full publish pipeline in dry-run mode (builds everything, skips actual publish)'
+        required: false
+        type: boolean
+        default: true
+      test_version:
+        description: 'Version to use for dry-run test (e.g. 0.0.0-test.1)'
+        required: false
+        type: string
+        default: '0.0.0-test.1'
 
 permissions:
   contents: read
   checks: write
   pull-requests: write
   actions: read
+  id-token: write # Required for OIDC authentication with pub.dev
 
 jobs:
+  # ---------------------------------------------------------------------------
+  # Tests (always run)
+  # ---------------------------------------------------------------------------
   dart-and-flutter-tests:
     strategy:
       fail-fast: false
@@ -73,3 +89,322 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- Dart tests: passed" >> $GITHUB_STEP_SUMMARY
           echo "- Flutter plugin tests (incl. client integration): passed" >> $GITHUB_STEP_SUMMARY
+
+  # ---------------------------------------------------------------------------
+  # Publish colibri_stateless to pub.dev (tag-triggered or dry-run via dispatch)
+  # ---------------------------------------------------------------------------
+  publish-colibri-stateless:
+    needs: dart-and-flutter-tests
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.test_publish)
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      dry_run: ${{ steps.mode.outputs.dry_run }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Dart
+        uses: dart-lang/setup-dart@v1
+
+      - name: Determine publish mode
+        id: mode
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "dry_run=true" >> "$GITHUB_OUTPUT"
+            echo "MODE: dry-run (workflow_dispatch)"
+          else
+            echo "dry_run=false" >> "$GITHUB_OUTPUT"
+            echo "MODE: live publish (tag push)"
+          fi
+
+      - name: Extract version
+        id: version
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            TAG_VERSION="${{ inputs.test_version }}"
+          else
+            TAG_VERSION="${GITHUB_REF#refs/tags/v}"
+          fi
+          echo "version=$TAG_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Version: $TAG_VERSION"
+
+      - name: Set version in pubspec.yaml
+        working-directory: bindings/dart
+        run: |
+          sed -i "s/^version: .*/version: ${{ steps.version.outputs.version }}/" pubspec.yaml
+          echo "pubspec.yaml version set to:"
+          grep '^version:' pubspec.yaml
+
+      - name: Install dependencies
+        working-directory: bindings/dart
+        run: dart pub get
+
+      - name: Dry-run publish check
+        working-directory: bindings/dart
+        run: dart pub publish --dry-run
+
+      - name: Publish to pub.dev
+        if: steps.mode.outputs.dry_run == 'false'
+        working-directory: bindings/dart
+        run: dart pub publish --force
+
+      - name: Summary
+        run: |
+          MODE="${{ steps.mode.outputs.dry_run == 'true' && 'DRY-RUN' || 'PUBLISHED' }}"
+          echo "## $MODE colibri_stateless ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Package: [colibri_stateless](https://pub.dev/packages/colibri_stateless)" >> $GITHUB_STEP_SUMMARY
+          echo "- Version: ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+
+  # ---------------------------------------------------------------------------
+  # Build Windows DLL (runs in parallel with colibri_stateless publish)
+  # ---------------------------------------------------------------------------
+  build-windows-dll:
+    needs: dart-and-flutter-tests
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.test_publish)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Build colibri.dll
+        shell: cmd
+        run: |
+          cmake -S . -B build-win -DDART=ON -DETH_ZKPROOF=ON -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-win --config Release --target colibri_dart
+
+      - name: Locate DLL
+        shell: bash
+        run: |
+          DLL=$(find build-win -name "colibri.dll" -print -quit 2>/dev/null || true)
+          if [[ -z "$DLL" ]]; then
+            DLL=$(find build-win -name "libcolibri.dll" -print -quit 2>/dev/null || true)
+          fi
+          if [[ -z "$DLL" ]]; then
+            echo "Error: colibri.dll not found"
+            find build-win -name "*.dll" || true
+            exit 1
+          fi
+          echo "Found: $DLL"
+          mkdir -p artifact
+          cp "$DLL" artifact/colibri.dll
+          echo "DLL size: $(du -h artifact/colibri.dll | cut -f1)"
+
+      - name: Upload Windows DLL artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: colibri-windows-dll
+          path: artifact/colibri.dll
+          retention-days: 1
+
+  # ---------------------------------------------------------------------------
+  # Publish colibri_flutter to pub.dev
+  # Runs on macOS: builds Android + iOS + macOS natively, downloads Windows DLL.
+  # ---------------------------------------------------------------------------
+  publish-colibri-flutter:
+    needs: [publish-colibri-stateless, build-windows-dll]
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.test_publish)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Dart
+        uses: dart-lang/setup-dart@v1
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Determine publish mode
+        id: mode
+        run: |
+          echo "dry_run=${{ needs.publish-colibri-stateless.outputs.dry_run }}" >> "$GITHUB_OUTPUT"
+          echo "version=${{ needs.publish-colibri-stateless.outputs.version }}" >> "$GITHUB_OUTPUT"
+          echo "Mode: dry_run=${{ needs.publish-colibri-stateless.outputs.dry_run }}"
+          echo "Version: ${{ needs.publish-colibri-stateless.outputs.version }}"
+
+      - name: Wait for colibri_stateless to be available on pub.dev
+        if: steps.mode.outputs.dry_run == 'false'
+        run: |
+          VERSION="${{ steps.mode.outputs.version }}"
+          echo "Waiting for colibri_stateless $VERSION on pub.dev..."
+          for i in $(seq 1 30); do
+            STATUS=$(curl -s -o /dev/null -w '%{http_code}' \
+              "https://pub.dev/api/packages/colibri_stateless/versions/$VERSION")
+            if [[ "$STATUS" == "200" ]]; then
+              echo "colibri_stateless $VERSION is available on pub.dev (attempt $i)"
+              exit 0
+            fi
+            echo "Attempt $i/30: not yet available (HTTP $STATUS), waiting 10s..."
+            sleep 10
+          done
+          echo "Error: colibri_stateless $VERSION not available on pub.dev after 5 minutes."
+          exit 1
+
+      - name: Set version in pubspec.yaml files
+        run: |
+          VERSION="${{ steps.mode.outputs.version }}"
+          sed -i '' "s/^version: .*/version: $VERSION/" bindings/dart/flutter/colibri_flutter/pubspec.yaml
+          sed -i '' "s/colibri_stateless: .*/colibri_stateless: ^$VERSION/" bindings/dart/flutter/colibri_flutter/pubspec.yaml
+          echo "colibri_flutter pubspec.yaml:"
+          grep -E '^version:|colibri_stateless:' bindings/dart/flutter/colibri_flutter/pubspec.yaml
+
+      # --- Build Android native libraries ---
+      - name: Set up Android NDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK
+        run: |
+          sdkmanager --install "ndk;27.0.12077973"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> "$GITHUB_ENV"
+
+      - name: Build Android .so libraries
+        run: |
+          echo "Building Android native libraries..."
+          TOOLCHAIN="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake"
+
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            echo "--- Building for $abi ---"
+            cmake -S . -B "build/flutter-android-$abi" \
+              -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN" \
+              -DANDROID_ABI="$abi" \
+              -DANDROID_PLATFORM=android-23 \
+              -DDART=ON \
+              -DETH_ZKPROOF=ON \
+              -DCMAKE_BUILD_TYPE=Release
+
+            cmake --build "build/flutter-android-$abi" --target colibri_dart -j "$(sysctl -n hw.ncpu)"
+
+            SO_FILE=$(find "build/flutter-android-$abi" -name "libcolibri.so" -print -quit)
+            DEST="bindings/dart/flutter/colibri_flutter/android/src/main/jniLibs/$abi"
+            mkdir -p "$DEST"
+            cp "$SO_FILE" "$DEST/libcolibri.so"
+            echo "Copied: $DEST/libcolibri.so ($(du -h "$DEST/libcolibri.so" | cut -f1))"
+          done
+
+      # --- Build iOS XCFramework ---
+      - name: Build iOS XCFramework
+        run: |
+          echo "Building iOS XCFramework..."
+          bash bindings/swift/build_ios.sh
+
+          XCFW="build/ios/ios_arm64/c4_swift.xcframework"
+          DEST="bindings/dart/flutter/colibri_flutter/ios/Frameworks"
+          mkdir -p "$DEST"
+          rm -rf "$DEST/c4_swift.xcframework"
+          cp -R "$XCFW" "$DEST/c4_swift.xcframework"
+          echo "Copied XCFramework ($(du -sh "$DEST/c4_swift.xcframework" | cut -f1))"
+
+      # --- Build macOS universal dylib ---
+      - name: Build macOS universal dylib
+        run: |
+          echo "Building macOS universal dylib..."
+          for arch in arm64 x86_64; do
+            echo "--- Building macOS $arch ---"
+            cmake -S . -B "build/macos_$arch" \
+              -DDART=ON \
+              -DETH_ZKPROOF=ON \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_OSX_ARCHITECTURES="$arch"
+            cmake --build "build/macos_$arch" --target colibri_dart -j "$(sysctl -n hw.ncpu)"
+          done
+
+          DYLIB_ARM="$(find build/macos_arm64 -name 'libcolibri.dylib' -print -quit)"
+          DYLIB_X86="$(find build/macos_x86_64 -name 'libcolibri.dylib' -print -quit)"
+
+          DEST="bindings/dart/flutter/colibri_flutter/macos/Frameworks"
+          mkdir -p "$DEST"
+          lipo -create "$DYLIB_ARM" "$DYLIB_X86" -output "$DEST/libcolibri.dylib"
+          echo "Copied: $DEST/libcolibri.dylib (universal, $(du -h "$DEST/libcolibri.dylib" | cut -f1))"
+
+      # --- Download Windows DLL artifact ---
+      - name: Download Windows DLL
+        uses: actions/download-artifact@v4
+        with:
+          name: colibri-windows-dll
+          path: bindings/dart/flutter/colibri_flutter/windows/lib/
+
+      # --- Verify all binaries ---
+      - name: Verify native binaries
+        run: |
+          echo "Verifying native binaries..."
+          PLUGIN="bindings/dart/flutter/colibri_flutter"
+          MISSING=false
+
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            SO="$PLUGIN/android/src/main/jniLibs/$abi/libcolibri.so"
+            if [[ -f "$SO" ]]; then
+              echo "  OK: Android $abi ($(du -h "$SO" | cut -f1))"
+            else
+              echo "  MISSING: Android $abi"
+              MISSING=true
+            fi
+          done
+
+          XCFW="$PLUGIN/ios/Frameworks/c4_swift.xcframework"
+          if [[ -d "$XCFW" ]]; then
+            echo "  OK: iOS XCFramework ($(du -sh "$XCFW" | cut -f1))"
+          else
+            echo "  MISSING: iOS XCFramework"
+            MISSING=true
+          fi
+
+          DYLIB="$PLUGIN/macos/Frameworks/libcolibri.dylib"
+          if [[ -f "$DYLIB" ]]; then
+            echo "  OK: macOS dylib ($(du -h "$DYLIB" | cut -f1))"
+          else
+            echo "  MISSING: macOS dylib"
+            MISSING=true
+          fi
+
+          DLL="$PLUGIN/windows/lib/colibri.dll"
+          if [[ -f "$DLL" ]]; then
+            echo "  OK: Windows DLL ($(du -h "$DLL" | cut -f1))"
+          else
+            echo "  MISSING: Windows DLL"
+            MISSING=true
+          fi
+
+          if $MISSING; then
+            echo "Error: Some native binaries are missing."
+            exit 1
+          fi
+          echo "All binaries present."
+
+      # --- Publish ---
+      - name: Install dependencies
+        working-directory: bindings/dart/flutter/colibri_flutter
+        run: flutter pub get
+
+      - name: Dry-run publish check
+        working-directory: bindings/dart/flutter/colibri_flutter
+        run: dart pub publish --dry-run
+
+      - name: Publish to pub.dev
+        if: steps.mode.outputs.dry_run == 'false'
+        working-directory: bindings/dart/flutter/colibri_flutter
+        run: dart pub publish --force
+
+      - name: Summary
+        run: |
+          VERSION="${{ steps.mode.outputs.version }}"
+          MODE="${{ steps.mode.outputs.dry_run == 'true' && 'DRY-RUN' || 'PUBLISHED' }}"
+          echo "## $MODE colibri_flutter $VERSION" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Package: [colibri_flutter](https://pub.dev/packages/colibri_flutter)" >> $GITHUB_STEP_SUMMARY
+          echo "- Version: $VERSION" >> $GITHUB_STEP_SUMMARY
+          echo "- Android: arm64-v8a, armeabi-v7a, x86_64" >> $GITHUB_STEP_SUMMARY
+          echo "- iOS: XCFramework (device + simulator)" >> $GITHUB_STEP_SUMMARY
+          echo "- macOS: universal dylib (arm64 + x86_64)" >> $GITHUB_STEP_SUMMARY
+          echo "- Windows: colibri.dll (x86_64)" >> $GITHUB_STEP_SUMMARY

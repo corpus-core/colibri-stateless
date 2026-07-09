@@ -17,7 +17,7 @@ permissions:
   packages: write # Required for pushing Docker images to GHCR
   security-events: write # Required for CodeQL
   pages: write # Required for GitHub Pages deployment
-  id-token: write # Required for GitHub Pages deployment
+  id-token: write # Required for GitHub Pages deployment and pub.dev OIDC publishing
 
 
 jobs:

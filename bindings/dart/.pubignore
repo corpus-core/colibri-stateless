@@ -1,6 +1,6 @@
 # Do not ship build artifacts or local state.
-# To publish colibri_stateless, run: ./scripts/publish_colibri_stateless.sh
 flutter/
+# To publish colibri_stateless, run: ./scripts/publish_colibri_stateless.sh
 build-dart/
 doc/
 native/

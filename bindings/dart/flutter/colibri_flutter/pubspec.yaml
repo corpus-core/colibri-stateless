@@ -32,3 +32,5 @@ flutter:
         pluginClass: ColibriFlutterPlugin
       linux:
         pluginClass: ColibriFlutterPlugin
+      windows:
+        pluginClass: ColibriFlutterPlugin

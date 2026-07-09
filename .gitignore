@@ -73,6 +73,9 @@ bindings/dart/**/assets/.env
 # Flutter plugin pre-built native binaries (built in CI / locally before publish)
 bindings/dart/flutter/colibri_flutter/android/src/main/jniLibs/
 bindings/dart/flutter/colibri_flutter/ios/Frameworks/c4_swift.xcframework/
+bindings/dart/flutter/colibri_flutter/macos/Frameworks/libcolibri.dylib
+bindings/dart/flutter/colibri_flutter/linux/lib/libcolibri.so
+bindings/dart/flutter/colibri_flutter/windows/lib/colibri.dll
 
 
 audit-workspace/
