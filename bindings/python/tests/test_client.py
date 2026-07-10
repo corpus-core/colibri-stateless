@@ -213,14 +213,18 @@ class TestClientHelpers:
                 assert url.startswith("https://"), f"URL {url} should use HTTPS"
     
     def test_unknown_chain_defaults(self):
-        """Test defaults for unknown chain"""
+        """Test defaults for unknown chain.
+
+        For unsupported chains we intentionally return empty RPC/beacon lists so
+        misconfiguration is visible instead of silently falling back to a
+        mainnet endpoint. Only the generic prover fallback remains.
+        """
         unknown_chain_id = 999999
-        
+
         provers = Colibri._get_default_provers(unknown_chain_id)
         eth_rpcs = Colibri._get_default_eth_rpcs(unknown_chain_id)
         beacon_apis = Colibri._get_default_beacon_apis(unknown_chain_id)
-        
-        # Should have fallback defaults
-        assert len(provers) > 0
-        assert len(eth_rpcs) > 0
-        assert len(beacon_apis) > 0
+
+        assert len(provers) > 0, "Prover should have a generic fallback"
+        assert eth_rpcs == [], "Unknown chains should not silently fall back to mainnet RPC"
+        assert beacon_apis == [], "Unknown chains should not silently fall back to mainnet beacon"
