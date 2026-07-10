@@ -491,33 +491,77 @@ class _HttpResult {
 /// Default prover endpoints by chain.
 List<String> _defaultProvers(int chainId) {
   return switch (chainId) {
-    1 => ['https://mainnet1.colibri-proof.tech'],
-    11155111 => ['https://sepolia.colibri-proof.tech'],
-    100 => ['https://gnosis.colibri-proof.tech'],
+    1 => [
+        'https://mainnet.colibri-proof.tech',
+        'https://mainnet-prover.incubed.net',
+        'https://mainnet.colimind.com',
+      ],
+    11155111 => [
+        'https://sepolia.colibri-proof.tech',
+        'https://sepolia-prover.incubed.net',
+        'https://sepolia.colimind.com',
+      ],
+    100 => [
+        'https://gnosis.colibri-proof.tech',
+        'https://gnosis-prover.incubed.net',
+        'https://gnosis.colimind.com',
+      ],
     10200 => ['https://chiado.colibri-proof.tech'],
     _ => ['https://c4.incubed.net'],
   };
 }
 
-/// Default RPC endpoints by chain.
+/// Default RPC endpoints by chain (fallback order: public first, own last).
 List<String> _defaultEthRpcs(int chainId) {
   return switch (chainId) {
-    1 => ['https://rpc.ankr.com/eth'],
-    11155111 => ['https://ethereum-sepolia-rpc.publicnode.com'],
-    100 => ['https://rpc.ankr.com/gnosis'],
-    10200 => ['https://gnosis-chiado-rpc.publicnode.com'],
-    _ => ['https://rpc.ankr.com/eth'],
+    1 => [
+        'https://eth.drpc.org',
+        'https://ethereum-rpc.publicnode.com',
+        'https://singapore.rpc.blxrbdn.com',
+        'https://mainnet.colibri-proof.tech/execution',
+      ],
+    11155111 => [
+        'https://sepolia.drpc.org',
+        'https://ethereum-sepolia-rpc.publicnode.com',
+        'https://sepolia.gateway.tenderly.co',
+        'https://sepolia.colibri-proof.tech/execution',
+      ],
+    100 => [
+        'https://rpc.gnosischain.com',
+        'https://rpc.gnosis.gateway.fm',
+        'https://gnosis-rpc.publicnode.com',
+        'https://gnosis.colibri-proof.tech/execution',
+      ],
+    10200 => [
+        'https://rpc.chiado.gnosis.gateway.fm',
+        'https://rpc.chiadochain.net',
+        'https://gnosis-chiado-rpc.publicnode.com',
+      ],
+    _ => <String>[],
   };
 }
 
-/// Default beacon API endpoints by chain.
+/// Default beacon API endpoints by chain (fallback order: public first, own last).
 List<String> _defaultBeaconApis(int chainId) {
   return switch (chainId) {
-    1 => ['https://lodestar-mainnet.chainsafe.io'],
-    11155111 => ['https://ethereum-sepolia-beacon-api.publicnode.com'],
-    100 => ['https://gnosis.colibri-proof.tech'],
-    10200 => ['https://gnosis-chiado-beacon-api.publicnode.com'],
-    _ => ['https://lodestar-mainnet.chainsafe.io'],
+    1 => [
+        'https://gateway.tenderly.co/public/mainnet',
+        'https://ethereum-beacon-api.publicnode.com',
+        'https://mainnet.colibri-proof.tech/consensus',
+      ],
+    11155111 => [
+        'https://ethereum-sepolia-beacon-api.publicnode.com',
+        'https://sepolia.colibri-proof.tech/consensus',
+      ],
+    100 => [
+        'https://rpc-gbc.gnosischain.com',
+        'https://gnosis-beacon-api.publicnode.com',
+        'https://gnosis.colibri-proof.tech/consensus',
+      ],
+    10200 => [
+        'https://rpc-gbc.chiadochain.net',
+      ],
+    _ => <String>[],
   };
 }
 
@@ -526,13 +570,16 @@ List<String> _defaultCheckpointz(int chainId) {
   return switch (chainId) {
     1 => [
         'https://sync-mainnet.beaconcha.in',
-        'https://beaconstate.info',
-        'https://sync.invis.tools',
+        'https://mainnet.checkpoint.sigp.io',
+        'https://mainnet-checkpoint-sync.attestant.io',
+        'https://beaconstate-mainnet.chainsafe.io',
+        'https://mainnet-checkpoint-sync.stakely.io',
+        'https://checkpointz.pietjepuk.net',
         'https://beaconstate.ethstaker.cc',
       ],
     11155111 => [
-        'https://sepolia.beaconstate.info',
         'https://checkpoint-sync.sepolia.ethpandaops.io',
+        'https://beaconstate-sepolia.chainsafe.io',
       ],
     100 => ['https://checkpoint.gnosischain.com'],
     10200 => ['https://checkpoint.chiadochain.net'],

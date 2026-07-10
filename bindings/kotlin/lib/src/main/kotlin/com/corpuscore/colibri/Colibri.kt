@@ -120,9 +120,11 @@ typealias RequestHandler = (requestDetails: Map<String, Any?>) -> ByteArray?
 
 class Colibri(
     var chainId: BigInteger = BigInteger.ONE, // Default value
-    var provers: Array<String> = arrayOf("https://c4.incubed.net"), // Default value
-    var ethRpcs: Array<String> = arrayOf("https://rpc.ankr.com/eth"), // Default value
-    var beaconApis: Array<String> = arrayOf("https://lodestar-mainnet.chainsafe.io"), // Default value
+    // Endpoint arrays default to empty; when empty at request time, per-chain fallbacks
+    // from defaultProvers/defaultEthRpcs/defaultBeaconApis/defaultCheckpointz are used.
+    var provers: Array<String> = emptyArray(),
+    var ethRpcs: Array<String> = emptyArray(),
+    var beaconApis: Array<String> = emptyArray(),
     var checkpointz: Array<String> = emptyArray(),
     var obliviousNodes: Array<String> = emptyArray(), // TEE RPC endpoints for eth_getProof
     var trustedCheckpoint: String? = null, // Optional trusted checkpoint
@@ -175,17 +177,91 @@ class Colibri(
             // Optionally, trigger C-side re-configuration if needed, but likely handled at init.
         }
 
+        /** Default prover URLs for supported chains. */
+        fun defaultProvers(chainId: BigInteger): Array<String> = when (chainId) {
+            BigInteger.ONE -> arrayOf(
+                "https://mainnet.colibri-proof.tech",
+                "https://mainnet-prover.incubed.net",
+                "https://mainnet.colimind.com",
+            )
+            BigInteger.valueOf(11155111) -> arrayOf(
+                "https://sepolia.colibri-proof.tech",
+                "https://sepolia-prover.incubed.net",
+                "https://sepolia.colimind.com",
+            )
+            BigInteger.valueOf(100) -> arrayOf(
+                "https://gnosis.colibri-proof.tech",
+                "https://gnosis-prover.incubed.net",
+                "https://gnosis.colimind.com",
+            )
+            BigInteger.valueOf(10200) -> arrayOf("https://chiado.colibri-proof.tech")
+            else -> arrayOf("https://c4.incubed.net")
+        }
+
+        /** Default Ethereum RPC URLs for supported chains (fallback order: public first, own last). */
+        fun defaultEthRpcs(chainId: BigInteger): Array<String> = when (chainId) {
+            BigInteger.ONE -> arrayOf(
+                "https://eth.drpc.org",
+                "https://ethereum-rpc.publicnode.com",
+                "https://singapore.rpc.blxrbdn.com",
+                "https://mainnet.colibri-proof.tech/execution",
+            )
+            BigInteger.valueOf(11155111) -> arrayOf(
+                "https://sepolia.drpc.org",
+                "https://ethereum-sepolia-rpc.publicnode.com",
+                "https://sepolia.gateway.tenderly.co",
+                "https://sepolia.colibri-proof.tech/execution",
+            )
+            BigInteger.valueOf(100) -> arrayOf(
+                "https://rpc.gnosischain.com",
+                "https://rpc.gnosis.gateway.fm",
+                "https://gnosis-rpc.publicnode.com",
+                "https://gnosis.colibri-proof.tech/execution",
+            )
+            BigInteger.valueOf(10200) -> arrayOf(
+                "https://rpc.chiado.gnosis.gateway.fm",
+                "https://rpc.chiadochain.net",
+                "https://gnosis-chiado-rpc.publicnode.com",
+            )
+            else -> emptyArray()
+        }
+
+        /** Default beacon API URLs for supported chains (fallback order: public first, own last). */
+        fun defaultBeaconApis(chainId: BigInteger): Array<String> = when (chainId) {
+            BigInteger.ONE -> arrayOf(
+                "https://gateway.tenderly.co/public/mainnet",
+                "https://ethereum-beacon-api.publicnode.com",
+                "https://mainnet.colibri-proof.tech/consensus",
+            )
+            BigInteger.valueOf(11155111) -> arrayOf(
+                "https://ethereum-sepolia-beacon-api.publicnode.com",
+                "https://sepolia.colibri-proof.tech/consensus",
+            )
+            BigInteger.valueOf(100) -> arrayOf(
+                "https://rpc-gbc.gnosischain.com",
+                "https://gnosis-beacon-api.publicnode.com",
+                "https://gnosis.colibri-proof.tech/consensus",
+            )
+            BigInteger.valueOf(10200) -> arrayOf(
+                "https://rpc-gbc.chiadochain.net",
+            )
+            else -> emptyArray()
+        }
+
         /** Default checkpointz URLs for supported chains. */
         fun defaultCheckpointz(chainId: BigInteger): Array<String> = when (chainId) {
             BigInteger.ONE -> arrayOf(
                 "https://sync-mainnet.beaconcha.in",
-                "https://beaconstate.info",
-                "https://sync.invis.tools",
+                "https://mainnet.checkpoint.sigp.io",
+                "https://mainnet-checkpoint-sync.attestant.io",
+                "https://beaconstate-mainnet.chainsafe.io",
+                "https://mainnet-checkpoint-sync.stakely.io",
+                "https://checkpointz.pietjepuk.net",
                 "https://beaconstate.ethstaker.cc",
             )
             BigInteger.valueOf(11155111) -> arrayOf(
-                "https://sepolia.beaconstate.info",
                 "https://checkpoint-sync.sepolia.ethpandaops.io",
+                "https://beaconstate-sepolia.chainsafe.io",
             )
             BigInteger.valueOf(100) -> arrayOf("https://checkpoint.gnosischain.com")
             BigInteger.valueOf(10200) -> arrayOf("https://checkpoint.chiadochain.net")
@@ -223,20 +299,25 @@ class Colibri(
         return java.math.BigInteger.valueOf(if (lower > 0L) lower else 0L)
     }
 
+    private fun effectiveProvers(): Array<String> = if (provers.isEmpty()) defaultProvers(chainId) else provers
+    private fun effectiveEthRpcs(): Array<String> = if (ethRpcs.isEmpty()) defaultEthRpcs(chainId) else ethRpcs
+    private fun effectiveBeaconApis(): Array<String> = if (beaconApis.isEmpty()) defaultBeaconApis(chainId) else beaconApis
+    private fun effectiveCheckpointz(): Array<String> = if (checkpointz.isEmpty()) defaultCheckpointz(chainId) else checkpointz
+
     private fun serversForRequest(request: JSONObject, useProverFallback: Boolean = false): Array<String> {
         val type = request.optString("type", "eth_rpc")
         return when (type) {
-            "checkpointz" -> {
-                val configured = if (checkpointz.isEmpty()) defaultCheckpointz(chainId) else checkpointz
-                configured + beaconApis
+            "checkpointz" -> effectiveCheckpointz() + effectiveBeaconApis()
+            "beacon_api" -> {
+                val effProvers = effectiveProvers()
+                if (useProverFallback && effProvers.isNotEmpty()) effProvers else effectiveBeaconApis()
             }
-            "beacon_api" -> if (useProverFallback && provers.isNotEmpty()) provers else beaconApis
-            "prover" -> provers
+            "prover" -> effectiveProvers()
             else -> {
                 if (request.optJSONObject("payload")?.optString("method") == "eth_getProof" && obliviousNodes.isNotEmpty())
                     obliviousNodes
                 else
-                    ethRpcs
+                    effectiveEthRpcs()
             }
         }
     }
@@ -244,8 +325,8 @@ class Colibri(
     // Example method to demonstrate usage
     fun printConfig() {
         println("Chain ID: $chainId")
-        println("ETH RPCs: ${ethRpcs.joinToString(", ")}")
-        println("Beacon APIs: ${beaconApis.joinToString(", ")}")
+        println("ETH RPCs: ${effectiveEthRpcs().joinToString(", ")}")
+        println("Beacon APIs: ${effectiveBeaconApis().joinToString(", ")}")
         println("Trusted Checkpoint: ${trustedCheckpoint ?: "none"}")
         println("Include Code: $includeCode")
     }
@@ -635,14 +716,14 @@ class Colibri(
         return withContext(Dispatchers.IO) {
             val jsonArgs = formatArgsArray(args)
             val proverFlags = (if (includeCode) 1L else 0L) or (if (useAccesslist) (1L shl 6) else 0L) or (if (zkProof) (1L shl 7) else 0L)
-            val resolvedMode = proverMode ?: if (provers.isEmpty()) ProverMode.LOCAL else ProverMode.REMOTE
+            val resolvedMode = proverMode ?: if (effectiveProvers().isEmpty()) ProverMode.LOCAL else ProverMode.REMOTE
             val nativeMode = if (resolvedMode == ProverMode.LIGHT_CLIENT) ProverMode.HYBRID.value else resolvedMode.value
 
             val ctx = com.corpuscore.colibri.c4.c4_create_rpc_ctx(method, jsonArgs, chainId, proverFlags, getVerifyFlags(), nativeMode)
                 ?: throw ColibriException("Failed to create RPC context for method $method")
 
             if (resolvedMode == ProverMode.PROXY) {
-                com.corpuscore.colibri.c4.c4_rpc_set_proxy_urls(ctx, ethRpcs.joinToString(","), beaconApis.joinToString(","))
+                com.corpuscore.colibri.c4.c4_rpc_set_proxy_urls(ctx, effectiveEthRpcs().joinToString(","), effectiveBeaconApis().joinToString(","))
             }
 
             val checkpointStr = trustedCheckpoint

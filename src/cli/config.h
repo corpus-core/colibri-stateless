@@ -29,39 +29,87 @@ static char* get_default_config(char* chain_name, chain_id_t* chain_id, char* co
   }
 
   char* config = NULL;
-
   switch (*chain_id) {
     case 1: // mainnet
-      config = "{\"eth_rpc\":[\"https://nameless-sly-reel.quiknode.pro/5937339c28c09a908994b74e2514f0f6cfdac584\",\"https://ethereum-mainnet.core.chainstack.com/364e0a05996fe175eb1975ddc6e9147d\",\"https://nameless-sly-reel.quiknode.pro/5937339c28c09a908994b74e2514f0f6cfdac584/\",\"https://eth-mainnet.g.alchemy.com/v2/B8W2IZrDkCkkjKxQOl70XNIy4x4PT20S\",\"https://rpc.ankr.com/eth/c14449317accec005863d22c7515f6b69667abb29ba2b5e099abf490bcb875b1\",\"https://eth.llamarpc.com\",\"https://rpc.payload.de\",\"https://ethereum-rpc.publicnode.com\"],"
-               "\"beacon_api\":[\"https://ethereum-mainnet.core.chainstack.com/beacon/364e0a05996fe175eb1975ddc6e9147d/\",\"http://unstable.mainnet.beacon-api.nimbus.team/\",\"https://lodestar-mainnet.chainsafe.io/\"],"
-               "\"checkpointz\":[\"https://sync-mainnet.beaconcha.in\",\"https://beaconstate.info\",\"https://sync.invis.tools\",\"https://beaconstate.ethstaker.cc\"],"
-               "\"prover\":[\"https://mainnet1.colibri-proof.tech\"]}";
+      config = "{\"eth_rpc\":["
+               "\"https://eth.drpc.org\","
+               "\"https://ethereum-rpc.publicnode.com\","
+               "\"https://singapore.rpc.blxrbdn.com\","
+               "\"https://mainnet.colibri-proof.tech/execution\""
+               "],"
+               "\"beacon_api\":["
+               "\"https://gateway.tenderly.co/public/mainnet\","
+               "\"https://ethereum-beacon-api.publicnode.com\","
+               "\"https://mainnet.colibri-proof.tech/consensus\""
+               "],"
+               "\"checkpointz\":["
+               "\"https://sync-mainnet.beaconcha.in\","
+               "\"https://mainnet.checkpoint.sigp.io\","
+               "\"https://mainnet-checkpoint-sync.attestant.io\","
+               "\"https://beaconstate-mainnet.chainsafe.io\","
+               "\"https://mainnet-checkpoint-sync.stakely.io\","
+               "\"https://checkpointz.pietjepuk.net\","
+               "\"https://beaconstate.ethstaker.cc\""
+               "],"
+               "\"prover\":["
+               "\"https://mainnet.colibri-proof.tech\","
+               "\"https://mainnet-prover.incubed.net\","
+               "\"https://mainnet.colimind.com\""
+               "]}";
       break;
 
     case 11155111: // sepolia
-      config = "{\"eth_rpc\":[\"https://sepolia.colibri-proof.tech/execution\"],"
-               "\"beacon_api\":[\"https://sepolia.colibri-proof.tech/consensus/\"]"
-               "\"checkpointz\":[],"
-               "\"prover\":[\"https://sepolia.colibri-proof.tech\"]}";
+      config = "{\"eth_rpc\":["
+               "\"https://sepolia.drpc.org\","
+               "\"https://ethereum-sepolia-rpc.publicnode.com\","
+               "\"https://sepolia.gateway.tenderly.co\","
+               "\"https://sepolia.colibri-proof.tech/execution\""
+               "],"
+               "\"beacon_api\":["
+               "\"https://ethereum-sepolia-beacon-api.publicnode.com\","
+               "\"https://sepolia.colibri-proof.tech/consensus\""
+               "],"
+               "\"checkpointz\":["
+               "\"https://checkpoint-sync.sepolia.ethpandaops.io\","
+               "\"https://beaconstate-sepolia.chainsafe.io\""
+               "],"
+               "\"prover\":["
+               "\"https://sepolia.colibri-proof.tech\","
+               "\"https://sepolia-prover.incubed.net\","
+               "\"https://sepolia.colimind.com\""
+               "]}";
       break;
 
-      
-
-      case 100: // gnosis
-      config = "{\"eth_rpc\":[\"https://gnosis.colibri-proof.tech/execution\"],"
-               "\"beacon_api\":[\"https://gnosis.colibri-proof.tech/consensus/\"],"
-               "\"checkpointz\":[\"https://gnosis.colibri-proof.tech/consensus/\"],"
-               "\"prover\":[\"https://gnosis.colibri-proof.tech\"]}";
+    case 100: // gnosis
+      config = "{\"eth_rpc\":["
+               "\"https://rpc.gnosischain.com\","
+               "\"https://rpc.gnosis.gateway.fm\","
+               "\"https://gnosis-rpc.publicnode.com\","
+               "\"https://gnosis.colibri-proof.tech/execution\""
+               "],"
+               "\"beacon_api\":["
+               "\"https://rpc-gbc.gnosischain.com\","
+               "\"https://gnosis-beacon-api.publicnode.com\","
+               "\"https://gnosis.colibri-proof.tech/consensus\""
+               "],"
+               "\"checkpointz\":[\"https://checkpoint.gnosischain.com\"],"
+               "\"prover\":["
+               "\"https://gnosis.colibri-proof.tech\","
+               "\"https://gnosis-prover.incubed.net\","
+               "\"https://gnosis.colimind.com\""
+               "]}";
       break;
 
-      case 10200: // chiado
-      config = "{\"eth_rpc\":[\"https://gnosis-chiado-rpc.publicnode.com\"],"
-               "\"beacon_api\":[\"https://chiado.colibri-proof.tech/consensus/\"],"
-               "\"checkpointz\":[\"https://chiado.colibri-proof.tech/consensus/\"],"
+    case 10200: // chiado
+      config = "{\"eth_rpc\":["
+               "\"https://rpc.chiado.gnosis.gateway.fm\","
+               "\"https://rpc.chiadochain.net\","
+               "\"https://gnosis-chiado-rpc.publicnode.com\""
+               "],"
+               "\"beacon_api\":[\"https://rpc-gbc.chiadochain.net\"],"
+               "\"checkpointz\":[\"https://checkpoint.chiadochain.net\"],"
                "\"prover\":[\"https://chiado.colibri-proof.tech\"]}";
       break;
-
-
   }
 
 #ifdef USE_CURL
