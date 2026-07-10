@@ -198,25 +198,25 @@ class Colibri(
             else -> arrayOf("https://c4.incubed.net")
         }
 
-        /** Default Ethereum RPC URLs for supported chains (fallback order: public first, own last). */
+        /** Default Ethereum RPC URLs for supported chains (fallback order: colibri-proof.tech first, public as fallback). */
         fun defaultEthRpcs(chainId: BigInteger): Array<String> = when (chainId) {
             BigInteger.ONE -> arrayOf(
+                "https://mainnet.colibri-proof.tech/execution",
                 "https://eth.drpc.org",
                 "https://ethereum-rpc.publicnode.com",
                 "https://singapore.rpc.blxrbdn.com",
-                "https://mainnet.colibri-proof.tech/execution",
             )
             BigInteger.valueOf(11155111) -> arrayOf(
+                "https://sepolia.colibri-proof.tech/execution",
                 "https://sepolia.drpc.org",
                 "https://ethereum-sepolia-rpc.publicnode.com",
                 "https://sepolia.gateway.tenderly.co",
-                "https://sepolia.colibri-proof.tech/execution",
             )
             BigInteger.valueOf(100) -> arrayOf(
+                "https://gnosis.colibri-proof.tech/execution",
                 "https://rpc.gnosischain.com",
                 "https://rpc.gnosis.gateway.fm",
                 "https://gnosis-rpc.publicnode.com",
-                "https://gnosis.colibri-proof.tech/execution",
             )
             BigInteger.valueOf(10200) -> arrayOf(
                 "https://rpc.chiado.gnosis.gateway.fm",
@@ -226,21 +226,21 @@ class Colibri(
             else -> emptyArray()
         }
 
-        /** Default beacon API URLs for supported chains (fallback order: public first, own last). */
+        /** Default beacon API URLs for supported chains (fallback order: colibri-proof.tech first, public as fallback). */
         fun defaultBeaconApis(chainId: BigInteger): Array<String> = when (chainId) {
             BigInteger.ONE -> arrayOf(
+                "https://mainnet.colibri-proof.tech/consensus",
                 "https://gateway.tenderly.co/public/mainnet",
                 "https://ethereum-beacon-api.publicnode.com",
-                "https://mainnet.colibri-proof.tech/consensus",
             )
             BigInteger.valueOf(11155111) -> arrayOf(
-                "https://ethereum-sepolia-beacon-api.publicnode.com",
                 "https://sepolia.colibri-proof.tech/consensus",
+                "https://ethereum-sepolia-beacon-api.publicnode.com",
             )
             BigInteger.valueOf(100) -> arrayOf(
+                "https://gnosis.colibri-proof.tech/consensus",
                 "https://rpc-gbc.gnosischain.com",
                 "https://gnosis-beacon-api.publicnode.com",
-                "https://gnosis.colibri-proof.tech/consensus",
             )
             BigInteger.valueOf(10200) -> arrayOf(
                 "https://rpc-gbc.chiadochain.net",

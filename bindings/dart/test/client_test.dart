@@ -135,13 +135,17 @@ void main() {
       colibri.close();
     }, skip: !hasNative);
 
-    test('Unknown chain falls back to default endpoints', () {
+    test('Unknown chain has generic prover fallback but no RPC/beacon defaults', () {
+      /// For unsupported chains we intentionally return empty RPC/beacon lists
+      /// so misconfiguration is visible instead of silently falling back to a
+      /// mainnet endpoint. Only the generic prover fallback remains.
       final colibri = Colibri(
         chainId: 999999,
         libraryPath: _resolveLibraryPath(),
       );
       expect(colibri.provers, isNotEmpty);
-      expect(colibri.ethRpcs, isNotEmpty);
+      expect(colibri.ethRpcs, isEmpty);
+      expect(colibri.beaconApis, isEmpty);
       colibri.close();
     }, skip: !hasNative);
   });

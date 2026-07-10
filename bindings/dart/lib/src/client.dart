@@ -511,26 +511,26 @@ List<String> _defaultProvers(int chainId) {
   };
 }
 
-/// Default RPC endpoints by chain (fallback order: public first, own last).
+/// Default RPC endpoints by chain (fallback order: colibri-proof.tech first, public as fallback).
 List<String> _defaultEthRpcs(int chainId) {
   return switch (chainId) {
     1 => [
+        'https://mainnet.colibri-proof.tech/execution',
         'https://eth.drpc.org',
         'https://ethereum-rpc.publicnode.com',
         'https://singapore.rpc.blxrbdn.com',
-        'https://mainnet.colibri-proof.tech/execution',
       ],
     11155111 => [
+        'https://sepolia.colibri-proof.tech/execution',
         'https://sepolia.drpc.org',
         'https://ethereum-sepolia-rpc.publicnode.com',
         'https://sepolia.gateway.tenderly.co',
-        'https://sepolia.colibri-proof.tech/execution',
       ],
     100 => [
+        'https://gnosis.colibri-proof.tech/execution',
         'https://rpc.gnosischain.com',
         'https://rpc.gnosis.gateway.fm',
         'https://gnosis-rpc.publicnode.com',
-        'https://gnosis.colibri-proof.tech/execution',
       ],
     10200 => [
         'https://rpc.chiado.gnosis.gateway.fm',
@@ -541,22 +541,22 @@ List<String> _defaultEthRpcs(int chainId) {
   };
 }
 
-/// Default beacon API endpoints by chain (fallback order: public first, own last).
+/// Default beacon API endpoints by chain (fallback order: colibri-proof.tech first, public as fallback).
 List<String> _defaultBeaconApis(int chainId) {
   return switch (chainId) {
     1 => [
+        'https://mainnet.colibri-proof.tech/consensus',
         'https://gateway.tenderly.co/public/mainnet',
         'https://ethereum-beacon-api.publicnode.com',
-        'https://mainnet.colibri-proof.tech/consensus',
       ],
     11155111 => [
-        'https://ethereum-sepolia-beacon-api.publicnode.com',
         'https://sepolia.colibri-proof.tech/consensus',
+        'https://ethereum-sepolia-beacon-api.publicnode.com',
       ],
     100 => [
+        'https://gnosis.colibri-proof.tech/consensus',
         'https://rpc-gbc.gnosischain.com',
         'https://gnosis-beacon-api.publicnode.com',
-        'https://gnosis.colibri-proof.tech/consensus',
       ],
     10200 => [
         'https://rpc-gbc.chiadochain.net',

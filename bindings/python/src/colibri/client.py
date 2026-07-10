@@ -157,25 +157,25 @@ class Colibri:
 
     @staticmethod
     def _get_default_eth_rpcs(chain_id: int) -> List[str]:
-        """Get default Ethereum RPC URLs for chain (fallback order: public first, own last)"""
+        """Get default Ethereum RPC URLs for chain (fallback order: colibri-proof.tech first, public as fallback)"""
         defaults = {
             1: [
+                "https://mainnet.colibri-proof.tech/execution",
                 "https://eth.drpc.org",
                 "https://ethereum-rpc.publicnode.com",
                 "https://singapore.rpc.blxrbdn.com",
-                "https://mainnet.colibri-proof.tech/execution",
             ],
             11155111: [
+                "https://sepolia.colibri-proof.tech/execution",
                 "https://sepolia.drpc.org",
                 "https://ethereum-sepolia-rpc.publicnode.com",
                 "https://sepolia.gateway.tenderly.co",
-                "https://sepolia.colibri-proof.tech/execution",
             ],
             100: [
+                "https://gnosis.colibri-proof.tech/execution",
                 "https://rpc.gnosischain.com",
                 "https://rpc.gnosis.gateway.fm",
                 "https://gnosis-rpc.publicnode.com",
-                "https://gnosis.colibri-proof.tech/execution",
             ],
             10200: [
                 "https://rpc.chiado.gnosis.gateway.fm",
@@ -187,21 +187,21 @@ class Colibri:
 
     @staticmethod
     def _get_default_beacon_apis(chain_id: int) -> List[str]:
-        """Get default beacon API URLs for chain (fallback order: public first, own last)"""
+        """Get default beacon API URLs for chain (fallback order: colibri-proof.tech first, public as fallback)"""
         defaults = {
             1: [
+                "https://mainnet.colibri-proof.tech/consensus",
                 "https://gateway.tenderly.co/public/mainnet",
                 "https://ethereum-beacon-api.publicnode.com",
-                "https://mainnet.colibri-proof.tech/consensus",
             ],
             11155111: [
-                "https://ethereum-sepolia-beacon-api.publicnode.com",
                 "https://sepolia.colibri-proof.tech/consensus",
+                "https://ethereum-sepolia-beacon-api.publicnode.com",
             ],
             100: [
+                "https://gnosis.colibri-proof.tech/consensus",
                 "https://rpc-gbc.gnosischain.com",
                 "https://gnosis-beacon-api.publicnode.com",
-                "https://gnosis.colibri-proof.tech/consensus",
             ],
             10200: [
                 "https://rpc-gbc.chiadochain.net",

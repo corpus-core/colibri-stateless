@@ -239,9 +239,20 @@ class FileBasedMockResponder {
   /// Construct a fixture filename from URL and/or JSON-RPC payload.
   String _buildFilename(http.Request request, String encoding) {
     /// Normalize URL path by removing the leading slash.
-    final path = request.url.path.startsWith('/')
+    var path = request.url.path.startsWith('/')
         ? request.url.path.substring(1)
         : request.url.path;
+    /// Strip any base-URL prefix so that beacon-API URLs like
+    /// `https://host/consensus/eth/v1/...` or `https://host/public/mainnet/eth/v2/...`
+    /// map to the same fixture filenames as plain `https://host/eth/v1/...`.
+    /// Beacon API endpoints are always under `/eth/v{1,2}/`.
+    for (final marker in const ['eth/v1/', 'eth/v2/']) {
+      final idx = path.indexOf(marker);
+      if (idx > 0) {
+        path = path.substring(idx);
+        break;
+      }
+    }
     /// Preserve query string when present.
     final query = request.url.hasQuery ? '?${request.url.query}' : '';
 

@@ -36,15 +36,15 @@ export const default_config: {
   '1': { // mainnet
     alias: ["mainnet", "eth", "0x1"],
     rpcs: [
+      "https://mainnet.colibri-proof.tech/execution",
       "https://eth.drpc.org",
       "https://ethereum-rpc.publicnode.com",
       "https://singapore.rpc.blxrbdn.com",
-      "https://mainnet.colibri-proof.tech/execution",
     ],
     beacon_apis: [
+      "https://mainnet.colibri-proof.tech/consensus",
       "https://gateway.tenderly.co/public/mainnet",
       "https://ethereum-beacon-api.publicnode.com",
-      "https://mainnet.colibri-proof.tech/consensus",
     ],
     prover: ["https://mainnet.colibri-proof.tech","https://mainnet-prover.incubed.net","https://mainnet.colimind.com"],
     checkpointz: [
@@ -61,14 +61,14 @@ export const default_config: {
   '11155111': { // Sepolia
     alias: ["sepolia", "0xaa36a7"],
     rpcs: [
+      "https://sepolia.colibri-proof.tech/execution",
       "https://sepolia.drpc.org",
       "https://ethereum-sepolia-rpc.publicnode.com",
       "https://sepolia.gateway.tenderly.co",
-      "https://sepolia.colibri-proof.tech/execution",
     ],
     beacon_apis: [
-      "https://ethereum-sepolia-beacon-api.publicnode.com",
       "https://sepolia.colibri-proof.tech/consensus",
+      "https://ethereum-sepolia-beacon-api.publicnode.com",
     ],
     prover: ["https://sepolia.colibri-proof.tech","https://sepolia-prover.incubed.net","https://sepolia.colimind.com"],
     checkpointz: [
@@ -80,15 +80,15 @@ export const default_config: {
   '100': { // gnosis
     alias: ["gnosis", "xdai", "0x64"],
     rpcs: [
+      "https://gnosis.colibri-proof.tech/execution",
       "https://rpc.gnosischain.com",
       "https://rpc.gnosis.gateway.fm",
       "https://gnosis-rpc.publicnode.com",
-      "https://gnosis.colibri-proof.tech/execution",
     ],
     beacon_apis: [
+      "https://gnosis.colibri-proof.tech/consensus",
       "https://rpc-gbc.gnosischain.com",
       "https://gnosis-beacon-api.publicnode.com",
-      "https://gnosis.colibri-proof.tech/consensus",
     ],
     prover: ["https://gnosis.colibri-proof.tech","https://gnosis-prover.incubed.net","https://gnosis.colimind.com"],
     checkpointz: ["https://checkpoint.gnosischain.com"],
