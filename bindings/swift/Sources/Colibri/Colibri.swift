@@ -616,8 +616,14 @@ public class Colibri {
         defer { free(mPtr); free(pPtr) }
 
         let proverFlags: UInt32 = (includeCode ? 1 : 0) | (useAccesslist ? (1 << 6) : 0) | (zkProof ? (1 << 7) : 0)
-        let effectiveProvers = provers.isEmpty ? Colibri.defaultProvers(for: chainId) : provers
-        let resolvedMode = proverMode ?? (effectiveProvers.isEmpty ? .local : .remote)
+        // Base prover-mode auto-detection on the user-configured `provers` array,
+        // NOT on the per-chain default fallback. Consumers passing `[]` explicitly
+        // signal "no remote prover" -- if we consulted the fallback here, any
+        // construction with default settings would silently switch to REMOTE and
+        // set `VERIFY_FLAG_REMOTE_PROVER`, breaking flows that depend on the
+        // local-only path (e.g. PAP pending-tx lookups returning null from cache
+        // without any network round-trip).
+        let resolvedMode = proverMode ?? (provers.isEmpty ? .local : .remote)
         let nativeMode: Int32 = Int32((resolvedMode == .lightClient ? ProverMode.hybrid : resolvedMode).rawValue)
 
         guard let ctx = c4_create_rpc_ctx(mPtr, pPtr, chainId, proverFlags, getVerifyFlags(), nativeMode) else {

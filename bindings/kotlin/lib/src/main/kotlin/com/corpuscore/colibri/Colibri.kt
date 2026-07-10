@@ -716,7 +716,14 @@ class Colibri(
         return withContext(Dispatchers.IO) {
             val jsonArgs = formatArgsArray(args)
             val proverFlags = (if (includeCode) 1L else 0L) or (if (useAccesslist) (1L shl 6) else 0L) or (if (zkProof) (1L shl 7) else 0L)
-            val resolvedMode = proverMode ?: if (effectiveProvers().isEmpty()) ProverMode.LOCAL else ProverMode.REMOTE
+            // Base prover-mode auto-detection on the user-configured `provers` array,
+            // NOT on `effectiveProvers()`. Consumers passing `emptyArray()` explicitly
+            // signal "no remote prover" -- if we consulted the per-chain fallback here,
+            // any construction with default settings would silently switch to REMOTE
+            // and set `VERIFY_FLAG_REMOTE_PROVER`, breaking flows that depend on the
+            // local-only path (e.g. PAP pending-tx lookups returning null from cache
+            // without any network round-trip).
+            val resolvedMode = proverMode ?: if (provers.isEmpty()) ProverMode.LOCAL else ProverMode.REMOTE
             val nativeMode = if (resolvedMode == ProverMode.LIGHT_CLIENT) ProverMode.HYBRID.value else resolvedMode.value
 
             val ctx = com.corpuscore.colibri.c4.c4_create_rpc_ctx(method, jsonArgs, chainId, proverFlags, getVerifyFlags(), nativeMode)
