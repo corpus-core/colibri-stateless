@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025 corpus.core
+ * Copyright (c) 2025,2026 corpus.core
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
  * this software and associated documentation files (the "Software"), to deal in
@@ -22,14 +22,14 @@
  */
 
 #include "colibri.h"
+#include "colibri_common.h"
 #include "beacon_types.h"
 #include "plugin.h"
-#include "prover.h"
-#include "ssz.h"
 #include "sync_committee.h"
-#include "verify.h"
+#include "version.h"
 
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -41,115 +41,26 @@ typedef struct {
 } c4_verify_ctx_t;
 
 prover_t* c4_create_prover_ctx(char* method, char* params, uint64_t chain_id, uint32_t flags) {
-  //  fprintf(stderr, "c4_create_prover_ctx: %s, %s\n", method, params);
   return (void*) c4_prover_create(method, params, chain_id, flags);
 }
 
-static const char* status_to_string(c4_status_t status) {
-  switch (status) {
-    case C4_SUCCESS:
-      return "success";
-    case C4_ERROR:
-      return "error";
-    case C4_PENDING:
-      return "pending";
-  }
-}
-
-static const char* encoding_to_string(data_request_encoding_t encoding) {
-  switch (encoding) {
-    case C4_DATA_ENCODING_SSZ:
-      return "ssz";
-    case C4_DATA_ENCODING_JSON:
-      return "json";
-  }
-}
-
-static const char* method_to_string(data_request_method_t method) {
-  switch (method) {
-    case C4_DATA_METHOD_GET:
-      return "get";
-    case C4_DATA_METHOD_POST:
-      return "post";
-    case C4_DATA_METHOD_PUT:
-      return "put";
-    case C4_DATA_METHOD_DELETE:
-      return "delete";
-  }
-}
-
-static const char* data_request_type_to_string(data_request_type_t type) {
-  switch (type) {
-    case C4_DATA_TYPE_BEACON_API:
-      return "beacon_api";
-    case C4_DATA_TYPE_ETH_RPC:
-      return "eth_rpc";
-    case C4_DATA_TYPE_REST_API:
-      return "rest_api";
-    case C4_DATA_TYPE_CHECKPOINTZ:
-      return "checkpointz";
-    case C4_DATA_TYPE_PROVER:
-      return "prover";
-    case C4_DATA_TYPE_INTERN:
-      return "internal";
-  }
-}
-static void add_data_request(buffer_t* result, data_request_t* data_request) {
-  bprintf(result, "{\"req_ptr\": %l,", (uint64_t) data_request);
-  bprintf(result, "\"chain_id\": %d,", (uint32_t) data_request->chain_id);
-  bprintf(result, "\"encoding\": \"%s\",", encoding_to_string(data_request->encoding));
-  bprintf(result, "\"exclude_mask\": \"%d\",", (uint32_t) data_request->node_exclude_mask);
-  bprintf(result, "\"method\": \"%s\",", method_to_string(data_request->method));
-  bprintf(result, "\"url\": \"%s\",", data_request->url);
-  if (data_request->payload.data)
-    bprintf(result, "\"payload\": %j,", (json_t) {.len = data_request->payload.len, .start = (char*) data_request->payload.data, .type = JSON_TYPE_OBJECT});
-  bprintf(result, "\"type\": \"%s\"}", data_request_type_to_string(data_request->type));
-}
-
 char* c4_prover_execute_json_status(prover_t* prover) {
-  buffer_t      result = {0};
   prover_ctx_t* ctx    = (prover_ctx_t*) prover;
   c4_status_t   status = c4_prover_execute(ctx);
-  bprintf(&result, "{\"status\": \"%s\",", status_to_string(status));
-  switch (status) {
-    case C4_SUCCESS:
-      bprintf(&result, "\"result\": \"0x%lx\", \"result_len\": %d", (uint64_t) ctx->proof.data, ctx->proof.len);
-      break;
-    case C4_ERROR:
-      bprintf(&result, "\"error\": \"%S\"", ctx->state.error);
-      break;
-    case C4_PENDING: {
-      bprintf(&result, "\"requests\": [");
-      data_request_t* data_request = c4_state_get_pending_request(&ctx->state);
-      while (data_request) {
-        if (!data_request->response.data && !data_request->error) {
-          if (result.data.data[result.data.len - 1] != '[') bprintf(&result, ",");
-          add_data_request(&result, data_request);
-        }
-        data_request = data_request->next;
-      }
-
-      bprintf(&result, "]");
-      break;
-    }
-  }
-  bprintf(&result, "}");
-  //  fprintf(stderr, "c4_prover_execute_json_status result: %s\n", result.data.data);
-  return buffer_as_string(result);
+  return c4i_build_prover_json_status(status, &ctx->state, ctx->proof.data, ctx->proof.len, true);
 }
 
 void c4_free_prover_ctx(prover_t* ctx) {
   c4_prover_free((prover_ctx_t*) ctx);
 }
+
 void c4_req_set_response(void* req_ptr, bytes_t data, uint16_t node_index) {
-  //  fprintf(stderr, "c4_req_set_response: %p\n : %d\n", req_ptr, data.len);
   data_request_t* ctx      = (data_request_t*) req_ptr;
   ctx->response            = bytes_dup(bytes(data.data, data.len));
   ctx->response_node_index = node_index;
 }
 
 void c4_req_set_error(void* req_ptr, char* error, uint16_t node_index) {
-  //  fprintf(stderr, "c4_req_set_error: %p : %s\n", req_ptr, error);
   data_request_t* ctx      = (data_request_t*) req_ptr;
   ctx->error               = strdup(error);
   ctx->response_node_index = node_index;
@@ -160,48 +71,33 @@ bytes_t c4_prover_get_proof(prover_t* prover) {
   return ctx->proof;
 }
 
-void* c4_verify_create_ctx(bytes_t proof, char* method, char* args, uint64_t chain_id, char* trusted_checkpoint) {
+void* c4_verify_create_ctx(bytes_t proof, char* method, char* args, uint64_t chain_id, char* trusted_checkpoint, uint32_t flags) {
   c4_verify_ctx_t* ctx = calloc(1, sizeof(c4_verify_ctx_t));
-  ctx->proof           = bytes_dup(proof);
-  c4_verify_init(&ctx->ctx, ctx->proof, method ? strdup(method) : NULL, args ? json_parse(strdup(args)) : ((json_t) {0}), (chain_id_t) chain_id);
-  if (trusted_checkpoint && strlen(trusted_checkpoint) == 66) {
-    bytes32_t checkpoint;
-    hex_to_bytes(trusted_checkpoint + 2, 64, bytes(checkpoint, 32));
-    c4_eth_set_trusted_checkpoint(chain_id, checkpoint);
+  if (!ctx) return NULL;
+  ctx->proof = bytes_dup(proof);
+  char* method_copy = method ? strdup(method) : NULL;
+  char* args_copy   = args ? strdup(args) : NULL;
+  json_t args_json  = args_copy ? json_parse(args_copy) : (json_t){0};
+  if (c4_verify_init(&ctx->ctx, ctx->proof, method_copy, args_json, (chain_id_t) chain_id, (verify_flags_t) flags) != C4_SUCCESS) {
+    if (ctx->proof.data) free(ctx->proof.data);
+    free(method_copy);
+    free(args_copy);
+    free(ctx);
+    return NULL;
   }
+  c4_set_checkpoint((chain_id_t) chain_id, trusted_checkpoint);
+  /* method_copy and args_copy are transferred to ctx (ctx->ctx.method, ctx->ctx.args.start) and
+   * freed in c4_verify_free_ctx() below. scan-build reports a false-positive leak here because
+   * it does not track inter-procedural ownership; suppressed in scripts/scan-build-suppressions.txt.
+   * Valgrind confirms no leak. */
   return (void*) ctx;
 }
 
 char* c4_verify_execute_json_status(void* ptr) {
-  buffer_t         buf    = {0};
   c4_verify_ctx_t* ctx    = (c4_verify_ctx_t*) ptr;
   c4_status_t      status = c4_verify(&ctx->ctx);
-
-  bprintf(&buf, "{\"status\": \"%s\",", status_to_string(status));
-  switch (status) {
-    case C4_SUCCESS:
-      bprintf(&buf, "\"result\": %Z", ctx->ctx.data);
-      break;
-    case C4_ERROR:
-      bprintf(&buf, "\"error\": \"%S\"", ctx->ctx.state.error);
-      break;
-    case C4_PENDING: {
-      bprintf(&buf, "\"requests\": [");
-      data_request_t* data_request = c4_state_get_pending_request(&(ctx->ctx.state));
-      while (data_request) {
-        if (!data_request->response.data && !data_request->error) {
-          if (buf.data.data[buf.data.len - 1] != '[') bprintf(&buf, ",");
-          add_data_request(&buf, data_request);
-        }
-        data_request = data_request->next;
-      }
-
-      bprintf(&buf, "]");
-      break;
-    }
-  }
-  bprintf(&buf, "}");
-  return buffer_as_string(buf);
+  bool             reverted = (ctx->ctx.flags & VERIFY_FLAG_REVERTED) != 0;
+  return c4i_build_verifier_json_status(status, &ctx->ctx.state, ctx->ctx.data, reverted, true);
 }
 
 void c4_verify_free_ctx(void* ptr) {
@@ -213,6 +109,45 @@ void c4_verify_free_ctx(void* ptr) {
   free(ctx);
 }
 
-int c4_get_method_support(uint64_t chain_id, char* method) {
-  return (int) c4_get_method_type((chain_id_t) chain_id, method);
+void c4_verify_set_min_latest_block_ts(void* ptr, uint64_t ts) {
+  if (!ptr) return;
+  c4_verify_ctx_t* ctx     = (c4_verify_ctx_t*) ptr;
+  ctx->ctx.min_latest_block_ts = ts;
+}
+
+int c4_get_method_support(uint64_t chain_id, char* method, char* params, uint32_t flags) {
+  return (int) c4_get_method_type((chain_id_t) chain_id, method,
+                                  params ? json_parse(params) : (json_t){0}, (verify_flags_t) flags);
+}
+
+uint32_t c4_get_current_version_number(void) {
+  return c4_current_version_number();
+}
+
+/* ── Unified RPC API ── */
+
+void* c4_create_rpc_ctx(char* method, char* params, uint64_t chain_id, uint32_t prover_flags, uint32_t verify_flags, int prover_mode) {
+  return (void*) c4_rpc_ctx_create(method, params, (chain_id_t) chain_id,
+                                   (prover_flags_t) prover_flags, (verify_flags_t) verify_flags,
+                                   (c4_prover_mode_t) prover_mode);
+}
+
+char* c4_rpc_execute_json_status(void* ctx) {
+  return c4_rpc_build_json_status((c4_rpc_ctx_t*) ctx, true);
+}
+
+void c4_rpc_set_witness_keys(void* ctx, const char* witness_keys) {
+  c4_rpc_ctx_set_witness_keys((c4_rpc_ctx_t*) ctx, witness_keys);
+}
+
+void c4_rpc_set_proxy_urls(void* ctx, const char* rpc_urls, const char* beacon_urls) {
+  c4_rpc_ctx_set_proxy_urls((c4_rpc_ctx_t*) ctx, rpc_urls, beacon_urls);
+}
+
+void c4_rpc_set_min_latest_block_ts(void* ctx, uint64_t ts) {
+  c4_rpc_ctx_set_min_latest_block_ts((c4_rpc_ctx_t*) ctx, ts);
+}
+
+void c4_free_rpc_ctx(void* ctx) {
+  c4_rpc_ctx_free((c4_rpc_ctx_t*) ctx);
 }

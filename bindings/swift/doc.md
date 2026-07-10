@@ -180,6 +180,25 @@ public class Colibri {
     /// List of Prover URLs (empty = local proof generation)
     public var provers: [String]
     
+    /// Proof generation mode: .local, .remote (default), or .hybrid
+    public var proverMode: ProverMode?
+    
+    /// PAP (Pragmatic Adaptive Privacy) mode: .none (default) or .basic
+    public var privacyMode: PrivacyMode
+
+    /// If true, skip the Weak Subjectivity Period check (VERIFY_FLAG_SKIP_WSP_CHECK, bit 1 << 7).
+    /// SECURITY: only safe with an alternative trust anchor (witness signatures, hard-coded
+    /// checkpoint, signed package); raises the risk of long-range attacks across periods older
+    /// than the WSP. Default: false.
+    public var skipWspCheck: Bool
+
+    /// Maximum age (in seconds) accepted for a proof whose request uses the
+    /// `"latest"` block tag. The verifier rejects proofs whose block timestamp
+    /// is older than `now - maxLatestAgeSeconds`. Set to `0` to disable.
+    /// Currently active for `eth_call`, `eth_estimateGas`, and
+    /// `colibri_simulateTransaction`. Default: 60.
+    public var maxLatestAgeSeconds: UInt64
+
     /// Initialization
     public init()
     
@@ -189,6 +208,101 @@ public class Colibri {
     /// Check if an RPC method is supported
     public func getMethodSupport(method: String) -> Bool
 }
+```
+
+### Prover Mode
+
+Controls how proofs are built and verified. Set via `proverMode`:
+
+- **`.local`** -- Proofs are built entirely on the client. Requires access to a Beacon API and execution layer RPC. Fully trustless, but slower and needs more infrastructure.
+- **`.remote`** -- Proofs are fetched from a remote Colibri prover server. Fastest option but relies on the prover server for proof generation. The verifier still cryptographically checks every proof.
+- **`.hybrid`** -- The consensus-layer proof (BlockHeaderProof) comes from the Colibri server, while execution-layer data (account proofs, storage, etc.) is fetched directly from the RPC provider. Best balance of performance and scalability -- the Colibri server only serves lightweight, cacheable header proofs while the heavy RPC load goes to your existing provider.
+- **`.proxy`** -- Like remote, but the client sends its own RPC and Beacon API URLs to the prover server. The server uses these endpoints instead of its own. Useful when the client has access to private or premium RPC providers.
+- **`.lightClient`** -- Like hybrid, with additional background polling of block headers to keep the cache warm. Call `startLightClient()` / `stopLightClient()` to control polling (default interval: 12s). By default only the compact `eth_getBlockHeader` is fetched; pass `fullBlock: true` to fetch the full block (useful when many `eth_getTransactionByHash` / `eth_getTransactionReceipt` calls follow).
+
+```swift
+let colibri = Colibri()
+colibri.chainId = 1
+colibri.provers = ["https://mainnet.colibri-proof.tech"]
+colibri.proverMode = .hybrid
+
+// Light client mode with background header polling
+let lightClient = Colibri()
+lightClient.chainId = 1
+lightClient.provers = ["https://mainnet.colibri-proof.tech"]
+lightClient.proverMode = .lightClient
+lightClient.startLightClient()                    // polls eth_getBlockHeader every 12s
+lightClient.startLightClient(fullBlock: true)     // or fetch the full block
+```
+
+Default: `.remote` when prover URLs are configured, `.local` otherwise.
+
+### Privacy (PAP)
+
+**PAP (Pragmatic Adaptive Privacy)** reduces intent leakage towards RPC/prover by using cached data when available and verifying afterwards.
+
+- `privacyMode` – `PrivacyMode.none` (default) or `PrivacyMode.basic`. With `.basic`, the verifier sets the PAP flag so that method-type and verification can use cached storage for optimistic execution (e.g. for `eth_call`); method type may depend on params.
+
+*This feature is still experimental!*
+
+```swift
+let colibri = Colibri()
+colibri.chainId = 1
+colibri.privacyMode = .basic
+```
+
+### Weak Subjectivity Period check
+
+Whenever a sync crosses the **Weak Subjectivity Period (WSP)** -- typically ~2 to 4 months on Ethereum mainnet -- the verifier anchors the highest finalized header against an external `checkpointz` / Beacon API endpoint. The check applies to all three sync paths: verifier-driven Light Client updates, prover-supplied `LCSyncData`, and prover-supplied `ZKSyncData`. For `ZKSyncData` the verifier prefers configured **witness signatures** (`checkpointWitnessKeys` + matching signatures from the prover) and only falls back to `checkpointz` when no witness anchor is available.
+
+- `skipWspCheck` (`Bool`, default `false`) -- sets `VERIFY_FLAG_SKIP_WSP_CHECK` (bit `1 << 7`) and disables the round-trip. **SECURITY:** only safe with an alternative trust anchor; raises the risk of long-range attacks across periods older than the WSP. See the [threat model -- long range attacks](https://corpus-core.gitbook.io/specification-colibri-stateless/specifications/ethereum/threat-model) for details.
+
+```swift
+let colibri = Colibri()
+colibri.chainId = 1
+colibri.skipWspCheck = true  // only safe with an alternative trust anchor
+```
+
+### Freshness window for `latest` proofs
+
+Proofs that target the **`latest`** block tag remain cryptographically valid forever -- without a freshness window, a months-old proof could still be replayed as "current". The Swift binding therefore reads the wallclock and forwards `now - maxLatestAgeSeconds` to the verifier, which rejects proofs whose block timestamp is older with `"proof for latest too old"`.
+
+The gate covers the following RPC methods:
+
+- **EVM:** `eth_call`, `eth_estimateGas`, `colibri_simulateTransaction`
+- **Account:** `eth_getBalance`, `eth_getCode`, `eth_getStorageAt`, `eth_getTransactionCount`, `eth_getProof`
+- **Block / header:** `eth_getBlockByNumber`, `eth_getBlockHeader`, `eth_blobBaseFee`, `eth_maxPriorityFeePerGas`
+- **Implicit-latest:** `eth_blockNumber`
+
+`eth_getLogs` is **not** covered yet (tracked in issue #128). Account methods rely on a slim `timestamp` leaf inside the state proof which is only emitted by **prover version ≥ 1.1.27**; against older provers the verifier fails closed (`"cannot verify freshness of latest block without block context"`).
+
+- `maxLatestAgeSeconds` (`UInt64`, default `60` ≈ 5 Ethereum slots) -- upper bound on the accepted age. Set to `0` to disable the check (e.g. when using legacy proof formats that do not embed a block context).
+
+> **Caveat:** the gate fires only on `"latest"` (not `"safe"`/`"finalized"`). If the host wallclock is behind `maxLatestAgeSeconds` (devices without configured time, sandboxed simulators), the lower bound clamps to `0` and the check is silently disabled. Make sure your runtime has a synced clock or set `maxLatestAgeSeconds = 0` explicitly to acknowledge this state.
+
+```swift
+let colibri = Colibri()
+colibri.chainId = 1
+colibri.maxLatestAgeSeconds = 30 // tighter window for latency-sensitive flows
+```
+
+> **PAP mode:** the freshness check also applies to PAP, where the call proof arrives via `colibri_proofCall` (same proof structure as a direct `eth_call`). This requires a prover that embeds the block context (≥ 1.1.15); against an older PAP proof without a block timestamp the check fails closed (`"cannot verify freshness of latest block without block context"`). Set `maxLatestAgeSeconds = 0` to opt out.
+
+### Privacy-preserving `eth_call` (oblivious + PAP + hybrid)
+
+For full storage privacy on `eth_call`, use hybrid prover mode, PAP, and oblivious nodes (`obliviousNodes` defaults to `[]`).
+
+- **`.hybrid`:** block proof only from prover; storage from RPC/oblivious node, verified locally.
+- **`.basic` (PAP):** avoids `eth_createAccessList` on the prover; only `eth_getProof` RPCs are sent externally.
+- **Oblivious:** TEE RPC for `eth_getProof`; sets OBLIVIOUS + PAP flags when non-empty. See [Oblivious Labs](https://www.obliviouslabs.com/) for TEE/ORAM background.
+
+```swift
+// https://rpc.safe-node.com/ requires an API key for testing
+let colibri = Colibri()
+colibri.chainId = 1
+colibri.privacyMode = .basic
+colibri.proverMode = .hybrid
+colibri.obliviousNodes = ["https://rpc.safe-node.com/"]
 ```
 
 ### Storage System
@@ -217,6 +331,34 @@ public enum ColibriError: Error {
     case proofError(String)
     case networkError(String)
     case invalidParams(String)
+    /// EVM execution ran to completion but reverted. Raw revert return-data
+    /// as a `0x`-prefixed hex string ("0x" when empty). EIP-1193 error code 3.
+    case revert(data: String)
+}
+```
+
+#### Verified EVM reverts (`ColibriError.revert`)
+
+When an `eth_call` (or similar EVM execution) is verified successfully but the
+EVM itself executed a `REVERT`, the binding throws `ColibriError.revert(data:)`.
+This is a fully verified outcome -- not a transport or proof failure -- and
+matches the Geth-style RPC error
+`{ code: 3, message: "execution reverted", data: "0x..." }`.
+
+The associated value is the raw revert return data as a `0x`-prefixed hex
+string. Callers typically ABI-decode this against the contract's error
+definitions (custom errors, `Error(string)`, etc.). This is the mechanism that
+lets dApp libraries decode `OffchainLookup` (EIP-3668 / CCIP-Read) for example
+for the ENS off-chain resolver.
+
+```swift
+do {
+    let result = try await colibri.rpc(method: "eth_call", params: "[{...}, \"latest\"]")
+} catch ColibriError.revert(let data) {
+    // data == "0x556f1830..."  // ABI-encoded OffchainLookup or custom error
+    print("reverted with: \(data)")
+} catch {
+    print("other error: \(error)")
 }
 ```
 

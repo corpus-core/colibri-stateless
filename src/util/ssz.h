@@ -79,6 +79,7 @@ typedef enum {
   SSZ_FLAG_OPT_MASK = 1, /**< Marks a field containing a bitmask indicating which optional fields are present in the container */
   SSZ_FLAG_UINT     = 2, /**< Render bytes as uint in JSON output (for numeric fields stored as bytes) */
   SSZ_FLAG_STRING   = 4, /**< Render bytes as string in JSON output (for text fields stored as bytes) */
+  SSZ_FLAG_NULLABLE = 8, /**< Render as null if the list is empty in JSON output */
 } ssz_flag_t;
 
 /** a SSZ Type Definition */
@@ -133,7 +134,7 @@ typedef struct {
  * ```
  */
 #define ssz_builder_for_def(typename) \
-  (ssz_builder_t){ .def = (const ssz_def_t*) (typename), .fixed = (buffer_t){ .data = (bytes_t){ .data = NULL, .len = 0 }, .allocated = 0 }, .dynamic = (buffer_t){ .data = (bytes_t){ .data = NULL, .len = 0 }, .allocated = 0 }}
+  (ssz_builder_t) { .def = (const ssz_def_t*) (typename), .fixed = (buffer_t) {.data = (bytes_t) {.data = NULL, .len = 0}, .allocated = 0}, .dynamic = (buffer_t) {.data = (bytes_t) {.data = NULL, .len = 0}, .allocated = 0} }
 
 /** gets the uint64 value of the object */
 static inline uint64_t ssz_uint64(ssz_ob_t ob) {
@@ -263,7 +264,7 @@ gindex_t ssz_add_gindex(gindex_t gindex1, gindex_t gindex2);
  * @param out Output buffer for the computed root hash (32 bytes)
  * @return true if the proof is valid, false otherwise
  */
-bool ssz_verify_multi_merkle_proof(bytes_t proof_data, bytes_t leafes, gindex_t* gindex, bytes32_t out);
+bool ssz_verify_multi_merkle_proof(bytes_t proof_data, bytes_t leafes, const gindex_t* gindex, bytes32_t out);
 
 /**
  * Verifies a single-leaf Merkle proof and computes the root hash.
@@ -445,6 +446,30 @@ gindex_t ssz_gindex(const ssz_def_t* def, int num_elements, ...);
 bytes_t ssz_create_multi_proof_for_gindexes(ssz_ob_t root, bytes32_t root_hash, gindex_t* gindex, int gindex_len);
 
 /**
+ * Creates a multi-Merkle proof from pre-computed two-level Merkle tree caches.
+ *
+ * The trees represent a parent container (body) with a nested child container (ep)
+ * at a known position. All gindexes must resolve to nodes within these two levels;
+ * returns `NULL_BYTES` if any gindex falls outside the cached range.
+ *
+ * @param body_tree Pre-computed body tree nodes indexed by gindex (array of 32-byte hashes)
+ * @param body_tree_size Number of entries in body_tree (must be a power of 2)
+ * @param ep_tree Pre-computed child container tree nodes indexed by gindex
+ * @param ep_tree_size Number of entries in ep_tree (must be a power of 2)
+ * @param ep_body_gindex Body-level gindex of the child container
+ * @param root_hash Output: receives body_tree[1] (the body hash_tree_root)
+ * @param gindex Array of compound generalized indices to prove
+ * @param gindex_len Number of generalized indices
+ * @return Allocated proof bytes (caller must free), or NULL_BYTES on cache miss
+ */
+bytes_t ssz_create_multi_proof_from_tree_cache(
+    const bytes32_t* body_tree, uint32_t body_tree_size,
+    const bytes32_t* ep_tree, uint32_t ep_tree_size,
+    gindex_t ep_body_gindex,
+    bytes32_t root_hash,
+    const gindex_t* gindex, int gindex_len);
+
+/**
  * Checks if an SSZ type has dynamic length.
  *
  * Dynamic types include: lists, bit lists, unions, and containers containing dynamic fields.
@@ -512,6 +537,7 @@ extern const ssz_def_t ssz_secp256k1_signature; // Vector<uint8> of length 65
 extern const ssz_def_t ssz_bls_pubky;           // Vector<uint8> of length 48
 extern const ssz_def_t ssz_bytes_list;          // List<uint8> displayed as hex in JSON
 extern const ssz_def_t ssz_string_def;          // List<uint8> displayed as string in JSON
+extern const ssz_def_t ssz_json_def;            // List<uint8> displayed as raw json 
 extern const ssz_def_t ssz_none;                // special value for none in uions.
 
 /**
@@ -741,6 +767,17 @@ extern const ssz_def_t ssz_none;                // special value for none in uio
 #define SSZ_BYTES(name, limit) SSZ_LIST(name, ssz_uint8, limit)
 
 /**
+ * Defines a nullable byte list (rendered as hex in JSON).
+ * if (the list is empty, it is rendered as null in JSON).
+ *
+ * @param name Field name
+ * @param limit Maximum number of bytes
+ *
+ * Example: SSZ_NULLABLE_BYTES("to", 20)
+ */
+#define SSZ_NULLABLE_BYTES(name, limit) SSZ_FLAG_LIST(name, ssz_uint8, limit, SSZ_FLAG_NULLABLE)
+
+/**
  * Defines a string field (byte list rendered as UTF-8 string in JSON).
  *
  * @param name Field name
@@ -944,6 +981,21 @@ void ssz_add_dynamic_list_builders(ssz_builder_t* buffer, int num_elements, ssz_
  */
 void ssz_add_uint256(ssz_builder_t* buffer, bytes_t data);
 
+/**
+ * Fixes the offset table of a dynamic-element list builder after all
+ * elements have been added with `num_elements=0`.
+ *
+ * When using `ssz_add_dynamic_list_builders()` / `ssz_add_dynamic_list_bytes()`
+ * with `num_elements=0`, each offset is written relative to the dynamic
+ * area only. This function adds `num_elements * 4` to every offset so
+ * they become relative to the start of the serialized list body (which
+ * begins with the offset table itself).
+ *
+ * @param builder the list builder whose offsets need correction
+ * @param num_elements total number of elements that were added
+ */
+void ssz_builder_fix_list_offsets(ssz_builder_t* builder, uint32_t num_elements);
+
 /** Adds a uint64 value to the builder in little-endian format */
 void ssz_add_uint64(ssz_builder_t* buffer, uint64_t value);
 
@@ -1000,17 +1052,17 @@ void ssz_builder_free(ssz_builder_t* buffer);
  * @return A builder wrapping the object's bytes
  */
 static inline ssz_builder_t ssz_builder_from(ssz_ob_t val) {
-  return (ssz_builder_t){
-    .def = val.def,
-    .fixed = (buffer_t){
-        .data = (bytes_t){ .data = val.bytes.data, .len = val.bytes.len },
-        .allocated = (int32_t)val.bytes.len,
-    },
-    .dynamic = (buffer_t){
-        .data = (bytes_t){ .data = NULL, .len = 0 },
-        .allocated = 0,
-    },
-};
+  return (ssz_builder_t) {
+      .def   = val.def,
+      .fixed = (buffer_t) {
+          .data      = (bytes_t) {.data = val.bytes.data, .len = val.bytes.len},
+          .allocated = (int32_t) val.bytes.len,
+      },
+      .dynamic = (buffer_t) {
+          .data      = (bytes_t) {.data = NULL, .len = 0},
+          .allocated = 0,
+      },
+  };
 }
 
 /**

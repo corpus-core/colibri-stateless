@@ -24,21 +24,25 @@
 #include "eth_account.h"
 #include "beacon_types.h"
 #include "bytes.h"
-#include "logger.h"
+#include "call_ctx.h"
 #include "crypto.h"
+#include "eth_call_account.h"
 #include "eth_tx.h"
 #include "eth_verify.h"
 #include "json.h"
+#include "logger.h"
 #include "patricia.h"
 #include "plugin.h"
 #include "rlp.h"
 #include "ssz.h"
+#include "state.h"
 #include "sync_committee.h"
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
 const uint8_t* EMPTY_HASH      = (uint8_t*) "\xc5\xd2\x46\x01\x86\xf7\x23\x3c\x92\x7e\x7d\xb2\xdc\xc7\x03\xc0\xe5\x00\xb6\x53\xca\x82\x27\x3b\x7b\xfa\xd8\x04\x5d\x85\xa4\x70";
 const uint8_t* EMPTY_ROOT_HASH = (uint8_t*) "\x56\xe8\x1f\x17\x1b\xcc\x55\xa6\xff\x83\x45\xe6\x92\xc0\xf8\x6e\x5b\x48\xe0\x1b\x99\x6c\xad\xc0\x01\x62\x2f\xb5\xe3\x63\xb4\x21";
 static void    remove_leading_zeros(bytes_t* value) {
@@ -58,9 +62,9 @@ static bool is_equal(ssz_ob_t expect, bytes_t* list, int index) {
 
 static bool verify_storage(verify_ctx_t* ctx, ssz_ob_t storage_proofs, bytes32_t storage_hash, bytes_t values) {
   if (values.data) memset(values.data, 0, 32);
-  int len = ssz_len(storage_proofs);
+  int  len      = ssz_len(storage_proofs);
   bool is_empty = memcmp(storage_hash, EMPTY_ROOT_HASH, 32) == 0;
-//  if (len != 0 && memcmp(storage_hash, EMPTY_ROOT_HASH, 32) == 0) RETURN_VERIFY_ERROR(ctx, "invalid storage proof because an empty storage hash can not have values!");
+  //  if (len != 0 && memcmp(storage_hash, EMPTY_ROOT_HASH, 32) == 0) RETURN_VERIFY_ERROR(ctx, "invalid storage proof because an empty storage hash can not have values!");
   for (int i = 0; i < len; i++) {
     bytes32_t path    = {0};
     bytes32_t root    = {0};
@@ -128,23 +132,6 @@ INTERNAL bool eth_verify_account_proof_exec(verify_ctx_t* ctx, ssz_ob_t* proof, 
   return true;
 }
 
-static bytes_t get_last_value(ssz_ob_t proof) {
-  bytes_t last_value = ssz_at(proof, ssz_len(proof) - 1).bytes;
-  if (!last_value.data) return NULL_BYTES;
-  if (rlp_decode(&last_value, 0, &last_value) != RLP_LIST) return NULL_BYTES;
-  switch ((int) rlp_decode(&last_value, -1, &last_value)) {
-    case 2: // must be a leaf (otherwise the verification would have failed)
-      if (rlp_decode(&last_value, 1, &last_value) != RLP_ITEM) return NULL_BYTES;
-      break;
-    case 17: // branch noch with the value
-      if (rlp_decode(&last_value, 16, &last_value) != RLP_ITEM) return NULL_BYTES;
-      break;
-    default:
-      return NULL_BYTES;
-  }
-  return last_value;
-}
-
 bool eth_get_storage_value(ssz_ob_t storage, const bytes32_t key, bytes32_t value) {
   bytes32_t path = {0};
   bytes32_t root = {0};
@@ -159,121 +146,88 @@ bool eth_get_storage_value(ssz_ob_t storage, const bytes32_t key, bytes32_t valu
   return true;
 }
 
-void eth_get_account_value(ssz_ob_t account, eth_account_field_t field, bytes32_t value) {
-  bytes_t last_value = get_last_value(ssz_get(&account, "accountProof"));
-  if (!last_value.data) return;
-  if (rlp_decode(&last_value, 0, &last_value) != RLP_LIST) return;
-  if (rlp_decode(&last_value, field - 1, &last_value) != RLP_ITEM) return;
-  if (last_value.len > 32) return;
-  memcpy(value + 32 - last_value.len, last_value.data, last_value.len);
+INTERNAL c4_status_t eth_fetch_account_code(verify_ctx_t* ctx, call_account_t* ac) {
+  char             tmp[200];
+  storage_plugin_t cache  = {0};
+  c4_status_t      status = C4_SUCCESS;
+  buffer_t         buf    = stack_buffer(tmp);
+
+  c4_get_storage_config(&cache);
+  bprintf(&buf, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\": \"eth_getCode\", \"params\": [\"0x%x\", \"latest\"]}", bytes(ac->address, 20));
+  bytes32_t hash = {0};
+  keccak(buf.data, hash);
+  data_request_t* req = c4_state_get_data_request_by_id(&ctx->state, hash);
+  if (req && req->response.data) {
+    buffer_reset(&buf);
+    json_t result = json_get(json_parse((char*) req->response.data), "result");
+    if (result.type == JSON_TYPE_STRING) {
+      buffer_t code_data = {0};
+      ac->code           = json_as_bytes(result, &code_data);
+      ac->flags |= ACCOUNT_HAS_CODE | ACCOUNT_FREE_CODE;
+
+      keccak(ac->code, hash);
+      if (ac->flags & ACCOUNT_HAS_CODE_HASH && memcmp(hash, ac->code_hash, 32) != 0) {
+        safe_free(ac->code.data);
+        ac->code = NULL_BYTES;
+        ac->flags &= ~(ACCOUNT_HAS_CODE | ACCOUNT_FREE_CODE);
+        status = c4_state_add_error(&ctx->state, "code hash mismatch");
+      }
+      else {
+        if (!(ac->flags & ACCOUNT_HAS_CODE_HASH)) { // update the code hash in papmode
+          ac->flags |= ACCOUNT_HAS_CODE_HASH;
+          keccak(ac->code, ac->code_hash);
+        }
+        cache.set(bprintf(&buf, "code_%x", bytes(ac->code_hash, 32)), ac->code);
+      }
+    }
+    else
+      status = c4_state_add_error(&ctx->state, bprintf(&buf, "error fetching code from rpc: %s", req->response.data));
+  }
+  else if (req && req->error)
+    status = c4_state_add_error(&ctx->state, req->error);
+  else {
+    data_request_t* new_req = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
+    new_req->chain_id       = ctx->chain_id;
+    new_req->encoding       = C4_DATA_ENCODING_JSON;
+    new_req->type           = C4_DATA_TYPE_ETH_RPC;
+    new_req->payload        = bytes_dup(buf.data);
+    new_req->method         = C4_DATA_METHOD_POST;
+    memcpy(new_req->id, hash, 32);
+    c4_state_add_request(&ctx->state, new_req);
+    status = C4_PENDING;
+  }
+  return status;
 }
 
-INTERNAL c4_status_t eth_get_call_codes(verify_ctx_t* ctx, call_code_t** call_codes, ssz_ob_t accounts) {
+INTERNAL c4_status_t eth_resolve_account_codes(verify_ctx_t* ctx, call_account_t* accounts) {
   c4_status_t      status = C4_SUCCESS;
   storage_plugin_t cache  = {0};
-  bytes32_t        hash   = {0};
   char             tmp[200];
   buffer_t         buf = stack_buffer(tmp);
   c4_get_storage_config(&cache);
 
-  uint32_t len = ssz_len(accounts);
-  for (uint32_t i = 0; i < len; i++) {
-    ssz_ob_t acc  = ssz_at(accounts, i);
-    ssz_ob_t code = ssz_get(&acc, "code");
+  for (call_account_t* ac = accounts; ac; ac = ac->next) {
+    if (ac->flags & ACCOUNT_HAS_CODE) continue;
+    if (!(ac->flags & ACCOUNT_HAS_CODE_HASH)) continue;
+    if (memcmp(ac->code_hash, EMPTY_HASH, 32) == 0) {
+      ac->code = NULL_BYTES;
+      ac->flags |= ACCOUNT_HAS_CODE;
+      continue;
+    }
 
-    if (code.def->type == SSZ_TYPE_BOOLEAN && code.bytes.data[0] == 0) continue; // no code which might be relevant for us
-
-    call_code_t* ac = (call_code_t*) safe_calloc(1, sizeof(call_code_t));
-    eth_get_account_value(acc, ETH_ACCOUNT_CODE_HASH, ac->hash);
-
-    // fetch from cache
     buffer_reset(&buf);
     buffer_t data = {0};
-    if (memcmp(ac->hash, EMPTY_HASH, 32) == 0) { // empty code
-      ac->code = NULL_BYTES;
-      ac->free = false;
-    }
-    else if (cache.get(bprintf(&buf, "code_%x", bytes(ac->hash, 32)), &data)) {
+    if (cache.get && cache.get(bprintf(&buf, "code_%x", bytes(ac->code_hash, 32)), &data)) {
       ac->code = data.data;
-      ac->free = true;
+      ac->flags |= ACCOUNT_HAS_CODE | ACCOUNT_FREE_CODE;
+      continue;
     }
-    else if (code.def->type == SSZ_TYPE_LIST) { // code is part of the proof, but not cached yet
-      ac->code = code.bytes;
-      ac->free = false;
 
-      // store in cache
-      cache.set((char*) buf.data.data, ac->code);
-    }
-    else {
-      buffer_reset(&buf);
-      bprintf(&buf, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\": \"eth_getCode\", \"params\": [\"0x%x\", \"latest\"]}", ssz_get(&acc, "address").bytes);
-      keccak(buf.data, hash);
-      data_request_t* req = c4_state_get_data_request_by_id(&ctx->state, hash);
-      if (req && req->response.data) {
-        buffer_reset(&buf);
-        json_t result = json_get(json_parse((char*) req->response.data), "result");
-        if (result.type == JSON_TYPE_STRING) {
-          buffer_t code_data = {0};
-          ac->code           = json_as_bytes(result, &code_data);
-          ac->free           = true;
-
-          keccak(ac->code, hash);
-          if (memcmp(hash, ac->hash, 32) != 0) { // code hash mismatch
-            eth_free_codes(ac);
-            ac     = NULL;
-            status = c4_state_add_error(&ctx->state, "code hash mismatch");
-          }
-          else // store in cache
-            cache.set(bprintf(&buf, "code_%x", bytes(ac->hash, 32)), ac->code);
-        }
-        else {
-          safe_free(ac);
-          ac     = NULL;
-          status = c4_state_add_error(&ctx->state, bprintf(&buf, "error fetching code from rpc: %s", req->response.data));
-        }
-      }
-      else if (req && req->error) {
-        safe_free(ac);
-        ac     = NULL;
-        status = c4_state_add_error(&ctx->state, req->error);
-      }
-      else {
-        // we need to fecth the code from rpc
-        data_request_t* req = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
-        req->chain_id       = ctx->chain_id;
-        req->encoding       = C4_DATA_ENCODING_JSON;
-        req->type           = C4_DATA_TYPE_ETH_RPC;
-        req->payload        = bytes_dup(buf.data);
-        req->method         = C4_DATA_METHOD_POST;
-        memcpy(req->id, hash, 32);
-        c4_state_add_request(&ctx->state, req);
-        if (status != C4_ERROR) status = C4_PENDING;
-        safe_free(ac);
-        ac = NULL;
-      }
-    }
-    if (ac) {
-      call_code_t* next = *call_codes;
-      *call_codes       = ac;
-      ac->next          = next;
-    }
-  }
-
-  if (status != C4_SUCCESS) {
-    eth_free_codes(*call_codes);
-    *call_codes = NULL;
+    c4_status_t fetch_status = eth_fetch_account_code(ctx, ac);
+    if (status != C4_ERROR) status = fetch_status;
   }
 
   return status;
-}
-
-INTERNAL void eth_free_codes(call_code_t* call_codes) {
-  while (call_codes) {
-    call_code_t* next = call_codes->next;
-    if (call_codes->free) safe_free(call_codes->code.data);
-    safe_free(call_codes);
-    call_codes = next;
-  }
 }
 
 gindex_t eth_get_gindex_for_block(fork_id_t fork, json_t block) {
@@ -282,28 +236,86 @@ gindex_t eth_get_gindex_for_block(fork_id_t fork, json_t block) {
 }
 
 bool eth_verify_state_proof(verify_ctx_t* ctx, ssz_ob_t state_proof, bytes32_t state_root) {
-  bytes32_t body_root          = {0};
-  json_t    block_number       = json_len(ctx->args) ? json_at(ctx->args, json_len(ctx->args) - 1) : (json_t) {0};
-  ssz_ob_t  state_merkle_proof = ssz_get(&state_proof, "proof");
-  ssz_ob_t  header             = ssz_get(&state_proof, "header");
-  ssz_ob_t  block              = ssz_get(&state_proof, "block");
-  gindex_t  gindex[2]          = {STATE_ROOT_GINDEX, block.bytes.len == 8 ? GINDEX_BLOCKUMBER : GINDEX_BLOCHASH};
-  uint8_t   leafes[64]         = {0};
-  memcpy(leafes, state_root, 32);
-  memcpy(leafes + 32, block.bytes.data, block.bytes.len);
-  ssz_verify_multi_merkle_proof(state_merkle_proof.bytes, bytes(leafes, block.def->type == SSZ_TYPE_NONE ? 32 : 64), gindex, body_root);
+  bytes32_t  body_root          = {0};
+  json_t     block_number       = json_len(ctx->args) ? json_at(ctx->args, json_len(ctx->args) - 1) : (json_t) {0};
+  ssz_ob_t   state_merkle_proof = ssz_get(&state_proof, "proof");
+  ssz_ob_t   header             = ssz_get(&state_proof, "header");
+  ssz_ob_t   block              = ssz_get(&state_proof, "block");
+  const bool is_block_context   = block.def == eth_ssz_verification_type(ETH_SSZ_DATA_CALL_BLOCK_CONTEXT);
+  const bool is_timestamp       = block.def == eth_ssz_verification_type(ETH_SSZ_DATA_STATE_BLOCK_TIMESTAMP);
+
+  if (is_block_context) {
+    const gindex_t* gi = c4_call_block_context_gindexes();
+    uint8_t         leafes[CALL_BLOCK_CONTEXT_FIELD_COUNT * 32];
+    memset(leafes, 0, sizeof(leafes));
+    memcpy(leafes + 0 * 32, state_root, 32);
+    memcpy(leafes + 1 * 32, ssz_get(&block, "blockNumber").bytes.data, 8);
+    memcpy(leafes + 2 * 32, ssz_get(&block, "timestamp").bytes.data, 8);
+    memcpy(leafes + 3 * 32, ssz_get(&block, "coinbase").bytes.data, 20);
+    memcpy(leafes + 4 * 32, ssz_get(&block, "prevRandao").bytes.data, 32);
+    memcpy(leafes + 5 * 32, ssz_get(&block, "baseFeePerGas").bytes.data, 32);
+    memcpy(leafes + 6 * 32, ssz_get(&block, "blockHash").bytes.data, 32);
+    memcpy(leafes + 7 * 32, ssz_get(&block, "gasLimit").bytes.data, 8);
+    memcpy(leafes + 8 * 32, ssz_get(&block, "excessBlobGas").bytes.data, 8);
+    if (!ssz_verify_multi_merkle_proof(state_merkle_proof.bytes, bytes(leafes, sizeof(leafes)), gi, body_root))
+      RETURN_VERIFY_ERROR(ctx, "invalid state proof (block context)");
+  }
+  else if (is_timestamp) {
+    // Timestamp variant: 2-leaf multi-proof over {stateRoot, timestamp} so the
+    // verifier can run the `latest` freshness gate on account proofs.
+    gindex_t gindex[2]  = {STATE_ROOT_GINDEX, GINDEX_TIMESTAMP};
+    uint8_t  leafes[64] = {0};
+    memcpy(leafes, state_root, 32);
+    if (block.bytes.len == 8) memcpy(leafes + 32, block.bytes.data, 8);
+    if (!ssz_verify_multi_merkle_proof(state_merkle_proof.bytes, bytes(leafes, 64), gindex, body_root))
+      RETURN_VERIFY_ERROR(ctx, "invalid state proof (timestamp)");
+  }
+  else {
+    gindex_t gindex[2]  = {STATE_ROOT_GINDEX, block.bytes.len == 8 ? GINDEX_BLOCKUMBER : GINDEX_BLOCHASH};
+    uint8_t  leafes[64] = {0};
+    memcpy(leafes, state_root, 32);
+    memcpy(leafes + 32, block.bytes.data, block.bytes.len);
+    if (!ssz_verify_multi_merkle_proof(state_merkle_proof.bytes, bytes(leafes, (!block.def || block.def->type == SSZ_TYPE_NONE) ? 32 : 64), gindex, body_root))
+      RETURN_VERIFY_ERROR(ctx, "invalid state proof");
+  }
+
+  if (block_number.type != JSON_TYPE_STRING) block_number = json_parse("\"latest\"");
   if (block_number.type == JSON_TYPE_STRING && strncmp(block_number.start, "\"0x", 3) == 0) {
     if (block_number.len == 68) {
-      if (block.bytes.len != 32) RETURN_VERIFY_ERROR(ctx, "did not expect blockhhash as blocknumber");
-      hex_to_bytes(block_number.start + 3, 64, bytes(leafes, 32));
-      if (memcmp(leafes, block.bytes.data, 32) == 0) RETURN_VERIFY_ERROR(ctx, "wrong blockhash");
+      uint8_t want[32];
+      hex_to_bytes(block_number.start + 3, 64, bytes(want, 32));
+      if (is_block_context) {
+        if (memcmp(want, ssz_get(&block, "blockHash").bytes.data, 32) != 0)
+          RETURN_VERIFY_ERROR(ctx, "wrong blockhash");
+      }
+      else if (is_timestamp) {
+        // The host pinned the request to a specific block (hex), but the prover
+        // emitted the freshness-only timestamp variant. This combination should
+        // not occur in practice (the prover only uses timestamp for non-pinned
+        // tags); refuse rather than silently accept a hash mismatch.
+        RETURN_VERIFY_ERROR(ctx, "timestamp variant unexpected for pinned block tag");
+      }
+      else {
+        if (block.bytes.len != 32) RETURN_VERIFY_ERROR(ctx, "did not expect blockhash as blocknumber");
+        if (memcmp(want, block.bytes.data, 32) != 0) RETURN_VERIFY_ERROR(ctx, "wrong blockhash");
+      }
     }
     else {
-      if (block.bytes.len != 8) RETURN_VERIFY_ERROR(ctx, "did not expect blockhhash as blocknumber");
-      if (ssz_uint64(block) != json_as_uint64(block_number)) RETURN_VERIFY_ERROR(ctx, "wrong blocknumber");
+      if (is_block_context) {
+        if (ssz_get_uint64(&block, "blockNumber") != json_as_uint64(block_number))
+          RETURN_VERIFY_ERROR(ctx, "wrong blocknumber");
+      }
+      else if (is_timestamp) {
+        // See note above: timestamp is only emitted for non-pinned tags.
+        RETURN_VERIFY_ERROR(ctx, "timestamp variant unexpected for pinned block tag");
+      }
+      else {
+        if (block.bytes.len != 8) RETURN_VERIFY_ERROR(ctx, "did not expect blockhhash as blocknumber");
+        if (ssz_uint64(block) != json_as_uint64(block_number)) RETURN_VERIFY_ERROR(ctx, "wrong blocknumber");
+      }
     }
   }
-  else if (block.bytes.len)
+  else if (block.bytes.len && !is_block_context && !is_timestamp)
     RETURN_VERIFY_ERROR(ctx, "Expected a blocknumber or blockhash as blocknumber");
 
   if (memcmp(body_root, ssz_get(&header, "bodyRoot").bytes.data, 32) != 0) RETURN_VERIFY_ERROR(ctx, "invalid body root!");

@@ -66,8 +66,99 @@ void test_json() {
   TEST_ASSERT_NOT_NULL(err);
   safe_free((char*) err);
 
+  // regression: json_as_string must not overflow a fixed/too-small stack buffer.
+  // Previously the NULL-terminator was written one byte past the end of a full
+  // fixed buffer, which corrupted the stack (SIGABRT under stack protector).
+  {
+    // array value (else-branch of json_as_string)
+    uint8_t  small_arr[8];
+    buffer_t small_arr_buf = stack_buffer(small_arr);
+    char*    arr_out       = json_as_string(json_parse("[\"0x0102030405060708\"]"), &small_arr_buf);
+    TEST_ASSERT_TRUE(strlen(arr_out) < sizeof(small_arr)); // truncated but valid, no overflow
+
+    // string value (string-branch of json_as_string)
+    uint8_t  small_str[8];
+    buffer_t small_str_buf = stack_buffer(small_str);
+    char*    str_out       = json_as_string(json_parse("\"0123456789abcdef\""), &small_str_buf);
+    TEST_ASSERT_TRUE(strlen(str_out) < sizeof(small_str)); // truncated but valid, no overflow
+  }
+
+  // regression: a large value must be serialized completely into a growable heap
+  // buffer (this is the eth_getLogs case that used to be silently truncated).
+  {
+    char   big_json[4096];
+    size_t pos     = 0;
+    big_json[pos++] = '[';
+    for (int i = 0; i < 48; i++) {
+      if (i) big_json[pos++] = ',';
+      memcpy(big_json + pos, "\"0x0e401e3924394a743231f3b96ced8a1b1ec849b2\"", 44);
+      pos += 44;
+    }
+    big_json[pos++] = ']';
+    big_json[pos]   = '\0';
+
+    buffer_t big_buf = {0};
+    char*    big_out = json_as_string(json_parse(big_json), &big_buf);
+    TEST_ASSERT_EQUAL_INT((int) pos, (int) strlen(big_out)); // nothing truncated
+    TEST_ASSERT_EQUAL_STRING(big_json, big_out);
+    buffer_free(&big_buf);
+  }
+
+  // edge cases for json_as_string boundaries.
+  {
+    // empty string value "" (string-branch, inner length 0)
+    buffer_t empty_str_buf = {0};
+    TEST_ASSERT_EQUAL_STRING("", json_as_string(json_parse("\"\""), &empty_str_buf));
+    buffer_free(&empty_str_buf);
+
+    // empty array value [] (else-branch, no truncation)
+    buffer_t empty_arr_buf = {0};
+    TEST_ASSERT_EQUAL_STRING("[]", json_as_string(json_parse("[]"), &empty_arr_buf));
+    buffer_free(&empty_arr_buf);
+
+    // fixed buffer with capacity exactly equal to needed length (content + terminator):
+    // must NOT truncate. "[]" needs 2 bytes + 1 terminator = 3.
+    uint8_t  exact_arr[3];
+    buffer_t exact_arr_buf = stack_buffer(exact_arr);
+    TEST_ASSERT_EQUAL_STRING("[]", json_as_string(json_parse("[]"), &exact_arr_buf));
+
+    // same for the string-branch: "ab" needs 2 bytes + 1 terminator = 3.
+    uint8_t  exact_str[3];
+    buffer_t exact_str_buf = stack_buffer(exact_str);
+    TEST_ASSERT_EQUAL_STRING("ab", json_as_string(json_parse("\"ab\""), &exact_str_buf));
+  }
+
+  // regression: escaped-string deescaping combined with a too-small fixed buffer.
+  // The raw (still-escaped) bytes are truncated to fit, then json_deescape_string
+  // runs over the truncated content -- this must stay in bounds even when the
+  // truncation leaves a dangling backslash at the end.
+  {
+    uint8_t  esc_buf_mem[8];
+    buffer_t esc_buf = stack_buffer(esc_buf_mem);
+    char*    esc_out = json_as_string(json_parse("\"\\n\\n\\n\\n\\n\\n\""), &esc_buf);
+    TEST_ASSERT_NOT_NULL(esc_out);
+    TEST_ASSERT_TRUE(strlen(esc_out) < sizeof(esc_buf_mem)); // no overflow, valid C string
+  }
+
   // cleanup
   buffer_free(&buffer);
+}
+
+void test_json_validate_block() {
+  // All standard block tags must be accepted by the "block" type.
+  const char* tags[] = {"\"latest\"", "\"safe\"", "\"finalized\"", "\"earliest\"", "\"pending\"", "\"0x1b4\"", "\"0x0\""};
+  for (size_t i = 0; i < sizeof(tags) / sizeof(tags[0]); i++) {
+    const char* err = json_validate(json_parse(tags[i]), "block", "");
+    TEST_ASSERT_NULL_MESSAGE(err, tags[i]);
+  }
+
+  // Non-block strings and non-hex tags must be rejected.
+  const char* invalid[] = {"\"head\"", "\"0xzz\"", "\"foobar\"", "5"};
+  for (size_t i = 0; i < sizeof(invalid) / sizeof(invalid[0]); i++) {
+    const char* err = json_validate(json_parse(invalid[i]), "block", "");
+    TEST_ASSERT_NOT_NULL_MESSAGE(err, invalid[i]);
+    safe_free((char*) err);
+  }
 }
 
 void test_buffer() {
@@ -770,6 +861,7 @@ void test_edge_cases() {
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_json);
+  RUN_TEST(test_json_validate_block);
   RUN_TEST(test_bprintf);
   RUN_TEST(test_bprintf_extended);
   RUN_TEST(test_bprintf_json_ssz);

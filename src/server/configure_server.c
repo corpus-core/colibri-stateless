@@ -22,7 +22,7 @@ http_server_t http_server = {
     .port              = 8090,
     .memcached_host    = "", // Empty by default - memcached is optional
     .memcached_port    = 11211,
-    .memcached_pool    = 20,
+    .memcached_pool    = 50,
     .loglevel          = LOG_WARN,
     .req_timeout       = 120,
     .chain_id          = 1,
@@ -52,6 +52,7 @@ http_server_t http_server = {
     .latency_bias_power_x100         = 200, // 2.0
     .latency_backpressure_power_x100 = 200, // 2.0,
     .latency_bias_offset_ms          = 50,  // ms,
+    .max_parallel_requests           = 10,  // Request dispatch throttling
 
     // cURL pool defaults
     .curl.http2_enabled         = 1,
@@ -70,7 +71,31 @@ http_server_t http_server = {
     .tracing_enabled        = 0,
     .tracing_url            = "",
     .tracing_service_name   = "colibri-stateless",
-    .tracing_sample_percent = 10 // 10%
+    .tracing_sample_percent = 10, // 10%
+
+    .proxy_enabled         = 0,
+    .proxy_allowed_domains = ""
+                             "*.colibri-proof.tech,"
+                             "*.alchemy.com,"
+                             "*.infura.io,"
+                             "*.quiknode.pro,"
+                             "*.ankr.com,"
+                             "*.chainsafe.io,"
+                             "*.publicnode.com,"
+                             "*.drpc.org,"
+                             "*.blastapi.io,"
+                             "*.chainstack.com,"
+                             "*.tenderly.co,"
+                             "*.llamarpc.com,"
+                             "*.1rpc.io,"
+                             "*.blockpi.io,"
+                             "*.getblock.io,"
+                             "*.grove.city,"
+                             "*.cloudflare-eth.com,"
+                             "*.beaconcha.in,"
+                             "beaconstate.info,"
+                             "*.invis.tools,"
+                             "*.ethstaker.cc",
 };
 
 static void config() {
@@ -96,6 +121,11 @@ static void config() {
   conf_string(&http_server.checkpointz_nodes, "CHECKPOINTZ", "checkpointz", 'z', "list of checkpointz server endpoints");
   conf_int(&http_server.req_timeout, "REQUEST_TIMEOUT", "req_timeout", 't', "request timeout", 1, 300);
 
+  c4_configure_add_section("proxy");
+  conf_int(&http_server.proxy_enabled, "PROXY_ENABLED", "proxy_enabled", 0, "allow client rpc/beacon arrays on /proof (0/1)", 0, 1);
+  conf_string(&http_server.proxy_allowed_domains, "PROXY_ALLOWED_DOMAINS", "proxy_allowed_domains", 0,
+              "comma-separated domain patterns for proxy URLs (e.g. *.alchemy.com,infura.io)");
+
   // Heuristic load-balancing configuration (ENV/args)
   c4_configure_add_section("http pools");
   conf_int(&http_server.max_concurrency_default, "C4_MAX_CONCURRENCY_DEFAULT", "max_concurrency_default", 'M', "default per-server max concurrency", 1, 4096);
@@ -113,6 +143,7 @@ static void config() {
   conf_int(&http_server.latency_bias_power_x100, "C4_LATENCY_BIAS_POWER_X100", "latency_bias_power_x100", 0, "exponent*100 for latency bias (e.g. 200=2.0)", 50, 1000);
   conf_int(&http_server.latency_backpressure_power_x100, "C4_LATENCY_BACKPRESSURE_POWER_X100", "latency_backpressure_power_x100", 0, "exponent*100 for backpressure penalty (e.g. 200=2.0)", 50, 1000);
   conf_int(&http_server.latency_bias_offset_ms, "C4_LATENCY_BIAS_OFFSET_MS", "latency_bias_offset_ms", 0, "offset added to latency for stability (ms)", 0, 1000);
+  conf_int(&http_server.max_parallel_requests, "C4_MAX_PARALLEL_REQUESTS", "max_parallel_requests", 0, "max requests dispatched per batch (0=unlimited)", 0, 1000);
 
   // cURL pool configuration (ENV/args)
   conf_int(&http_server.curl.http2_enabled, "C4_HTTP2", "http2", 0, "enable HTTP/2 (0/1)", 0, 1);

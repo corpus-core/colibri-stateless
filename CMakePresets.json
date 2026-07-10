@@ -75,6 +75,19 @@
                 "BLOCK_HASH_CACHE": "0",
                 "WASM_EMBED": "0"
             }
+        },
+        {
+            "name": "wasm-debug",
+            "displayName": "WASM (Debug)",
+            "description": "WASM Build mit DWARF-Debug-Info für Source-Level-Debugging",
+            "inherits": "wasm",
+            "binaryDir": "${sourceDir}/build/wasm-debug",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "WASM_DEBUG": "1",
+                "WASM_EMBED": "0",
+                "BLOCK_HASH_CACHE": "0"
+            }
         }
     ],
     "buildPresets": [
@@ -102,6 +115,11 @@
             "name": "wasm-profile",
             "configurePreset": "wasm-profile",
             "displayName": "WASM Build (Profiling)"
+        },
+        {
+            "name": "wasm-debug",
+            "configurePreset": "wasm-debug",
+            "displayName": "WASM Build (Debug)"
         }
     ]
 }

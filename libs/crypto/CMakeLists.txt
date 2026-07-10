@@ -48,7 +48,7 @@ set(SRC
 
   curves.c
 #  bip32.c
-#  nist256p1.c
+  nist256p1.c
 
 )
 if (WITNESS_SIGNER)

@@ -35,11 +35,17 @@ if(NOT GIT_VERSION)
     set(GIT_VERSION "0.1.0-dev")
 endif()
 
-# Allow overriding version (e.g., from CI)
-if(DEFINED ENV{C4_VERSION})
-    set(C4_VERSION $ENV{C4_VERSION})
-else()
-    set(C4_VERSION ${GIT_VERSION})
+# Version override precedence:
+#   1. explicit cache value (-DC4_VERSION=... at configure time, e.g. to force the v6
+#      dual-serve gate for local roundtrip testing),
+#   2. C4_VERSION environment variable (CI),
+#   3. git describe (default for release builds).
+if(NOT C4_VERSION)
+    if(DEFINED ENV{C4_VERSION})
+        set(C4_VERSION $ENV{C4_VERSION})
+    else()
+        set(C4_VERSION ${GIT_VERSION})
+    endif()
 endif()
 
 message(STATUS "C4 Version: ${C4_VERSION}")
@@ -89,6 +95,7 @@ option(CHAIN_ETH "includes the ETH verification support" ON)
 option(CHAIN_OP "includes the OP-Stack verification support" OFF)
 option(ETH_ZKPROOF "includes the ETH ZK-Proof verification support" ON)
 option(ETH_ZKPROOF_BUILD_HOST "Build eth-sync-script host binary (Rust/SP1). Disable for clients/slaves or platforms where SP1 doesn't build." OFF)
+option(PAP "Enable Pragmatic Adaptive Privacy mode in verifier" ON)
 
 
 # Make ETH availability visible to all targets (server + chains)
@@ -111,12 +118,14 @@ option(WASM "Build WebAssembly target" OFF)
 option(KOTLIN "Build Kotlin bindings" OFF)
 option(SWIFT "Build Swift bindings" OFF)
 option(C4_PYTHON "Build Python bindings" OFF) # NOTE: ESP-IDF passes -DPYTHON=<python-executable> to CMake. Do not use PYTHON as a boolean option name.
+option(DART "Build Dart bindings" OFF)
 option(TEST "Build the unit tests" OFF)
 option(COVERAGE "Enable coverage tracking" OFF)
 option(SHAREDLIB "Build shared library" OFF)
 option(STATIC_MEMORY "if true, the memory will be statically allocated, which only makes sense for embedded systems" OFF)
 option(MESSAGES "if activated the binaries will contain error messages, but for embedded systems this is not needed and can be turned off to save memory" ON)
-option(FILE_STORAGE "if activated the verfifier will use a simple file-implementaion to store states in the current folder or in a folder specified by the env varC4_STATE_DIR" ON)
+option(FILE_STORAGE "if activated the verfifier will use a simple file-implementaion to store states in the current folder or in a folder specified by the env var C4_STATES_DIR" ON)
+option(MEMORY_STORAGE "if activated the verifier will use an in-memory storage (no filesystem); useful for Android and embedded" ON)
 
 if(MESSAGES)
     add_definitions(-DMESSAGES)
@@ -124,6 +133,9 @@ endif()
 
 if(FILE_STORAGE AND NOT WASM)
     add_definitions(-DFILE_STORAGE)
+endif()
+if(MEMORY_STORAGE)
+    add_definitions(-DMEMORY_STORAGE)
 endif()
 
 if(BLOCK_HASH_CACHE)
@@ -139,6 +151,15 @@ if(C4_PYTHON)
     set(CURL OFF CACHE BOOL "Disable CURL for Python bindings" FORCE)
     set(CLI OFF CACHE BOOL "Disable CLI tools for Python bindings" FORCE)
     message(STATUS "Python bindings enabled: CURL=OFF, CLI=OFF")
+endif()
+
+# Dart bindings configuration
+if(DART)
+    # Dart bindings disable CURL/CLI/HTTP server (HTTP is handled in Dart)
+    set(CURL OFF CACHE BOOL "Disable CURL for Dart bindings" FORCE)
+    set(CLI OFF CACHE BOOL "Disable CLI tools for Dart bindings" FORCE)
+    set(HTTP_SERVER OFF CACHE BOOL "Disable HTTP server for Dart bindings" FORCE)
+    message(STATUS "Dart bindings enabled: CURL=OFF, CLI=OFF, HTTP_SERVER=OFF")
 endif()
 
 # Android/Kotlin bindings configuration
@@ -221,15 +242,26 @@ if(SWIFT)
     if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
         message(STATUS "Building for iOS (CMAKE_SYSTEM_NAME=iOS)")
         
-        # Set SDK paths based on target architecture
-        if(CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64")
+        # Detect whether the caller requested a simulator build via CMAKE_OSX_SYSROOT
+        set(_IS_SIMULATOR OFF)
+        if(CMAKE_OSX_SYSROOT MATCHES "[Ss]imulator" OR CMAKE_OSX_SYSROOT STREQUAL "iphonesimulator")
+            set(_IS_SIMULATOR ON)
+        endif()
+
+        # Set SDK paths based on target architecture and simulator flag
+        if(_IS_SIMULATOR)
             execute_process(
                 COMMAND xcrun --sdk iphonesimulator --show-sdk-path
                 OUTPUT_VARIABLE CMAKE_OSX_SYSROOT
                 OUTPUT_STRIP_TRAILING_WHITESPACE
             )
-            set(IOS_PLATFORM "SIMULATOR64")
-            set(TARGET_TRIPLE "x86_64-apple-ios-simulator")
+            if(CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64")
+                set(IOS_PLATFORM "SIMULATOR64")
+                set(TARGET_TRIPLE "x86_64-apple-ios-simulator")
+            else()
+                set(IOS_PLATFORM "SIMULATORARM64")
+                set(TARGET_TRIPLE "arm64-apple-ios-simulator")
+            endif()
         elseif(CMAKE_OSX_ARCHITECTURES STREQUAL "arm64")
             execute_process(
                 COMMAND xcrun --sdk iphoneos --show-sdk-path
@@ -238,6 +270,14 @@ if(SWIFT)
             )
             set(IOS_PLATFORM "OS64")
             set(TARGET_TRIPLE "arm64-apple-ios")
+        elseif(CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64")
+            execute_process(
+                COMMAND xcrun --sdk iphonesimulator --show-sdk-path
+                OUTPUT_VARIABLE CMAKE_OSX_SYSROOT
+                OUTPUT_STRIP_TRAILING_WHITESPACE
+            )
+            set(IOS_PLATFORM "SIMULATOR64")
+            set(TARGET_TRIPLE "x86_64-apple-ios-simulator")
         endif()
 
         # Set iOS-specific compiler and linker flags
@@ -275,6 +315,9 @@ if(KOTLIN)
     set(CMAKE_POSITION_INDEPENDENT_CODE ON)
     set(CURL OFF)
 endif()
+if(DART)
+    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+endif()
 
 # Feature flags and compiler settings
 if (PROVER_CACHE) 
@@ -296,6 +339,10 @@ endif()
 
 if(BLS_DESERIALIZE)
     add_definitions(-DBLS_DESERIALIZE)
+endif()
+
+if(PAP AND VERIFIER)
+    add_definitions(-DPAP)
 endif()
 
 if(TEST)
@@ -386,12 +433,23 @@ if(C4_PYTHON)
     add_subdirectory(bindings/python)
 endif()
 
+if(DART)
+    add_subdirectory(bindings/dart)
+endif()
+
 
 add_custom_target(doc 
     COMMAND ${CMAKE_COMMAND} -E echo "Generating documentation..."
     COMMAND ${CMAKE_COMMAND} -E env node ${CMAKE_SOURCE_DIR}/scripts/doc/index.js
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/scripts
     COMMENT "Running update_doc.js to generate documentation"
+)
+
+add_custom_target(doc-agents
+    COMMAND ${CMAKE_COMMAND} -E echo "Generating agent documentation..."
+    COMMAND ${CMAKE_COMMAND} -E env node ${CMAKE_SOURCE_DIR}/scripts/doc/agents.js
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Updating auto-generated sections in AGENTS.md files"
 )
 
 add_custom_target(valgrind
@@ -549,12 +607,31 @@ endif()
 
 # Shared library if requested and not embedded
 if(SHAREDLIB AND NOT EMBEDDED)
-    add_library(c4 SHARED src/util/version.c bindings/colibri.c)
+    add_library(c4 SHARED src/util/version.c bindings/colibri.c bindings/colibri_common.c)
     target_link_libraries(c4 PRIVATE crypto verifier util blst  prover    verifier eth_verifier)
     set_target_properties(c4 PROPERTIES
         LIBRARY_OUTPUT_DIRECTORY ${OUTPUT_DIRECTORY}
         VERSION 1.0
         SOVERSION 1
+    )
+endif()
+
+# Install zsh completion scripts
+include(GNUInstallDirs)
+set(ZSH_COMPLETIONS_DIR "${CMAKE_INSTALL_DATAROOTDIR}/zsh/site-functions"
+    CACHE STRING "Path for zsh completion scripts (relative to install prefix)")
+if(CLI)
+    install(FILES
+        scripts/completion/_colibri
+        scripts/completion/_colibri-prover
+        scripts/completion/_colibri-ssz
+        DESTINATION ${ZSH_COMPLETIONS_DIR}
+    )
+endif()
+if(HTTP_SERVER)
+    install(FILES
+        scripts/completion/_colibri-server
+        DESTINATION ${ZSH_COMPLETIONS_DIR}
     )
 endif()
 

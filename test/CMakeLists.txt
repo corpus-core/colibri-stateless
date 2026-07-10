@@ -22,14 +22,14 @@
 # Erforderlich für FetchContent
 include(FetchContent)
 
-# Definiere das FetchContent-Objekt für Unity
+# Fetch Unity test framework (EXCLUDE_FROM_ALL suppresses Unity's own install rules)
 FetchContent_Declare(
     unity
     GIT_REPOSITORY https://github.com/ThrowTheSwitch/Unity.git
-    GIT_TAG v2.5.2  # Verwende die gewünschte Unity-Version
+    GIT_TAG v2.5.2
+    EXCLUDE_FROM_ALL
 )
 
-# Lade und bereite Unity vor
 FetchContent_MakeAvailable(unity)
 
 # Suppress MSVC warning C4711 for unity target

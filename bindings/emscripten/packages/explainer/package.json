@@ -1,0 +1,64 @@
+{
+    "name": "@corpus-core/colibri-explainer",
+    "version": "0.1.0",
+    "description": "LLM-powered transaction simulation explainer for Colibri Stateless. Takes simulation results from colibri_simulateTransaction and produces human-readable explanations via configurable LLM providers.",
+    "main": "dist/index.js",
+    "type": "module",
+    "types": "dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+        }
+    },
+    "files": [
+        "dist",
+        "README.md"
+    ],
+    "scripts": {
+        "build": "tsc",
+        "test": "node --test test/*.test.mjs"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/corpus-core/c4.git",
+        "directory": "bindings/emscripten/packages/explainer"
+    },
+    "keywords": [
+        "ethereum",
+        "transaction",
+        "simulation",
+        "explainer",
+        "llm",
+        "colibri"
+    ],
+    "author": "Simon Jentzsch <simon@corpus.io>",
+    "license": "MIT",
+    "dependencies": {
+        "@solidity-parser/parser": "^0.20.2",
+        "ethers": "^6.16.0",
+        "solc": "^0.8.34"
+    },
+    "optionalDependencies": {
+        "@mlc-ai/web-llm": "^0.2.84"
+    },
+    "devDependencies": {
+        "typescript": "^5.5.0"
+    },
+    "peerDependencies": {
+        "@corpus-core/colibri-stateless": ">=0.1.0"
+    },
+    "peerDependenciesMeta": {
+        "@corpus-core/colibri-stateless": {
+            "optional": true
+        }
+    },
+    "publishConfig": {
+        "access": "public"
+    },
+    "overrides": {
+        "ws": "^8.20.1",
+        "follow-redirects": "^1.16.0",
+        "tmp": "^0.2.6"
+    }
+}

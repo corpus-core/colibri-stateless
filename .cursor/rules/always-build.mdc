@@ -1,0 +1,5 @@
+---
+alwaysApply: true
+---
+
+Code Änderungen sollten immer durch bauen des Projektes mit cmake --build build/default überprüft werden.

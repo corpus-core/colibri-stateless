@@ -52,7 +52,7 @@ foreach(test_source ${TEST_SOURCES})
     get_filename_component(test_name ${test_source} NAME_WE)
 
     # Erstelle eine ausführbare Datei für den Test
-    add_executable(${test_name} ${test_source})
+    add_executable(${test_name} ${test_source} ../../bindings/colibri.c ../../bindings/colibri_common.c)
 
     # Füge die Include-Verzeichnisse hinzu
     target_include_directories(${test_name} PRIVATE ${TEST_INCLUDES})
@@ -60,6 +60,18 @@ foreach(test_source ${TEST_SOURCES})
 
     # Verknüpfe die Testausführbare mit Unity und deinem Code
     target_link_libraries(${test_name} PRIVATE unity verifier prover eth_verifier eth_prover)
+
+    # The eth chain module sets USE_CHECKPOINTZ via directory-scoped add_definitions,
+    # which does NOT propagate to consumers. Tests that include eth verifier headers
+    # under the `#ifdef USE_CHECKPOINTZ` gate must mirror the flag explicitly.
+    if(USE_CHECKPOINTZ)
+        target_compile_definitions(${test_name} PRIVATE USE_CHECKPOINTZ)
+    endif()
+    # Same for ETH_OBLIVIOUS: the oblivious helper declarations in eth_verify.h
+    # and the test bodies in test_oblivious_retry*.c are gated on this flag.
+    if(ETH_OBLIVIOUS)
+        target_compile_definitions(${test_name} PRIVATE ETH_OBLIVIOUS)
+    endif()
     
     if("${test_name}" STREQUAL "test_eth_precompiles")
         target_link_libraries(${test_name} PRIVATE eth_bn254 intx_wrapper eth_precompiles)

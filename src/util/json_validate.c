@@ -171,7 +171,9 @@ static const char* check_hex(json_t val, int len, bool isuint, const char* error
 
 static const char* check_block(json_t val, const char* error_prefix) {
   if (val.type != JSON_TYPE_STRING) ERROR("%sExpected block number", error_prefix);
-  if (strncmp("\"latest\"", val.start, 8) == 0 || strncmp("\"safe\"", val.start, 6) == 0 || strncmp("\"finalized\"", val.start, 11) == 0) return NULL;
+  if (strncmp("\"latest\"", val.start, 8) == 0 || strncmp("\"safe\"", val.start, 6) == 0 ||
+      strncmp("\"finalized\"", val.start, 11) == 0 || strncmp("\"earliest\"", val.start, 10) == 0 ||
+      strncmp("\"pending\"", val.start, 9) == 0) return NULL;
   return check_hex(val, 0, true, error_prefix);
 }
 
@@ -197,6 +199,7 @@ const char* json_validate(json_t val, const char* def, const char* error_prefix)
   if (strncmp(def, "suint", 5) == 0) return val.type == JSON_TYPE_STRING ? NULL : strdup("Expected suint");
   if (strncmp(def, "bool", 4) == 0) return val.type == JSON_TYPE_BOOLEAN ? NULL : strdup("Expected boolean");
   if (strncmp(def, "block", 5) == 0) return check_block(val, error_prefix);
+  if (strncmp(def, "string", 6) == 0) return val.type == JSON_TYPE_STRING ? NULL : strdup("Expected string");
   ERROR("%sUnknown type %s", error_prefix ? error_prefix : "", def);
 }
 

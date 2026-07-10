@@ -12,3 +12,4 @@ hex = { workspace = true }
 clap = { version = "4.0", features = ["derive"] }
 num-bigint = "0.4"
 regex = "1.10"
+tokio = { version = "1.0", features = ["rt-multi-thread", "macros"] }

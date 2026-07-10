@@ -45,6 +45,10 @@ if(CARGO_EXECUTABLE AND ETH_ZKPROOF_BUILD_HOST)
             ${ZKPROOF_GUEST_ELF_SRC}
             ${ZKPROOF_GUEST_ELF_DST}
     COMMAND ${CMAKE_COMMAND} -E touch ${ZKPROOF_BIN_DIR}/eth-sync-script.stamp
+    # Re-run when the frozen guest ELF changes (e.g. after a VK bump). Without this
+    # dependency the stamp-only rule never re-copies an updated ELF, silently leaving
+    # a stale binary next to colibri-server.
+    DEPENDS ${ZKPROOF_GUEST_ELF_SRC}
     WORKING_DIRECTORY ${ZKPROOF_HOST_CRATE_DIR}
     COMMENT "Building eth-sync-script and copying ZK artifacts"
     VERBATIM
@@ -65,6 +69,10 @@ else()
             ${ZKPROOF_GUEST_ELF_SRC}
             ${ZKPROOF_GUEST_ELF_DST}
     COMMAND ${CMAKE_COMMAND} -E touch ${ZKPROOF_BIN_DIR}/eth_sync_program.stamp
+    # Re-run when the frozen guest ELF changes (e.g. after a VK bump). Without this
+    # dependency the stamp-only rule never re-copies an updated ELF, silently leaving
+    # a stale binary next to colibri-server.
+    DEPENDS ${ZKPROOF_GUEST_ELF_SRC}
     COMMENT "Copying frozen eth_sync_program next to colibri-server"
     VERBATIM
   )

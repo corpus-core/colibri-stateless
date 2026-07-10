@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, height=device-height, initial-scale=1, user-scalable=no">
+  <meta name="description" content="API docs for the Colibri class from the colibri_stateless library, for the Dart programming language.">
+  <title>Colibri class - colibri_stateless library - Dart API</title>
+
+
+  
+  <link rel="preconnect" href="https://fonts.gstatic.com">
+  <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:ital,wght@0,300;0,400;0,500;0,700;1,400&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0" rel="stylesheet">
+  
+  <link rel="stylesheet" href="../static-assets/github.css?v1">
+  <link rel="stylesheet" href="../static-assets/styles.css?v1">
+  <link rel="icon" href="../static-assets/favicon.png?v1">
+  
+</head>
+
+<body data-base-href="../" data-using-base-href="false" class="light-theme">
+<div id="overlay-under-drawer"></div>
+<header id="title">
+  <span id="sidenav-left-toggle" class="material-symbols-outlined" role="button" tabindex="0">menu</span>
+  <ol class="breadcrumbs gt-separated dark hidden-xs">
+    <li><a href="../index.html">colibri_stateless</a></li>
+    <li><a href="../colibri_stateless/">colibri_stateless.dart</a></li>
+    <li class="self-crumb">Colibri class</li>
+  </ol>
+  <div class="self-name">Colibri</div>
+  <form class="search navbar-right" role="search">
+    <input type="text" id="search-box" autocomplete="off" disabled class="form-control typeahead" placeholder="Loading search...">
+  </form>
+  <button class="toggle" id="theme-button" title="Toggle between light and dark mode" aria-label="Light and dark mode toggle">
+    <span id="dark-theme-button" class="material-symbols-outlined" aria-hidden="true">
+      dark_mode
+    </span>
+    <span id="light-theme-button" class="material-symbols-outlined" aria-hidden="true">
+      light_mode
+    </span>
+  </button>
+</header>
+<main>
+<div
+    id="dartdoc-main-content"
+    class="main-content"
+    data-above-sidebar="colibri_stateless&#47;colibri_stateless-library-sidebar.html"
+    data-below-sidebar="colibri_stateless&#47;Colibri-class-sidebar.html">
+    <div>
+<h1><span class="kind-class">Colibri</span> class 
+ 
+</h1></div>
+
+    
+<section class="desc markdown">
+  <p>High-level Colibri client for proofed RPC calls.</p>
+<p>Use <a href="../colibri_stateless/Colibri/rpc.html">rpc</a> to run Ethereum (and compatible) RPC methods with automatic
+proof generation and verification. Configure <a href="../colibri_stateless/Colibri/provers.html">provers</a>, <a href="../colibri_stateless/Colibri/ethRpcs.html">ethRpcs</a>, and
+<a href="../colibri_stateless/Colibri/beaconApis.html">beaconApis</a> for your network; optionally set <a href="../colibri_stateless/Colibri/storage.html">storage</a> for native cache.</p>
+</section>
+
+
+
+    
+  <section class="summary offset-anchor" id="constructors">
+    <h2>Constructors</h2>
+    <dl class="constructor-summary-list">
+        <dt id="Colibri.new" class="callable">
+          <span class="name"><a href="../colibri_stateless/Colibri/Colibri.html">Colibri</a></span><span class="signature">({<span class="parameter" id="-param-chainId"><span class="type-annotation"><a href="https://api.flutter.dev/flutter/dart-core/int-class.html">int</a></span> <span class="parameter-name">chainId</span> = <span class="default-value">1</span>, </span><span class="parameter" id="-param-provers"><span class="type-annotation"><a href="https://api.flutter.dev/flutter/dart-core/List-class.html">List</a><span class="signature">&lt;<wbr><span class="type-parameter"><a href="https://api.flutter.dev/flutter/dart-core/String-class.html">String</a></span>&gt;</span>?</span> <span class="parameter-name">provers</span>, </span><span class="parameter" id="-param-ethRpcs"><span class="type-annotation"><a href="https://api.flutter.dev/flutter/dart-core/List-class.html">List</a><span class="signature">&lt;<wbr><span class="type-parameter"><a href="https://api.flutter.dev/flutter/dart-core/String-class.html">String</a></span>&gt;</span>?</span> <span class="parameter-name">ethRpcs</span>, </span><span class="parameter" id="-param-beaconApis"><span class="type-annotation"><a href="https://api.flutter.dev/flutter/dart-core/List-class.html">List</a><span class="signature">&lt;<wbr><span class="type-parameter"><a href="https://api.flutter.dev/flutter/dart-core/String-class.html">String</a></span>&gt;</span>?</span> <span class="parameter-name">beaconApis</span>, </span><span class="parameter" id="-param-checkpointz"><span class="type-annotation"><a href="https://api.flutter.dev/flutter/dart-core/List-class.html">List</a><span class="signature">&lt;<wbr><span class="type-parameter"><a href="https://api.flutter.dev/flutter/dart-core/String-class.html">String</a></span>&gt;</span>?</span> <span class="parameter-name">checkpointz</span>, </span><span class="parameter" id="-param-trustedCheckpoint"><span class="type-annotation"><a href="https://api.flutter.dev/flutter/dart-core/String-class.html">String</a>?</span> <span class="parameter-name">trustedCheckpoint</span>, </span><span class="parameter" id="-param-includeCode"><span class="type-annotation"><a href="https://api.flutter.dev/flutter/dart-core/bool-class.html">bool</a></span> <span class="parameter-name">includeCode</span> = <span class="default-value">false</span>, </span><span class="parameter" id="-param-zkProof"><span class="type-annotation"><a href="https://api.flutter.dev/flutter/dart-core/bool-class.html">bool</a></span> <span class="parameter-name">zkProof</span> = <span class="default-value">false</span>, </span><span class="parameter" id="-param-checkpointWitnessKeys"><span class="type-annotation"><a href="https://api.flutter.dev/flutter/dart-core/String-class.html">String</a>?</span> <span class="parameter-name">checkpointWitnessKeys</span>, </span><span class="parameter" id="-param-logProverRequests"><span class="type-annotation"><a href="https://api.flutter.dev/flutter/dart-core/bool-class.html">bool</a></span> <span class="parameter-name">logProverRequests</span> = <span class="default-value">false</span>, </span><span class="parameter" id="-param-storage"><span class="type-annotation"><a href="../colibri_stateless/ColibriStorage-class.html">ColibriStorage</a>?</span> <span class="parameter-name">storage</span>, </span><span class="parameter" id="-param-libraryPath"><span class="type-annotation"><a href="https://api.flutter.dev/flutter/dart-core/String-class.html">String</a>?</span> <span class="parameter-name">libraryPath</span>, </span><span class="parameter" id="-param-httpClient"><span class="type-annotation"><a href="https://pub.dev/documentation/http/1.6.0/http/Client-class.html">Client</a>?</span> <span class="parameter-name">httpClient</span></span>})</span>
+        </dt>
+        <dd>
+          Creates a client with optional custom endpoints and storage.
+        </dd>
+    </dl>
+  </section>
+    
+  <section
+      class="summary offset-anchor"
+      id="instance-properties">
+    <h2>Properties</h2>
+    <dl class="properties">
+        <dt id="beaconApis" class="property">
+  <span class="name"><a href="../colibri_stateless/Colibri/beaconApis.html">beaconApis</a></span>
+  <span class="signature">&#8594; <a href="https://api.flutter.dev/flutter/dart-core/List-class.html">List</a><span class="signature">&lt;<wbr><span class="type-parameter"><a href="https://api.flutter.dev/flutter/dart-core/String-class.html">String</a></span>&gt;</span></span>
+  
+
+</dt>
+<dd>
+  Beacon API URLs for checkpoint and light client data.
+  <div class="features"><span class="feature">final</span></div>
+
+</dd>
+
+        <dt id="chainId" class="property">
+  <span class="name"><a href="../colibri_stateless/Colibri/chainId.html">chainId</a></span>
+  <span class="signature">&#8594; <a href="https://api.flutter.dev/flutter/dart-core/int-class.html">int</a></span>
+  
+
+</dt>
+<dd>
+  Chain ID (e.g. 1 for mainnet, 11155111 for Sepolia).
+  <div class="features"><span class="feature">final</span></div>
+
+</dd>
+
+        <dt id="checkpointWitnessKeys" class="property">
+  <span class="name"><a href="../colibri_stateless/Colibri/checkpointWitnessKeys.html">checkpointWitnessKeys</a></span>
+  <span class="signature">&#8594; <a href="https://api.flutter.dev/flutter/dart-core/String-class.html">String</a>?</span>
+  
+
+</dt>
+<dd>
+  Optional witness signer keys for ZK proof verification.
+  <div class="features"><span class="feature">final</span></div>
+
+</dd>
+
+        <dt id="checkpointz" class="property">
+  <span class="name"><a href="../colibri_stateless/Colibri/checkpointz.html">checkpointz</a></span>
+  <span class="signature">&#8594; <a href="https://api.flutter.dev/flutter/dart-core/List-class.html">List</a><span class="signature">&lt;<wbr><span class="type-parameter"><a href="https://api.flutter.dev/flutter/dart-core/String-class.html">String</a></span>&gt;</span></span>
+  
+
+</dt>
+<dd>
+  Checkpointz-style URLs for finalized checkpoint bootstrap.
+  <div class="features"><span class="feature">final</span></div>
+
+</dd>
+
+        <dt id="ethRpcs" class="property">
+  <span class="name"><a href="../colibri_stateless/Colibri/ethRpcs.html">ethRpcs</a></span>
+  <span class="signature">&#8594; <a href="https://api.flutter.dev/flutter/dart-core/List-class.html">List</a><span class="signature">&lt;<wbr><span class="type-parameter"><a href="https://api.flutter.dev/flutter/dart-core/String-class.html">String</a></span>&gt;</span></span>
+  
+
+</dt>
+<dd>
+  Execution RPC URLs for unproofable methods and data.
+  <div class="features"><span class="feature">final</span></div>
+
+</dd>
+
+        <dt id="hashCode" class="property inherited">
+  <span class="name"><a href="https://api.flutter.dev/flutter/dart-core/Object/hashCode.html">hashCode</a></span>
+  <span class="signature">&#8594; <a href="https://api.flutter.dev/flutter/dart-core/int-class.html">int</a></span>
+  
+
+</dt>
+<dd class="inherited">
+  The hash code for this object.
+  <div class="features"><span class="feature">no setter</span><span class="feature">inherited</span></div>
+
+</dd>
+
+        <dt id="includeCode" class="property">
+  <span class="name"><a href="../colibri_stateless/Colibri/includeCode.html">includeCode</a></span>
+  <span class="signature">&#8594; <a href="https://api.flutter.dev/flutter/dart-core/bool-class.html">bool</a></span>
+  
+
+</dt>
+<dd>
+  Whether to include code in proof requests.
+  <div class="features"><span class="feature">final</span></div>
+
+</dd>
+
+        <dt id="logProverRequests" class="property">
+  <span class="name"><a href="../colibri_stateless/Colibri/logProverRequests.html">logProverRequests</a></span>
+  <span class="signature">&#8594; <a href="https://api.flutter.dev/flutter/dart-core/bool-class.html">bool</a></span>
+  
+
+</dt>
+<dd>
+  Whether to log prover request parameters (debug).
+  <div class="features"><span class="feature">final</span></div>
+
+</dd>
+
+        <dt id="provers" class="property">
+  <span class="name"><a href="../colibri_stateless/Colibri/provers.html">provers</a></span>
+  <span class="signature">&#8594; <a href="https://api.flutter.dev/flutter/dart-core/List-class.html">List</a><span class="signature">&lt;<wbr><span class="type-parameter"><a href="https://api.flutter.dev/flutter/dart-core/String-class.html">String</a></span>&gt;</span></span>
+  
+
+</dt>
+<dd>
+  Prover endpoint URLs for remote proof fetching.
+  <div class="features"><span class="feature">final</span></div>
+
+</dd>
+
+        <dt id="runtimeType" class="property inherited">
+  <span class="name"><a href="https://api.flutter.dev/flutter/dart-core/Object/runtimeType.html">runtimeType</a></span>
+  <span class="signature">&#8594; <a href="https://api.flutter.dev/flutter/dart-core/Type-class.html">Type</a></span>
+  
+
+</dt>
+<dd class="inherited">
+  A representation of the runtime type of the object.
+  <div class="features"><span class="feature">no setter</span><span class="feature">inherited</span></div>
+
+</dd>
+
+        <dt id="storage" class="property">
+  <span class="name"><a href="../colibri_stateless/Colibri/storage.html">storage</a></span>
+  <span class="signature">&#8594; <a href="../colibri_stateless/ColibriStorage-class.html">ColibriStorage</a>?</span>
+  
+
+</dt>
+<dd>
+  Optional storage backend for native cache.
+  <div class="features"><span class="feature">final</span></div>
+
+</dd>
+
+        <dt id="trustedCheckpoint" class="property">
+  <span class="name"><a href="../colibri_stateless/Colibri/trustedCheckpoint.html">trustedCheckpoint</a></span>
+  <span class="signature">&#8594; <a href="https://api.flutter.dev/flutter/dart-core/String-class.html">String</a>?</span>
+  
+
+</dt>
+<dd>
+  Optional trusted checkpoint root (0x-prefixed hex).
+  <div class="features"><span class="feature">final</span></div>
+
+</dd>
+
+        <dt id="zkProof" class="property">
+  <span class="name"><a href="../colibri_stateless/Colibri/zkProof.html">zkProof</a></span>
+  <span class="signature">&#8594; <a href="https://api.flutter.dev/flutter/dart-core/bool-class.html">bool</a></span>
+  
+
+</dt>
+<dd>
+  Whether to request ZK sync proofs from provers.
+  <div class="features"><span class="feature">final</span></div>
+
+</dd>
+
+    </dl>
+  </section>
+
+    
+  <section
+      class="summary offset-anchor"
+      id="instance-methods">
+    <h2>Methods</h2>
+    <dl class="callables">
+        <dt id="close" class="callable">
+  <span class="name"><a href="../colibri_stateless/Colibri/close.html">close</a></span><span class="signature">(<wbr>)
+    <span class="returntype parameter">&#8594; void</span>
+  </span>
+  
+
+</dt>
+<dd>
+  Closes the underlying HTTP client.
+  
+
+</dd>
+
+        <dt id="createProof" class="callable">
+  <span class="name"><a href="../colibri_stateless/Colibri/createProof.html">createProof</a></span><span class="signature">(<wbr><span class="parameter" id="createProof-param-method"><span class="type-annotation"><a href="https://api.flutter.dev/flutter/dart-core/String-class.html">String</a></span> <span class="parameter-name">method</span>, </span><span class="parameter" id="createProof-param-params"><span class="type-annotation"><a href="https://api.flutter.dev/flutter/dart-core/List-class.html">List</a></span> <span class="parameter-name">params</span></span>)
+    <span class="returntype parameter">&#8594; <a href="https://api.flutter.dev/flutter/dart-core/Future-class.html">Future</a><span class="signature">&lt;<wbr><span class="type-parameter"><a href="https://api.flutter.dev/flutter/dart-typed_data/Uint8List-class.html">Uint8List</a></span>&gt;</span></span>
+  </span>
+  
+
+</dt>
+<dd>
+  Creates a proof for <code>method</code> and <code>params</code> locally using the native library.
+  
+
+</dd>
+
+        <dt id="getMethodSupport" class="callable">
+  <span class="name"><a href="../colibri_stateless/Colibri/getMethodSupport.html">getMethodSupport</a></span><span class="signature">(<wbr><span class="parameter" id="getMethodSupport-param-method"><span class="type-annotation"><a href="https://api.flutter.dev/flutter/dart-core/String-class.html">String</a></span> <span class="parameter-name">method</span></span>)
+    <span class="returntype parameter">&#8594; <a href="../colibri_stateless/MethodType.html">MethodType</a></span>
+  </span>
+  
+
+</dt>
+<dd>
+  Returns how <code>method</code> is supported (proofable, local, unproofable, etc.).
+  
+
+</dd>
+
+        <dt id="noSuchMethod" class="callable inherited">
+  <span class="name"><a href="https://api.flutter.dev/flutter/dart-core/Object/noSuchMethod.html">noSuchMethod</a></span><span class="signature">(<wbr><span class="parameter" id="noSuchMethod-param-invocation"><span class="type-annotation"><a href="https://api.flutter.dev/flutter/dart-core/Invocation-class.html">Invocation</a></span> <span class="parameter-name">invocation</span></span>)
+    <span class="returntype parameter">&#8594; dynamic</span>
+  </span>
+  
+
+</dt>
+<dd class="inherited">
+  Invoked when a nonexistent method or property is accessed.
+  <div class="features"><span class="feature">inherited</span></div>
+
+</dd>
+
+        <dt id="rpc" class="callable">
+  <span class="name"><a href="../colibri_stateless/Colibri/rpc.html">rpc</a></span><span class="signature">(<wbr><span class="parameter" id="rpc-param-method"><span class="type-annotation"><a href="https://api.flutter.dev/flutter/dart-core/String-class.html">String</a></span> <span class="parameter-name">method</span>, </span><span class="parameter" id="rpc-param-params"><span class="type-annotation"><a href="https://api.flutter.dev/flutter/dart-core/List-class.html">List</a></span> <span class="parameter-name">params</span></span>)
+    <span class="returntype parameter">&#8594; <a href="https://api.flutter.dev/flutter/dart-core/Future-class.html">Future</a></span>
+  </span>
+  
+
+</dt>
+<dd>
+  Executes an RPC call with automatic proof handling.
+  
+
+</dd>
+
+        <dt id="toString" class="callable inherited">
+  <span class="name"><a href="https://api.flutter.dev/flutter/dart-core/Object/toString.html">toString</a></span><span class="signature">(<wbr>)
+    <span class="returntype parameter">&#8594; <a href="https://api.flutter.dev/flutter/dart-core/String-class.html">String</a></span>
+  </span>
+  
+
+</dt>
+<dd class="inherited">
+  A string representation of this object.
+  <div class="features"><span class="feature">inherited</span></div>
+
+</dd>
+
+        <dt id="verifyProof" class="callable">
+  <span class="name"><a href="../colibri_stateless/Colibri/verifyProof.html">verifyProof</a></span><span class="signature">(<wbr><span class="parameter" id="verifyProof-param-proof"><span class="type-annotation"><a href="https://api.flutter.dev/flutter/dart-typed_data/Uint8List-class.html">Uint8List</a></span> <span class="parameter-name">proof</span>, </span><span class="parameter" id="verifyProof-param-method"><span class="type-annotation"><a href="https://api.flutter.dev/flutter/dart-core/String-class.html">String</a></span> <span class="parameter-name">method</span>, </span><span class="parameter" id="verifyProof-param-params"><span class="type-annotation"><a href="https://api.flutter.dev/flutter/dart-core/List-class.html">List</a></span> <span class="parameter-name">params</span></span>)
+    <span class="returntype parameter">&#8594; <a href="https://api.flutter.dev/flutter/dart-core/Future-class.html">Future</a></span>
+  </span>
+  
+
+</dt>
+<dd>
+  Verifies <code>proof</code> and returns the verified RPC result.
+  
+
+</dd>
+
+    </dl>
+  </section>
+    
+  <section
+      class="summary offset-anchor inherited"
+      id="operators">
+    <h2>Operators</h2>
+    <dl class="callables">
+        <dt id="operator ==" class="callable inherited">
+  <span class="name"><a href="https://api.flutter.dev/flutter/dart-core/Object/operator_equals.html">operator ==</a></span><span class="signature">(<wbr><span class="parameter" id="==-param-other"><span class="type-annotation"><a href="https://api.flutter.dev/flutter/dart-core/Object-class.html">Object</a></span> <span class="parameter-name">other</span></span>)
+    <span class="returntype parameter">&#8594; <a href="https://api.flutter.dev/flutter/dart-core/bool-class.html">bool</a></span>
+  </span>
+  
+
+</dt>
+<dd class="inherited">
+  The equality operator.
+  <div class="features"><span class="feature">inherited</span></div>
+
+</dd>
+
+    </dl>
+  </section>
+    
+    
+    
+
+  </div> <!-- /.main-content -->
+  <div id="dartdoc-sidebar-left" class="sidebar sidebar-offcanvas-left">
+    <!-- The search input and breadcrumbs below are only responsively visible at low resolutions. -->
+<header id="header-search-sidebar" class="hidden-l">
+  <form class="search-sidebar" role="search">
+    <input type="text" id="search-sidebar" autocomplete="off" disabled class="form-control typeahead" placeholder="Loading search...">
+  </form>
+</header>
+<ol class="breadcrumbs gt-separated dark hidden-l" id="sidebar-nav">
+    <li><a href="../index.html">colibri_stateless</a></li>
+    <li><a href="../colibri_stateless/">colibri_stateless</a></li>
+    <li class="self-crumb">Colibri class</li>
+</ol>
+
+    <h5>colibri_stateless library</h5>
+    <div id="dartdoc-sidebar-left-content"></div>
+  </div>
+  <div id="dartdoc-sidebar-right" class="sidebar sidebar-offcanvas-right">
+  </div><!--/.sidebar-offcanvas-->
+</main>
+<footer>
+  <span class="no-break">
+    colibri_stateless
+      0.1.1
+  </span>
+  
+</footer>
+
+
+<script src="../static-assets/highlight.pack.js?v1"></script>
+<script src="../static-assets/docs.dart.js"></script>
+
+</body>
+</html>
+

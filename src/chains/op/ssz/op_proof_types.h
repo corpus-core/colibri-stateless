@@ -51,9 +51,18 @@ static const ssz_def_t OP_PRECONF[] = {
 };
 
 // Union type for block proof methods in OP-Stack.
-// Currently supports preconfirmation-based proofs, which use sequencer-signed execution payloads.
+//   - preconf:    preconfirmation proof (sequencer-signed execution payload).
+//   - cached_ref: block already verified by the client; the value is the blockhash
+//                 used by the verifier to look up the cached execution payload via
+//                 `c4_state_get_data_request_by_id` (snapshot taken at request start).
+//                 The prover emits this when the request's `client_state` advertises
+//                 a matching cached payload.
+//
+// IMPORTANT: Append-only ordering. `preconf` MUST stay at union index 0 to keep
+// previously serialized proofs decodable.
 static const ssz_def_t OP_BLOCKPROOF_UNION[] = {
     SSZ_CONTAINER("preconf", OP_PRECONF), // preconfirmation proof (sequencer-signed execution payload)
+    SSZ_BYTES32("cached_ref"),            // blockhash hint identifying the cached execution payload
 };
 
 // :: Receipt Proof

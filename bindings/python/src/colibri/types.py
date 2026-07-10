@@ -6,6 +6,21 @@ from enum import IntEnum
 from typing import Any, Dict, List, Optional
 
 
+class PrivacyMode(IntEnum):
+    """Pragmatic Adaptive Privacy mode. BASIC sets verify flag for PAP."""
+    NONE = 0
+    BASIC = 1
+
+
+class ProverMode(IntEnum):
+    """Proof generation mode controlling how proofs are built and verified."""
+    LOCAL = 0
+    REMOTE = 1
+    HYBRID = 2
+    PROXY = 3
+    LIGHT_CLIENT = 4
+
+
 class MethodType(IntEnum):
     """Enum for RPC method support types"""
     UNDEFINED = 0      # Method is not defined/recognized
@@ -62,6 +77,26 @@ class RPCError(ColibriError):
         self.code = code
 
 
+class RevertError(RPCError):
+    """Raised when an ``eth_call`` (or similar EVM execution) ran to completion
+    but reverted. The verifier has fully verified the revert -- this is a
+    legitimate EVM outcome, not a transport or proof error.
+
+    Maps to the Geth-style RPC error
+    ``{"code": 3, "message": "execution reverted", "data": "0x..."}``, which is
+    also the EIP-1193 representation used by ethers to decode
+    ``OffchainLookup`` (EIP-3668 / CCIP-Read) and custom Solidity errors.
+
+    :ivar data: Raw EVM revert return-data as ``0x``-prefixed hex string
+        (``"0x"`` when empty). Callers typically ABI-decode this with the
+        contract's error definitions.
+    """
+
+    def __init__(self, data: str, details: Optional[str] = None):
+        super().__init__("execution reverted", code=3, details=details)
+        self.data = data
+
+
 class HTTPError(ColibriError):
     """Exception raised for HTTP errors"""
     
@@ -88,6 +123,8 @@ class DataRequest:
         request_type: str = "eth_rpc",
         exclude_mask: int = 0,
         chain_id: int = 1,
+        delay: int = 0,
+        ttl: int = 0,
     ):
         self.req_ptr = req_ptr
         self.url = url
@@ -97,6 +134,12 @@ class DataRequest:
         self.request_type = request_type
         self.exclude_mask = exclude_mask
         self.chain_id = chain_id
+        # Milliseconds to wait before (re-)executing (e.g. oblivious-node retry backoff).
+        self.delay = delay
+        # Cache freshness bound in seconds (0 = no hint). Forwarded as a
+        # `Cache-Control: max-age=<ttl>` request header so a shared cache/CDN never
+        # returns a response older than this bound (e.g. short bound for `latest` blocks).
+        self.ttl = ttl
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "DataRequest":
@@ -110,6 +153,8 @@ class DataRequest:
             request_type=data.get("type", "eth_rpc"),
             exclude_mask=int(data.get("exclude_mask", 0)),
             chain_id=int(data.get("chain_id", 1)),
+            delay=int(data.get("delay", 0)),
+            ttl=int(data.get("ttl", 0)),
         )
 
     def to_dict(self) -> Dict[str, Any]:

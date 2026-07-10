@@ -25,18 +25,39 @@
 #define C4_VERSION_H
 
 #define VERSION_MAJOR 0
-#define VERSION_MINOR 1
+#define VERSION_MINOR 2
 #define VERSION_PATCH 0
 #define CHAIN_TYPE    1 // ETH=1
 
 #include <stdint.h>
 #include <stdio.h>
 
+#if defined(__GNUC__) || defined(__clang__)
+#define C4_VERSION_PURE __attribute__((pure))
+#else
+#define C4_VERSION_PURE
+#endif
+
 // the Version of the Protocol used when creating proof. This should only be changed, if the proof format changes.
 extern const uint8_t c4_protocol_version_bytes[4];
 
 // the client-version, which should be set during the build-process.
 extern const char* c4_client_version;
+
+/**
+ * Parse major, minor and patch from c4_client_version and combine into a single
+ * uint32_t: (major << 16) | (minor << 8) | patch. Each component is clamped to
+ * 0..255. Returns 0 if the version string cannot be parsed.
+ * Uses the C4_VERSION macro directly so the compiler constant-folds the result.
+ * Implemented without sscanf for static-analysis safety.
+ *
+ * @return Version number or 0 on parse failure
+ */
+C4_VERSION_PURE uint32_t c4_current_version_number(void);
+
+static inline uint32_t c4_version_number(const uint8_t major, const uint8_t minor, const uint8_t patch) {
+  return ((uint32_t)major << 16) | ((uint32_t)minor << 8) | (uint32_t)patch;
+}
 
 /**
  * Print version information and build flags to the specified file stream.

@@ -74,28 +74,27 @@ static c4_status_t verif_block(verify_ctx_t* ctx, ssz_ob_t block, uint8_t* block
   ssz_ob_t    txs               = ssz_get(&block, "txs");
   bytes32_t   receipt_root      = {0};
   uint32_t    tx_count          = ssz_len(txs);
-  ssz_ob_t*   execution_payload = op_extract_verified_execution_payload(ctx, ssz_get(&block, "block_proof"), NULL, NULL);
+  ssz_ob_t    execution_payload = op_extract_verified_execution_payload(ctx, ssz_get(&block, "block_proof"), NULL, NULL);
   c4_status_t status            = C4_SUCCESS;
 
-  if (!execution_payload) return C4_ERROR; // error already set
-  if (block_number_value) memcpy(block_number_value, ssz_get(execution_payload, "blockNumber").bytes.data, 8);
+  if (!execution_payload.def) return C4_ERROR; // error already set
+  if (block_number_value) memcpy(block_number_value, ssz_get(&execution_payload, "blockNumber").bytes.data, 8);
 
   // verify each tx and get the receipt root
   for (int i = 0; i < tx_count; i++) {
-    if (!verify_tx(ctx, *execution_payload, ssz_at(txs, i), receipt_root)) {
+    if (!verify_tx(ctx, execution_payload, ssz_at(txs, i), receipt_root)) {
       status = C4_ERROR;
       c4_state_add_error(&ctx->state, "Invalid Receipt");
       break;
     }
   }
 
-  bytes_t receipts_root_expected = ssz_get(execution_payload, "receiptsRoot").bytes;
+  bytes_t receipts_root_expected = ssz_get(&execution_payload, "receiptsRoot").bytes;
   if (status == C4_SUCCESS && memcmp(receipt_root, receipts_root_expected.data, 32) != 0) {
     status = C4_ERROR;
     c4_state_add_error(&ctx->state, "Invalid Receipts Root");
   }
 
-  safe_free(execution_payload);
   return status;
 }
 

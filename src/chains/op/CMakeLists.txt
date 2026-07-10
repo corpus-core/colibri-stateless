@@ -85,6 +85,7 @@ add_verifier(
   GET_REQ_TYPE c4_op_get_request_type
   VERIFY c4_op_verify
   METHOD_TYPE c4_op_get_method_type
+  INIT_RPC_CTX op_init_rpc_ctx
 )
 
 

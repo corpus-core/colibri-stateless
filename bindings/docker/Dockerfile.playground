@@ -1,0 +1,53 @@
+# syntax=docker/dockerfile:1
+
+# The builder produces only static assets (HTML/JS/CSS), which are
+# architecture-independent. Pinning it to the build platform lets buildx
+# create multi-arch images without emulating the heavy WASM/C compile under
+# QEMU -- only the tiny nginx final stage is resolved per target platform.
+FROM --platform=$BUILDPLATFORM emscripten/emsdk:4.0.3 AS builder
+
+# CMake normally derives the version from `git describe`, but the build context
+# has no .git directory. Pass the version explicitly so CMake picks it up via
+# $ENV{C4_VERSION}; defaults to the same value CMake would fall back to.
+ARG C4_VERSION=0.1.0-dev
+
+WORKDIR /src
+
+# 1) Build the colibri-stateless WASM bundle with the WASM embedded into a
+#    single index.js (SINGLE_FILE), so the playground needs no separate .wasm.
+COPY CMakeLists.txt CMakePresets.json LICENSE ./
+COPY src ./src
+COPY libs ./libs
+COPY bindings ./bindings
+COPY scripts ./scripts
+
+# `:-` guards against an empty build-arg (an empty env var would still be
+# DEFINED in CMake and produce an empty version).
+RUN C4_VERSION="${C4_VERSION:-0.1.0-dev}" emcmake cmake -B build \
+        -DWASM=true -DWASM_EMBED=ON -DCLI=false -DTEST=false -DCURL=false \
+        -DCMAKE_BUILD_TYPE=MINSIZREL -S . \
+    && cmake --build build
+
+# 2) Build the explainer package (the playground depends on its dist/ via file:).
+WORKDIR /src/bindings/emscripten/packages/explainer
+RUN npm install && npm run build
+
+# 3) Build the playground static site against the freshly built WASM bundle.
+WORKDIR /src/bindings/emscripten/packages/playground
+ENV COLIBRI_DIST=/src/build/emscripten/index.js
+RUN npm install && npm run build
+
+# --- Final stage: serve the static site with nginx ---
+FROM nginx:alpine AS final
+
+COPY --from=builder /src/bindings/emscripten/packages/playground/dist /usr/share/nginx/html
+
+LABEL org.opencontainers.image.title="Colibri Transaction Explainer Playground"
+LABEL org.opencontainers.image.description="Browser playground that runs colibri_simulateTransaction and explains transactions with a local WebGPU model or a cloud LLM"
+LABEL org.opencontainers.image.url="https://github.com/corpus-core/colibri-stateless"
+LABEL org.opencontainers.image.source="https://github.com/corpus-core/colibri-stateless"
+LABEL org.opencontainers.image.documentation="https://corpus-core.gitbook.io/specification-colibri-stateless"
+LABEL org.opencontainers.image.vendor="Corpus Core"
+LABEL org.opencontainers.image.licenses="MIT"
+
+EXPOSE 80

@@ -10,55 +10,60 @@ public protocol ColibriStorage {
     func delete(key: String)
 }
 
-/// Default file storage implementation (similar to C FILE_STORAGE)
+/// Thread-safe file storage implementation (similar to C FILE_STORAGE).
+/// All operations are serialized on a private queue to prevent races when
+/// multiple verifier contexts run in parallel.
 private class DefaultFileStorage: ColibriStorage {
     private let baseDirectory: URL
-    
+    private let queue = DispatchQueue(label: "com.corpuscore.colibri.storage")
+
     init() {
-        // Use C4_STATES_DIR environment variable or current directory
         if let statesDir = ProcessInfo.processInfo.environment["C4_STATES_DIR"] {
             baseDirectory = URL(fileURLWithPath: statesDir)
         } else {
             baseDirectory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         }
-        
-        // Ensure directory exists
         try? FileManager.default.createDirectory(at: baseDirectory, withIntermediateDirectories: true)
         print("🗄️ Default Storage: Using directory \(baseDirectory.path)")
     }
-    
+
     func get(key: String) -> Data? {
-        let fileURL = baseDirectory.appendingPathComponent(key)
-        
-        do {
-            let data = try Data(contentsOf: fileURL)
-            print("🗄️ Default Storage GET: \(key) (\(data.count) bytes)")
-            return data
-        } catch {
-            // File not found is normal for storage
-            return nil
+        queue.sync {
+            let fileURL = baseDirectory.appendingPathComponent(key)
+            do {
+                let data = try Data(contentsOf: fileURL)
+                print("🗄️ Default Storage GET: \(key) (\(data.count) bytes)")
+                return data
+            } catch {
+                return nil
+            }
         }
     }
-    
+
     func set(key: String, value: Data) {
-        let fileURL = baseDirectory.appendingPathComponent(key)
-        
-        do {
-            try value.write(to: fileURL)
-            print("🗄️ Default Storage SET: \(key) (\(value.count) bytes)")
-        } catch {
-            print("🗄️ Default Storage SET ERROR: \(key) - \(error)")
+        queue.sync {
+            let fileURL = baseDirectory.appendingPathComponent(key)
+            let tmpURL  = fileURL.appendingPathExtension("tmp")
+            do {
+                try value.write(to: tmpURL)
+                try? FileManager.default.removeItem(at: fileURL)
+                try FileManager.default.moveItem(at: tmpURL, to: fileURL)
+                print("🗄️ Default Storage SET: \(key) (\(value.count) bytes)")
+            } catch {
+                print("🗄️ Default Storage SET ERROR: \(key) - \(error)")
+            }
         }
     }
-    
+
     func delete(key: String) {
-        let fileURL = baseDirectory.appendingPathComponent(key)
-        
-        do {
-            try FileManager.default.removeItem(at: fileURL)
-            print("🗄️ Default Storage DELETE: \(key)")
-        } catch {
-            // File not found is normal for delete
+        queue.sync {
+            let fileURL = baseDirectory.appendingPathComponent(key)
+            do {
+                try FileManager.default.removeItem(at: fileURL)
+                print("🗄️ Default Storage DELETE: \(key)")
+            } catch {
+                // File not found is normal for delete
+            }
         }
     }
 }
@@ -71,7 +76,6 @@ public class StorageBridge {
     /// Register a storage implementation
     public static func registerStorage(_ storage: ColibriStorage) {
         implementation = storage
-        print("🗄️ Swift Storage implementation registered")
         
         // Initialize C bridge if not already done
         if !isInitialized {
@@ -98,7 +102,7 @@ public class StorageBridge {
         // Initialize the C storage plugin
         swift_storage_bridge_initialize()
         
-        print("🗄️ Storage bridge initialized with Swift callbacks")
+        
     }
 }
 
@@ -181,14 +185,35 @@ public struct DataRequest {
     public let payload: [String: Any]?
     public let encoding: String?
     public let type: String?
-    
-    public init(url: String, method: String, payload: [String: Any]? = nil, encoding: String? = nil, type: String? = nil) {
+    /// Cache freshness bound in seconds (0 = no hint). Forwarded as a `Cache-Control: max-age=<ttl>`
+    /// request header so a shared cache/CDN never returns a response older than this bound.
+    public let ttl: UInt64
+
+    public init(url: String, method: String, payload: [String: Any]? = nil, encoding: String? = nil, type: String? = nil, ttl: UInt64 = 0) {
         self.url = url
         self.method = method
         self.payload = payload
         self.encoding = encoding
         self.type = type
+        self.ttl = ttl
     }
+}
+
+// MARK: - Privacy Mode
+/// Pragmatic Adaptive Privacy mode. BASIC sets verify flag for PAP.
+public enum PrivacyMode: String, CaseIterable {
+    case none
+    case basic
+}
+
+// MARK: - Prover Mode
+/// Proof generation mode controlling how proofs are built and verified.
+public enum ProverMode: Int, CaseIterable {
+    case local = 0
+    case remote = 1
+    case hybrid = 2
+    case proxy = 3
+    case lightClient = 4
 }
 
 // MARK: - Method Types
@@ -211,37 +236,227 @@ public enum MethodType: Int, CaseIterable {
 }
 
 public class Colibri {
-    // Configuration with defaults
+    // Configuration with defaults.
+    // Endpoint arrays default to empty; when empty at request time, per-chain fallbacks
+    // from defaultProvers/defaultEthRpcs/defaultBeaconApis/defaultCheckpointz are used.
     public var eth_rpcs: [String] = []
     public var beacon_apis: [String] = []
-    public var provers: [String] = ["https://c4.incubed.net"]
-    public var checkpointz: [String] = ["https://sync-mainnet.beaconcha.in", "https://beaconstate.info", "https://sync.invis.tools", "https://beaconstate.ethstaker.cc"]
+    public var provers: [String] = []
+    public var checkpointz: [String] = []
+    /// TEE RPC endpoints for eth_getProof (privacy-preserving storage reads).
+    public var obliviousNodes: [String] = []
     public var trustedCheckpoint: String? = nil
     public var chainId: UInt64 = 1 // Default: Ethereum Mainnet
     public var includeCode: Bool = false
-    
+    public var useAccesslist: Bool = false
+    /// Whether to request ZK sync proofs from remote provers.
+    public var zkProof: Bool = false
+    /// PAP mode; .basic sets verify flag for Pragmatic Adaptive Privacy.
+    public var privacyMode: PrivacyMode = .none
+    /// Proof generation mode. nil = auto-detect (remote if provers configured, else local).
+    public var proverMode: ProverMode? = nil
+    /// Optional witness signer keys (hex-encoded, 0x-prefixed) for sync committee signing.
+    public var checkpointWitnessKeys: String? = nil
+
+    /// If true, the verifier skips the Weak Subjectivity Period check
+    /// (`VERIFY_FLAG_SKIP_WSP_CHECK`, bit `1 << 7`). SECURITY: only safe when another
+    /// trust anchor (witness signatures, hard-coded checkpoint, signed package) is in
+    /// place; disabling raises the risk of long-range attacks across periods older than
+    /// the WSP. Default: false.
+    public var skipWspCheck: Bool = false
+
+    /// Maximum age (in seconds) accepted for a proof whose request uses the
+    /// `"latest"` block tag. The verifier compares `block.timestamp` from the
+    /// proof against `now - maxLatestAgeSeconds`; older proofs are rejected
+    /// with `"proof for latest too old"`. Set to `0` to disable the check
+    /// (e.g. when working with older proof formats that lack a block context).
+    /// Currently active for `eth_call`, `eth_estimateGas`, and
+    /// `colibri_simulateTransaction`. Default: 60 (~5 Ethereum slots).
+    public var maxLatestAgeSeconds: UInt64 = 60
+
     /// Optional request handler for mocking HTTP requests in tests
     public var requestHandler: RequestHandler?
 
+    private var lightClientTimer: DispatchSourceTimer?
+
     public init() {}
+
+    /// Default prover URLs for supported chains.
+    public static func defaultProvers(for chainId: UInt64) -> [String] {
+        switch chainId {
+        case 1:
+            return [
+                "https://mainnet.colibri-proof.tech",
+                "https://mainnet-prover.incubed.net",
+                "https://mainnet.colimind.com",
+            ]
+        case 11155111:
+            return [
+                "https://sepolia.colibri-proof.tech",
+                "https://sepolia-prover.incubed.net",
+                "https://sepolia.colimind.com",
+            ]
+        case 100:
+            return [
+                "https://gnosis.colibri-proof.tech",
+                "https://gnosis-prover.incubed.net",
+                "https://gnosis.colimind.com",
+            ]
+        case 10200:
+            return ["https://chiado.colibri-proof.tech"]
+        default:
+            return ["https://c4.incubed.net"]
+        }
+    }
+
+    /// Default Ethereum RPC URLs for supported chains (fallback order: colibri-proof.tech first, public as fallback).
+    public static func defaultEthRpcs(for chainId: UInt64) -> [String] {
+        switch chainId {
+        case 1:
+            return [
+                "https://mainnet.colibri-proof.tech/execution",
+                "https://eth.drpc.org",
+                "https://ethereum-rpc.publicnode.com",
+                "https://singapore.rpc.blxrbdn.com",
+            ]
+        case 11155111:
+            return [
+                "https://sepolia.colibri-proof.tech/execution",
+                "https://sepolia.drpc.org",
+                "https://ethereum-sepolia-rpc.publicnode.com",
+                "https://sepolia.gateway.tenderly.co",
+            ]
+        case 100:
+            return [
+                "https://gnosis.colibri-proof.tech/execution",
+                "https://rpc.gnosischain.com",
+                "https://rpc.gnosis.gateway.fm",
+                "https://gnosis-rpc.publicnode.com",
+            ]
+        case 10200:
+            return [
+                "https://rpc.chiado.gnosis.gateway.fm",
+                "https://rpc.chiadochain.net",
+                "https://gnosis-chiado-rpc.publicnode.com",
+            ]
+        default:
+            return []
+        }
+    }
+
+    /// Default beacon API URLs for supported chains (fallback order: colibri-proof.tech first, public as fallback).
+    public static func defaultBeaconApis(for chainId: UInt64) -> [String] {
+        switch chainId {
+        case 1:
+            return [
+                "https://mainnet.colibri-proof.tech/consensus",
+                "https://gateway.tenderly.co/public/mainnet",
+                "https://ethereum-beacon-api.publicnode.com",
+            ]
+        case 11155111:
+            return [
+                "https://sepolia.colibri-proof.tech/consensus",
+                "https://ethereum-sepolia-beacon-api.publicnode.com",
+            ]
+        case 100:
+            return [
+                "https://gnosis.colibri-proof.tech/consensus",
+                "https://rpc-gbc.gnosischain.com",
+                "https://gnosis-beacon-api.publicnode.com",
+            ]
+        case 10200:
+            return [
+                "https://rpc-gbc.chiadochain.net",
+            ]
+        default:
+            return []
+        }
+    }
+
+    /// Default checkpointz URLs for supported chains.
+    public static func defaultCheckpointz(for chainId: UInt64) -> [String] {
+        switch chainId {
+        case 1:
+            return [
+                "https://sync-mainnet.beaconcha.in",
+                "https://mainnet.checkpoint.sigp.io",
+                "https://mainnet-checkpoint-sync.attestant.io",
+                "https://beaconstate-mainnet.chainsafe.io",
+                "https://mainnet-checkpoint-sync.stakely.io",
+                "https://checkpointz.pietjepuk.net",
+                "https://beaconstate.ethstaker.cc",
+            ]
+        case 11155111:
+            return [
+                "https://checkpoint-sync.sepolia.ethpandaops.io",
+                "https://beaconstate-sepolia.chainsafe.io",
+            ]
+        case 100:
+            return ["https://checkpoint.gnosischain.com"]
+        case 10200:
+            return ["https://checkpoint.chiadochain.net"]
+        default:
+            return []
+        }
+    }
 
     public static func initialize() {
         // Placeholder for initialization if needed
     }
 
+    // MARK: - Verify Flags
+
+    /// Computes the lower bound for `block.timestamp` accepted on `"latest"`
+    /// proofs as `now - maxLatestAgeSeconds`. Returns `0` when the host
+    /// disables the check (`maxLatestAgeSeconds == 0`). The platform clock is
+    /// read here in the binding so the C/WASM core stays clock-free.
+    private func getMinLatestBlockTs() -> UInt64 {
+        guard maxLatestAgeSeconds > 0 else { return 0 }
+        let now = UInt64(Date().timeIntervalSince1970)
+        return now > maxLatestAgeSeconds ? (now - maxLatestAgeSeconds) : 0
+    }
+
+    /// Returns verify flags (VERIFY_FLAG_PAP, VERIFY_FLAG_OBLIVIOUS, VERIFY_FLAG_SKIP_WSP_CHECK)
+    /// derived from privacyMode, obliviousNodes and skipWspCheck. Centralized so future flags
+    /// can be added in one place.
+    private func getVerifyFlags() -> UInt32 {
+        let pap = privacyMode == .basic || !obliviousNodes.isEmpty
+        var flags: UInt32 = pap ? 2 : 0
+        if !obliviousNodes.isEmpty {
+            flags |= 1 << 6
+        }
+        if skipWspCheck {
+            flags |= 1 << 7
+        }
+        return flags
+    }
+
     // MARK: - Method Support
     
-    /// Check if a method is supported for proof generation
-    public func getMethodSupport(method: String) -> MethodType {
+    /// Check if a method is supported for proof generation.
+    ///
+    /// In PAP mode the result may depend on cached data for the given params
+    /// (e.g. `eth_call` can become `.LOCAL` when storage values are cached).
+    ///
+    /// - Parameters:
+    ///   - method: RPC method name
+    ///   - params: Optional method parameters as JSON array string
+    /// - Returns: The method type indicating how to handle this call
+    public func getMethodSupport(method: String, params: String? = nil) -> MethodType {
         let methodPtr = method.withCString { strdup($0) }
         guard let methodCStr = methodPtr else {
             return .UNKNOWN
         }
         defer { free(methodCStr) }
 
-        let typeRaw = c4_get_method_support(chainId, methodCStr)
+        var paramsCStr: UnsafeMutablePointer<CChar>? = nil
+        if let params = params {
+            paramsCStr = params.withCString { strdup($0) }
+        }
+        defer { if let p = paramsCStr { free(p) } }
+
+        let typeRaw = c4_get_method_support(chainId, methodCStr, paramsCStr, getVerifyFlags())
         guard let type = MethodType(rawValue: Int(typeRaw)) else {
-             // Handle cases where the C function might return an unexpected value
             print("Warning: Unknown method type raw value \(typeRaw) returned from c4_get_method_support for method \(method)")
             return .UNKNOWN
         }
@@ -264,7 +479,8 @@ public class Colibri {
             free(paramsPtr)
         }
         
-        guard let ctx = c4_create_prover_ctx(methodPtr, paramsPtr, chainId, includeCode ? 1 : 0) else {
+        let proverFlags: UInt32 = (includeCode ? 1 : 0) | (useAccesslist ? (1 << 6) : 0)
+        guard let ctx = c4_create_prover_ctx(methodPtr, paramsPtr, chainId, proverFlags) else {
             throw ColibriError.contextCreationFailed
         }
         defer { c4_free_prover_ctx(ctx) }
@@ -339,10 +555,12 @@ public class Colibri {
             )
         }
         
-        guard let ctx = c4_verify_create_ctx(proofBytes, methodCStr, paramsCStr, chainId, trustedCheckpointCStr) else {
+        guard let ctx = c4_verify_create_ctx(proofBytes, methodCStr, paramsCStr, chainId, trustedCheckpointCStr, getVerifyFlags()) else {
             throw ColibriError.contextCreationFailed
         }
         defer { c4_verify_free_ctx(ctx) }
+
+        c4_verify_set_min_latest_block_ts(ctx, getMinLatestBlockTs())
 
         var iteration = 0
         let _ = 10 // maxIterations defined but not used in while true loop
@@ -367,6 +585,12 @@ public class Colibri {
             case "success":
                 // Success: return the result (could be any JSON type)
                 return state["result"] as Any // Explicitly cast to Any
+            case "revert":
+                // EVM ran to completion but reverted -- a fully verified
+                // outcome. Expose the raw revert data so callers can decode
+                // OffchainLookup (EIP-3668) / custom Solidity errors.
+                let data = state["data"] as? String ?? "0x"
+                throw ColibriError.revert(data: data)
             case "error":
                 let errorMsg = state["error"] as? String ?? "Unknown verifier error"
                 throw ColibriError.proofError("Verifier error for method \(method): \(errorMsg)")
@@ -382,57 +606,86 @@ public class Colibri {
         }
     }
 
-    // Implement the rpc method
+    // Unified RPC execution via the C core state machine.
     public func rpc(method: String, params: String) async throws -> Any {
-        let methodType = getMethodSupport(method: method)
-        var proof = Data()
+        let methodCStr = method.withCString { strdup($0) }
+        let paramsCStr = params.withCString { strdup($0) }
+        guard let mPtr = methodCStr, let pPtr = paramsCStr else {
+            throw ColibriError.invalidInput
+        }
+        defer { free(mPtr); free(pPtr) }
 
-        switch methodType {
-        case .PROOFABLE:
-            // Assuming params is a JSON string representing an array or object
-            // We prefer fetching from a prover if available
-            if !provers.isEmpty {
-                 proof = try await fetchRpc(urls: provers, method: method, params: params, asProof: true)
-            } else {
-                 proof = try await createProof(method: method, params: params)
+        let proverFlags: UInt32 = (includeCode ? 1 : 0) | (useAccesslist ? (1 << 6) : 0) | (zkProof ? (1 << 7) : 0)
+        // Base prover-mode auto-detection on the user-configured `provers` array,
+        // NOT on the per-chain default fallback. Consumers passing `[]` explicitly
+        // signal "no remote prover" -- if we consulted the fallback here, any
+        // construction with default settings would silently switch to REMOTE and
+        // set `VERIFY_FLAG_REMOTE_PROVER`, breaking flows that depend on the
+        // local-only path (e.g. PAP pending-tx lookups returning null from cache
+        // without any network round-trip).
+        let resolvedMode = proverMode ?? (provers.isEmpty ? .local : .remote)
+        let nativeMode: Int32 = Int32((resolvedMode == .lightClient ? ProverMode.hybrid : resolvedMode).rawValue)
+
+        guard let ctx = c4_create_rpc_ctx(mPtr, pPtr, chainId, proverFlags, getVerifyFlags(), nativeMode) else {
+            throw ColibriError.contextCreationFailed
+        }
+        defer { c4_free_rpc_ctx(ctx) }
+
+        if resolvedMode == .proxy {
+            let effEthRpcs = eth_rpcs.isEmpty ? Colibri.defaultEthRpcs(for: chainId) : eth_rpcs
+            let effBeaconApis = beacon_apis.isEmpty ? Colibri.defaultBeaconApis(for: chainId) : beacon_apis
+            let rpcCsv = effEthRpcs.joined(separator: ",")
+            let beaconCsv = effBeaconApis.joined(separator: ",")
+            rpcCsv.withCString { rpcPtr in
+                beaconCsv.withCString { beaconPtr in
+                    c4_rpc_set_proxy_urls(ctx, rpcPtr, beaconPtr)
+                }
             }
-            // Verification happens below, after the switch
-
-        case .UNPROOFABLE:
-            let responseData = try await fetchRpc(urls: eth_rpcs, method: method, params: params, asProof: false)
-            // Parse JSON response
-            do {
-                guard let jsonResponse = try JSONSerialization.jsonObject(with: responseData) as? [String: Any] else {
-                    throw ColibriError.invalidJSON
-                }
-                if let error = jsonResponse["error"] as? [String: Any] {
-                     let errorMessage = error["message"] as? String ?? "Unknown RPC error"
-                     throw ColibriError.rpcError(errorMessage)
-                }
-                guard let result = jsonResponse["result"] else {
-                    throw ColibriError.invalidJSON // Result field is missing
-                }
-                return result
-            } catch let error as ColibriError {
-                 throw error // Re-throw Colibri specific errors
-            } catch {
-                 throw ColibriError.invalidJSON // Catch JSON parsing errors
-            }
-
-        case .NOT_SUPPORTED:
-            throw ColibriError.methodNotSupported(method)
-
-        case .LOCAL:
-            // For local methods, we still call verify with empty proof
-            proof = Data()
-            // Verification happens below, after the switch
-
-        case .UNKNOWN:
-             throw ColibriError.unknownMethodType(method)
         }
 
-        // Verify the proof (either created/fetched for PROOFABLE, or empty for LOCAL)
-        return try await verifyProof(proof: proof, method: method, params: params)
+        if let checkpoint = trustedCheckpoint {
+            checkpoint.withCString { c4_set_checkpoint(chainId, $0) }
+        }
+        if let keys = checkpointWitnessKeys, !keys.isEmpty {
+            keys.withCString { c4_rpc_set_witness_keys(ctx, $0) }
+        }
+
+        c4_rpc_set_min_latest_block_ts(ctx, getMinLatestBlockTs())
+
+        while true {
+            guard let statusPtr = c4_rpc_execute_json_status(ctx) else {
+                throw ColibriError.nullPointerReceived
+            }
+            let statusJson = String(cString: statusPtr)
+            free(statusPtr)
+
+            guard let statusData = statusJson.data(using: .utf8),
+                  let statusDict = try JSONSerialization.jsonObject(with: statusData) as? [String: Any],
+                  let status = statusDict["status"] as? String else {
+                throw ColibriError.invalidJSON
+            }
+
+            switch status {
+            case "success":
+                return statusDict["result"] as Any
+            case "revert":
+                // EVM ran to completion but reverted -- a fully verified
+                // outcome. Expose the raw revert data so callers can decode
+                // OffchainLookup (EIP-3668) / custom Solidity errors.
+                let data = statusDict["data"] as? String ?? "0x"
+                throw ColibriError.revert(data: data)
+            case "error":
+                let errorMsg = statusDict["error"] as? String ?? "Unknown error"
+                throw ColibriError.proofError("RPC error for method \(method): \(errorMsg)")
+            case "pending":
+                guard let requests = statusDict["requests"] as? [[String: Any]] else {
+                    throw ColibriError.invalidJSON
+                }
+                try await handleRequests(requests, useProverFallback: true)
+            default:
+                throw ColibriError.unknownStatus(status)
+            }
+        }
     }
 
     // Helper function to handle pending requests
@@ -453,18 +706,45 @@ public class Colibri {
                         return
                     }
                     
-                    // Convert req_ptr from NSNumber to UnsafeMutableRawPointer
                     let reqPtr: UnsafeMutableRawPointer
-                    if let reqPtrNum = request["req_ptr"] as? NSNumber {
-                        let reqPtrInt = reqPtrNum.int64Value
-                        guard let ptr = UnsafeMutableRawPointer(bitPattern: UInt(reqPtrInt)) else {
-                            print("❌ ERROR: Invalid req_ptr conversion from NSNumber \(reqPtrNum)")
+                    if let reqPtrStr = request["req_ptr"] as? String, let reqPtrInt = UInt(reqPtrStr) {
+                        guard let ptr = UnsafeMutableRawPointer(bitPattern: reqPtrInt) else {
+                            print("❌ ERROR: Invalid req_ptr string \(reqPtrStr)")
+                            return
+                        }
+                        reqPtr = ptr
+                    } else if let reqPtrNum = request["req_ptr"] as? NSNumber {
+                        guard let ptr = UnsafeMutableRawPointer(bitPattern: UInt(reqPtrNum.uint64Value)) else {
+                            print("❌ ERROR: Invalid req_ptr NSNumber \(reqPtrNum)")
                             return
                         }
                         reqPtr = ptr
                     } else {
-                        print("❌ ERROR: req_ptr not NSNumber in request: \(request)")
+                        print("❌ ERROR: req_ptr neither String nor NSNumber in request: \(request)")
                         return
+                    }
+
+                    // Honor a requested delay before (re-)executing (e.g. oblivious-node retry backoff).
+                    let delayMs: UInt64
+                    if let delayNum = request["delay"] as? NSNumber {
+                        delayMs = delayNum.uint64Value
+                    } else if let delayStr = request["delay"] as? String, let v = UInt64(delayStr) {
+                        delayMs = v
+                    } else {
+                        delayMs = 0
+                    }
+                    if delayMs > 0 {
+                        try? await Task.sleep(nanoseconds: delayMs * 1_000_000)
+                    }
+
+                    // Cache freshness bound in seconds, forwarded below as `Cache-Control: max-age`.
+                    let ttlSeconds: UInt64
+                    if let ttlNum = request["ttl"] as? NSNumber {
+                        ttlSeconds = ttlNum.uint64Value
+                    } else if let ttlStr = request["ttl"] as? String, let v = UInt64(ttlStr) {
+                        ttlSeconds = v
+                    } else {
+                        ttlSeconds = 0
                     }
                     
                     // Convert exclude_mask from String to Int
@@ -482,17 +762,29 @@ public class Colibri {
                         return
                     }
                     
-                    // Determine server list based on the flag and request type
+                    // Determine server list based on the flag and request type.
+                    // Empty user-configured arrays fall back to the per-chain defaults.
+                    let effProvers = self.provers.isEmpty ? Colibri.defaultProvers(for: self.chainId) : self.provers
+                    let effEthRpcs = self.eth_rpcs.isEmpty ? Colibri.defaultEthRpcs(for: self.chainId) : self.eth_rpcs
+                    let effBeaconApis = self.beacon_apis.isEmpty ? Colibri.defaultBeaconApis(for: self.chainId) : self.beacon_apis
+                    let effCheckpointz = self.checkpointz.isEmpty ? Colibri.defaultCheckpointz(for: self.chainId) : self.checkpointz
+
                     let requestType = request["type"] as? String
                     let servers: [String]
                     if requestType == "checkpointz" {
-                        servers = self.checkpointz
-                    } else if useProverFallback && requestType == "beacon" && !self.provers.isEmpty {
-                        servers = self.provers
-                    } else if requestType == "beacon" {
-                        servers = self.beacon_apis
+                        servers = effCheckpointz + effBeaconApis
+                    } else if requestType == "prover" {
+                        servers = effProvers
+                    } else if requestType == "beacon_api" && useProverFallback && !effProvers.isEmpty {
+                        servers = effProvers
+                    } else if requestType == "beacon_api" {
+                        servers = effBeaconApis
+                    } else if let payload = request["payload"] as? [String: Any],
+                              payload["method"] as? String == "eth_getProof",
+                              !self.obliviousNodes.isEmpty {
+                        servers = self.obliviousNodes
                     } else {
-                        servers = self.eth_rpcs
+                        servers = effEthRpcs
                     }
                     
                     // 🎯 MOCK SUPPORT: Check if request handler is set
@@ -503,7 +795,8 @@ public class Colibri {
                             method: method,
                             payload: request["payload"] as? [String: Any],
                             encoding: request["encoding"] as? String,
-                            type: requestType
+                            type: requestType,
+                            ttl: ttlSeconds
                         )
                         
                         do {
@@ -562,6 +855,11 @@ public class Colibri {
                                 let payloadData = try JSONSerialization.data(withJSONObject: payload)
                                 urlRequest.httpBody = payloadData
                             }
+
+                            // Forward the cache freshness bound to shared caches/CDNs.
+                            if ttlSeconds > 0 {
+                                urlRequest.setValue("max-age=\(ttlSeconds)", forHTTPHeaderField: "Cache-Control")
+                            }
                             
                             let (responseData, response) = try await URLSession.shared.data(for: urlRequest)
                             
@@ -595,17 +893,56 @@ public class Colibri {
         }
     }
 
+    /// Starts background polling to keep the block header cache warm.
+    /// Useful for `.lightClient` mode.
+    ///
+    /// By default polls `eth_getBlockHeader("latest")` which fetches only the
+    /// compact header proof. Set `fullBlock` to `true` to poll
+    /// `eth_getBlockByNumber("latest")` instead -- useful when many
+    /// `eth_getTransactionByHash` / `eth_getTransactionReceipt` calls follow,
+    /// since those need the full block data.
+    ///
+    /// - Parameters:
+    ///   - interval: polling interval in seconds (default: 12 = one Ethereum slot)
+    ///   - fullBlock: if true, fetch the full block instead of just the header (default: false)
+    public func startLightClient(interval: TimeInterval = 12.0, fullBlock: Bool = false) {
+        stopLightClient()
+        let method = fullBlock ? "eth_getBlockByNumber" : "eth_getBlockHeader"
+        let params = fullBlock ? "[\"latest\",false]" : "[\"latest\"]"
+        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
+        timer.schedule(deadline: .now(), repeating: interval)
+        timer.setEventHandler { [weak self] in
+            guard let self = self else { return }
+            Task {
+                do {
+                    _ = try await self.rpc(method: method, params: params)
+                } catch { }
+            }
+        }
+        timer.resume()
+        lightClientTimer = timer
+    }
+
+    /// Stops background light client polling started by `startLightClient`.
+    public func stopLightClient() {
+        lightClientTimer?.cancel()
+        lightClientTimer = nil
+    }
+
     // Add the fetchRpc helper function
     private func fetchRpc(urls: [String], method: String, params: String, asProof: Bool) async throws -> Data {
         var lastError: Error = ColibriError.rpcError("All nodes failed") // Initialize with a default error
 
         // Prepare JSON RPC request body data once
-        let jsonRpcBody: [String: Any] = [
+        var jsonRpcBody: [String: Any] = [
             "id": 1,
             "jsonrpc": "2.0",
             "method": method,
             "params": try JSONSerialization.jsonObject(with: params.data(using: .utf8) ?? Data()) // Assume params is valid JSON string
         ]
+        if asProof {
+            jsonRpcBody["version"] = c4_get_current_version_number()
+        }
         let httpBody = try JSONSerialization.data(withJSONObject: jsonRpcBody)
 
         // 🎯 MOCK SUPPORT: Check if request handler is set for direct RPC calls
@@ -708,7 +1045,18 @@ public enum ColibriError: Error, LocalizedError, Equatable {
     case memoryAllocationFailed
     case nullPointerReceived
     case contextCreationFailed
-    
+    /// EVM `eth_call` ran to completion but reverted. The verifier has fully
+    /// verified the revert -- this is a legitimate EVM outcome, not a transport
+    /// or proof error. The associated value is the raw revert return-data as a
+    /// `0x`-prefixed hex string ("0x" when empty). Maps to the Geth/EIP-1193
+    /// RPC error code 3 (see `ColibriError.revertCode`), which ethers uses to
+    /// decode `OffchainLookup` (EIP-3668 / CCIP-Read) and custom Solidity errors.
+    case revert(data: String)
+
+    /// EIP-1193 / Geth RPC error code for `execution reverted`. Use this when
+    /// forwarding a `.revert(data:)` outcome to a JSON-RPC layer.
+    public static let revertCode: Int = 3
+
     public var errorDescription: String? {
         switch self {
         case .invalidInput:
@@ -737,6 +1085,8 @@ public enum ColibriError: Error, LocalizedError, Equatable {
             return "Null-Pointer von C-Funktion erhalten"
         case .contextCreationFailed:
             return "Kontext-Erstellung fehlgeschlagen"
+        case .revert:
+            return "execution reverted"
         }
     }
     
@@ -768,6 +1118,8 @@ public enum ColibriError: Error, LocalizedError, Equatable {
             return "Unerwarteter null-Pointer von der C-Bibliothek."
         case .contextCreationFailed:
             return "Der Kontext für die Operation konnte nicht erstellt werden."
+        case .revert(let data):
+            return "EVM-Call wurde verifiziert, aber revertierte. Revert-Data: \(data)"
         }
     }
 }

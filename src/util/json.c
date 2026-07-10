@@ -340,13 +340,22 @@ char* json_as_string(json_t value, buffer_t* buffer) {
   buffer_grow(buffer, value.len + 1);
   if (value.type == JSON_TYPE_STRING) {
     buffer_append(buffer, bytes((uint8_t*) value.start + 1, value.len - 2));
-    buffer->data.data[buffer->data.len] = '\0';
-    buffer->data.len++;
+    if (buffer_grow(buffer, buffer->data.len + 1) > buffer->data.len) { // room for the NULL-Terminator?
+      buffer->data.data[buffer->data.len] = '\0';
+      buffer->data.len++;
+    }
+    else if (buffer->data.len > 0)                             // fixed buffer is full: no room for the terminator,
+      buffer->data.data[buffer->data.len - 1] = '\0';          // so overwrite the last byte to keep the string valid
     json_deescape_string(buffer);
   }
   else {
     buffer_append(buffer, bytes((uint8_t*) value.start, value.len));
-    buffer->data.data[buffer->data.len] = '\0';
+    if (buffer_grow(buffer, buffer->data.len + 1) > buffer->data.len) // room for the NULL-Terminator?
+      buffer->data.data[buffer->data.len] = '\0';                     // then add it
+    else if (buffer->data.len > 0) {                                  // fixed buffer is full: drop the last byte
+      buffer->data.len--;                                            // to make room for the terminator
+      buffer->data.data[buffer->data.len] = '\0';
+    }
   }
   return (char*) buffer->data.data;
 }

@@ -20,7 +20,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        python-version: ['3.8', '3.12']  # For releases: manually change to ['3.8', '3.9', '3.10', '3.11', '3.12']
+        python-version: ['3.12', '3.14']  # For releases: manually add more versions (e.g. 3.9–3.13)
         include:
           # Add architecture info for each OS
           - os: ubuntu-latest
@@ -175,7 +175,10 @@ jobs:
           
           cd ..\..
           echo Configuring CMake...
-          cmake -S . -B build -DC4_PYTHON=ON -DCMAKE_BUILD_TYPE=Release -G "Visual Studio 17 2022"
+          REM Let CMake pick the installed Visual Studio generator automatically.
+          REM Hard-coding "Visual Studio 17 2022" breaks whenever the windows-latest
+          REM image moves to a newer Visual Studio (e.g. VS 2026 / "Visual Studio 18 2026").
+          cmake -S . -B build -DC4_PYTHON=ON -DCMAKE_BUILD_TYPE=Release
           if %errorlevel% neq 0 (
             echo CMake configuration failed with error %errorlevel%
             echo Current directory: %cd%

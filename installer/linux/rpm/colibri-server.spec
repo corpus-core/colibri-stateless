@@ -69,6 +69,12 @@ install -D -m 0644 installer/config/server.conf.default %{buildroot}/etc/colibri
 install -D -m 0644 installer/scripts/systemd/colibri-server.service \
     %{buildroot}/usr/lib/systemd/system/colibri-server.service
 
+# Install zsh completions
+install -D -m 0644 scripts/completion/_colibri %{buildroot}/usr/share/zsh/site-functions/_colibri
+install -D -m 0644 scripts/completion/_colibri-prover %{buildroot}/usr/share/zsh/site-functions/_colibri-prover
+install -D -m 0644 scripts/completion/_colibri-ssz %{buildroot}/usr/share/zsh/site-functions/_colibri-ssz
+install -D -m 0644 scripts/completion/_colibri-server %{buildroot}/usr/share/zsh/site-functions/_colibri-server
+
 # Create working directory
 mkdir -p %{buildroot}/var/lib/colibri
 
@@ -125,6 +131,10 @@ fi
 /usr/bin/colibri-ssz
 %config(noreplace) /etc/colibri/server.conf
 /usr/lib/systemd/system/colibri-server.service
+/usr/share/zsh/site-functions/_colibri
+/usr/share/zsh/site-functions/_colibri-prover
+/usr/share/zsh/site-functions/_colibri-ssz
+/usr/share/zsh/site-functions/_colibri-server
 %dir %attr(0755,colibri,colibri) /var/lib/colibri
 
 %changelog

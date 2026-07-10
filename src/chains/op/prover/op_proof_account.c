@@ -69,7 +69,7 @@ static ssz_builder_t create_storage_proof(prover_ctx_t* ctx, const ssz_def_t* de
   return storage_proof;
 }
 
-static c4_status_t create_eth_account_proof(prover_ctx_t* ctx, json_t eth_proof, json_t address, json_t block_number, ssz_builder_t block_proof) {
+static c4_status_t create_eth_account_proof(prover_ctx_t* ctx, json_t eth_proof, json_t address, json_t block_number, ssz_builder_t* block_proof) {
 
   json_t        json_code         = {0};
   address_t     address_buf       = {0};
@@ -84,7 +84,7 @@ static c4_status_t create_eth_account_proof(prover_ctx_t* ctx, json_t eth_proof,
   add_dynamic_byte_list(json_get(eth_proof, "accountProof"), &eth_account_proof, "accountProof");
   ssz_add_bytes(&eth_account_proof, "address", json_as_bytes(address, &tmp));
   ssz_add_builders(&eth_account_proof, "storageProof", create_storage_proof(ctx, ssz_get_def(eth_account_proof.def, "storageProof"), json_get(eth_proof, "storageProof")));
-  ssz_add_builders(&eth_account_proof, "block_proof", block_proof);
+  c4_op_add_block_proof(ctx, block_number, &eth_account_proof, "block_proof", block_proof);
 
   // build the data only if we have code
   if (strcmp(ctx->method, "eth_getCode") == 0) {
@@ -123,6 +123,6 @@ c4_status_t c4_op_proof_account(prover_ctx_t* ctx) {
   block_number_uint64         = ssz_get_uint64(execution_payload, "blockNumber");
   safe_free(execution_payload);
   TRY_ASYNC_CATCH(eth_get_proof(ctx, address, storage_keys, &eth_proof, block_number_uint64), ssz_builder_free(&block_proof));
-  TRY_ASYNC_CATCH(create_eth_account_proof(ctx, eth_proof, address, block_number, block_proof), ssz_builder_free(&block_proof));
+  TRY_ASYNC_CATCH(create_eth_account_proof(ctx, eth_proof, address, block_number, &block_proof), ssz_builder_free(&block_proof));
   return C4_SUCCESS;
 }

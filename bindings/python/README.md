@@ -47,6 +47,8 @@ asyncio.run(main())
 - **🧪 Comprehensive Testing** - Mock HTTP requests and storage for testing
 - **🌐 Multi-Chain Support** - Ethereum Mainnet, Sepolia, Gnosis Chain, and more
 - **📦 Easy Integration** - Simple pip install with pre-built native extensions
+- **🔒 Privacy (PAP)** - Optional Pragmatic Adaptive Privacy mode (`privacy_mode=PrivacyMode.BASIC`) to reduce intent leakage ( *This feature is still experimental!* )
+- **🔐 Privacy-preserving `eth_call`** - `ProverMode.HYBRID` + `PrivacyMode.BASIC` + `oblivious_nodes` (default empty; e.g. `https://rpc.safe-node.com/`, API key for testing). Oblivious auto-enables PAP. TEE/ORAM: [Oblivious Labs](https://www.obliviouslabs.com/).
 
 ## 📖 Documentation
 

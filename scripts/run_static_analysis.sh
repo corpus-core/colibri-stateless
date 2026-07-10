@@ -192,75 +192,52 @@ if grep -q -E "No bugs found\.|scan-build: 0 bugs found" scan-build-output.txt; 
     
     exit 0
 else
+    # Check for suppressed false positives (same logic as CI via scripts/scan-build-apply-suppressions.sh)
+    if "$PROJECT_ROOT/scripts/scan-build-apply-suppressions.sh" scan-build-results "$PROJECT_ROOT/scripts/scan-build-suppressions.txt"; then
+        echo -e "${GREEN}✅ Alle gefundenen Meldungen sind bekannte False Positives (siehe scripts/scan-build-suppressions.txt)${NC}"
+        echo -e "\n${BLUE}📈 Analyse-Zusammenfassung:${NC}"
+        grep -E "scan-build:" scan-build-output.txt || true
+        exit 0
+    fi
+
     echo -e "${RED}⚠️  Statische Analyse hat Probleme gefunden${NC}"
     
     # Zeige gefundene Issues
     echo -e "\n${YELLOW}🔍 Gefundene Probleme:${NC}"
     
-    # Extrahiere und formatiere die Warnings/Errors
-    awk '
-      BEGIN { in_issue = 0; issue_text = ""; code_block = ""; }
-      
-      # Skip cmake progress lines
-      /^\[/ { next }
-      
-      # Start of a warning/error - collect the line
-      /:[0-9]+:[0-9]+: (warning|error|note):/ {
-        if ($0 ~ /\/libs\//) { next }
-        
-        # If we were processing a previous issue, print it
-        if (in_issue) {
-          print issue_text
-          if (code_block != "") {
-            print code_block
-          }
-          print ""
-        }
-        
-        # Extract file path and line info
-        match($0, /([^:]+):([0-9]+):([0-9]+): (warning|error|note): (.+) \[(.+)\]/, arr)
-        file = arr[1]
-        # Keep path from src/ onwards
-        sub(".*/src/", "src/", file)
-        
-        # Set icon based on issue type
-        if (arr[4] == "error") {
-          icon = "❌"
-        } else if (arr[4] == "warning") {
-          icon = "⚠️"
-        } else {
-          icon = "ℹ️"
-        }
-        
-        # Format the new issue
-        issue_text = sprintf("%s %s [%s] in %s:%s:%s", icon, arr[5], arr[6], file, arr[2], arr[3])
-        
-        in_issue = 1
-        code_block = ""
-        next
-      }
-      
-      # Collect code block lines while in an issue
-      in_issue && /^[ ]*[0-9]+[ ]*\|/ {
-        code_block = code_block "    " $0 "\n"
-        # Also collect the pointer line that follows
-        getline pointer_line
-        if (pointer_line ~ /[ ]*\|/) {
-          code_block = code_block "    " pointer_line "\n"
-        }
-        next
-      }
-      
-      # Print the last issue when we reach the end
-      END {
-        if (in_issue) {
-          print issue_text
-          if (code_block != "") {
-            print code_block
-          }
-        }
-      }
-    ' scan-build-output.txt
+    ISSUE_COUNT=0
+    grep -E "^/.+\.(c|h):[0-9]+:[0-9]+: (warning|error):" scan-build-output.txt | \
+    grep -v "/libs/" | \
+    grep -v "/test/" | \
+    grep -v "/build/" | \
+    grep -v "/_deps/" | \
+    while IFS= read -r line; do
+      if [[ "$line" =~ ^(.+):([0-9]+):([0-9]+):[[:space:]]+(warning|error):[[:space:]]+(.+)[[:space:]]+\[([^\]]+)\] ]]; then
+        filepath="${BASH_REMATCH[1]}"
+        linenum="${BASH_REMATCH[2]}"
+        colnum="${BASH_REMATCH[3]}"
+        severity="${BASH_REMATCH[4]}"
+        message="${BASH_REMATCH[5]}"
+        checker="${BASH_REMATCH[6]}"
+
+        shortpath=$(echo "$filepath" | sed 's|.*/src/|src/|; s|.*/bindings/|bindings/|')
+
+        if [ "$severity" = "error" ]; then
+          icon="❌"
+        else
+          icon="⚠️ "
+        fi
+
+        echo -e "  ${icon} ${RED}${message}${NC}"
+        echo -e "     ${BLUE}[${checker}]${NC} in ${shortpath}:${linenum}:${colnum}"
+        echo ""
+        ISSUE_COUNT=$((ISSUE_COUNT + 1))
+      fi
+    done
+
+    ISSUE_COUNT=$(grep -E "^/.+\.(c|h):[0-9]+:[0-9]+: (warning|error):" scan-build-output.txt | \
+      grep -v "/libs/" | grep -v "/test/" | grep -v "/build/" | grep -v "/_deps/" | wc -l | tr -d ' ')
+    echo -e "${YELLOW}Gefundene Issues im Quellcode: ${ISSUE_COUNT}${NC}"
     
     # Zeige HTML Report Location falls vorhanden
     LATEST_REPORT=$(find scan-build-results -type d -name "20*" 2>/dev/null | sort | tail -n 1)

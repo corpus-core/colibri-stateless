@@ -1,9 +1,14 @@
 # CMakeLists.txt für Kona-P2P Bridge Integration (Statisch)
+#
+# Der empfohlene Weg ist das eigenständige Docker-Image:
+#   docker build -f src/chains/op/kona_bridge/Dockerfile -t kona-preconf-service .
+#
+# Für den integrierten C-FFI-Modus (Legacy): cmake .. -DBUILD_KONA_BRIDGE=ON -DBUILD_KONA_BRIDGE_FFI=ON
 
 cmake_minimum_required(VERSION 3.16)
 
-# Option um Kona-Bridge zu aktivieren/deaktivieren
-option(BUILD_KONA_BRIDGE "Build Kona-P2P bridge for native OP-Stack compatibility" ON)
+# OFF by default: kona-bridge läuft jetzt als eigenständiger Service
+option(BUILD_KONA_BRIDGE "Build Kona-P2P bridge as static C-FFI library (legacy mode)" OFF)
 
 if(NOT BUILD_KONA_BRIDGE)
     message(STATUS "Kona bridge disabled - skipping")
@@ -25,7 +30,7 @@ message(STATUS "Building Kona-P2P bridge with static linking")
 add_custom_command(
     OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/libkona_bridge_built.stamp
     COMMAND ${CMAKE_COMMAND} -E env CARGO_BUILD_TARGET_DIR=${CMAKE_CURRENT_BINARY_DIR}/target MACOSX_DEPLOYMENT_TARGET=15.0
-            ${CARGO_EXECUTABLE} build --release --lib
+            ${CARGO_EXECUTABLE} build --release --lib --features ffi
     COMMAND ${CMAKE_COMMAND} -E copy 
             ${CMAKE_CURRENT_BINARY_DIR}/target/release/libkona_bridge.a
             ${CMAKE_BINARY_DIR}/lib/libkona_bridge.a
@@ -98,21 +103,6 @@ if(BUILD_KONA_BRIDGE_STANDALONE)
     )
 endif()
 
-# Installation
-install(FILES kona_bridge.h
-    DESTINATION include
-)
-
-install(FILES ${CMAKE_BINARY_DIR}/lib/libkona_bridge.${KONA_LIB_EXT}
-    DESTINATION lib
-    OPTIONAL
-)
-
-if(EXISTS ${CMAKE_BINARY_DIR}/bin/kona_bridge)
-    install(PROGRAMS ${CMAKE_BINARY_DIR}/bin/kona_bridge
-        DESTINATION bin
-    )
-endif()
 
 # Test (optional) - nur wenn test_integration.c existiert
 if(BUILD_TESTING AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/test_integration.c)

@@ -36,6 +36,7 @@ jobs:
             -DETH_LOGS=OFF \
             -DETH_CALL=OFF \
             -DETH_ACCOUNT=OFF \
+            -DETH_OBLIVIOUS=OFF \
             -DEVMLIGHT=OFF \
             -DPROVER=OFF \
             -DCLI=OFF \
@@ -436,6 +437,15 @@ jobs:
                 </body>
                 </html>' > static-analysis-report/report/index.html
               fi
+            fi
+
+            # Apply same suppressions as run_static_analysis.sh (scripts/scan-build-apply-suppressions.sh)
+            if ../scripts/scan-build-apply-suppressions.sh scan-build-results ../scripts/scan-build-suppressions.txt; then
+              echo "no_bugs=true" >> $GITHUB_OUTPUT
+              echo "## ✅ Static Analysis Results" > ../analysis_summary.md
+              echo "" >> ../analysis_summary.md
+              echo "No bugs found (known false positives suppressed; see scripts/scan-build-suppressions.txt)." >> ../analysis_summary.md
+              exit 0
             fi
             
             # Exit with the scan-build status code if bugs were found

@@ -21,6 +21,7 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include "../../bindings/colibri_common.h"
 #include "beacon_types.h"
 #include "bytes.h"
 #include "config.h"
@@ -30,50 +31,15 @@
 #include "ssz.h"
 #include "state.h"
 #include "sync_committee.h"
-#include "verify.h"
 #include "version.h"
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #ifdef USE_CURL
 #include "../../libs/curl/http.h"
-
-static bytes_t read_from_prover(char* method, char* args, bytes_t state, chain_id_t chain_id, char* signers) {
-  // fprintf(stderr, "reading from prover: %s(%s) from %s\n", method, args, url);
-  if (strcmp(method, "colibri_simulateTransaction") == 0) method = "eth_call";
-  buffer_t   payload = {0};
-  c4_state_t ctx     = {0};
-#ifdef ETH_ZKPROOF
-  char* additional_params = "\"zk_proof\":true";
-#else
-  char* additional_params = "";
-#endif
-
-  bprintf(&payload, "{\"method\":\"%s\",\"params\":%s,\"c4\":\"0x%b\",%s,\"signers\":\"%s\"}", method, args, state, additional_params, signers ? signers : "");
-  data_request_t req = {.chain_id = chain_id, .type = C4_DATA_TYPE_PROVER, .payload = payload.data, .encoding = C4_DATA_ENCODING_SSZ, .method = C4_DATA_METHOD_POST};
-  ctx.requests       = &req;
-  curl_fetch_all(&ctx);
-  if (req.error) {
-    fprintf(stderr, "Prover returned error: %s\n", req.error);
-    exit(EXIT_FAILURE);
-  }
-  else if (req.response.data == NULL) {
-    fprintf(stderr, "prover returned empty response\n");
-    exit(EXIT_FAILURE);
-  }
-  else if (req.response.data[0] == '{') {
-    json_t json  = json_parse((char*) req.response.data);
-    json_t error = json_get(json, "error");
-    if (error.type == JSON_TYPE_STRING)
-      fprintf(stderr, "prover returned error: %s\n", json_new_string(error));
-    else
-      fprintf(stderr, "prover returned unknown error: %s\n", json_new_string(error));
-    exit(EXIT_FAILURE);
-  }
-  return req.response;
-}
 #endif
 
 // : Bindings
@@ -95,14 +61,19 @@ static bytes_t read_from_prover(char* method, char* args, bytes_t state, chain_i
 // |----------------|-----------------|----------------------------|---------|
 // | `-c`           | `<chain_id>`    | Chain name or ID           |         |
 // | `-l`           | `<log_level>`   | Log level (0=silent, 1=error, 2=info, 3=debug, 4=debug_full)                 |         |
-// | `-b`           | `<block_hash>`  | Trusted checkpoint         |         |
+// | `-C`           | `<block_hash>`  | Trusted checkpoint         |         |
 // | `-s`           | `<cache_dir>`  | cache-directory   |         |
 // | `-t`           | `<test_dir>`    | Test directory (if -DTEST=1)|         |
 // | `-i`           | `<proof_file>`  | Proof file to verify       |
 // | `-o`           | `<proof_file>`  | Proof file to write        |         |
 // | `-p`           | `<prover_url>` | URL of the prover           |         |
 // | `-r`           | `<rpc_url>` | URL of the rpc-prover          |         |
+// | `-b`           | `<beacon_url>` | URL of the beacon-api|         |
 // | `-x`           | `<checkpointz_url>` | URL of a checkpointz or beacon-api|         |
+// | `-m`           | `<mode>`        | Prover mode: `local`, `remote`, `hybrid` |         |
+// | `-P`           |                 | Enable PAP (Pragmatic Adaptive Privacy) mode       |         |
+// | `-W`           |                 | Skip the Weak Subjectivity Period check (sets `VERIFY_FLAG_SKIP_WSP_CHECK`). **SECURITY:** only safe when another trust anchor (witness signatures, hard-coded checkpoint, signed package) is in place; raises the risk of long-range attacks across periods older than the WSP. |         |
+// | `-A`           | `<seconds>`     | Maximum age (in seconds) accepted for proofs whose request uses the `"latest"` block tag. Currently active for `eth_call`, `eth_estimateGas`, and `colibri_simulateTransaction`. `0` disables the check. | `60` |
 // | `-h`           |                 | Display this help message  |         |
 // | `<method>`     |                 | Method to verify           |         |
 // | `<args>`       |                 | Arguments for the method   |         |
@@ -114,6 +85,13 @@ int main(int argc, char* argv[]) {
     exit(EXIT_SUCCESS);
   }
 
+#ifdef FILE_STORAGE
+  /* Prefer file storage so sync committee state is persisted across runs. */
+  storage_plugin_t file_plugin = {0};
+  c4_get_file_storage_plugin(&file_plugin);
+  c4_set_storage_config(&file_plugin);
+#endif
+
   if (argc == 1 || strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0) {
     fprintf(stderr, "Usage: %s <OPTIONS> <method> <args> \n", argv[0]);
     fprintf(stderr, "OPTIONS: \n");
@@ -122,7 +100,7 @@ int main(int argc, char* argv[]) {
 #ifdef FILE_STORAGE
     fprintf(stderr, "  -s <states_dir> directory to store states\n");
 #endif
-    fprintf(stderr, "  -b <block_hash> trusted checkpoint\n");
+    fprintf(stderr, "  -C <block_hash> trusted checkpoint\n");
 #ifdef TEST
     fprintf(stderr, "  -t <test_dir>  test directory\n");
 #endif
@@ -133,9 +111,17 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, "  -s <cache_dir> cache directory\n");
     fprintf(stderr, "  -o <proof_file> proof file to write\n");
     fprintf(stderr, "  -p url of the prover\n");
+    fprintf(stderr, "  -m <mode> prover mode: local, remote, hybrid\n");
+    fprintf(stderr, "  -L local proof (shorthand for -m local)\n");
     fprintf(stderr, "  -r rpc url\n");
+    fprintf(stderr, "  -Z oblivious node url (TEE RPC for eth_getProof during eth_call; sets VERIFY_FLAG_OBLIVIOUS)\n");
+    fprintf(stderr, "  -b beacon url\n");
     fprintf(stderr, "  -x checkpointz url\n");
     fprintf(stderr, "  -n <SIGNERS> if set, the verifier uses checkpoints signed by the given signers (multiple addresses are concatinated bytes with 20 bytes each)\n");
+    fprintf(stderr, "  -P enable PAP (Pragmatic Adaptive Privacy) mode\n");
+    fprintf(stderr, "  -W skip the Weak Subjectivity Period check (VERIFY_FLAG_SKIP_WSP_CHECK). SECURITY: only safe with an alternative trust anchor (witness signatures, hard-coded checkpoint, signed package).\n");
+    fprintf(stderr, "  -A <seconds> max age accepted for proofs targeting the \"latest\" block tag (eth_call/eth_estimateGas/colibri_simulateTransaction; default 60, 0 = disabled)\n");
+    fprintf(stderr, "  -O no verifier, just return the proof\n");
     fprintf(stderr, "  --version, -v display version information\n");
     fprintf(stderr, "  -h help\n");
     exit(EXIT_FAILURE);
@@ -144,22 +130,27 @@ int main(int argc, char* argv[]) {
   char     tmp[1000] = {0};
   buffer_t buf       = stack_buffer(tmp);
 #endif
-  char*      method             = NULL;
-  chain_id_t chain_id           = C4_CHAIN_MAINNET;
-  buffer_t   args               = {0};
-  char*      input              = NULL;
-  char*      test_dir           = NULL;
-  char*      chain_name         = NULL;
-  char*      output             = NULL;
-  char*      signers            = NULL;
-  bytes32_t  trusted_checkpoint = {0};
-  bool       has_checkpoint     = false;
-  bool       use_zk_proof       = false;
-  char*      rpc_url            = NULL;
-  char*      beacon_url         = NULL;
-  char*      checkpointz_url    = NULL;
-  char*      prover_url         = NULL;
-  char*      trace_id           = NULL;
+  char*            method                 = NULL;
+  chain_id_t       chain_id               = C4_CHAIN_MAINNET;
+  buffer_t         args                   = {0};
+  char*            input                  = NULL;
+  char*            test_dir               = NULL;
+  char*            chain_name             = NULL;
+  char*            output                 = NULL;
+  char*            signers                = NULL;
+  bytes32_t        trusted_checkpoint     = {0};
+  bool             has_checkpoint         = false;
+  bool             use_zk_proof           = false;
+  verify_flags_t   verify_flags           = 0;
+  char*            oblivious_url          = NULL;
+  char*            rpc_url                = NULL;
+  char*            beacon_url             = NULL;
+  char*            checkpointz_url        = NULL;
+  char*            prover_url             = NULL;
+  char*            trace_id               = NULL;
+  c4_prover_mode_t prover_mode            = C4_PROVER_MODE_REMOTE;
+  bool             prover_mode_set        = false;
+  uint64_t         max_latest_age_seconds = 60; // 0 disables the freshness check for "latest" proofs
   c4_set_log_level(LOG_ERROR);
   buffer_add_chars(&args, "[");
 
@@ -179,12 +170,36 @@ int main(int argc, char* argv[]) {
             chain_name = argv[++i];
             break;
           case 'i':
-          case 'p':
             input = argv[++i];
             if (input && (strncmp(input, "http://", 7) == 0 || strncmp(input, "https://", 8) == 0)) {
               prover_url = input;
               input      = NULL;
             }
+            break;
+          case 'L':
+            prover_mode     = C4_PROVER_MODE_LOCAL;
+            prover_mode_set = true;
+            break;
+          case 'm': {
+            char* mode = argv[++i];
+            if (strcmp(mode, "local") == 0) {
+              prover_mode = C4_PROVER_MODE_LOCAL;
+            }
+            else if (strcmp(mode, "remote") == 0) {
+              prover_mode = C4_PROVER_MODE_REMOTE;
+            }
+            else if (strcmp(mode, "hybrid") == 0) {
+              prover_mode = C4_PROVER_MODE_HYBRID;
+            }
+            else {
+              fprintf(stderr, "invalid prover mode: %s (expected: local, remote, hybrid)\n", mode);
+              exit(EXIT_FAILURE);
+            }
+            prover_mode_set = true;
+            break;
+          }
+          case 'p':
+            prover_url = argv[++i];
             break;
 #ifdef USE_CURL
           case 'n':
@@ -196,6 +211,13 @@ int main(int argc, char* argv[]) {
           case 'r':
             rpc_url = argv[++i];
             break;
+          case 'b':
+            beacon_url = argv[++i];
+            break;
+          case 'Z':
+            oblivious_url = argv[++i];
+            verify_flags |= VERIFY_FLAG_OBLIVIOUS | VERIFY_FLAG_PAP;
+            break;
           case 'T':
             curl_set_config(json_parse(bprintf(&buf, "{\"trace_config\":{\"level\":\"%s\"}}", argv[++i])));
             break;
@@ -205,7 +227,36 @@ int main(int argc, char* argv[]) {
             use_zk_proof = true;
             break;
 #endif
-          case 'b':
+          case 'P':
+            verify_flags |= VERIFY_FLAG_PAP;
+            break;
+          case 'W':
+            verify_flags |= VERIFY_FLAG_SKIP_WSP_CHECK;
+            break;
+          case 'A': {
+            if (i + 1 >= argc) {
+              fprintf(stderr, "-A requires a value (non-negative integer seconds; 0 disables the check)\n");
+              exit(EXIT_FAILURE);
+            }
+            const char* val = argv[++i];
+            // strtoull happily parses "-1" as UINT64_MAX -- explicitly reject signs.
+            if (val[0] == '\0' || val[0] == '-' || val[0] == '+') {
+              fprintf(stderr, "invalid value for -A: %s (expected non-negative integer seconds)\n", val);
+              exit(EXIT_FAILURE);
+            }
+            char*              end    = NULL;
+            unsigned long long parsed = strtoull(val, &end, 10);
+            if (end == val || !end || *end != '\0') {
+              fprintf(stderr, "invalid value for -A: %s (expected non-negative integer seconds)\n", val);
+              exit(EXIT_FAILURE);
+            }
+            max_latest_age_seconds = (uint64_t) parsed;
+            break;
+          }
+          case 'O':
+            verify_flags |= VERIFY_FLAG_PROOF_ONLY;
+            break;
+          case 'C':
             if (hex_to_bytes(argv[++i], -1, bytes(trusted_checkpoint, 32)) == 32)
               has_checkpoint = true;
             else {
@@ -240,12 +291,23 @@ int main(int argc, char* argv[]) {
     }
   }
   buffer_add_chars(&args, "]");
+  json_t default_config = json_parse(get_default_config(chain_name, &chain_id, NULL));
 
-  get_default_config(chain_name, &chain_id, NULL);
-  if (prover_url) set_config("prover", prover_url);
+  if (prover_url)
+    set_config("prover", prover_url);
+  else {
+    json_t provers = json_get(default_config, "prover");
+    if (json_len(provers) > 0)
+      prover_url = (char*) json_at(provers, 0).start;
+  }
+  if (prover_mode_set && prover_mode == C4_PROVER_MODE_LOCAL) prover_url = NULL;
   if (rpc_url) set_config("eth_rpc", rpc_url);
   if (beacon_url) set_config("beacon_api", beacon_url);
   if (checkpointz_url) set_config("checkpointz", checkpointz_url);
+  if (oblivious_url) set_config("oblivious", oblivious_url);
+#ifdef USE_CURL
+  if (curl_has_oblivious_nodes()) verify_flags |= VERIFY_FLAG_OBLIVIOUS | VERIFY_FLAG_PAP;
+#endif
 
   if (has_checkpoint)
     c4_eth_set_trusted_checkpoint(chain_id, trusted_checkpoint);
@@ -270,81 +332,108 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, "method is required\n");
     exit(EXIT_FAILURE);
   }
-  bytes_t       request     = {0};
-  method_type_t method_type = c4_get_method_type(chain_id, method);
-  switch (method_type) {
-    case METHOD_UNDEFINED:
-      fprintf(stderr, "method not known: %s\n", method);
-      exit(EXIT_FAILURE);
-    case METHOD_NOT_SUPPORTED:
-      fprintf(stderr, "method not supported: %s\n", method);
-      exit(EXIT_FAILURE);
-    case METHOD_PROOFABLE:
-      if (!input) {
-#ifdef USE_CURL
-        char name[100];
-        sprintf(name, "states_%d", (uint32_t) chain_id);
-        buffer_t         state = {0};
-        storage_plugin_t storage;
-        c4_get_storage_config(&storage);
-        storage.get(name, &state);
-        request = read_from_prover(method, (char*) args.data.data, state.data, chain_id, signers);
-        buffer_free(&state);
-        if (output) bytes_write(request, fopen(output, "w"), true);
-#else
-        fprintf(stderr, "require data, but no curl installed");
-        exit(EXIT_FAILURE);
-#endif
-      }
-      else
-        request = bytes_read(input);
 
-      break;
-    case METHOD_LOCAL:
-      request = NULL_BYTES;
-      break;
-    case METHOD_UNPROOFABLE:
-      fprintf(stderr, "method not proofable: %s\n", method);
-      exit(EXIT_FAILURE);
-      break;
+  prover_flags_t prover_flags = C4_PROVER_FLAG_USE_ACCESSLIST;
+  if (use_zk_proof) prover_flags |= C4_PROVER_FLAG_ZK_PROOF;
+  if (!prover_mode_set) {
+    if (input != NULL)
+      prover_mode = C4_PROVER_MODE_LOCAL;
+    else if (prover_url != NULL)
+      prover_mode = C4_PROVER_MODE_REMOTE;
+    else
+      prover_mode = C4_PROVER_MODE_LOCAL;
   }
 
-  verify_ctx_t ctx = {0};
-  c4_verify_init(&ctx, request, method, method ? json_parse((char*) args.data.data) : (json_t) {0}, chain_id);
-  if (signers && strlen(signers) > 40 && signers[0] == '0' && signers[1] == 'x') {
-    ctx.witness_keys = bytes(safe_malloc(strlen(signers) / 2), (strlen(signers) - 2) / 2);
-    if (hex_to_bytes(signers, -1, ctx.witness_keys) % 20 != 0) {
+  c4_rpc_ctx_t* ctx = c4_rpc_ctx_create(method, (char*) args.data.data, chain_id,
+                                        prover_flags, verify_flags, prover_mode);
+
+  if (max_latest_age_seconds > 0) {
+    // Compute the lower bound on the host wallclock and forward to the verifier.
+    // The C core never reads the clock so it stays portable for WASM/embedded.
+    time_t  now   = time(NULL);
+    int64_t lower = (int64_t) now - (int64_t) max_latest_age_seconds;
+    c4_rpc_ctx_set_min_latest_block_ts(ctx, lower > 0 ? (uint64_t) lower : 0);
+  }
+
+  if (input) {
+    ctx->proof       = bytes_read(input);
+    ctx->proof_owned = true;
+  }
+
+  if (signers) {
+    c4_rpc_ctx_set_witness_keys(ctx, signers);
+    if (!ctx->witness_keys.data || ctx->witness_keys.len % 20 != 0) {
       fprintf(stderr, "invalid signers: %s\n", signers);
+      c4_rpc_ctx_free(ctx);
       exit(EXIT_FAILURE);
     }
   }
-  while (c4_verify(&ctx) == C4_PENDING)
-#ifdef USE_CURL
-    curl_fetch_all(&ctx.state);
-#else
-  {
-    fprintf(stderr, "require data, but no curl installed");
-    exit(EXIT_FAILURE);
-  }
-#endif
 
-  if (ctx.success) {
+  c4_status_t status;
+  while ((status = c4_rpc_execute(ctx)) == C4_PENDING) {
+#ifdef USE_CURL
+    c4_state_t* state = c4_rpc_get_state(ctx);
+    if (state) curl_fetch_all(state);
+#else
+    fprintf(stderr, "require data, but no curl installed");
+    c4_rpc_ctx_free(ctx);
+    exit(EXIT_FAILURE);
+#endif
+  }
+
+  if (output && ctx->proof.data)
+    bytes_write(ctx->proof, fopen(output, "w"), true);
+
+  if (status == C4_SUCCESS && (ctx->verifier.flags & VERIFY_FLAG_REVERTED)) {
+    // EVM revert is a fully verified outcome but signals failure to the user.
+    // We surface the revert data on stderr (so it doesn't get mixed into the
+    // result stream) and exit with a non-zero status. test_dir captures the
+    // revert as a regression fixture.
     if (test_dir) {
       char* filename = bprintf(NULL, "%s/test.json", test_dir);
-      char* content  = bprintf(NULL, "{\n  \"method\":\"%s\",\n  \"params\":%J,\n  \"chain_id\": %l,\n  \"expected_result\": %Z\n}",
-                               ctx.method, ctx.args, chain_id, ctx.data);
+      char* content  = bprintf(NULL, "{\n  \"method\":\"%s\",\n  \"params\":%J,\n  \"chain_id\": %l,\n  \"pap\": %s,\n  \"prover_mode\": \"%s\",\n  \"reverted\": true,\n  \"revert_data\": %Z\n}",
+                               ctx->verifier.method, ctx->verifier.args, chain_id,
+                              verify_flags & VERIFY_FLAG_PAP ? "true" : "false",
+                              prover_mode == C4_PROVER_MODE_LOCAL ? "local" : (prover_mode == C4_PROVER_MODE_HYBRID ? "hybrid" : "remote"),
+                               ctx->verifier.data);
       bytes_write(bytes(content, strlen(content)), fopen(filename, "w"), true);
       safe_free(filename);
       safe_free(content);
     }
-    ssz_dump_to_file_no_quotes(stdout, ctx.data);
+    fprintf(stderr, "execution reverted\n");
+    if (ctx->verifier.data.bytes.len)
+      print_hex(stderr, ctx->verifier.data.bytes, "revert data: 0x", "\n");
+    else
+      fprintf(stderr, "revert data: (empty)\n");
+    c4_rpc_ctx_free(ctx);
+    return EXIT_FAILURE;
+  }
+
+  if (status == C4_SUCCESS) {
+    if (test_dir) {
+      char* filename = bprintf(NULL, "%s/test.json", test_dir);
+      char* content  = bprintf(NULL, "{\n  \"method\":\"%s\",\n  \"params\":%J,\n  \"chain_id\": %l,\n  \"pap\": %s,\n  \"prover_mode\": \"%s\",\n  \"expected_result\": %Z\n}",
+                               ctx->verifier.method, ctx->verifier.args, chain_id,
+                              verify_flags & VERIFY_FLAG_PAP ? "true" : "false",
+                              prover_mode == C4_PROVER_MODE_LOCAL ? "local" : (prover_mode == C4_PROVER_MODE_HYBRID ? "hybrid" : "remote"),
+                               ctx->verifier.data);
+      bytes_write(bytes(content, strlen(content)), fopen(filename, "w"), true);
+      safe_free(filename);
+      safe_free(content);
+    }
+    if (verify_flags & VERIFY_FLAG_PROOF_ONLY)
+      fwrite(ctx->proof.data, 1, ctx->proof.len, stdout);
+    else
+      ssz_dump_to_file_no_quotes(stdout, ctx->verifier.data);
     fflush(stdout);
+    c4_rpc_ctx_free(ctx);
     return EXIT_SUCCESS;
   }
-  else if (ctx.state.error) {
-    fprintf(stderr, "proof is invalid: %s\n", ctx.state.error);
-    return EXIT_FAILURE;
-  }
-  else
-    return EXIT_FAILURE;
+
+  c4_state_t* state = c4_rpc_get_state(ctx);
+  char*       error = state ? state->error : ctx->error;
+  fprintf(stderr, "Error: %s\n", error ? error : "unknown error");
+
+  c4_rpc_ctx_free(ctx);
+  return EXIT_FAILURE;
 }

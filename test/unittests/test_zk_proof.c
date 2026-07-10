@@ -86,8 +86,12 @@ static uint8_t* verify_period_and_get_anchor(int period, const uint8_t* expected
 }
 
 void test_verify_chain(void) {
-  // Define the chain to test
-  int periods[] = {1620, 1621};
+  // Define the chain to test (SP1 v6 fixtures).
+  // 1784 is the frozen v6 base proof; 1785 is produced by the server-side recursion and
+  // is added to the fixtures after the roundtrip. Missing periods are skipped gracefully.
+  // The recursive aggregation keeps `current_keys_root` pinned to the original trust
+  // anchor across the whole chain, so every proof must share the same anchor.
+  int periods[] = {1784, 1785};
   int count     = sizeof(periods) / sizeof(int);
 
   uint8_t* trust_anchor = NULL;
@@ -117,16 +121,16 @@ void test_verify_chain(void) {
   if (trust_anchor) free(trust_anchor);
 }
 
-// Keep the tampering test for robustness (using 1601 as target if available, else 1600)
+// Keep the tampering test for robustness (using 1785 as target if available, else 1784)
 void test_verify_tampered(void) {
-  int  period = 1621;
+  int  period = 1785;
   char proof_path[64];
   snprintf(proof_path, sizeof(proof_path), "zk_data/%d/zk_proof_g16.bin", period);
 
-  // Fallback to 1620 if 1621 not yet built
+  // Fallback to 1784 if 1785 not yet built
   bytes_t check = read_testdata(proof_path);
   if (check.data == NULL) {
-    period = 1620;
+    period = 1784;
     snprintf(proof_path, sizeof(proof_path), "zk_data/%d/zk_proof_g16.bin", period);
   }
   else {
@@ -185,6 +189,40 @@ void test_verify_tampered(void) {
   free(pub_orig.data);
 }
 
+// Locks the public-output layout and the known values of the v6 base proof (period 1784).
+// current_keys_root must equal the trust anchor (period 1783 next_keys), next_keys_root the
+// proven committee, and the proof must be the 356-byte SP1 v6 Groth16 format.
+void test_verify_v6_anchor_values(void) {
+  bytes_t proof = read_testdata("zk_data/1784/zk_proof_g16.bin");
+  bytes_t pub   = read_testdata("zk_data/1784/zk_pub.bin");
+
+  if (proof.data == NULL || pub.data == NULL) {
+    if (proof.data) free(proof.data);
+    if (pub.data) free(pub.data);
+    TEST_IGNORE_MESSAGE("Skipping v6 anchor test: 1784 fixture not found");
+    return;
+  }
+
+  // SP1 v6 Groth16 proof is 356 bytes (v5 was 260).
+  TEST_ASSERT_EQUAL_INT_MESSAGE(356, proof.len, "Expected 356-byte SP1 v6 Groth16 proof");
+  TEST_ASSERT_GREATER_OR_EQUAL_INT(136, pub.len);
+
+  TEST_ASSERT_TRUE_MESSAGE(verify_zk_proof(proof, pub), "v6 base proof (1784) failed to verify");
+
+  const uint8_t expected_current[32] = {0xc0, 0x23, 0x61, 0xcb, 0x34, 0xfe, 0xce, 0x1e, 0xae, 0x2c, 0x74, 0xbd, 0x67, 0x5d, 0x38, 0x76, 0xc5, 0x3b, 0x93, 0xa7, 0xe8, 0x00, 0x15, 0x74, 0xf5, 0x49, 0xd2, 0x8c, 0xa8, 0x9c, 0xfb, 0x9b};
+  const uint8_t expected_next[32]    = {0x59, 0xd1, 0xe4, 0xec, 0x47, 0x79, 0x51, 0x24, 0xfc, 0x89, 0xe3, 0xb0, 0x9a, 0xf7, 0x24, 0x35, 0xc7, 0x21, 0x54, 0x5b, 0x80, 0x7c, 0xfe, 0xfa, 0x4d, 0xb5, 0x6e, 0xd2, 0x1b, 0xa6, 0x92, 0x94};
+
+  TEST_ASSERT_EQUAL_MEMORY_MESSAGE(expected_current, pub.data, 32, "current_keys_root != trust anchor");
+  TEST_ASSERT_EQUAL_MEMORY_MESSAGE(expected_next, pub.data + 32, 32, "next_keys_root mismatch");
+
+  uint64_t next_period = 0;
+  memcpy(&next_period, pub.data + 64, 8);
+  TEST_ASSERT_EQUAL_UINT64(1784, next_period);
+
+  free(proof.data);
+  free(pub.data);
+}
+
 #endif
 
 #ifndef ETH_ZKPROOF
@@ -199,6 +237,7 @@ int main(void) {
 #ifdef ETH_ZKPROOF
   RUN_TEST(test_verify_chain);
   RUN_TEST(test_verify_tampered);
+  RUN_TEST(test_verify_v6_anchor_values);
 #else
   RUN_TEST(test_skipped);
 #endif

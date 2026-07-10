@@ -301,7 +301,7 @@ static void handle_beacon_event(char* event, char* data) {
   http_server.stats.beacon_events_total++;
   if (strcmp(event, "head") == 0) {
     http_server.stats.beacon_events_head++;
-    log_info("Beacon Event Received: Type: " YELLOW("%s") " - Slot: " YELLOW("%j"), event, json_get(json, "slot"));
+    log_info("Beacon Event Received: Type: " YELLOW("%s") " - Slot: " YELLOW("%j") GRAY(" ( + %l )"), event, json_get(json, "slot"), json_get_uint64(json, "slot") % 32);
     c4_handle_new_head(json_parse(data));
   }
   else if (strcmp(event, "finalized_checkpoint") == 0) {

@@ -167,6 +167,140 @@ class MainActivity : AppCompatActivity() {
 }
 ```
 
+## Configuration
+
+### Prover Mode
+
+Controls how proofs are built and verified. Set via `proverMode` in the constructor:
+
+- **`ProverMode.LOCAL`** -- Proofs are built entirely on the client. Requires access to a Beacon API and execution layer RPC. Fully trustless, but slower and needs more infrastructure.
+- **`ProverMode.REMOTE`** -- Proofs are fetched from a remote Colibri prover server. Fastest option but relies on the prover server for proof generation. The verifier still cryptographically checks every proof.
+- **`ProverMode.HYBRID`** -- The consensus-layer proof (BlockHeaderProof) comes from the Colibri server, while execution-layer data (account proofs, storage, etc.) is fetched directly from the RPC provider. Best balance of performance and scalability -- the Colibri server only serves lightweight, cacheable header proofs while the heavy RPC load goes to your existing provider.
+- **`ProverMode.PROXY`** -- Like remote, but the client sends its own RPC and Beacon API URLs to the prover server. The server uses these endpoints instead of its own. Useful when the client has access to private or premium RPC providers.
+- **`ProverMode.LIGHT_CLIENT`** -- Like hybrid, with additional background polling of block headers to keep the cache warm. Call `startLightClient()` / `stopLightClient()` to control polling (default interval: 12s). By default only the compact `eth_getBlockHeader` is fetched; pass `fullBlock = true` to fetch the full block (useful when many `eth_getTransactionByHash` / `eth_getTransactionReceipt` calls follow).
+
+```kotlin
+// Hybrid mode: header proofs from Colibri, execution data from RPC provider
+val colibri = Colibri(
+    chainId = BigInteger.ONE,
+    proverMode = ProverMode.HYBRID
+)
+
+// Light client mode with background header polling
+val lightClient = Colibri(
+    chainId = BigInteger.ONE,
+    proverMode = ProverMode.LIGHT_CLIENT
+)
+lightClient.startLightClient()                    // polls eth_getBlockHeader every 12s
+lightClient.startLightClient(fullBlock = true)    // or fetch the full block
+```
+
+Default: `ProverMode.REMOTE` when prover URLs are configured, `ProverMode.LOCAL` otherwise.
+
+### Privacy (PAP)
+
+**PAP (Pragmatic Adaptive Privacy)** reduces intent leakage towards RPC/prover by using cached data when available and verifying afterwards.
+
+- `privacyMode` – `PrivacyMode.NONE` (default) or `PrivacyMode.BASIC`. With `BASIC`, the verifier sets the PAP flag so that method-type and verification can use cached storage for optimistic execution (e.g. for `eth_call`); method type may depend on params.
+
+*This feature is still experimental!*
+
+```kotlin
+val colibri = Colibri(
+    chainId = BigInteger.ONE,
+    privacyMode = PrivacyMode.BASIC
+)
+```
+
+### Weak Subjectivity Period check
+
+Whenever a sync crosses the **Weak Subjectivity Period (WSP)** -- typically ~2 to 4 months on Ethereum mainnet -- the verifier anchors the highest finalized header against an external `checkpointz` / Beacon API endpoint. The check applies to all three sync paths: verifier-driven Light Client updates, prover-supplied `LCSyncData`, and prover-supplied `ZKSyncData`. For `ZKSyncData` the verifier prefers configured **witness signatures** (`checkpointWitnessKeys` + matching signatures from the prover) and only falls back to `checkpointz` when no witness anchor is available.
+
+- `skipWspCheck` (`Boolean`, default `false`) -- sets `VERIFY_FLAG_SKIP_WSP_CHECK` (bit `1 shl 7`) and disables the round-trip. **SECURITY:** only safe when another trust anchor (witness signatures, hard-coded checkpoint, signed package) is in place; raises the risk of long-range attacks across periods older than the WSP. See the [threat model -- long range attacks](https://corpus-core.gitbook.io/specification-colibri-stateless/specifications/ethereum/threat-model) for details.
+
+```kotlin
+val colibri = Colibri(
+    chainId = BigInteger.ONE,
+    skipWspCheck = true,
+)
+```
+
+### Freshness window for `latest` proofs
+
+Proofs that target the **`latest`** block tag remain cryptographically valid forever -- without a freshness window, a months-old proof could still be replayed as "current". The Kotlin binding therefore reads `System.currentTimeMillis() / 1000` and forwards `now - maxLatestAgeSeconds` to the verifier, which rejects proofs whose block timestamp is older with `"proof for latest too old"`.
+
+The gate covers the following RPC methods:
+
+- **EVM:** `eth_call`, `eth_estimateGas`, `colibri_simulateTransaction`
+- **Account:** `eth_getBalance`, `eth_getCode`, `eth_getStorageAt`, `eth_getTransactionCount`, `eth_getProof`
+- **Block / header:** `eth_getBlockByNumber`, `eth_getBlockHeader`, `eth_blobBaseFee`, `eth_maxPriorityFeePerGas`
+- **Implicit-latest:** `eth_blockNumber`
+
+`eth_getLogs` is **not** covered yet (tracked in issue #128). Account methods rely on a slim `timestamp` leaf inside the state proof which is only emitted by **prover version ≥ 1.1.27**; against older provers the verifier fails closed (`"cannot verify freshness of latest block without block context"`).
+
+- `maxLatestAgeSeconds` (`Long`, default `60` ≈ 5 Ethereum slots) -- upper bound on the accepted age. Set to `0` to disable the check (e.g. when using legacy proof formats that do not embed a block context).
+
+> **Caveat:** the gate fires only on `"latest"` (not `"safe"`/`"finalized"`). If the host wallclock is behind `maxLatestAgeSeconds` (devices without configured time, fresh emulators), the lower bound clamps to `0` and the check is silently disabled. Make sure your runtime has a synced clock or set `maxLatestAgeSeconds = 0` explicitly to acknowledge this state.
+
+```kotlin
+val colibri = Colibri(
+    chainId = BigInteger.ONE,
+    maxLatestAgeSeconds = 30, // tighter window for latency-sensitive flows
+)
+```
+
+> **PAP mode:** the freshness check also applies to PAP, where the call proof arrives via `colibri_proofCall` (same proof structure as a direct `eth_call`). This requires a prover that embeds the block context (≥ 1.1.15); against an older PAP proof without a block timestamp the check fails closed (`"cannot verify freshness of latest block without block context"`). Set `maxLatestAgeSeconds = 0L` to opt out.
+
+### Privacy-preserving `eth_call` (oblivious + PAP + hybrid)
+
+For an `eth_call` with full storage privacy, use hybrid prover mode, PAP, and oblivious nodes (`obliviousNodes` default is empty).
+
+- **HYBRID:** only the block proof from the prover; storage values from RPC/oblivious node, verified locally.
+- **PAP (`PrivacyMode.BASIC`):** no `eth_createAccessList` on the prover; optimistic local EVM, only `eth_getProof` leaves the client.
+- **Oblivious:** TEE RPC for `eth_getProof`; enables OBLIVIOUS + PAP verify flags automatically. See [Oblivious Labs](https://www.obliviouslabs.com/) for TEE/ORAM background.
+
+```kotlin
+// https://rpc.safe-node.com/ requires an API key for testing
+val colibri = Colibri(
+    chainId = BigInteger.ONE,
+    privacyMode = PrivacyMode.BASIC,
+    proverMode = ProverMode.HYBRID,
+    obliviousNodes = arrayOf("https://rpc.safe-node.com/"),
+)
+```
+
+## Error handling
+
+The binding throws `ColibriException` for any failure (proof, network, RPC, etc.).
+Verified EVM reverts are signalled by the dedicated subclass `ColibriRevertException`
+so callers can distinguish them from transport/proof errors.
+
+### Verified EVM reverts (`ColibriRevertException`)
+
+When an `eth_call` (or similar EVM execution) is verified successfully but the
+EVM itself executed a `REVERT`, the binding throws `ColibriRevertException`.
+This is a fully verified outcome -- not a transport or proof failure -- and
+matches the Geth-style RPC error
+`{ "code": 3, "message": "execution reverted", "data": "0x..." }`.
+
+`ColibriRevertException` extends `ColibriException` (with `code = 3`) and
+exposes the raw revert return data as a `0x`-prefixed hex string in `data`.
+Callers typically ABI-decode this against the contract's error definitions
+(custom errors, `Error(string)`, etc.). This is the mechanism that lets dApp
+libraries decode `OffchainLookup` (EIP-3668 / CCIP-Read) for example for the
+ENS off-chain resolver.
+
+```kotlin
+try {
+    val result = colibri.rpc("eth_call", arrayOf(mapOf("to" to "0x…", "data" to "0x…"), "latest"))
+} catch (e: ColibriRevertException) {
+    // e.data == "0x556f1830..."  // ABI-encoded OffchainLookup or custom error
+    println("reverted with: ${e.data}")
+} catch (e: ColibriException) {
+    println("other error: ${e.message}")
+}
+```
+
 ## Example Android App
 
 A complete working example is available in the [example directory](https://github.com/corpus-core/colibri-stateless/tree/main/bindings/kotlin/example). This minimal Android app demonstrates:

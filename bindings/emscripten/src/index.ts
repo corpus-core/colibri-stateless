@@ -29,8 +29,6 @@ import {
   C4W,
   copy_to_c,
   getC4w,
-  get_prover_config_hex,
-  set_trusted_checkpoint,
   Storage as C4Storage
 } from "./wasm.js";
 import { EventEmitter } from './eventEmitter.js';
@@ -43,7 +41,8 @@ import {
   DataRequest,
   MethodType as C4MethodType,
   ProviderMessage,
-  ChainConfig
+  ChainConfig,
+  ProverMode
 } from './types.js';
 import { default_config, get_chain_id, chain_conf } from './chains.js';
 import { SubscriptionManager, EthSubscribeSubscriptionType, EthNewFilterType } from './subscriptionManager.js';
@@ -54,7 +53,7 @@ import { fetch_rpc, handle_request } from './http.js';
 export { Strategy };
 
 // Public helper for controlling WASM loading behavior in Node/bundlers.
-export { set_wasm_url } from "./wasm.js";
+export { set_wasm_url, decode_proof } from "./wasm.js";
 
 // Re-export types needed by consumers of the C4Client module
 export {
@@ -66,7 +65,8 @@ export {
   C4MethodType as MethodType,
   ProviderMessage,
   EthSubscribeSubscriptionType,
-  EthNewFilterType
+  EthNewFilterType,
+  ProverMode
 };
 
 // Re-export transaction verification utilities
@@ -75,19 +75,13 @@ export {
   PrototypeProtection
 } from './transactionVerifier.js';
 
-// fetch_rpc und handle_request sind nach http.ts verschoben
-
-// default_config, get_chain_id, chain_conf ausgelagert nach ./chains.ts
-
-function cleanup_args(method: string, args: any[]): any[] {
-  if (method == "eth_verifyLogs") return args.map(arg => ({
-    transactionIndex: arg.transactionIndex,
-    blockNumber: arg.blockNumber
-  }))
-  return args;
+// EIP-3668 / CCIP-Read: the EVM ran to completion but reverted. Map the
+// verifier's `revert` status to a structured EIP-1193 error (code 3 + data)
+// so clients like ethers can decode OffchainLookup payloads from
+// `error.data` and fetch the offchain gateway.
+function throwRevert(data: unknown): never {
+  throw new ProviderRpcError(3, "execution reverted", data);
 }
-
-
 
 export default class C4Client {
 
@@ -95,8 +89,12 @@ export default class C4Client {
   private eventEmitter: EventEmitter;
   private connectionState: ConnectionState;
   private subscriptionManager: SubscriptionManager;
-  private initMap: Map<number | string, boolean> = new Map();
   private flags: number = 0;
+  private verify_flags: number = 0;
+  private _lightClientTimer: ReturnType<typeof setInterval> | null = null;
+
+  /** Default freshness window for `latest` proofs in seconds (≈5 Ethereum slots). */
+  private static readonly DEFAULT_MAX_LATEST_AGE_SECONDS = 60;
 
   // Protect against prototype pollution by freezing critical methods
   private static readonly CRITICAL_METHODS = ['rpc', 'request', 'verifyProof', 'createProof'] as const;
@@ -143,10 +141,16 @@ export default class C4Client {
 
     this.config = baseConfig;
 
+    if (this.config.include_code) this.flags |= 1;
+    if (this.config.use_accesslist) this.flags |= (1 << 6);
+    if (this.config.privacy_mode === 'basic' || this.config.oblivious_nodes?.length) this.verify_flags |= 2;
+    if (this.config.oblivious_nodes?.length) this.verify_flags |= (1 << 6);
+    if (this.config.skip_wsp_check) this.verify_flags |= (1 << 7);
+
     if (!this.config.warningHandler)
       this.config.warningHandler = async (req: RequestArguments, message: string) => console.warn(message)
     if (!this.config.proofStrategy)
-      this.config.proofStrategy = Strategy.VerifyIfPossible;
+      this.config.proofStrategy = Strategy.WarningWithFallback;
 
     this.eventEmitter = new EventEmitter();
     this.connectionState = new ConnectionState(
@@ -165,39 +169,37 @@ export default class C4Client {
     )
   }
 
-  // Prover config helpers are moved to wasm.ts (get_prover_config_hex)
-
-  private async fetch_checkpointz() {
-    let checkpoint: string | undefined = undefined
-    for (const url of [...(this.config.checkpointz || []), ...(this.config.beacon_apis || []), ...(this.config.prover || [])]) {
-      const response = await fetch(url + (url.endsWith('/') ? '' : '/') + 'eth/v1/beacon/states/head/finality_checkpoints', {
-        method: 'GET',
-        headers: {
-          "Content-Type": "application/json"
-        }
-      })
-      if (response.ok) {
-        const res = await response.json();
-        checkpoint = res?.data?.finalized?.root
-        if (checkpoint) break;
-      }
-    }
-    if (!checkpoint) throw new Error('No checkpoint found');
-    this.config.trusted_checkpoint = checkpoint;
-
-    // set trusted checkpoint in C state so we can use it in proof calls immediately
-    await set_trusted_checkpoint(this.config.chainId as number, checkpoint);
+  /**
+   * Computes the lower bound for `block.timestamp` accepted on `"latest"`
+   * proofs as `now - max_latest_age_seconds`. Returns `0n` when the host
+   * disables the check (`max_latest_age_seconds === 0`). The platform
+   * wallclock is read here in the binding so the C/WASM core stays
+   * clock-free (relevant for embedded/WASM portability).
+   */
+  private get_min_latest_block_ts(): bigint {
+    const maxAge = this.config.max_latest_age_seconds ?? C4Client.DEFAULT_MAX_LATEST_AGE_SECONDS;
+    if (maxAge <= 0) return 0n;
+    const nowSec = Math.floor(Date.now() / 1000);
+    const lower = nowSec - maxAge;
+    return BigInt(lower > 0 ? lower : 0);
   }
 
   /**
    * Checks whether the RPC method is supported or proofable.
    * @param method - The method to check
+   * @param args - Optional method arguments (used in PAP mode to check cached data availability)
    * @returns The method type
    */
-  async getMethodSupport(method: string): Promise<C4MethodType> {
+  async getMethodSupport(method: string, args?: any[]): Promise<C4MethodType> {
     const c4w = await getC4w();
     const free_buffers: number[] = [];
-    const method_type = c4w._c4w_get_method_type(BigInt(this.config.chainId), as_char_ptr(method, c4w, free_buffers));
+    const paramsStr = args ? JSON.stringify(args) : null;
+    const method_type = c4w._c4w_get_method_type(
+      BigInt(this.config.chainId),
+      as_char_ptr(method, c4w, free_buffers),
+      paramsStr ? as_char_ptr(paramsStr, c4w, free_buffers) : 0,
+      this.verify_flags
+    );
     free_buffers.forEach(ptr => c4w._free(ptr));
     return method_type as C4MethodType;
   }
@@ -229,7 +231,7 @@ export default class C4Client {
             return as_bytes(state.result, state.result_len, c4w);
           case "error":
             throw new Error(state.error);
-          case "waiting": {
+          case "pending": {
             await Promise.all(state.requests.map((req: DataRequest) => handle_request(req, this.config)));
             break;
           }
@@ -271,7 +273,9 @@ export default class C4Client {
         as_char_ptr(JSON.stringify(args), c4w, free_buffers),
         BigInt(this.config.chainId),
         checkpoint_ptr,
-        witness_keys_ptr);
+        witness_keys_ptr,
+        this.verify_flags,
+        this.get_min_latest_block_ts());
 
       while (true) {
         const state = as_json(c4w._c4w_verify_proof(ctx), c4w, true);
@@ -279,9 +283,11 @@ export default class C4Client {
         switch (state.status) {
           case "success":
             return state.result;
+          case "revert":
+            throwRevert(state.data);
           case "error":
             throw new Error(state.error);
-          case "waiting": {
+          case "pending": {
             await Promise.all(state.requests.map((req: DataRequest) => handle_request(req, this.config)));
             break;
           }
@@ -303,55 +309,83 @@ export default class C4Client {
    * @returns The result
    */
   async rpc(method: string, args: any[], method_type?: C4MethodType): Promise<any> {
-    // eth_subscribe and eth_unsubscribe are handled by C4Client.request before this method is called.
-    // This rpc method is for the underlying data fetching/proving.
-    if (!this.initMap.get(this.config.chainId)) {
-      this.initMap.set(this.config.chainId, true);
-      if (!this.config.zk_proof && this.config.checkpointz && this.config.checkpointz.length > 0 && !this.config.trusted_checkpoint && (await get_prover_config_hex(this.config.chainId as number)).length == 2)
-        await this.fetch_checkpointz();
-
-    }
-    // Special handling for eth_sendTransaction with verification
+    // eth_sendTransaction stays in bindings (requires fallback_provider interaction)
     if (method === 'eth_sendTransaction' && (this.config as any).verifyTransactions) {
       return await TransactionVerifier.verifyAndSendTransaction(
         args[0],
         this.config,
         (method, args, methodType) => this.rpc(method, args, methodType),
-        fetch_rpc
+        fetch_rpc,
+        this.config.fetch
       );
     }
 
+    // Allow host to skip verification for specific calls
     if (method_type === undefined)
-      method_type = await this.getMethodSupport(method);
+      method_type = await this.getMethodSupport(method, args);
+    if (method_type === C4MethodType.PROOFABLE && this.config.verify && !this.config.verify(method, args))
+      return await fetch_rpc(this.config.rpcs, { method, params: args }, false, this.config.fetch);
 
-    switch (method_type) {
-      case C4MethodType.PROOFABLE: {
+    const c4w = await getC4w();
+    const free_buffers: number[] = [];
+    let ctx = 0;
 
-        if (this.config.verify && !this.config.verify(method, args)) {
-          // skip verification and fetch directly
-          return await fetch_rpc(this.config.rpcs, { method, params: args }, false);
-        }
+    try {
+      const prover_mode_map: Record<ProverMode, number> = { local: 0, remote: 1, hybrid: 2, proxy: 3, light_client: 4 };
+      const resolved_mode = this.config.prover_mode ?? (this.config.prover?.length ? 'remote' : 'local');
+      const native_mode = resolved_mode === 'light_client' ? prover_mode_map['hybrid'] : prover_mode_map[resolved_mode];
+      let prover_flags = this.flags;
+      if (this.config.zk_proof) prover_flags |= (1 << 7);
 
-        const proof = this.config.prover && this.config.prover.length
-          ? await fetch_rpc(this.config.prover, {
-            method,
-            params: cleanup_args(method, args),
-            c4: await get_prover_config_hex(this.config.chainId as number),
-            zk_proof: !!this.config.zk_proof,
-            signers: this.config.checkpoint_witness_keys || '0x'
-          }, true)
-          : await this.createProof(method, args);
-        return this.verifyProof(method, args, proof);
+      ctx = c4w._c4w_create_rpc_ctx(
+        as_char_ptr(method, c4w, free_buffers),
+        as_char_ptr(JSON.stringify(args || []), c4w, free_buffers),
+        BigInt(this.config.chainId),
+        prover_flags,
+        this.verify_flags,
+        native_mode
+      );
+
+      if (resolved_mode === 'proxy') {
+        const rpc_csv = this.config.rpcs.join(',');
+        const beacon_csv = this.config.beacon_apis.join(',');
+        c4w._c4w_rpc_ctx_set_proxy_urls(
+          ctx,
+          as_char_ptr(rpc_csv, c4w, free_buffers),
+          as_char_ptr(beacon_csv, c4w, free_buffers)
+        );
       }
-      case C4MethodType.UNPROOFABLE:
-        return await fetch_rpc(this.config.rpcs, { method, params: args }, false);
-      case C4MethodType.NOT_SUPPORTED:
-        throw new ProviderRpcError(4200, `Method ${method} is not supported by C4Client.rpc core`);
-      case C4MethodType.LOCAL:
-        return this.verifyProof(method, args, new Uint8Array());
+
+      if (this.config.trusted_checkpoint)
+        c4w._c4w_set_checkpoint(BigInt(this.config.chainId), as_char_ptr(this.config.trusted_checkpoint, c4w, free_buffers));
+      if (this.config.checkpoint_witness_keys)
+        c4w._c4w_rpc_ctx_set_witness_keys(ctx, as_char_ptr(this.config.checkpoint_witness_keys, c4w, free_buffers));
+
+      c4w._c4w_rpc_ctx_set_min_latest_block_ts(ctx, this.get_min_latest_block_ts());
+
+      while (true) {
+        const state = as_json(c4w._c4w_execute_rpc_ctx(ctx), c4w, true);
+        switch (state.status) {
+          case "success":
+            return state.result;
+          case "revert":
+            throwRevert(state.data);
+          case "error":
+            if (state.error.includes("zk sync proof") && this.config.zk_proof) {
+              // try without zk proof
+              this.config.zk_proof = false;
+              return await this.rpc(method, args, method_type);
+            }
+            throw new Error(state.error);
+          case "pending":
+            await Promise.all(state.requests.map((req: DataRequest) => handle_request(req, this.config)));
+            break;
+        }
+      }
+    } finally {
+      free_buffers.forEach(ptr => c4w._free(ptr));
+      if (ctx) c4w._c4w_free_rpc_ctx(ctx);
     }
-    // Should be unreachable if MethodType enum is comprehensive and handled
-    throw new ProviderRpcError(-32603, `Internal error: Unhandled method type for ${method} in C4Client.rpc core`);
   }
 
 
@@ -417,5 +451,44 @@ export default class C4Client {
   public removeListener(event: string, callback: (data: any) => void): this {
     this.eventEmitter.removeListener(event, callback);
     return this;
+  }
+
+  /** Stops light client polling and releases resources. Call when the client is no longer needed. */
+  destroy(): void {
+    this.stopLightClient();
+  }
+
+  /**
+   * Starts background polling to keep the block header cache warm.
+   * Useful for `prover_mode: "light_client"`.
+   *
+   * By default polls `eth_getBlockHeader("latest")` which fetches only the
+   * compact header proof. Set `fullBlock` to `true` to poll
+   * `eth_getBlockByNumber("latest")` instead -- useful when many
+   * `eth_getTransactionByHash` / `eth_getTransactionReceipt` calls follow,
+   * since those need the full block data.
+   *
+   * @param intervalMs polling interval in milliseconds (default: 12000 = one Ethereum slot)
+   * @param fullBlock if true, fetch the full block instead of just the header (default: false)
+   */
+  startLightClient(intervalMs: number = 12000, fullBlock: boolean = false): void {
+    this.stopLightClient();
+    const method = fullBlock ? 'eth_getBlockByNumber' : 'eth_getBlockHeader';
+    const params = fullBlock ? ['latest', false] : ['latest'];
+    this._lightClientTimer = setInterval(async () => {
+      try {
+        await this.rpc(method, params);
+      } catch (e) {
+        if (this.config.debug) console.warn('[C4Client] lightClient poll error:', e);
+      }
+    }, intervalMs);
+  }
+
+  /** Stops background light client polling. */
+  stopLightClient(): void {
+    if (this._lightClientTimer !== null) {
+      clearInterval(this._lightClientTimer);
+      this._lightClientTimer = null;
+    }
   }
 }

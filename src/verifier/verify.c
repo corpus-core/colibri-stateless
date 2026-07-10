@@ -39,15 +39,17 @@ const ssz_def_t* c4_get_request_type(chain_type_t chain_type) {
   return request_container(chain_type);
 }
 
-c4_status_t c4_verify_init(verify_ctx_t* ctx, bytes_t request_bytes, char* method, json_t args, chain_id_t chain_id) {
+c4_status_t c4_verify_init(verify_ctx_t* ctx, bytes_t request_bytes, char* method, json_t args, chain_id_t chain_id, verify_flags_t flags) {
   chain_type_t chain_type = c4_chain_type(chain_id);
   // Input validation
   if (!ctx) return C4_ERROR;
   if (!method) THROW_ERROR("method cannot be NULL");
+  if (args.type== JSON_TYPE_INVALID) THROW_ERROR("args must be a valid JSON object");
+  if (args.type != JSON_TYPE_ARRAY) THROW_ERROR("args must be a JSON array");
 
   memset(ctx, 0, sizeof(verify_ctx_t));
   if (request_bytes.len == 0) {
-    method_type_t method_type = c4_get_method_type(chain_id, method);
+    method_type_t method_type = c4_get_method_type(chain_id, method, args, flags);
     if (method_type == METHOD_UNDEFINED)
       THROW_ERROR("method not known");
     else if (method_type == METHOD_NOT_SUPPORTED)
@@ -71,11 +73,12 @@ c4_status_t c4_verify_init(verify_ctx_t* ctx, bytes_t request_bytes, char* metho
   ctx->chain_id = chain_id;
   ctx->method   = method;
   ctx->args     = args;
+  ctx->flags    = flags;
   return C4_SUCCESS;
 }
 
 c4_status_t c4_verify_from_bytes(verify_ctx_t* ctx, bytes_t request_bytes, char* method, json_t args, chain_id_t chain_id) {
-  TRY_ASYNC(c4_verify_init(ctx, request_bytes, method, args, chain_id));
+  TRY_ASYNC(c4_verify_init(ctx, request_bytes, method, args, chain_id, 0));
   return c4_verify(ctx);
 }
 
@@ -112,4 +115,7 @@ void c4_verify_free_data(verify_ctx_t* ctx) {
   }
   c4_state_free(&ctx->state);
   if (ctx->witness_keys.data) safe_free(ctx->witness_keys.data);
+  if (ctx->user_data && ctx->user_data_free) ctx->user_data_free(ctx->user_data);
+  ctx->user_data      = NULL;
+  ctx->user_data_free = NULL;
 }

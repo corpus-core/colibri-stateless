@@ -8,15 +8,12 @@
 
 #include "beacon.h"
 #include "bytes.h"
-#include "crypto.h"
+#include "eth_bloom.h"
 #include "eth_req.h"
 #include "logger.h"
 #include "prover.h"
 #include <stdlib.h>
 #include <string.h>
-
-#define MAX_TOPICS         4
-#define MAX_BLOOM_VARIANTS 16
 
 #if defined(_MSC_VER)
 #define C4_ALIGN8 __declspec(align(8))
@@ -63,10 +60,16 @@ typedef struct {
   bool     resolved;
   uint8_t  hit_counted;
   uint8_t  miss_counted;
+  bool     bloom_only;               // true when bloomFilter was provided (PAP mode): skip event-level filtering
   // Prepared filter
   bytes_t filter_blooms;             // n*256 bytes (n variants) or len=0 => bloom disabled
   bytes_t filter_addresses;          // m*20 bytes or len=0 => wildcard
-  bytes_t filter_topics[MAX_TOPICS]; // per position: k*32 bytes or len=0 => wildcard
+  bytes_t filter_topics[C4_ETH_LOG_MAX_TOPICS]; // per position: k*32 bytes or len=0 => wildcard
+  // Backfill state (loading older blocks into cache on demand)
+  uint64_t backfill_from;            // first block number to backfill
+  uint32_t backfill_count;           // number of blocks to backfill
+  json_t*  backfill_receipts;        // array of json_t for loaded receipts (one per backfill block)
+  bool     backfill_done;            // true after backfill blocks have been inserted into the cache
   // Results
   json_t          result;       // final logs array
   char*           result_owner; // owning pointer to result JSON string
@@ -82,7 +85,7 @@ typedef struct {
   uint32_t  tx_index;           // transaction index in the block
   uint32_t  log_index;          // log index in the transaction
   uint8_t   topics_count;       // number of topics in the event
-  bytes32_t topics[MAX_TOPICS]; // topics of the event
+  bytes32_t topics[C4_ETH_LOG_MAX_TOPICS]; // topics of the event
 } cached_event_t;
 
 /**
@@ -134,24 +137,6 @@ static void reset_cache(void) {
   g_cache.start_number = 0;
 
   memset(&g_metrics, 0, sizeof(g_metrics));
-}
-#define BLOOM_BYTE_LENGTH 256u
-
-static inline void bloom_set(uint8_t* bloom, uint16_t idx) {
-  uint16_t byte_index = (uint16_t) (BLOOM_BYTE_LENGTH - 1u - ((idx >> 3u) & 0xffu));
-  uint8_t  bit_mask   = (uint8_t) (1u << (idx & 7u));
-  bloom[byte_index] |= bit_mask;
-}
-
-// Build bloom from filter's address/topics and check subset of block bloom
-static void bloom_add_element_buf(uint8_t bloom[256], bytes_t element) {
-  bytes32_t hash = {0};
-  keccak(element, hash);
-
-  for (int i = 0; i < 6; i += 2) {
-    uint16_t idx = (uint16_t) ((((uint16_t) hash[i] << 8u) | hash[i + 1]) & 0x7ffu);
-    bloom_set(bloom, idx);
-  }
 }
 
 /**
@@ -226,6 +211,7 @@ void c4_eth_logs_cache_add_block(uint64_t block_number, const uint8_t* logs_bloo
 
   block_entry_t* e = push_block(block_number);
   if (!e) return;
+  e->block_number = block_number;
   memcpy(e->logs_bloom64, logs_bloom, 256);
 
   // Extract events minimally from receipts
@@ -291,8 +277,9 @@ static void free_log_state(void* ptr) {
   if (st->result_owner) free(st->result_owner);
   if (st->filter_blooms.data) free(st->filter_blooms.data);
   if (st->filter_addresses.data) free(st->filter_addresses.data);
-  for (int i = 0; i < MAX_TOPICS; i++)
+  for (int i = 0; i < C4_ETH_LOG_MAX_TOPICS; i++)
     if (st->filter_topics[i].data) free(st->filter_topics[i].data);
+  if (st->backfill_receipts) safe_free(st->backfill_receipts);
   free_block_results(st->blocks);
   free(st);
 }
@@ -380,9 +367,9 @@ static inline bool address_matches(bytes_t addresses, address_t address) {
  * @param topics_count Number of topics in the event.
  * @return True if all non-wildcard positions match.
  */
-static inline bool topics_matches(bytes_t filter_topics[MAX_TOPICS], bytes32_t* topics, uint8_t topics_count) {
+static inline bool topics_matches(bytes_t filter_topics[C4_ETH_LOG_MAX_TOPICS], bytes32_t* topics, uint8_t topics_count) {
   // Topics positional check (bytes)
-  for (int p = 0; p < MAX_TOPICS; p++) {
+  for (int p = 0; p < C4_ETH_LOG_MAX_TOPICS; p++) {
     bytes_t tp = filter_topics[p];
     if (tp.len == 0) continue; // wildcard
     if (topics_count <= p) return false;
@@ -399,151 +386,30 @@ static inline bool topics_matches(bytes_t filter_topics[MAX_TOPICS], bytes32_t* 
   return true;
 }
 
-// -------- Filter preparation (addresses/topics as bytes and bloom variants) --------
-
-/**
- * Extracts addresses from filter JSON into a flat byte buffer.
- * Handles single address string or array of address strings.
- */
-static void build_filter_addresses(json_t address_json, bytes_t* out_addresses) {
-  uint8_t  tmp[ADDRESS_SIZE] = {0};
-  buffer_t b                 = stack_buffer(tmp);
-  switch (address_json.type) {
-    case JSON_TYPE_STRING: {
-      bytes_t a = json_as_bytes(address_json, &b);
-      if (a.len == ADDRESS_SIZE) {
-        *out_addresses = bytes_dup(a);
-      }
-      return;
-    }
-    case JSON_TYPE_ARRAY: {
-      int count = 0;
-      json_for_each_value(address_json, _) count++;
-      if (count <= 0) return;
-      uint8_t* buf = (uint8_t*) safe_malloc((size_t) count * ADDRESS_SIZE);
-      int      i   = 0;
-      json_for_each_value(address_json, a) {
-        bytes_t ab = json_as_bytes(a, &b);
-        if (ab.len == ADDRESS_SIZE) memcpy(buf + (i++ * ADDRESS_SIZE), ab.data, ADDRESS_SIZE);
-      }
-      *out_addresses = bytes(buf, (uint32_t) (i * ADDRESS_SIZE));
-      return;
-    }
-    default:
-      return;
-  }
-}
-
-/**
- * Extracts topics from filter JSON into per-position flat byte buffers.
- * Handles single topic or array of topics (OR condition) per position.
- */
-static void build_filter_topics(json_t topics_json, bytes_t out_topics[MAX_TOPICS]) {
-  memset(out_topics, 0, sizeof(bytes_t) * MAX_TOPICS);
-  if (topics_json.type != JSON_TYPE_ARRAY) return;
-  uint8_t  tmp[32] = {0};
-  buffer_t b       = stack_buffer(tmp);
-  int      pos     = 0;
-  json_for_each_value(topics_json, tpos) {
-    if (pos >= MAX_TOPICS) break;
-    if (tpos.type == JSON_TYPE_STRING) {
-      bytes_t v = json_as_bytes(tpos, &b);
-      if (v.len == 32) {
-        uint8_t* buf = (uint8_t*) safe_malloc(32);
-        memcpy(buf, v.data, 32);
-        out_topics[pos] = bytes(buf, 32);
-      }
-    }
-    else if (tpos.type == JSON_TYPE_ARRAY) {
-      // Collect OR list
-      int count = json_len(tpos);
-      if (count > 0) {
-        uint8_t* buf = (uint8_t*) safe_malloc((size_t) count * 32);
-        int      i   = 0;
-        json_for_each_value(tpos, cand) {
-          bytes_t v = json_as_bytes(cand, &b);
-          if (v.len == 32) memcpy(buf + (i++ * 32), v.data, 32);
-        }
-        out_topics[pos] = bytes(buf, (uint32_t) (32 * i));
-      }
-    }
-    // else: null => wildcard (len=0)
-    pos++;
-  }
-}
-
-/**
- * Generates all combinations of bloom filters for the given addresses and topics.
- * Used for fast pre-filtering of blocks using the block's logs bloom.
- * If too many variants would be generated, returns 0 to disable bloom filtering.
- *
- * @param addresses Filter addresses.
- * @param topics Filter topics.
- * @param out_variants Output array for generated bloom filters.
- * @return Number of variants generated, or 0 if limit exceeded.
- */
-static int build_bloom_variants(bytes_t addresses, bytes_t topics[MAX_TOPICS], uint64_t out_variants[MAX_BLOOM_VARIANTS][32]) {
-  int addr_count         = (int) (addresses.len / ADDRESS_SIZE);
-  int counts[MAX_TOPICS] = {0};
-  int positions          = MAX_TOPICS;
-  for (int p = 0; p < MAX_TOPICS; p++) counts[p] = (int) topics[p].len / 32;
-  // Calculate total combinations, cap
-  int total = (addr_count ? addr_count : 1);
-  for (int p = 0; p < MAX_TOPICS; p++) {
-    int c = counts[p] ? counts[p] : 1;
-    if (total > (MAX_BLOOM_VARIANTS / c)) return 0; // disable bloom prefilter
-    total *= c;
-  }
-  // Mixed-radix indices: addr + topics
-  int idx_addr        = 0;
-  int idx[MAX_TOPICS] = {0, 0, 0, 0};
-  for (int v = 0; v < total && v < MAX_BLOOM_VARIANTS; v++) {
-    uint8_t* bloom = (uint8_t*) out_variants[v];
-    memset(bloom, 0, 256);
-    if (addr_count) bloom_add_element_buf(bloom, bytes(addresses.data + (idx_addr * ADDRESS_SIZE), ADDRESS_SIZE));
-    for (int p = 0; p < MAX_TOPICS; p++) {
-      if (!counts[p]) continue; // wildcard
-      bloom_add_element_buf(bloom, bytes(topics[p].data + (idx[p] * 32), 32));
-    }
-    // increment
-    if (addr_count) {
-      idx_addr++;
-      if (idx_addr < addr_count) continue;
-      idx_addr = 0;
-    }
-    for (int p = MAX_TOPICS - 1; p >= 0; p--) {
-      if (counts[p] < 2) continue; // skip wildcard (0) and single-option (1) positions
-      idx[p]++;
-      if (idx[p] < counts[p]) break;
-      idx[p] = 0;
-    }
-  }
-  return total;
-}
-
 /**
  * Phase 1: Build matches index.
  * Scans cached blocks in the requested range.
  * Uses bloom filters for fast rejection, then checks cached events.
  * Populates `st->blocks` with matching transactions and log indices.
+ *
+ * In `bloom_only` mode (PAP), all events of a bloom-matching block are
+ * included without further address/topics filtering.
  */
 static void build_match_index(log_cache_state_t* st) {
   int       variant_count = (int) st->filter_blooms.len / 256;
   uint64_t* variants      = (uint64_t*) st->filter_blooms.data;
   for (uint64_t bn = st->from_block; bn <= st->to_block; bn++) {
     block_entry_t* e = g_cache.blocks + ((g_cache.start_idx + (uint32_t) (bn - g_cache.start_number)) % g_cache.blocks_count);
-    if (!bloom_matches(variant_count, variants, e->logs_bloom64)) continue;
-    // Confirm by scanning cached events
+    if (variant_count && !bloom_matches(variant_count, variants, e->logs_bloom64)) continue;
     block_result_t* block_res = NULL;
     for (uint32_t i = 0; i < e->events_count; i++) {
       cached_event_t* ev = &e->events[i];
-      if (!address_matches(st->filter_addresses, ev->address)) continue;
-      if (!topics_matches(st->filter_topics, ev->topics, ev->topics_count)) continue;
-
-      // we have a match, add it to the index
+      if (!st->bloom_only) {
+        if (!address_matches(st->filter_addresses, ev->address)) continue;
+        if (!topics_matches(st->filter_topics, ev->topics, ev->topics_count)) continue;
+      }
       if (!block_res) block_res = add_block_result(&st->blocks, e->block_number);
       tx_result_t* txr = ensure_tx_result(block_res, ev->tx_index);
-      // append event
       event_result_t* er = (event_result_t*) safe_calloc(1, sizeof(event_result_t));
       er->log_idx        = ev->log_index;
       er->next           = txr->events;
@@ -620,19 +486,192 @@ static c4_status_t get_exec_blocknumber(prover_ctx_t* ctx, json_t block, uint64_
   return C4_SUCCESS;
 }
 
-// (removed old minimal state struct; consolidated into log_cache_state_t)
+// -------- Backfill helpers --------
+
+/**
+ * Computes a block-level logs bloom by OR-ing all receipt `logsBloom` fields.
+ *
+ * @param receipts JSON array of transaction receipts.
+ * @param out      Output buffer (256 bytes, zeroed first).
+ */
+static void compute_block_bloom_from_receipts(json_t receipts, uint8_t out[256]) {
+  C4_ALIGN8 uint64_t bloom64[32] = {0};
+  uint8_t             tmp[256]    = {0};
+  buffer_t            buf         = stack_buffer(tmp);
+  json_for_each_value(receipts, r) {
+    buffer_reset(&buf);
+    bytes_t rb = json_get_bytes(r, "logsBloom", &buf);
+    if (rb.len == 256) {
+      uint64_t* src = (uint64_t*) rb.data;
+      for (int i = 0; i < 32; i++) bloom64[i] |= src[i];
+    }
+  }
+  memcpy(out, bloom64, 256);
+}
+
+/**
+ * Extends the cache backwards by `count` empty block slots so that blocks
+ * `[from_block, from_block+count)` can be filled via `c4_eth_logs_cache_add_block`.
+ *
+ * Preconditions (caller must guarantee):
+ * - `from_block + count == g_cache.start_number` (contiguous prepend)
+ * - `g_cache.blocks_count + count <= g_cache.blocks_limit`
+ *
+ * The ring buffer is linearised (start_idx becomes 0) and the existing
+ * entries are shifted to make room at the front.
+ */
+static void prepend_blocks(uint64_t from_block, uint32_t count) {
+  if (!count) return;
+  uint32_t old_count = g_cache.blocks_count;
+  uint32_t new_count = old_count + count;
+  if (new_count > g_cache.blocks_limit) return;
+
+  // Linearise: copy existing entries into a contiguous temp array
+  block_entry_t* linear = (block_entry_t*) safe_malloc(new_count * sizeof(block_entry_t));
+  memset(linear, 0, (size_t) count * sizeof(block_entry_t));
+  for (uint32_t i = 0; i < old_count; i++) {
+    uint32_t src = (g_cache.start_idx + i) % old_count;
+    linear[count + i] = g_cache.blocks[src];
+  }
+
+  safe_free(g_cache.blocks);
+  g_cache.blocks       = linear;
+  g_cache.blocks_count = new_count;
+  g_cache.start_idx    = 0;
+  g_cache.start_number = from_block;
+}
+
+
+/**
+ * Parses a `bloomFilter` JSON array of hex strings into a flat bloom buffer.
+ * Each entry is expected to be a 256-byte hex string representing one bloom variant.
+ *
+ * @param bloom_json  JSON array of hex-encoded bloom filters.
+ * @param out_blooms  Receives n*256 bytes (one bloom per entry).
+ * @return Number of valid 256-byte blooms parsed, or 0 on failure / empty.
+ */
+static int parse_bloom_filter_array(json_t bloom_json, bytes_t* out_blooms) {
+  if (bloom_json.type != JSON_TYPE_ARRAY) return 0;
+  int count = json_len(bloom_json);
+  if (count <= 0 || count > C4_ETH_BLOOM_MAX_VARIANTS) return 0;
+  uint8_t* buf = (uint8_t*) safe_calloc((size_t) count, 256);
+  int      n   = 0;
+  uint8_t  tmp[256] = {0};
+  buffer_t b        = stack_buffer(tmp);
+  json_for_each_value(bloom_json, entry) {
+    if (n >= count) break;
+    buffer_reset(&b);
+    bytes_t v = json_as_bytes(entry, &b);
+    if (v.len == 256) {
+      memcpy(buf + (size_t) n * 256, v.data, 256);
+      n++;
+    }
+  }
+  if (n > 0) {
+    *out_blooms = bytes(buf, (uint32_t) (n * 256));
+  }
+  else {
+    safe_free(buf);
+  }
+  return n;
+}
+
+/**
+ * Attempts to backfill older blocks into the cache so that
+ * `[st->from_block, st->to_block]` is covered.  Only blocks *before* the
+ * current cache start are loaded; the newest blocks are never evicted.
+ * The total cache size must stay within `blocks_limit`.
+ *
+ * @param ctx Prover context (for async receipt fetching).
+ * @param st  Request-local log cache state with resolved block range.
+ * @return `C4_SUCCESS` when backfill is complete and the range is cached,
+ *         `C4_PENDING` while receipts are still being fetched,
+ *         `C4_ERROR`   if the range cannot be covered (too old / too large).
+ */
+static c4_status_t backfill_cache(prover_ctx_t* ctx, log_cache_state_t* st) {
+  // Already done in a previous call?
+  if (st->backfill_done) return C4_SUCCESS;
+
+  uint64_t cache_start = g_cache.start_number;
+  uint64_t cache_end   = g_cache.start_number + g_cache.blocks_count; // exclusive
+
+  // to_block must already be in the cache (kept fresh by head_update)
+  if (st->to_block >= cache_end || g_cache.blocks_count == 0)
+    THROW_ERROR_WITH("logs_cache: toBlock %l is beyond the cache end %l", st->to_block, cache_end ? cache_end - 1 : 0);
+
+  // How many blocks can we add without exceeding the limit?
+  uint32_t room           = g_cache.blocks_limit - g_cache.blocks_count;
+  uint64_t effective_from = max64(st->from_block, cache_start > room ? cache_start - room : 0);
+
+  if (effective_from >= cache_start) {
+    // Nothing to backfill — range should already be in cache.
+    // If it is not, the range is simply not coverable.
+    if (!c4_eth_logs_cache_has_range(st->from_block, st->to_block))
+      THROW_ERROR_WITH("logs_cache: requested range [%l, %l] exceeds cache capacity (%u blocks, oldest cached: %l)",
+                       st->from_block, st->to_block, g_cache.blocks_limit, cache_start);
+    st->backfill_done = true;
+    return C4_SUCCESS;
+  }
+
+  if (effective_from > st->from_block)
+    THROW_ERROR_WITH("logs_cache: requested fromBlock %l is too old, cache can only reach back to %l (limit %u)",
+                     st->from_block, effective_from, g_cache.blocks_limit);
+
+  uint32_t needed = (uint32_t) (cache_start - effective_from);
+
+  // Allocate receipt pointers (once)
+  if (!st->backfill_receipts) {
+    st->backfill_from     = effective_from;
+    st->backfill_count    = needed;
+    st->backfill_receipts = (json_t*) safe_calloc(needed, sizeof(json_t));
+  }
+
+  // Request all missing block receipts in parallel
+  c4_status_t status  = C4_SUCCESS;
+  uint8_t     tmp[64] = {0};
+  buffer_t    b       = stack_buffer(tmp);
+  for (uint32_t i = 0; i < st->backfill_count; i++) {
+    if (st->backfill_receipts[i].start) continue; // already loaded
+    buffer_reset(&b);
+    TRY_ADD_ASYNC(status, eth_getBlockReceipts(ctx, json_parse(bprintf(&b, "\"0x%lx\"", st->backfill_from + i)), &st->backfill_receipts[i]));
+  }
+  TRY_ASYNC(status);
+
+  // Re-validate preconditions: cache may have changed during async receipt fetch
+  cache_start = g_cache.start_number;
+  cache_end   = g_cache.start_number + g_cache.blocks_count;
+  if (st->backfill_from + st->backfill_count != cache_start ||
+      st->backfill_count > g_cache.blocks_limit - g_cache.blocks_count)
+    THROW_ERROR_WITH("logs_cache: cache changed during backfill (expected start %l, got %l)", st->backfill_from + st->backfill_count, cache_start);
+
+  prepend_blocks(st->backfill_from, st->backfill_count);
+  for (uint32_t i = 0; i < st->backfill_count; i++) {
+    uint8_t block_bloom[256];
+    compute_block_bloom_from_receipts(st->backfill_receipts[i], block_bloom);
+    c4_eth_logs_cache_add_block(st->backfill_from + i, block_bloom, st->backfill_receipts[i]);
+  }
+  st->backfill_done = true;
+  log_info("logs_cache: backfilled %u blocks [%l, %l)", st->backfill_count, st->backfill_from, st->backfill_from + st->backfill_count);
+  return C4_SUCCESS;
+}
 
 /**
  * Scans the logs cache for matches against the filter.
  *
- * This function operates in 3 phases across multiple async calls (due to `eth_getBlockReceipts`):
- * 1. Range Check & Filter Build: Checks if range is covered. Builds filter structures.
- * 2. Match Index: Scans cached blocks/events to find matches (Phase 1).
- * 3. Receipt Fetch: Ensures receipts are available for matched blocks (Phase 2).
- * 4. Result Build: Assembles final JSON from receipts using the match index (Phase 3).
+ * This function operates in multiple phases across async calls:
+ * 1. Range resolution (fromBlock/toBlock to numbers).
+ * 2. Filter build: parse `bloomFilter` array (PAP) or address/topics.
+ * 3. Backfill: load missing older blocks into the cache if needed.
+ * 4. Match index: scan cached blocks/events to find matches.
+ * 5. Receipt fetch: ensure receipts for matched blocks.
+ * 6. Result build: assemble final JSON.
+ *
+ * When `bloomFilter` is present in the filter (PAP / Pragmatic Adaptive Privacy mode), all events of
+ * bloom-matching blocks are returned (no address/topics filtering) and
+ * a missing cache range causes `C4_ERROR` instead of a silent fallback.
  *
  * @param ctx The prover context.
- * @param filter The filter JSON object (fromBlock, toBlock, address, topics).
+ * @param filter The filter JSON object (fromBlock, toBlock, address, topics, or bloomFilter).
  * @param out_logs Output pointer for the logs JSON array.
  * @param served_from_cache Output flag, set to true if served from cache.
  * @return C4_SUCCESS or error status.
@@ -641,7 +680,6 @@ c4_status_t c4_eth_logs_cache_scan(prover_ctx_t* ctx, json_t filter, json_t* out
   if (served_from_cache) *served_from_cache = false;
   if (!c4_eth_logs_cache_is_enabled()) return C4_SUCCESS;
 
-  // Resolve and persist the numeric range across async invocations
   log_cache_state_t* st = get_log_state(ctx);
 
   // If result already built, return it
@@ -651,36 +689,47 @@ c4_status_t c4_eth_logs_cache_scan(prover_ctx_t* ctx, json_t filter, json_t* out
     return C4_SUCCESS;
   }
 
-  // check blockrange
+  // Resolve numeric block range (persisted across async calls)
   if (!st->resolved) {
     TRY_ASYNC(get_exec_blocknumber(ctx, json_get(filter, "fromBlock"), &st->from_block));
     TRY_ASYNC(get_exec_blocknumber(ctx, json_get(filter, "toBlock"), &st->to_block));
     if (st->from_block > st->to_block)
       THROW_ERROR_WITH("Invalid block range: fromBlock %l > toBlock %l", st->from_block, st->to_block);
+
+    // Detect PAP bloom-only mode: bloomFilter array in the filter object
+    json_t bf = json_get(filter, "bloomFilter");
+    if (bf.type == JSON_TYPE_ARRAY) {
+      int n = parse_bloom_filter_array(bf, &st->filter_blooms);
+      if (n > 0)
+        st->bloom_only = true;
+      else
+        THROW_ERROR_WITH("bloomFilter array is empty or contains invalid entries");
+    }
     st->resolved = true;
   }
 
-  // we always need to check the blockrange,
-  // since the range may have changed since last call
+  // Check if the requested range is already covered by the cache
   if (!c4_eth_logs_cache_has_range(st->from_block, st->to_block)) {
-    if (!st->miss_counted) {
-      g_metrics.misses++;
-      st->miss_counted = 1;
+    if (st->bloom_only) {
+      // PAP mode: attempt backfill, error if impossible
+      TRY_ASYNC(backfill_cache(ctx, st));
     }
-    return C4_SUCCESS;
+    else {
+      // Normal mode: signal cache miss so the caller falls back to RPC
+      if (!st->miss_counted) {
+        g_metrics.misses++;
+        st->miss_counted = 1;
+      }
+      return C4_SUCCESS;
+    }
   }
 
   // Build filter (addresses/topics/bloom variants) and match index on first pass
   if (!st->blocks) {
-    if (st->filter_blooms.len == 0 && !st->filter_addresses.len) {
-      build_filter_addresses(json_get(filter, "address"), &st->filter_addresses);
-      build_filter_topics(json_get(filter, "topics"), st->filter_topics);
-      uint64_t tmp_variants[MAX_BLOOM_VARIANTS][32];
-      int      vcount = build_bloom_variants(st->filter_addresses, st->filter_topics, tmp_variants);
-      if (vcount > 0) {
-        st->filter_blooms = bytes(safe_malloc((size_t) vcount * 256), (uint32_t) (vcount * 256));
-        memcpy(st->filter_blooms.data, tmp_variants, (size_t) vcount * 256);
-      }
+    if (!st->bloom_only && st->filter_blooms.len == 0 && !st->filter_addresses.len) {
+      c4_eth_parse_filter_addresses(json_get(filter, "address"), &st->filter_addresses);
+      c4_eth_parse_filter_topics(json_get(filter, "topics"), st->filter_topics);
+      st->filter_blooms = c4_eth_create_bloomfilter(filter);
     }
     build_match_index(st);
     // No matches -> empty result immediately
@@ -689,7 +738,6 @@ c4_status_t c4_eth_logs_cache_scan(prover_ctx_t* ctx, json_t filter, json_t* out
       st->result       = json_parse(st->result_owner);
       *out_logs        = st->result;
       if (served_from_cache) *served_from_cache = true;
-      // keep ownership to free at end
       if (!st->hit_counted) {
         g_metrics.hits++;
         st->hit_counted = 1;
@@ -741,23 +789,6 @@ bool c4_eth_logs_cache_is_enabled(void) {
 bool c4_eth_logs_cache_has_range(uint64_t from_block, uint64_t to_block) {
   if (g_cache.blocks_count == 0 || from_block > to_block) return false;
   return from_block >= g_cache.start_number && to_block < g_cache.start_number + g_cache.blocks_count;
-}
-
-bytes_t c4_eth_create_bloomfilter(json_t filter) {
-  bytes_t result             = {0};
-  bytes_t addresses          = {0};
-  bytes_t topics[MAX_TOPICS] = {0};
-  build_filter_addresses(json_get(filter, "address"), &addresses);
-  build_filter_topics(json_get(filter, "topics"), topics);
-  uint64_t tmp_variants[MAX_BLOOM_VARIANTS][32];
-  int      vcount = build_bloom_variants(addresses, topics, tmp_variants);
-  if (vcount > 0) {
-    result = bytes(safe_malloc((size_t) vcount * 256), (uint32_t) (vcount * 256));
-    memcpy(result.data, tmp_variants, (size_t) vcount * 256);
-  }
-  safe_free(addresses.data);
-  for (int i = 0; i < MAX_TOPICS; i++) safe_free(topics[i].data);
-  return result;
 }
 
 #endif // PROVER_CACHE

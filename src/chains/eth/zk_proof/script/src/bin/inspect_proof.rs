@@ -1,5 +1,5 @@
 use clap::Parser;
-use sp1_sdk::{HashableKey, ProverClient, SP1ProofWithPublicValues};
+use sp1_sdk::{Elf, HashableKey, Prover, ProverClient, ProvingKey, SP1ProofWithPublicValues};
 use std::fs::File;
 use std::io::Read;
 
@@ -16,7 +16,8 @@ struct Args {
     save_public_values: Option<String>,
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
     println!("Loading proof from: {}", args.proof_path);
@@ -37,11 +38,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut elf_bytes = Vec::new();
     elf_file.read_to_end(&mut elf_bytes)?;
 
-    let client = ProverClient::from_env();
-    let (_, vk) = client.setup(&elf_bytes);
+    let client = ProverClient::from_env().await;
+    let elf: Elf = elf_bytes.into();
+    let pk = client.setup(elf).await.expect("Failed to setup proving key");
+    let vk = pk.verifying_key();
 
     println!("Verifying proof with SDK...");
-    match client.verify(&proof, &vk) {
+    match client.verify(&proof, vk, None) {
         Ok(_) => println!("✅ SDK Verification SUCCESS"),
         Err(e) => println!("❌ SDK Verification FAILED: {}", e),
     }

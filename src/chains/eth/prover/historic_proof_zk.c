@@ -21,20 +21,9 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "../server/eth_clients.h"
-#include "../zk_verifier/zk_verifier_constants.h"
-#include "beacon.h"
-#include "beacon_types.h"
-#include "eth_req.h"
-#include "eth_tools.h"
 #include "historic_proof.h"
-#include "json.h"
-#include "logger.h"
 #include "prover.h"
-#include "ssz.h"
-#include "sync_committee.h"
 #include "version.h"
-#include <inttypes.h> // Include this header for PRIu64 and PRIx64
 #include <stdlib.h>
 #include <string.h>
 #define MAX_SIGNATURES   5
@@ -46,11 +35,29 @@ c4_status_t c4_fetch_zk_proof_data(prover_ctx_t* ctx, zk_proof_data_t* zk_proof,
   buffer_t    signatures                                    = stack_buffer(sig_buffer);
   char        buffer[1000]                                  = {0};
   buffer_t    buf                                           = stack_buffer(buffer);
-  zk_proof->sync_proof.def                                  = C4_ETH_REQUEST_SYNCDATA_UNION + 2;
 
-  TRY_ADD_ASYNC(status, c4_send_internal_request(ctx, bprintf(&buf, "period_store/%l/zk_proof.ssz", period), NULL, 0, &zk_proof->sync_proof.bytes)); // get the blockd
+  // Dual-serve during the SP1 v5 -> v6 transition: clients >= 2.0.0 receive the v6
+  // proof (`zk_proof_v6.ssz`, `ZKSyncDataV6` with a 356-byte proof), older clients
+  // keep the legacy v5 `zk_proof.ssz` (`ZKSyncData` with a 260-byte proof). The two
+  // groth16 proof sizes shift every following field, so the read def MUST match the
+  // file format -- pick the union variant by client version. `ctx->version == 0`
+  // (unknown/pre-versioning) counts as legacy. The WSP anchor for ZK sync data is
+  // built at proof-assembly time (see `c4_get_syncdata_proof` in `historic_proof.c`)
+  // from a freshly-fetched LightClientBootstrap, so the prover only needs to pick the
+  // version-appropriate proof file here.
+  bool is_v6               = ctx->version >= C4_ZK_FIRST_V6_VERSION;
+  zk_proof->sync_proof.def = eth_ssz_verification_type(c4_zk_syncdata_type(ctx->version));
+
+  const char* proof_name   = is_v6 ? "zk_proof_v6.ssz" : "zk_proof.ssz";
+  c4_status_t proof_status = c4_send_internal_request(ctx, bprintf(&buf, "period_store/%l/%s", period, proof_name), NULL, 0, &zk_proof->sync_proof.bytes);
+  // Once legacy v5 generation stops, an old client will no longer find its file.
+  // Return an explicit upgrade hint instead of a generic "not found" error.
+  if (proof_status == C4_ERROR)
+    THROW_ERROR(is_v6 ? "no zk sync proof has not yet been generated for this period" : "zk sync proofs for verifier versions < " C4_ZK_FIRST_V6_VERSION_STR " are no longer supported; please upgrade colibri to >= " C4_ZK_FIRST_V6_VERSION_STR);
+  TRY_ADD_ASYNC(status, proof_status);
+
   if (ctx->witness_key.len && ctx->witness_key.len % 20 == 0) {
-    for (int i = 0; i < ctx->witness_key.len; i += 20) {
+    for (uint32_t i = 0; i < ctx->witness_key.len; i += 20) {
       buffer_reset(&buf);
       bytes_t     sig_data   = {0};
       c4_status_t sig_status = c4_send_internal_request(ctx, bprintf(&buf, "period_store/%l/sig_%x", period, bytes(ctx->witness_key.data + i, 20)), NULL, 0, &sig_data);

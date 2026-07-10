@@ -52,8 +52,34 @@ tags:
     description: Health checks and monitoring
   - name: Beacon
     description: Ethereum Beacon Chain light client endpoints
+  - name: PAP
+    description: Pragmatic Adaptive Privacy endpoints for transaction cache
 
 paths:
+  /tx_cache:
+    get:
+      tags:
+        - PAP
+      summary: Get transaction cache snapshot
+      operationId: getTxCache
+      description: |
+        Returns an SSZ-encoded snapshot of the server's transaction cache.
+        The snapshot is a list of blocks, each containing the block number
+        and the keccak-256 hashes of all transactions in that block.
+        Clients use this to populate their local tx-hash-to-block mapping
+        for privacy-preserving transaction lookups (PAP mode).
+      responses:
+        '200':
+          description: SSZ-encoded TxCacheSnapshot (may be empty if cache is not populated)
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '405':
+          description: Method not allowed (only GET is supported)
+        '503':
+          description: Transaction cache not available (PROVER_CACHE disabled)
   /signed_checkpoints:
     get:
       tags:
@@ -258,6 +284,93 @@ paths:
                   - `proof`: Union of different proof types
                   - `sync_data`: Optional light client updates
         
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /proof/{method}/{block}/{version}/{zk}/{c4}:
+    get:
+      tags:
+        - Prover
+      summary: Generate Block Proof (cache-friendly GET)
+      description: |
+        CDN-cache-friendly GET variant used by clients in **hybrid mode** for the delegated block
+        methods `eth_getBlockHeader` and `eth_getBlockByNumber`. All request parameters are encoded
+        into the path so shared caches / CDNs can serve repeated requests for the same head without
+        hitting the prover.
+
+        The response is identical to the SSZ-encoded `C4Request` returned by `POST /proof`.
+
+        A `Cache-Control` header is set based on the block identifier:
+        - concrete block number / hash → `public, max-age=31536000, immutable`
+        - `finalized` → one epoch
+        - `safe` / `justified` → half an epoch
+        - `latest` → half a block time (`public, max-age=<n>, stale-while-revalidate=<n>`)
+
+        The `includeTx` boolean of `eth_getBlockByNumber` is intentionally not part of the URL,
+        because the full execution payload is always included in the proof.
+      operationId: generateBlockProofGet
+      parameters:
+        - name: method
+          in: path
+          required: true
+          description: The delegated RPC method.
+          schema:
+            type: string
+            enum: [eth_getBlockHeader, eth_getBlockByNumber]
+        - name: block
+          in: path
+          required: true
+          description: Block identifier (tag such as `latest`/`safe`/`finalized`, a `0x`-prefixed block number, or a `0x`-prefixed block hash).
+          schema:
+            type: string
+          example: latest
+        - name: version
+          in: path
+          required: true
+          description: The requesting client version number (so the prover builds a compatible proof).
+          schema:
+            type: integer
+            format: int32
+          example: 67108864
+        - name: zk
+          in: path
+          required: true
+          description: Whether a ZK-based sync proof may be embedded (`zk`) or not (`std`).
+          schema:
+            type: string
+            enum: [zk, std]
+        - name: c4
+          in: path
+          required: true
+          description: Hex-encoded client state snapshot (`0x` when empty). Encodes the synced periods / trusted checkpoint the client already holds.
+          schema:
+            type: string
+          example: '0x'
+        - name: signers
+          in: query
+          required: false
+          description: Optional hex-encoded witness/signer public keys.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Proof generated successfully
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+                description: SSZ-encoded C4Request container (identical to `POST /proof`).
+        '400':
+          description: Malformed proof GET path or parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '500':
           description: Internal server error
           content:

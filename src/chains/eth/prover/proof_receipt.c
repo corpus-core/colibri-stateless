@@ -23,6 +23,7 @@
 
 #include "beacon.h"
 #include "beacon_types.h"
+#include "eth_compute_units.h"
 #include "eth_req.h"
 #include "eth_tools.h"
 #include "historic_proof.h"
@@ -99,6 +100,12 @@ static ssz_ob_t create_receipts_proof(json_t block_receipts, uint32_t tx_index, 
 
 c4_status_t c4_eth_get_receipt_proof(prover_ctx_t* ctx, bytes32_t block_hash, json_t block_receipts, uint32_t tx_index, json_t* receipt, ssz_ob_t* receipt_proof) {
 
+  // Account for Patricia trie work: one insertion per receipt plus one proof.
+  // When the trie is served from the prover cache the linear part is essentially
+  // a no-op, but we still bill it because the original work that filled the
+  // cache was performed by this server -- this keeps the formula simple.
+  eth_cu_add_patricia(ctx, (uint32_t) json_len(block_receipts), 1);
+
   // now we should have all data required to create the proof
 #ifdef PROVER_CACHE
   bytes32_t cachekey;
@@ -111,6 +118,37 @@ c4_status_t c4_eth_get_receipt_proof(prover_ctx_t* ctx, bytes32_t block_hash, js
 #else
   *receipt_proof = create_receipts_proof(block_receipts, tx_index, receipt, NULL);
 #endif
+  return C4_SUCCESS;
+}
+
+static c4_status_t create_hybrid_receipt_proof(prover_ctx_t* ctx, beacon_block_t* block, uint32_t tx_index, ssz_ob_t receipt_proof, json_t receipt) {
+  ssz_builder_t proof_builder = ssz_builder_for_type(ETH_SSZ_VERIFY_HYBRID_RECEIPT_PROOF);
+
+  ssz_ob_t transactions = ssz_get(&block->execution, "transactions");
+  ssz_ob_t raw_tx       = ssz_at(transactions, tx_index);
+  if (!raw_tx.bytes.data) THROW_ERROR("transaction index out of range");
+
+  ssz_add_bytes(&proof_builder, "transaction", raw_tx.bytes);
+  ssz_add_uint32(&proof_builder, tx_index);
+
+  bytes32_t tx_root  = {0};
+  gindex_t  tx_gi    = ssz_gindex(transactions.def, 1, tx_index);
+  bytes_t   tx_proof = ssz_create_proof(transactions, tx_root, tx_gi);
+  ssz_add_bytes(&proof_builder, "txProof", tx_proof);
+  safe_free(tx_proof.data);
+
+  ssz_add_bytes(&proof_builder, "receipt_proof", receipt_proof.bytes);
+
+  ssz_ob_t header_data = c4_build_header_data_from_execution(block->execution);
+  ssz_add_bytes(&proof_builder, "header_data", header_data.bytes);
+  safe_free(header_data.bytes.data);
+
+  ctx->proof = eth_create_proof_request(
+      ctx->chain_id,
+      FROM_JSON(receipt, ETH_SSZ_DATA_RECEIPT),
+      proof_builder,
+      NULL_SSZ_BUILDER);
+
   return C4_SUCCESS;
 }
 
@@ -147,12 +185,35 @@ c4_status_t c4_proof_receipt(prover_ctx_t* ctx) {
   // not found in cache, so we need to get it from the RPC
   if (block_number.type == JSON_TYPE_INVALID) {
     TRY_ASYNC(get_eth_tx(ctx, txhash, &tx_data));
+    if (tx_data.type == JSON_TYPE_NULL) { // did not find the tx or it is not mined yet
+      ctx->proof = eth_create_proof_request(ctx->chain_id, NULL_SSZ_BUILDER, NULL_SSZ_BUILDER, NULL_SSZ_BUILDER);
+      return C4_SUCCESS;
+    }
     tx_index     = json_get_uint32(tx_data, "transactionIndex");
     block_number = json_get(tx_data, "blockNumber");
   }
 
+  if (ctx->flags & C4_PROVER_FLAG_HYBRID) {
+    TRACE_START(ctx, "get_execution_payload");
+    TRY_ADD_ASYNC(status, c4_beacon_get_execution_for_eth(ctx, block_number, &block));
+    if (status != C4_SUCCESS) return status;
+
+    TRACE_START(ctx, "get_block_receipts");
+    TRY_ADD_ASYNC(status, eth_getBlockReceipts(ctx, block_number, &block_receipts));
+    if (status != C4_SUCCESS) return status;
+
+    TRACE_START(ctx, "receipt_proof");
+    TRY_ASYNC(c4_eth_get_receipt_proof(ctx, ssz_get(&block.execution, "blockHash").bytes.data, block_receipts, tx_index, &receipt, &receipt_proof));
+    TRY_ASYNC(status);
+    TRACE_START(ctx, "finalize_proof");
+    c4_status_t result = create_hybrid_receipt_proof(ctx, &block, tx_index, receipt_proof, receipt);
+    safe_free(receipt_proof.bytes.data);
+    return result;
+  }
+
   TRACE_START(ctx, "get_beacon_block");
   TRY_ADD_ASYNC(status, c4_beacon_get_block_for_eth(ctx, block_number, &block));
+
   TRACE_START(ctx, "get_block_receipts");
   TRY_ADD_ASYNC(status, eth_getBlockReceipts(ctx, block_number, &block_receipts));
   TRY_ASYNC(status);
@@ -166,6 +227,7 @@ c4_status_t c4_proof_receipt(prover_ctx_t* ctx) {
 
   REQUEST_WORKER_THREAD_CATCH(ctx, c4_free_block_proof(&block_proof));
   TRACE_START(ctx, "multiproof");
+  eth_cu_add_multi_proof(ctx, 4);
   bytes_t state_proof = ssz_create_multi_proof(block.body, body_root, 4,
                                                ssz_gindex(block.body.def, 2, "executionPayload", "blockNumber"),
                                                ssz_gindex(block.body.def, 2, "executionPayload", "blockHash"),

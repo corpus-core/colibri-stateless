@@ -43,6 +43,24 @@ The installer places files in the following locations:
 - **Log Files**: `/var/log/colibri-server.log`, `/var/log/colibri-server.error.log`
 - **Data Directory**: `/var/lib/colibri/`
 
+### Shell Completion
+
+The installer also includes Zsh tab-completion scripts for `colibri`, `colibri-prover`, `colibri-ssz`, and `colibri-server`, installed to `/usr/local/share/zsh/site-functions/`. Completions cover all command-line options, supported RPC methods (e.g. `eth_getBlockByNumber`), chain names, SSZ type names, server configuration flags, and more.
+
+After installation, open a **new terminal** (or run `exec zsh`) and completions will be available:
+
+```bash
+colibri -<TAB>
+colibri eth_<TAB>
+```
+
+If completions don't work, ensure `/usr/local/share/zsh/site-functions` is in your `fpath` and `compinit` is active in your `~/.zshrc`:
+
+```zsh
+fpath=(/usr/local/share/zsh/site-functions $fpath)
+autoload -Uz compinit && compinit
+```
+
 ### Automatic Service Start
 
 The Colibri Server is automatically installed as a LaunchDaemon and starts:

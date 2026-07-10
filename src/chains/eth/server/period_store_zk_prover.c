@@ -26,8 +26,12 @@
 #include <unistd.h>
 #endif
 
-prover_stats_t  prover_stats         = {0};
-static uint64_t last_verified_period = 0;
+prover_stats_t  prover_stats          = {0};
+static uint64_t last_verified_period  = 0;
+// True once we have located (or built) a valid Groth16 proof to recurse on.
+// Stays false when no baseline proof exists yet in the period_store (e.g. during
+// initial backfill with gaps), so the checkpoint handler can retry init later.
+static bool prover_baseline_found = false;
 
 // Prevent concurrent proof generation runs.
 static bool     g_prover_running          = false;
@@ -109,10 +113,26 @@ static bool file_exists_min_size(const char* path, size_t min_bytes) {
 // These values are intentionally conservative and based on real outputs:
 // - sync.ssz is typically ~tens of KB
 // - zk_proof.bin is typically ~MB
-// - zk_vk_raw.bin can be ~234 bytes (so 256 would be too strict)
+// - the raw vk is ~104 bytes for SP1 v6 (`zk_vk_raw_v6.bin`) and was ~234 bytes for the
+//   legacy v5 chain, so the threshold must stay below 104 to accept v6 artifacts.
 static const size_t ZK_SYNC_MIN_BYTES       = 1024;
 static const size_t ZK_PREV_PROOF_MIN_BYTES = 1024;
-static const size_t ZK_PREV_VK_MIN_BYTES    = 128;
+static const size_t ZK_PREV_VK_MIN_BYTES    = 64;
+
+// Artifact filenames produced/consumed by the automatic proving pipeline.
+//
+// The server pipeline produces SP1 **v6** proofs exclusively and therefore uses the
+// `_v6` suffix for every artifact, recursing on the v6 chain. The legacy v5 artifacts
+// (same names without the suffix, e.g. `zk_proof_g16.bin`) are uploaded out-of-band by
+// the manual `build_proof` script during the dual-serve transition and are packed into
+// `zk_proof.ssz` separately (see `period_store_zk_ssz.c`). Keeping the two chains under
+// distinct names lets both coexist in the same period directory.
+#define ZK_V6_GROTH16   "zk_groth16_v6.bin"   // SP1 Groth16 proof bundle
+#define ZK_V6_PROOF_G16 "zk_proof_g16_v6.bin" // raw Groth16 proof (packed into ssz + verified locally)
+#define ZK_V6_VK        "zk_vk_v6.bin"        // Groth16 verification key
+#define ZK_V6_PUB       "zk_pub_v6.bin"       // public values (verified locally)
+#define ZK_V6_PROOF     "zk_proof_v6.bin"     // compressed proof (recursion input for next period)
+#define ZK_V6_VK_RAW    "zk_vk_raw_v6.bin"    // compressed vk (recursion input for next period)
 
 static char* trim_key_string(bytes_t key_bytes) {
   if (!key_bytes.data || key_bytes.len == 0) return NULL;
@@ -141,19 +161,60 @@ static bool c4_verify_proof_files(const char* proof_path, const char* pub_path) 
   return valid;
 }
 
+// Returns true if s is a non-empty string of decimal digits.
+static bool is_numeric_period_name(const char* s) {
+  if (!s || !*s) return false;
+  for (const char* c = s; *c; c++) {
+    if (*c < '0' || *c > '9') return false;
+  }
+  return true;
+}
+
 void c4_period_prover_init_from_store(void) {
   // Only meaningful on master with a local period_store.
   if (eth_config.period_master_url) return;
   if (!eth_config.period_store) return;
 
-  uint64_t first = 0, last = 0;
-  if (!c4_ps_period_index_get_contiguous_from(0, &first, &last)) return;
+  // Scan the period_store directory directly. We intentionally do NOT use the
+  // period index here because it refuses to expose the range when gaps exist,
+  // which is a valid state during backfill. For the recursive prover we only
+  // need the newest valid Groth16 proof regardless of gaps below it.
+  uv_fs_t req = {0};
+  int     rc  = uv_fs_scandir(uv_default_loop(), &req, eth_config.period_store, 0, NULL);
+  if (rc < 0) {
+    uv_fs_req_cleanup(&req);
+    return;
+  }
 
-  // Walk backwards to find the newest valid Groth16 proof.
-  for (uint64_t p = last;; p--) {
-    if (c4_ps_file_exists(p, "zk_proof_g16.bin") && c4_ps_file_exists(p, "zk_pub.bin")) {
-      char* proof_path = bprintf(NULL, "%s/%l/zk_proof_g16.bin", eth_config.period_store, p);
-      char* pub_path   = bprintf(NULL, "%s/%l/zk_pub.bin", eth_config.period_store, p);
+  uint64_t max_period = 0;
+  uint64_t min_period = 0;
+  bool     has_any    = false;
+
+  uv_dirent_t ent;
+  while (uv_fs_scandir_next(&req, &ent) != UV_EOF) {
+    if (ent.type != UV_DIRENT_DIR) continue;
+    if (!is_numeric_period_name(ent.name)) continue;
+    uint64_t p = (uint64_t) strtoull(ent.name, NULL, 10);
+    if (!has_any) {
+      max_period = p;
+      min_period = p;
+      has_any    = true;
+    }
+    else {
+      if (p > max_period) max_period = p;
+      if (p < min_period) min_period = p;
+    }
+  }
+  uv_fs_req_cleanup(&req);
+
+  if (!has_any) return;
+
+  // Walk backwards from the newest period to find the newest valid Groth16 proof.
+  // Non-existent period directories (gaps) are silently skipped via c4_ps_file_exists.
+  for (uint64_t p = max_period;; p--) {
+    if (c4_ps_file_exists(p, ZK_V6_PROOF_G16) && c4_ps_file_exists(p, ZK_V6_PUB)) {
+      char* proof_path = bprintf(NULL, "%s/%l/" ZK_V6_PROOF_G16, eth_config.period_store, p);
+      char* pub_path   = bprintf(NULL, "%s/%l/" ZK_V6_PUB, eth_config.period_store, p);
 
       struct stat st;
       if (proof_path && stat(proof_path, &st) == 0) {
@@ -161,6 +222,7 @@ void c4_period_prover_init_from_store(void) {
           prover_stats.last_run_timestamp = (uint64_t) st.st_mtime;
           prover_stats.last_run_status    = 0;
           last_verified_period            = p;
+          prover_baseline_found           = true;
           log_info("Prover: Initialized last_run_timestamp=%l from period %l", prover_stats.last_run_timestamp, p);
           safe_free(proof_path);
           safe_free(pub_path);
@@ -172,7 +234,7 @@ void c4_period_prover_init_from_store(void) {
       safe_free(pub_path);
     }
 
-    if (p == first) break;
+    if (p == min_period || p == 0) break;
   }
 }
 
@@ -353,14 +415,15 @@ static void on_prover_exit(uv_process_t* req, int64_t exit_status, int term_sign
     prover_stats.total_success++;
     // Verify Groth16 proof with the built-in verifier before marking as verified.
     char* period_dir = bprintf(NULL, "%s/%l", eth_config.period_store, ctx->period);
-    char* proof_path = bprintf(NULL, "%s/zk_proof_g16.bin", period_dir);
-    char* pub_path   = bprintf(NULL, "%s/zk_pub.bin", period_dir);
+    char* proof_path = bprintf(NULL, "%s/" ZK_V6_PROOF_G16, period_dir);
+    char* pub_path   = bprintf(NULL, "%s/" ZK_V6_PUB, period_dir);
     bool  valid      = c4_verify_proof_files(proof_path, pub_path);
     safe_free(period_dir);
     safe_free(proof_path);
     safe_free(pub_path);
     if (valid) {
       if (ctx->period > last_verified_period) last_verified_period = ctx->period;
+      prover_baseline_found = true;
     }
     else {
       log_error("Prover: Generated proof failed local verification for period %l", ctx->period);
@@ -505,8 +568,8 @@ static void c4_period_prover_spawn_host(uint64_t target_period, uint64_t prev_pe
   p.period_dir = bprintf(NULL, "%s/%l", eth_config.period_store, target_period);
   p.sync_path  = bprintf(NULL, "%s/sync.ssz", p.period_dir);
   p.prev_dir   = bprintf(NULL, "%s/%l", eth_config.period_store, prev_period);
-  p.prev_proof = bprintf(NULL, "%s/zk_proof.bin", p.prev_dir);
-  p.prev_vk    = bprintf(NULL, "%s/zk_vk_raw.bin", p.prev_dir);
+  p.prev_proof = bprintf(NULL, "%s/" ZK_V6_PROOF, p.prev_dir);
+  p.prev_vk    = bprintf(NULL, "%s/" ZK_V6_VK_RAW, p.prev_dir);
 
   if (!file_exists_min_size(p.sync_path, ZK_SYNC_MIN_BYTES)) {
     log_error("Prover: sync.ssz missing for period %l (expected %s)", target_period, p.sync_path);
@@ -533,13 +596,13 @@ static void c4_period_prover_spawn_host(uint64_t target_period, uint64_t prev_pe
     return;
   }
 
-  // Output paths (match run_zk_proof.sh conventions)
-  p.proof_groth16 = bprintf(NULL, "%s/zk_groth16.bin", p.period_dir);
-  p.proof_raw     = bprintf(NULL, "%s/zk_proof_g16.bin", p.period_dir);
-  p.vk_groth16    = bprintf(NULL, "%s/zk_vk.bin", p.period_dir);
-  p.pub_values    = bprintf(NULL, "%s/zk_pub.bin", p.period_dir);
-  p.proof_comp    = bprintf(NULL, "%s/zk_proof.bin", p.period_dir);
-  p.vk_comp       = bprintf(NULL, "%s/zk_vk_raw.bin", p.period_dir);
+  // Output paths: v6 artifacts (the manual v5 build_proof writes the un-suffixed names).
+  p.proof_groth16 = bprintf(NULL, "%s/" ZK_V6_GROTH16, p.period_dir);
+  p.proof_raw     = bprintf(NULL, "%s/" ZK_V6_PROOF_G16, p.period_dir);
+  p.vk_groth16    = bprintf(NULL, "%s/" ZK_V6_VK, p.period_dir);
+  p.pub_values    = bprintf(NULL, "%s/" ZK_V6_PUB, p.period_dir);
+  p.proof_comp    = bprintf(NULL, "%s/" ZK_V6_PROOF, p.period_dir);
+  p.vk_comp       = bprintf(NULL, "%s/" ZK_V6_VK_RAW, p.period_dir);
 
   uv_process_t*    proc = (uv_process_t*) malloc(sizeof(uv_process_t));
   zk_prover_ctx_t* ctx  = (zk_prover_ctx_t*) safe_calloc(1, sizeof(zk_prover_ctx_t));
@@ -663,34 +726,44 @@ void c4_period_prover_on_checkpoint(uint64_t period) {
   if (!eth_config.period_store) return;
   if (!eth_config.period_prover_key_file) return;
 
-  bool     run_prover               = false;
-  uint64_t target_period            = period + 1;
+  uint64_t max_period               = period + 1;
   prover_stats.last_check_timestamp = current_unix_ms() / 1000;
-  prover_stats.current_period       = target_period;
+  prover_stats.current_period       = max_period;
 
-  if (target_period <= last_verified_period) return;
-
-  // Paths
-  char* period_dir = bprintf(NULL, "%s/%l", eth_config.period_store, target_period);
-  char* proof_path = bprintf(NULL, "%s/zk_proof_g16.bin", period_dir);
-  char* pub_path   = bprintf(NULL, "%s/zk_pub.bin", period_dir);
-  safe_free(period_dir);
-
-  // Check if exists
-  struct stat st;
-  if (stat(proof_path, &st) == 0) {
-    // Exists, verify
-    log_info("Prover: Verifying existing proof for period %l", target_period);
-
-    // Read files
-    bool valid = c4_verify_proof_files(proof_path, pub_path);
-
-    if (valid) {
-      log_info("Prover: Existing proof valid for period %l", target_period);
-      last_verified_period = target_period;
+  // If we have no baseline yet (e.g. startup ran before backfill completed),
+  // retry locating it in the period_store on every checkpoint.
+  if (!prover_baseline_found) {
+    c4_period_prover_init_from_store();
+    if (!prover_baseline_found) {
+      log_warn("Prover: No baseline Groth16 proof found in period_store yet, skipping checkpoint");
+      return;
     }
-    else {
-      log_warn("Prover: Existing proof INVALID for period %l", target_period);
+  }
+
+  if (max_period <= last_verified_period) return;
+
+  // Fill gaps sequentially: each proof needs the previous period's recursion inputs.
+  for (uint64_t p = last_verified_period + 1; p <= max_period; p++) {
+    char* period_dir = bprintf(NULL, "%s/%l", eth_config.period_store, p);
+    char* proof_path = bprintf(NULL, "%s/" ZK_V6_PROOF_G16, period_dir);
+    char* pub_path   = bprintf(NULL, "%s/" ZK_V6_PUB, period_dir);
+    safe_free(period_dir);
+
+    struct stat st;
+    if (stat(proof_path, &st) == 0) {
+      log_info("Prover: Verifying existing proof for period %l", p);
+
+      bool valid = c4_verify_proof_files(proof_path, pub_path);
+
+      if (valid) {
+        log_info("Prover: Existing proof valid for period %l", p);
+        last_verified_period = p;
+        safe_free(proof_path);
+        safe_free(pub_path);
+        continue;
+      }
+
+      log_warn("Prover: Existing proof INVALID for period %l", p);
 
       // Check age (1 hour = 3600 seconds)
       time_t now     = time(NULL);
@@ -699,20 +772,19 @@ void c4_period_prover_on_checkpoint(uint64_t period) {
       if (age_sec < 3600) {
         log_error("Prover: Proof is fresh (%f s old), NOT retrying to avoid loop", age_sec);
         prover_stats.total_failure++;
+        safe_free(proof_path);
+        safe_free(pub_path);
+        return;
       }
-      else {
-        log_warn("Prover: Proof is old (%f s old), deleting and retrying", age_sec);
-        unlink(proof_path);
-        run_prover = true;
-      }
+
+      log_warn("Prover: Proof is old (%f s old), deleting and retrying", age_sec);
+      unlink(proof_path);
     }
+
+    safe_free(proof_path);
+    safe_free(pub_path);
+
+    c4_period_prover_spawn(p, p - 1);
+    return;
   }
-  else
-    run_prover = true;
-
-  safe_free(proof_path);
-  safe_free(pub_path);
-
-  if (run_prover)
-    c4_period_prover_spawn(target_period, period);
 }

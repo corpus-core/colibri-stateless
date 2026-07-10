@@ -223,10 +223,34 @@ The constructor of the colibri client accepts a configuration-object, which may 
         "https://eth-mainnet.g.alchemy.com/v2/<APIKEY>",
         "https://rpc.ankr.com/eth/<APIKEY>" ]})
      ```
-- `prover` - urls for remove prover
-    a array of endpoints for remote prover. This allows to generate the proof in the backend, where caches can speed up the process.
+- `prover` - urls for remote prover
+    an array of endpoints for remote prover. This allows to generate the proof in the backend, where caches can speed up the process.
     ```js
     new Colibri({ prover: ["https://mainnet.colibri-proof.tech" ]})
+    ```
+- `prover_mode` - proof generation mode (default: `"remote"` if prover URLs configured, otherwise `"local"`)
+    Controls how proofs are built and verified. Five modes are available:
+    - `"local"` -- Proofs are built entirely on the client. Requires access to a Beacon API and execution layer RPC. Fully trustless, but slower and needs more infrastructure.
+    - `"remote"` -- Proofs are fetched from a remote Colibri prover server. Fastest option but relies on the prover server for proof generation. The verifier still cryptographically checks every proof.
+    - `"hybrid"` -- The consensus-layer proof (BlockHeaderProof) comes from the Colibri server, while execution-layer data (account proofs, storage, etc.) is fetched directly from the RPC provider. Best balance of performance and scalability -- the Colibri server only serves lightweight, cacheable header proofs while the heavy RPC load goes to your existing provider.
+    - `"proxy"` -- Like remote, but the client sends its own RPC and Beacon API URLs to the prover server. The server uses these endpoints instead of its own. Useful when the client has access to private or premium RPC providers.
+    - `"light_client"` -- Like hybrid, with additional background polling of block headers to keep the cache warm. Call `startLightClient()` / `stopLightClient()` to control polling. Default interval: 12000ms. By default only the compact `eth_getBlockHeader` is fetched; pass `fullBlock: true` to fetch the full block (useful when many `eth_getTransactionByHash` / `eth_getTransactionReceipt` calls follow).
+    ```js
+    // Explicit hybrid mode: header proofs from Colibri, execution data from RPC provider
+    new Colibri({
+      prover: ["https://mainnet.colibri-proof.tech"],
+      rpcs: ["https://eth-mainnet.g.alchemy.com/v2/<APIKEY>"],
+      prover_mode: "hybrid"
+    })
+
+    // Light client mode with background header polling
+    const client = new Colibri({
+      prover: ["https://mainnet.colibri-proof.tech"],
+      rpcs: ["https://eth-mainnet.g.alchemy.com/v2/<APIKEY>"],
+      prover_mode: "light_client"
+    });
+    client.startLightClient();              // polls eth_getBlockHeader every 12s
+    client.startLightClient(12000, true);   // or fetch the full block
     ```
 - `zk_proof` - use remote ZK sync proof for bootstrap (default: `false`)
     If `true`, the verifier will bootstrap the initial sync committee using the ZK proof (`ZKSyncData`) provided by the remote prover, instead of initializing via `checkpointz` / trusted checkpoints.
@@ -293,6 +317,47 @@ The constructor of the colibri client accepts a configuration-object, which may 
 - `include_code`- if true the code of the contracts will be included when creating proofs. this is only  relevant when creating your own proofs for eth_call. (default: false)
     ```js
     new Colibri({ include_code:  true})
+    ```
+- `privacy_mode` - **PAP (Pragmatic Adaptive Privacy)** mode. Reduces intent leakage towards RPC/prover by using cached data when available and verifying afterwards. Allowed values: `"none"` (default), `"basic"`. With `"basic"`, the verifier sets the PAP flag so that method-type and verification can use cached storage for optimistic execution (e.g. for `eth_call`); method type may depend on params. *This feature is still experimental!*
+    ```js
+    new Colibri({ privacy_mode: "basic" })
+    ```
+- `skip_wsp_check` - if `true`, the verifier skips the **Weak Subjectivity Period (WSP) check** for prover-supplied or self-fetched sync committee data, setting `VERIFY_FLAG_SKIP_WSP_CHECK` (bit `1 << 7`). The WSP check anchors the highest finalized header against the configured `checkpointz` endpoint whenever a sync crosses the WSP (typically ~2 to 4 months on Ethereum mainnet); for ZK sync data the verifier prefers `checkpoint_witness_keys` + matching signatures when available, otherwise falls back to `checkpointz`. **SECURITY:** only enable when another trust anchor (witness signatures, hard-coded checkpoint, signed package) is in place; disabling raises the risk of long-range attacks. Default: `false`. See the [threat model -- long range attacks](https://corpus-core.gitbook.io/specification-colibri-stateless/specifications/ethereum/threat-model) for background.
+    ```js
+    new Colibri({ skip_wsp_check: true })
+    ```
+
+- `max_latest_age_seconds` - upper bound (in seconds) on the age of a proof whose request uses the **`"latest"`** block tag. Without this guard a proof for an old `latest` block remains cryptographically valid forever and could be replayed as "current" months later. The binding reads `Date.now()` and forwards `now - max_latest_age_seconds` to the verifier, which rejects stale proofs with `"proof for latest too old"`. Covered RPC methods: `eth_call`, `eth_estimateGas`, `colibri_simulateTransaction`, `eth_getBalance`, `eth_getCode`, `eth_getStorageAt`, `eth_getTransactionCount`, `eth_getProof`, `eth_getBlockByNumber`, `eth_getBlockHeader`, `eth_blobBaseFee`, `eth_maxPriorityFeePerGas`, and `eth_blockNumber` (implicit-latest). `eth_getLogs` is **not** covered yet (tracked in issue #128). Set to `0` to disable the check (useful for legacy proof formats that do not embed a block context). Default: `60` (≈ 5 Ethereum slots). The check also applies in PAP mode, where the call proof arrives via `colibri_proofCall` (same proof structure as a direct `eth_call`); this requires a prover that embeds the block context (≥ 1.1.15). Account methods rely on a slim `timestamp` leaf in the state proof that is only emitted by prover ≥ 1.1.27; against older provers the verifier fails closed with `"cannot verify freshness of latest block without block context"` -- set `max_latest_age_seconds: 0` to opt out. **Caveat:** the gate fires only on `"latest"` (not `"safe"`/`"finalized"`), and if the host wallclock is below `max_latest_age_seconds` (embedded boards before NTP sync, sandboxed environments) the lower bound clamps to `0` and the check is silently disabled; ensure your runtime has a synced clock or set `max_latest_age_seconds: 0` explicitly to acknowledge this state.
+    ```js
+    new Colibri({ max_latest_age_seconds: 30 })
+    ```
+
+- `oblivious_nodes` - TEE RPC endpoints for private `eth_getProof` (default: empty). Routes `eth_getProof` only to these URLs; sets `VERIFY_FLAG_OBLIVIOUS` and **PAP** automatically. For full `eth_call` privacy, combine with `privacy_mode: "basic"` and `prover_mode: "hybrid"`:
+    ```js
+    // https://rpc.safe-node.com/ requires an API key for testing
+    new Colibri({
+      privacy_mode: "basic",
+      prover_mode: "hybrid",
+      oblivious_nodes: ["https://rpc.safe-node.com/"],
+    })
+    ```
+    **Why hybrid:** only the block proof is fetched from the prover; account/storage data is loaded from RPC or oblivious node and verified locally (remote mode would download the full call proof from the server). **Why PAP:** avoids `eth_createAccessList` on the prover (intent leakage); storage slots are resolved optimistically in the local EVM so only `eth_getProof` RPCs are exposed externally.
+
+    How oblivious RPC nodes work (TEE, Oblivious RAM): [Oblivious Labs](https://www.obliviouslabs.com/).
+
+- `fetch` - custom fetch function for all HTTP requests    
+    Provide a custom `fetch` implementation to route all network traffic through Tor, a SOCKS proxy, or any other transport layer. The function must match the signature of `globalThis.fetch`. When not set, the standard `fetch` is used.
+    ```js
+    // Browser: route through Tor via Arti WASM (bootstrap runs in background)
+    import { createBrowserFetch } from '@corpus-core/colibri-tor/browser';
+    const torFetch = createBrowserFetch();
+    new Colibri({ fetch: torFetch })
+    ```
+    ```js
+    // Node.js: route through a locally running Tor SOCKS5 proxy
+    import { createSocksFetch } from '@corpus-core/colibri-tor/node';
+    const torFetch = await createSocksFetch({ socksPort: 9050 });
+    new Colibri({ fetch: torFetch })
     ```
 
 - `verify`- a function to decide which request should be verified and which should be fetched from the default RPC-Provider. It allows you to speed up performance for requests which are not critical.

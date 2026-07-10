@@ -35,34 +35,79 @@ export const default_config: {
 } = {
   '1': { // mainnet
     alias: ["mainnet", "eth", "0x1"],
-    beacon_apis: ["https://lodestar-mainnet.chainsafe.io"],
-    rpcs: ["https://rpc.ankr.com/eth"],
-    prover: ["https://mainnet1.colibri-proof.tech"],
-    checkpointz: [], //"https://sync-mainnet.beaconcha.in", "https://beaconstate.info", "https://sync.invis.tools", "https://beaconstate.ethstaker.cc"],
+    rpcs: [
+      "https://mainnet.colibri-proof.tech/execution",
+      "https://eth.drpc.org",
+      "https://ethereum-rpc.publicnode.com",
+      "https://singapore.rpc.blxrbdn.com",
+    ],
+    beacon_apis: [
+      "https://mainnet.colibri-proof.tech/consensus",
+      "https://gateway.tenderly.co/public/mainnet",
+      "https://ethereum-beacon-api.publicnode.com",
+    ],
+    prover: ["https://mainnet.colibri-proof.tech","https://mainnet-prover.incubed.net","https://mainnet.colimind.com"],
+    checkpointz: [
+      "https://sync-mainnet.beaconcha.in",
+      "https://mainnet.checkpoint.sigp.io",
+      "https://mainnet-checkpoint-sync.attestant.io",
+      "https://beaconstate-mainnet.chainsafe.io",
+      "https://mainnet-checkpoint-sync.stakely.io",
+      "https://checkpointz.pietjepuk.net",
+      "https://beaconstate.ethstaker.cc",
+    ],
     pollingInterval: 12000,
   },
   '11155111': { // Sepolia
     alias: ["sepolia", "0xaa36a7"],
-    beacon_apis: ["https://ethereum-sepolia-beacon-api.publicnode.com"],
-    rpcs: ["https://ethereum-sepolia-rpc.publicnode.com"],
-    prover: ["https://sepolia.colibri-proof.tech"],
-    checkpointz: [], // No public checkpointz for Sepolia yet
+    rpcs: [
+      "https://sepolia.colibri-proof.tech/execution",
+      "https://sepolia.drpc.org",
+      "https://ethereum-sepolia-rpc.publicnode.com",
+      "https://sepolia.gateway.tenderly.co",
+    ],
+    beacon_apis: [
+      "https://sepolia.colibri-proof.tech/consensus",
+      "https://ethereum-sepolia-beacon-api.publicnode.com",
+    ],
+    prover: ["https://sepolia.colibri-proof.tech","https://sepolia-prover.incubed.net","https://sepolia.colimind.com"],
+    checkpointz: [
+      "https://checkpoint-sync.sepolia.ethpandaops.io",
+      "https://beaconstate-sepolia.chainsafe.io",
+    ],
     pollingInterval: 12000,
   },
   '100': { // gnosis
     alias: ["gnosis", "xdai", "0x64"],
-    beacon_apis: ["https://gnosis.colibri-proof.tech"],
-    rpcs: ["https://rpc.ankr.com/gnosis"],
-    prover: ["https://gnosis.colibri-proof.tech"],
-    checkpointz: [], // TODO: Add Gnosis checkpointz servers
+    rpcs: [
+      "https://gnosis.colibri-proof.tech/execution",
+      "https://rpc.gnosischain.com",
+      "https://rpc.gnosis.gateway.fm",
+      "https://gnosis-rpc.publicnode.com",
+    ],
+    beacon_apis: [
+      "https://gnosis.colibri-proof.tech/consensus",
+      "https://rpc-gbc.gnosischain.com",
+      "https://gnosis-beacon-api.publicnode.com",
+    ],
+    prover: ["https://gnosis.colibri-proof.tech","https://gnosis-prover.incubed.net","https://gnosis.colimind.com"],
+    checkpointz: ["https://checkpoint.gnosischain.com"],
     pollingInterval: 5000,
   },
   '10200': { // gnosis chiado
     alias: ["chiado", "0x27d8"],
-    beacon_apis: ["https://gnosis-chiado-beacon-api.publicnode.com"],
-    rpcs: ["https://gnosis-chiado-rpc.publicnode.com"],
+    rpcs: [
+      "https://rpc.chiado.gnosis.gateway.fm",
+      "https://rpc.chiadochain.net",
+      "https://gnosis-chiado-rpc.publicnode.com",
+    ],
+    beacon_apis: [
+      "https://rpc-gbc.chiadochain.net",
+    ],
     prover: ["https://chiado.colibri-proof.tech"],
-    checkpointz: [], // No public checkpointz for Chiado yet
+    checkpointz: [
+      "https://checkpoint.chiadochain.net",
+    ],
     pollingInterval: 5000,
   },
 };

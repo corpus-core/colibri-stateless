@@ -53,7 +53,8 @@ export class TransactionVerifier {
         txObject: any,
         config: TransactionVerifierConfig,
         rpcMethod: (method: string, args: any[], method_type?: C4MethodType) => Promise<any>,
-        fetchRpc: (urls: string[], payload: any, as_proof?: boolean) => Promise<any>
+        fetchRpc: (urls: string[], payload: any, as_proof?: boolean, fetchFn?: typeof globalThis.fetch) => Promise<any>,
+        fetchFn?: typeof globalThis.fetch
     ): Promise<string> {
         if (config.debug) console.log('[TransactionVerifier] Verifying transaction before sending:', txObject);
 
@@ -81,7 +82,7 @@ export class TransactionVerifier {
             return await fetchRpc(config.rpcs, {
                 method: 'eth_sendRawTransaction',
                 params: [signedRawTx]
-            }, false);
+            }, false, fetchFn);
 
         } catch (error: any) {
             if (config.debug) console.error('[TransactionVerifier] Transaction verification failed:', error);

@@ -43,7 +43,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 BUILD_DIR="$PROJECT_ROOT/build/default"
 TEST_DATA_DIR="$PROJECT_ROOT/test/data/$TESTNAME"
-PROOF_FILE="$SCRIPT_DIR/proof.ssz"
 RESULT_FILE="$SCRIPT_DIR/result.txt"
 
 echo -e "${BLUE}═══════════════════════════════════════════════${NC}"
@@ -59,15 +58,6 @@ rm -rf "$TEMP_STATE_DIR"
 mkdir -p "$TEMP_STATE_DIR"
 export C4_STATES_DIR="$TEMP_STATE_DIR"
 
-# Create proof
-echo -e "${BLUE}📝 Creating proof...${NC}"
-"$BUILD_DIR/bin/colibri-prover" -o "$PROOF_FILE" -t "$TESTNAME" "$RPC_METHOD" $RPC_ARGS
-
-if [ $? -ne 0 ]; then
-    echo -e "${RED}❌ Proof generation failed!${NC}"
-    exit 1
-fi
-echo -e "${GREEN}✓ Proof created${NC}"
 
 # Create test data directory first (needed for -t flag)
 echo -e "${BLUE}📁 Creating test directory...${NC}"
@@ -76,8 +66,8 @@ mkdir -p "$TEST_DATA_DIR"
 # Verify proof and let verifier automatically create test.json
 # Note: -t expects testname, not full path. Verifier writes to test/data/<testname>/test.json
 echo -e "${BLUE}🔍 Verifying proof and generating test.json...${NC}"
-"$BUILD_DIR/bin/colibri-verifier" -i "$PROOF_FILE" -t "$TESTNAME" "$RPC_METHOD" $RPC_ARGS | tee "$RESULT_FILE"
-
+echo "$BUILD_DIR/bin/colibri-verifier"  -t "$TESTNAME" "$RPC_METHOD" $RPC_ARGS 
+"$BUILD_DIR/bin/colibri-verifier"  -t "$TESTNAME" "$RPC_METHOD" $RPC_ARGS | tee "$RESULT_FILE"
 if [ $? -ne 0 ]; then
     echo -e "${RED}❌ Verification failed!${NC}"
     exit 1
@@ -87,10 +77,12 @@ echo -e "${GREEN}✓ Proof verified and test.json created${NC}"
 # Copy state files from temporary directory
 echo -e "${BLUE}💾 Copying state files...${NC}"
 if [ -d "$TEMP_STATE_DIR" ]; then
-    # Copy all state files (states_*, sync_*, code_*)
+    # Copy all state files (states_*, sync_*, code_*, tx_cache_*, tx_pending_*)
     cp -v "$TEMP_STATE_DIR"/states_* "$TEST_DATA_DIR/" 2>/dev/null || true
     cp -v "$TEMP_STATE_DIR"/sync_* "$TEST_DATA_DIR/" 2>/dev/null || true
     cp -v "$TEMP_STATE_DIR"/code_* "$TEST_DATA_DIR/" 2>/dev/null || true
+    cp -v "$TEMP_STATE_DIR"/tx_cache_* "$TEST_DATA_DIR/" 2>/dev/null || true
+    cp -v "$TEMP_STATE_DIR"/tx_pending_* "$TEST_DATA_DIR/" 2>/dev/null || true
     
     STATE_FILE_COUNT=$(ls "$TEST_DATA_DIR"/states_* "$TEST_DATA_DIR"/sync_* 2>/dev/null | wc -l)
     echo -e "${GREEN}✓ Copied $STATE_FILE_COUNT state files${NC}"
@@ -101,7 +93,6 @@ fi
 # Copy proof to test directory (optional - tests build their own proofs)
 # This is mainly useful for manual inspection and comparison
 echo -e "${BLUE}📄 Copying proof for reference...${NC}"
-cp "$PROOF_FILE" "$TEST_DATA_DIR/proof.ssz"
 echo -e "${GREEN}✓ Reference proof saved to $TEST_DATA_DIR/proof.ssz${NC}"
 
 # test.json was already created by verifier with -t flag
@@ -109,7 +100,7 @@ echo -e "${BLUE}📝 Generated test.json:${NC}"
 cat "$TEST_DATA_DIR/test.json"
 
 # Cleanup
-rm -f "$PROOF_FILE" "$RESULT_FILE"
+rm -f "$RESULT_FILE"
 rm -rf "$TEMP_STATE_DIR"
 
 echo ""

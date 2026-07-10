@@ -1,0 +1,75 @@
+name: Dart & Flutter CI
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+  actions: read
+
+jobs:
+  dart-and-flutter-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install build dependencies (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake build-essential
+
+      - name: Install build dependencies (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          if ! command -v cmake &> /dev/null; then
+            brew install cmake
+          else
+            echo "CMake: $(cmake --version)"
+          fi
+
+      - name: Build native library for Dart
+        run: |
+          echo "Building Colibri native library (DART=ON)..."
+          cmake -S . -B build-dart -DDART=ON -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-dart --target colibri_dart
+          echo "Checking native output..."
+          ls -la bindings/dart/native/ || true
+
+      - name: Run Dart tests
+        working-directory: bindings/dart
+        run: |
+          dart pub get
+          dart test
+
+      - name: Run Flutter tests (colibri_flutter plugin + client integration)
+        working-directory: bindings/dart/flutter/colibri_flutter
+        env:
+          COLIBRI_DART_LIBRARY: ${{ github.workspace }}/bindings/dart/native/libcolibri.${{ matrix.os == 'macos-latest' && 'dylib' || 'so' }}
+        run: |
+          flutter pub get
+          flutter test
+
+      - name: Summary
+        if: success()
+        run: |
+          echo "## Dart & Flutter tests (${{ matrix.os }})" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Dart tests: passed" >> $GITHUB_STEP_SUMMARY
+          echo "- Flutter plugin tests (incl. client integration): passed" >> $GITHUB_STEP_SUMMARY

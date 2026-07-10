@@ -40,16 +40,19 @@
 #include <string.h>
 
 #ifdef PROVER_CACHE
-// Default maximum entries; can be adjusted at runtime via API
-static size_t g_max_tx_cache_size = 10000u;
+// Default maximum entries; can be adjusted at runtime via c4_eth_tx_cache_set_max_size().
+// Must not exceed TABLE_MAX_LOAD to avoid infinite loops in the open-addressing table.
+static size_t g_max_tx_cache_size = 80000u;
 typedef struct { // cache key for the transaction proof
   uint64_t block_number;
   uint32_t tx_index;
 } eth_tx_cache_value_t;
 
-// Fixed-size open addressing hash table for Tx cache.
+// Fixed-size open-addressing hash table for Tx cache.
 // Capacity is a power-of-two for efficient masking.
-#define TABLE_CAPACITY 16384u
+#define TABLE_CAPACITY 131072u
+// Linear probing degrades severely above ~75% load; enforce this as hard ceiling.
+#define TABLE_MAX_LOAD (TABLE_CAPACITY * 3u / 4u)
 
 typedef struct {
   bool      used;
@@ -113,22 +116,26 @@ static size_t table_find_index(const bytes32_t key) {
   }
 }
 
-// Backshift deletion starting from position pos
+// Backshift deletion (Knuth's Algorithm R for open-addressing with linear probing).
+// After removing the entry at `pos`, scan forward and shift back any entry whose
+// home bucket is not reachable without crossing the gap.
 static void table_delete_at(size_t pos) {
-  size_t i = pos;
-  size_t j = (i + 1u) & (TABLE_CAPACITY - 1u);
-  while (g_table[j].used) {
-    uint64_t h    = hash_bytes32(g_table[j].key);
-    size_t   home = table_index(h);
-    // If entry is in its home bucket, stop shifting
-    if (home == j) {
-      break;
+  size_t gap = pos;
+  g_table[gap].used = false;
+  for (size_t j = (gap + 1u) & (TABLE_CAPACITY - 1u); g_table[j].used; j = (j + 1u) & (TABLE_CAPACITY - 1u)) {
+    size_t home = table_index(hash_bytes32(g_table[j].key));
+    // Entry at j is still reachable if its home is in the cyclic range (gap, j].
+    // A lookup starting at home would probe home, home+1, ..., j without
+    // hitting the empty slot at gap.
+    bool reachable = (gap < j)
+                         ? (home > gap && home <= j)
+                         : (home > gap || home <= j);
+    if (!reachable) {
+      g_table[gap]    = g_table[j];
+      g_table[j].used = false;
+      gap             = j;
     }
-    g_table[i] = g_table[j];
-    i          = j;
-    j          = (j + 1u) & (TABLE_CAPACITY - 1u);
   }
-  g_table[i].used = false;
 }
 
 // Insert or update. Returns true if inserted as new key, false if updated.
@@ -211,12 +218,15 @@ static void free_block_node(block_node_t* node) {
   free(node);
 }
 
+
 // remove as many entries as needed, so the number_of_entries_to_add can be added.
 static void clean_up_cache(int number_of_entries_to_add) {
   // Evict whole blocks from the head until there is enough room
   while (g_size + (size_t) number_of_entries_to_add > g_max_tx_cache_size) {
     if (!g_head) break; // nothing to evict
     block_node_t* victim = g_head;
+    log_debug("tx_cache evicting block %l (%d txs), entries=%d max=%d to_add=%d",
+              victim->block_number, victim->count, (uint32_t)g_size, (uint32_t)g_max_tx_cache_size, (uint32_t)number_of_entries_to_add);
     // remove all txs of this block from the table
     for (uint32_t i = 0; i < victim->count; i++) {
       table_remove(victim->items[i]);
@@ -278,14 +288,25 @@ void c4_eth_tx_cache_reserve(uint32_t number_of_entries_to_add) {
 }
 
 void c4_eth_tx_cache_set_max_size(uint32_t max) {
-  if (max == 0) max = 1; // avoid zero which breaks invariants
+  if (max == 0) max = 1;
+  if (max > TABLE_MAX_LOAD) max = TABLE_MAX_LOAD;
   g_max_tx_cache_size = (size_t) max;
-  // Ensure we do not exceed the new limit
   clean_up_cache(0);
 }
 
 size_t c4_eth_tx_cache_capacity(void) {
   return g_max_tx_cache_size;
+}
+
+uint32_t c4_eth_tx_cache_block_count(void) {
+  uint32_t n = 0;
+  for (block_node_t* node = g_head; node; node = node->next) n++;
+  return n;
+}
+
+void c4_eth_tx_cache_visit_blocks(tx_cache_block_visitor_t visitor, void* user_data) {
+  for (block_node_t* node = g_head; node; node = node->next)
+    visitor(node->block_number, node->items, node->count, user_data);
 }
 
 #endif

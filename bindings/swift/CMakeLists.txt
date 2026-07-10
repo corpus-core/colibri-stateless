@@ -57,6 +57,7 @@ endif()
 # Create the C binding library
 add_library(c4_swift_binding STATIC 
     ../colibri.c
+    ../colibri_common.c
 )
 
 # Add build dependencies based on enabled features

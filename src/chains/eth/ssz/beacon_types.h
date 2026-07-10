@@ -24,8 +24,8 @@
 #ifndef ETH_SSZ_TYPES_H
 #define ETH_SSZ_TYPES_H
 
-#include "common.h"
 #include "chains.h"
+#include "common.h"
 #include "ssz.h"
 
 typedef enum {
@@ -70,7 +70,44 @@ typedef enum {
   ETH_SSZ_DATA_LOGS       = 24,
   ETH_SSZ_DATA_BLOCK      = 25,
   ETH_SSZ_DATA_PROOF      = 26,
-  ETH_SSZ_DATA_SIMULATION = 27
+  ETH_SSZ_DATA_SIMULATION = 27,
+
+  ETH_SSZ_VERIFY_BLOCK_HEADER_PROOF = 28,
+  ETH_SSZ_DATA_BLOCK_HEADER         = 29,
+  ETH_SSZ_DATA_CALL_BLOCK_CONTEXT   = 30,
+
+  ETH_SSZ_VERIFY_BLOCK_RECEIPTS_PROOF = 31,
+  ETH_SSZ_DATA_BLOCK_RECEIPTS         = 32,
+
+  // hybrid proof types (header_data embedded, no consensus proof needed)
+  ETH_SSZ_VERIFY_HYBRID_ACCOUNT_PROOF      = 33,
+  ETH_SSZ_VERIFY_HYBRID_TRANSACTION_PROOF  = 34,
+  ETH_SSZ_VERIFY_HYBRID_RECEIPT_PROOF      = 35,
+  ETH_SSZ_VERIFY_HYBRID_LOGS_PROOF         = 36,
+  ETH_SSZ_VERIFY_HYBRID_CALL_PROOF         = 37,
+  ETH_SSZ_VERIFY_HYBRID_BLOCK_PROOF        = 38,
+  ETH_SSZ_VERIFY_HYBRID_BLOCK_HEADER_PROOF  = 39,
+  ETH_SSZ_VERIFY_HYBRID_BLOCK_RECEIPTS_PROOF = 40,
+
+  // beacon container types (chain- and fork-aware, resolved via eth_ssz_type_for_fork)
+  ETH_SSZ_EXECUTION_PAYLOAD_CONTAINER = 42,
+
+  // Resolves to the `CheckpointProof` variant of `ETH_HEADER_PROOFS_UNION` (which is
+  // structurally identical to the `CheckpointProof` variant of
+  // `C4_ETH_SYNCDATA_BOOTSTRAP_UNION`). Single source of truth so the prover can build
+  // a CheckpointProof SSZ blob using the same definition the verifier reads.
+  ETH_SSZ_VERIFY_CHECKPOINT_PROOF = 43,
+
+  // Resolves to the `timestamp` variant of `ETH_STATE_BLOCK_UNION` (UINT64). Used
+  // by the verifier to distinguish the new account-`latest` freshness leaf from
+  // the `blockNumber` variant (both are 8 bytes long).
+  ETH_SSZ_DATA_STATE_BLOCK_TIMESTAMP = 44,
+
+  // `C4_ETH_REQUEST_SYNCDATA_UNION` variants (named to avoid raw pointer arithmetic
+  // on the union array at the call sites).
+  ETH_SSZ_VERIFY_LC_SYNCDATA    = 45, // `LCSyncData`   (union index 1): LightClient sync data
+  ETH_SSZ_VERIFY_ZK_SYNCDATA    = 46, // `ZKSyncData`   (union index 2): legacy SP1 v5 ZK sync data, 260-byte proof
+  ETH_SSZ_VERIFY_ZK_SYNCDATA_V6 = 47  // `ZKSyncDataV6` (union index 3): SP1 v6 ZK sync data, 356-byte proof
 
 } eth_ssz_type_t;
 
@@ -96,6 +133,18 @@ const ssz_def_t*    eth_ssz_type_for_fork(eth_ssz_type_t type, fork_id_t fork, c
 // forks
 const ssz_def_t* eth_ssz_type_for_denep(eth_ssz_type_t type, chain_id_t chain_id);
 const ssz_def_t* eth_ssz_type_for_electra(eth_ssz_type_t type, chain_id_t chain_id);
+
+#ifdef PROVER
+/**
+ * Returns the SSZ container definition for the execution payload of the given chain.
+ * The returned pointer references the `executionPayload` entry inside the
+ * `BeaconBlockBody` container, so it carries the correct container name and child layout.
+ *
+ * @param chain_id the chain to resolve (Gnosis chains get `GNOSIS_EXECUTION_PAYLOAD`)
+ * @return pointer to the `ssz_def_t` container (never NULL for known chains)
+ */
+const ssz_def_t* c4_eth_execution_payload_def(chain_id_t chain_id);
+#endif
 const ssz_def_t* eth_get_light_client_update(fork_id_t fork);
 //  c4 specific
 const ssz_def_t*       eth_ssz_verification_type(eth_ssz_type_t type);
@@ -113,8 +162,8 @@ extern const ssz_def_t GNOSIS_EXECUTION_PAYLOAD[17];
 extern const ssz_def_t DENEP_WITHDRAWAL_CONTAINER;
 extern const ssz_def_t ELECTRA_EXECUTION_PAYLOAD[17];
 extern const ssz_def_t ELECTRA_WITHDRAWAL_CONTAINER;
-extern const ssz_def_t C4_ETH_REQUEST_DATA_UNION[10];
-extern const ssz_def_t C4_ETH_REQUEST_SYNCDATA_UNION[3];
+extern const ssz_def_t C4_ETH_REQUEST_DATA_UNION[12];
+extern const ssz_def_t C4_ETH_REQUEST_SYNCDATA_UNION[4];
 
 #define epoch_for_slot(slot, chain_spec)  ((slot) >> (chain_spec ? chain_spec->slots_per_epoch_bits : 5))
 #define period_for_slot(slot, chain_spec) ((slot) >> (chain_spec ? (chain_spec->epochs_per_period_bits + chain_spec->slots_per_epoch_bits) : 13))
@@ -123,10 +172,18 @@ extern const ssz_def_t C4_ETH_REQUEST_SYNCDATA_UNION[3];
 #define slot_for_period(period, chain_spec) ((period) << (chain_spec ? (chain_spec->epochs_per_period_bits + chain_spec->slots_per_epoch_bits) : 13))
 
 #define ssz_builder_for_type(typename) \
-  (ssz_builder_t){ .def = eth_ssz_verification_type(typename), .fixed = (buffer_t){ .data = (bytes_t){ .data = NULL, .len = 0 }, .allocated = 0 }, .dynamic = (buffer_t){ .data = (bytes_t){ .data = NULL, .len = 0 }, .allocated = 0 }}
+  (ssz_builder_t) { .def = eth_ssz_verification_type(typename), .fixed = (buffer_t) {.data = (bytes_t) {.data = NULL, .len = 0}, .allocated = 0}, .dynamic = (buffer_t) {.data = (bytes_t) {.data = NULL, .len = 0}, .allocated = 0} }
 
 inline static bool is_gnosis_chain(chain_id_t chain_id) {
   return chain_id == C4_CHAIN_GNOSIS || chain_id == C4_CHAIN_GNOSIS_CHIADO;
 }
+
+#define BLOCK_HEADER_FIELD_COUNT 14
+const gindex_t* c4_block_header_gindexes(chain_id_t chain_id, uint64_t slot);
+
+/** Number of leaves in the call state proof when block context is included (stateRoot + 8 execution payload fields). */
+#define CALL_BLOCK_CONTEXT_FIELD_COUNT 9
+/** Gindexes for state proof + block context: stateRoot, blockNumber, timestamp, feeRecipient, prevRandao, baseFeePerGas, blockHash, gasLimit, excessBlobGas. */
+const gindex_t* c4_call_block_context_gindexes(void);
 
 #endif

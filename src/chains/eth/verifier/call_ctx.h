@@ -28,290 +28,241 @@
 extern "C" {
 #endif
 
-#include "bytes.h"
-#include "eth_account.h"
+#include "eth_call_account.h"
+#include "json.h"
 #include "ssz.h"
+#include "state.h"
 #include "verify.h"
-#include <stdlib.h>
-#include <string.h>
 
 #ifdef EVMONE
-#include "evmone_c_wrapper.h" // For evmc_address and evmc_bytes32
+#include "evmone_c_wrapper.h"
 #endif
 
-typedef struct account_storage {
-  bytes32_t               key;
-  bytes32_t               value;
-  bool                    original; // true = cached from proof, not yet modified by SSTORE
-  struct account_storage* next;
-} account_storage_t;
+// :: Keccak preimage (captured via hook during simulation)
 
-typedef struct account_state {
-  address_t             address;
-  bytes32_t             balance;
-  bytes_t               code;
-  struct account_state* next;
-  account_storage_t*    storage;
-  bool                  full_state_override;
-  bool                  deleted;
-  bool                  free_code;
-} account_state_t;
+typedef struct keccak_entry {
+  bytes32_t            hash;
+  bytes_t              input;
+  struct keccak_entry* next;
+} keccak_entry_t;
 
-// Context for EVM execution
-// Structure to store emitted log events
+// :: Trace call kind (mirrors evmone call kinds + STATICCALL)
+
+typedef enum {
+  TRACE_CALL         = 0,
+  TRACE_DELEGATECALL = 1,
+  TRACE_CALLCODE     = 2,
+  TRACE_CREATE       = 3,
+  TRACE_CREATE2      = 4,
+  TRACE_STATICCALL   = 5
+} trace_call_kind_t;
+
+// :: Execution trace entry (captured during simulation)
+
+typedef struct trace_entry {
+  uint8_t              type;          // EVMONE_CALL, EVMONE_DELEGATECALL, etc.
+  address_t            from;
+  address_t            to;
+  uint64_t             gas;
+  uint64_t             gas_used;
+  bytes_t              input;
+  bytes_t              output;
+  bytes32_t            value;
+  uint32_t             subtraces;
+  uint32_t*            trace_address;
+  uint32_t             trace_depth;
+  struct trace_entry*  next;
+} trace_entry_t;
+
+// :: Emitted log (captured during EVM execution for simulation)
+
 typedef struct emitted_log {
-  address_t           address;      // Contract address that emitted the log
-  bytes_t             data;         // Log data
-  bytes32_t*          topics;       // Array of topics
-  size_t              topics_count; // Number of topics
-  struct emitted_log* next;         // Linked list pointer
+  address_t           address;
+  bytes_t             data;
+  bytes32_t*          topics;
+  size_t              topics_count;
+  struct emitted_log* next;
 } emitted_log_t;
 
+/**
+ * Shared context for EVM call verification (`eth_call`, `eth_estimateGas`, `colibri_simulateTransaction`).
+ *
+ * Holds all inputs, intermediate state, and outputs for the EVM execution.
+ * In PAP mode this struct is heap-allocated and attached to `verify_ctx_t.user_data`
+ * so it survives across multiple `C4_PENDING` rounds. For non-PAP paths (e.g. OP-Stack)
+ * it may be stack-allocated with a single-pass lifetime.
+ */
+typedef struct evm_call_ctx {
+  call_account_t*  accounts;
+  bytes_t          call_result;
+  emitted_log_t*   logs;
+  keccak_entry_t*  keccak_entries;
+  trace_entry_t*   traces;
+  uint64_t         gas_used;
+  bytes32_t        state_root;
+  bool             pap_mode;
+  bool             evm_done;
+  bool             reverted; // set to true when the EVM execution reverted; `call_result` then holds the revert data
+} evm_call_ctx_t;
+
+/**
+ * EVM execution context passed as host context to evmone (or a future light-EVM).
+ *
+ * For child calls a shallow copy is made with `parent` pointing to the caller's
+ * context. `context_apply()` merges a successful child's state back into the parent.
+ */
+/**
+ * Transient storage slot (EIP-1153). Per-transaction, cleared after tx ends.
+ * Linked list keyed by (address, key).
+ */
+typedef struct transient_slot {
+  address_t             address;
+  bytes32_t             key;
+  bytes32_t             value;
+  struct transient_slot* next;
+} transient_slot_t;
+
 typedef struct evmone_context {
-  void*            executor;
-  verify_ctx_t*    ctx;
-  ssz_ob_t         src_accounts;
-  account_state_t* account_states;
-  call_code_t*     call_codes;
-  // Current block info
-  uint64_t  block_number;
-  bytes32_t block_hash;
-  uint64_t  timestamp;
-  // Transaction info
-  bytes32_t tx_origin;
-  uint64_t  gas_price;
-  // For storing results
+  void*                  executor;
+  verify_ctx_t*          ctx;
+  call_account_t*        accounts;
+  uint64_t               block_number;
+  bytes32_t              block_hash;
+  uint64_t               timestamp;
+  address_t              tx_origin;
+  address_t              block_coinbase;
+  bytes32_t              block_prev_randao;
+  bytes32_t              block_base_fee;
+  bytes32_t              blob_base_fee;
+  uint64_t               gas_price;
+  uint64_t               chain_id;
+  uint64_t               block_gas_limit;
   struct evmone_context* parent;
   void*                  results;
-  // Event logging
-  emitted_log_t* logs;           // Linked list of emitted logs
-  bool           capture_events; // Whether to capture events
+  emitted_log_t*         logs;
+  trace_entry_t*         traces;
+  transient_slot_t*      transient_storage; // EIP-1153: only at root context
+  uint32_t               subtrace_count;
+  uint32_t               trace_depth;
+  uint32_t*              trace_address;
+  bool                   capture_events;
+  bool                   pap_mode;
+  bool                   storage_miss;
 } evmone_context_t;
 
-static account_state_t* create_account_state(evmone_context_t* ctx, const address_t address, bool* created);
+/** Block context extracted from call proof when state_proof.block is the blockContext union variant (selector 3). */
+typedef struct eth_call_block_context {
+  uint64_t   block_number;
+  uint64_t   timestamp;
+  address_t  coinbase;
+  bytes32_t  prev_randao;
+  bytes32_t  base_fee_per_gas;
+  bytes32_t  block_hash;
+  uint64_t   gas_limit;
+  uint64_t   excess_blob_gas;
+} eth_call_block_context_t;
 
-static ssz_ob_t get_src_account(evmone_context_t* ctx, const address_t address, bool allow_missing) {
-  size_t len = ssz_len(ctx->src_accounts);
-  for (int i = 0; i < len; i++) {
-    ssz_ob_t account = ssz_at(ctx->src_accounts, i);
-    bytes_t  addr    = ssz_get(&account, "address").bytes;
-    if (memcmp(addr.data, address, 20) == 0)
-      return account;
-  }
-  if (ctx->parent)
-    return get_src_account(ctx->parent, address, allow_missing);
-  if (!ctx->ctx->state.error && !allow_missing) ctx->ctx->state.error = bprintf(NULL, "Missing account proof for 0x%x", bytes(address, 20));
+/**
+ * Extracts the block context from a call/estimate/simulate proof.
+ *
+ * Handles both hybrid call proofs (`header_data`) and standard proofs
+ * (`state_proof.block` blockContext union variant). Returns `false` when
+ * no block context is available (e.g. PAP-only proof or legacy format),
+ * in which case `out` is left untouched.
+ *
+ * @param ctx verification context (must have `proof` set)
+ * @param out destination struct (zeroed before this call by the caller)
+ * @return `true` if `out` was populated, `false` otherwise
+ */
+bool eth_get_call_block_context_from_proof(verify_ctx_t* ctx, eth_call_block_context_t* out);
 
-  return (ssz_ob_t) {0};
-}
+// :: EVM call context lifecycle
 
-static void get_src_storage(evmone_context_t* ctx, const address_t address, const bytes32_t key, bytes32_t result) {
-  ssz_ob_t account = get_src_account(ctx, address, false);
-  if (!account.def) return;
-  ssz_ob_t storage = ssz_get(&account, "storageProof");
-  uint32_t len     = ssz_len(storage);
-  for (int i = 0; i < len; i++) {
-    ssz_ob_t entry = ssz_at(storage, i);
-    if (memcmp(ssz_get(&entry, "key").bytes.data, key, 32) == 0) {
-      if (!eth_get_storage_value(entry, key, result)) memset(result, 0, 32);
-      // cache the verified value for subsequent reads
-      bool               created;
-      account_state_t*   acc = create_account_state(ctx, address, &created);
-      account_storage_t* s   = safe_calloc(1, sizeof(account_storage_t));
-      memcpy(s->key, key, 32);
-      memcpy(s->value, result, 32);
-      s->original  = true;
-      s->next      = acc->storage;
-      acc->storage = s;
-      return;
-    }
-  }
-  if (!ctx->ctx->state.error) ctx->ctx->state.error = bprintf(NULL, "Missing account proof for account 0x%x and storage key 0x%x", bytes(address, 20), bytes(key, 32));
-}
+void evm_call_ctx_free(evm_call_ctx_t* evm);
 
-static account_state_t* get_account_state(evmone_context_t* ctx, const address_t address) {
-  for (account_state_t* acc = ctx->account_states; acc != NULL; acc = acc->next) {
-    if (memcmp(acc->address, address, 20) == 0)
-      return acc;
-  }
-  if (ctx->parent)
-    return get_account_state(ctx->parent, address);
-  return NULL;
-}
+// :: Account lookup helpers (traverse parent chain)
 
-static account_storage_t* get_storage(evmone_context_t* ctx, const address_t addr, const bytes32_t key) {
-  account_state_t* account = get_account_state(ctx, addr);
-  if (!account) return NULL;
-  for (account_storage_t* s = account->storage; s != NULL; s = s->next) {
-    if (memcmp(s->key, key, 32) == 0)
-      return s;
-  }
-  return NULL;
-}
+call_account_t* call_account_find(evmone_context_t* ctx, const address_t address);
+call_account_t* call_account_get_or_create(evmone_context_t* ctx, const address_t address);
 
-static account_state_t* create_account_state(evmone_context_t* ctx, const address_t address, bool* created) {
-  *created = false;
-  for (account_state_t* acc = ctx->account_states; acc != NULL; acc = acc->next) {
-    if (memcmp(acc->address, address, 20) == 0)
-      return acc;
-  }
-  account_state_t* parent_acc  = ctx->parent ? get_account_state(ctx->parent, address) : NULL;
-  *created                     = parent_acc == NULL;
-  ssz_ob_t         old_account = get_src_account(ctx, address, true);
-  account_state_t* acc         = safe_calloc(1, sizeof(account_state_t));
-  memcpy(acc->address, address, 20);
-  acc->next           = ctx->account_states;
-  ctx->account_states = acc;
+// :: PAP-mode lazy fetchers
 
-  if (parent_acc) {
-    memcpy(acc->balance, parent_acc->balance, 32);
-    acc->code                       = parent_acc->code;
-    acc->full_state_override        = parent_acc->full_state_override;
-    account_storage_t** storage_ptr = &acc->storage;
-    for (account_storage_t* s = parent_acc->storage; s != NULL; s = s->next) {
-      *storage_ptr = safe_calloc(1, sizeof(account_storage_t));
-      memcpy((*storage_ptr)->key, s->key, 32);
-      memcpy((*storage_ptr)->value, s->value, 32);
-      (*storage_ptr)->original = s->original;
-      (*storage_ptr)->next     = NULL;
-      storage_ptr              = &(*storage_ptr)->next;
-    }
-  }
-  else if (old_account.def) {
-    ssz_ob_t code = ssz_get(&old_account, "code");
-    if (code.def && code.def->type == SSZ_TYPE_LIST && code.bytes.len > 0) acc->code = code.bytes;
-    eth_get_account_value(old_account, ETH_ACCOUNT_BALANCE, acc->balance);
-  }
-  return acc;
-}
+void    call_account_lazy_fetch_storage(evmone_context_t* ctx, const address_t address, const bytes32_t key, bytes32_t result);
+bytes_t call_account_get_code(evmone_context_t* ctx, const address_t address);
 
-static void set_storage(evmone_context_t* ctx, const address_t addr, const bytes32_t key, const bytes32_t value, bool* account_created, bool* storage_created) {
-  account_storage_t* storage = get_storage(ctx, addr, key);
-  if (storage) {
-    *storage_created  = storage->original; // first real write counts as created
-    storage->original = false;
-    memcpy(storage->value, value, 32);
-    *account_created = false;
-  }
-  else {
-    account_state_t* account   = create_account_state(ctx, addr, account_created);
-    *storage_created           = true;
-    account_storage_t* storage = safe_calloc(1, sizeof(account_storage_t));
-    memcpy(storage->key, key, 32);
-    memcpy(storage->value, value, 32);
-    storage->next    = account->storage;
-    account->storage = storage;
-  }
-}
-static bytes_t get_code(evmone_context_t* ctx, const address_t address) {
-  account_state_t* acc = get_account_state(ctx, address);
-  if (acc) return acc->code;
-  ssz_ob_t account = get_src_account(ctx, address, false);
-  if (!account.def) return NULL_BYTES;
-  bytes32_t code_hash = {0};
-  eth_get_account_value(account, ETH_ACCOUNT_CODE_HASH, code_hash);
-  for (call_code_t* call_code = ctx->call_codes; call_code; call_code = call_code->next) {
-    if (memcmp(call_code->hash, code_hash, 32) == 0)
-      return call_code->code;
-  }
+// :: Block hash lookup
 
-  ssz_ob_t code = ssz_get(&account, "code");
-  if (code.def && code.def->type == SSZ_TYPE_LIST) return code.bytes;
-  return NULL_BYTES;
-  //  return account.def ? ssz_get(&account, "code").bytes : NULL_BYTES;
-}
+/**
+ * Fetches the block hash for a given block number.
+ *
+ * Returns `C4_SUCCESS` if the hash was found and copied into `result`.
+ * Returns `C4_PENDING` if a request was sent but not yet answered --
+ * the caller should set `ctx->storage_miss = true` and treat the current
+ * EVM run as aborted (same pattern as lazy storage fetching).
+ * Returns `C4_ERROR` on failure (error stored in `ctx->ctx->state`).
+ *
+ * @param ctx    EVM execution context
+ * @param number block number to look up
+ * @param result 32-byte buffer for the block hash
+ * @return `C4_SUCCESS`, `C4_PENDING`, or `C4_ERROR`
+ */
+c4_status_t call_fetch_block_hash(evmone_context_t* ctx, int64_t number, bytes32_t result);
 
-static void account_state_free(account_state_t* acc) {
-  while (acc->storage) {
-    account_storage_t* storage = acc->storage;
-    acc->storage               = storage->next;
-    safe_free(storage);
-  }
-  if (acc->code.data && acc->free_code)
-    safe_free(acc->code.data);
-  safe_free(acc);
-}
+// :: State overrides
 
-static void free_emitted_logs(emitted_log_t* logs) {
-  while (logs) {
-    emitted_log_t* next = logs->next;
-    if (logs->data.data) safe_free(logs->data.data);
-    if (logs->topics) safe_free(logs->topics);
-    safe_free(logs);
-    logs = next;
-  }
-}
+c4_status_t call_apply_state_overrides(verify_ctx_t* ctx, call_account_t** accounts, json_t overrides_json);
 
-static void context_free(evmone_context_t* ctx) {
-  while (ctx->account_states) {
-    account_state_t* next = ctx->account_states->next;
-    account_state_free(ctx->account_states);
-    ctx->account_states = next;
-  }
-  free_emitted_logs(ctx->logs);
-  ctx->logs = NULL;
-}
+// :: Emitted log helpers
 
-#ifdef EVMONE
-static emitted_log_t* add_emitted_log(evmone_context_t* ctx, const evmc_address* addr, const uint8_t* data, size_t data_size, const evmc_bytes32 topics[], size_t topics_count) {
-  if (!ctx->capture_events) return NULL;
+void           free_keccak_entries(keccak_entry_t* entries);
+void           free_emitted_logs(emitted_log_t* logs);
 
-  emitted_log_t* log = safe_calloc(1, sizeof(emitted_log_t));
-  memcpy(log->address, addr->bytes, 20);
+// :: Trace helpers
 
-  // Copy log data
-  if (data && data_size > 0) {
-    log->data.data = safe_malloc(data_size);
-    memcpy(log->data.data, data, data_size);
-    log->data.len = data_size;
-  }
+void           free_trace_entries(trace_entry_t* entries);
+emitted_log_t* add_emitted_log(emitted_log_t** logs, const address_t addr, const uint8_t* data, size_t data_size, const bytes32_t* topics, size_t topics_count);
 
-  // Copy topics
-  if (topics && topics_count > 0) {
-    log->topics       = safe_calloc(topics_count, sizeof(bytes32_t));
-    log->topics_count = topics_count;
-    for (size_t i = 0; i < topics_count; i++) {
-      memcpy(log->topics[i], topics[i].bytes, 32);
-    }
-  }
+// :: Child-context management
 
-  // Add to linked list
-  log->next = ctx->logs;
-  ctx->logs = log;
+void context_free(evmone_context_t* ctx);
+void context_apply(evmone_context_t* ctx);
 
-  return log;
-}
-#endif // EVMONE
+// :: Context initialization
 
-static void context_apply(evmone_context_t* ctx) {
-  if (!ctx->parent) return;
-  bool created;
-  for (account_state_t* acc = ctx->account_states; acc; acc = acc->next) {
-    account_state_t* parent_acc = create_account_state(ctx->parent, acc->address, &created);
-    memcpy(parent_acc->balance, acc->balance, 32);
-    parent_acc->code                = acc->code;
-    parent_acc->free_code           = acc->free_code;
-    parent_acc->full_state_override = acc->full_state_override;
+/**
+ * Initializes an `evmone_context_t` with default values and block context
+ * extracted from the verification context.
+ *
+ * Populates `block_number`, `timestamp`, `block_coinbase`, `block_prev_randao`,
+ * `block_base_fee`, `blob_base_fee`, and `block_gas_limit` from the call proof's
+ * state_proof (when using `ETH_CALL_STATE_PROOF`) or leaves them at zero/defaults
+ * for PAP mode.
+ *
+ * @param out      context to initialize (zeroed by caller)
+ * @param ctx      verification context
+ * @param evm      call context with accounts and mode
+ * @param executor evmone executor instance
+ * @param capture_events whether to capture emitted logs
+ */
+void init_evmone_context(evmone_context_t* out, verify_ctx_t* ctx, evm_call_ctx_t* evm, void* executor, bool capture_events);
 
-    for (account_storage_t* s = acc->storage; s; s = s->next)
-      set_storage(ctx->parent, acc->address, s->key, s->value, &created, &created);
-  }
+// :: Shared builders
 
-  // Transfer logs to parent if parent is capturing events
-  if (ctx->parent->capture_events && ctx->logs) {
-    emitted_log_t* log = ctx->logs;
-    while (log) {
-      emitted_log_t* next = log->next;
-      log->next           = ctx->parent->logs;
-      ctx->parent->logs   = log;
-      log                 = next;
-    }
-    ctx->logs = NULL; // Prevent double-free
-  }
-}
+ssz_ob_t eth_build_simulation_result_ssz(bytes_t call_result, emitted_log_t* logs, bool success, uint64_t gas_used, ssz_ob_t* execution_payload, call_account_t* accounts, keccak_entry_t* keccak_entries, trace_entry_t* traces);
 
-// Shared simulation result builder for ETH and OP Stack
-ssz_ob_t eth_build_simulation_result_ssz(bytes_t call_result, emitted_log_t* logs, bool success, uint64_t gas_used, ssz_ob_t* execution_payload);
+/**
+ * Runs an EVM call with optional event capture and gas metering.
+ *
+ * Reads `evm->accounts` as input (overrides must already be applied).
+ * Writes results to `evm->call_result`, `evm->logs` (when `capture_events`),
+ * and `evm->gas_used`. The transaction is read from `ctx->args[0]`.
+ *
+ * @param ctx the verification context
+ * @param evm call context with inputs populated, outputs written on return
+ * @param capture_events whether to capture emitted events
+ * @return C4_SUCCESS, C4_ERROR, or C4_PENDING
+ */
+c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call_ctx_t* evm, bool capture_events);
 
 #ifdef __cplusplus
 }

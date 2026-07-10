@@ -21,7 +21,7 @@ typedef struct bytes_t {
 %}
 
 // Add typemap for char* return values that need to be freed
-%typemap(out) char* c4_verify_execute_json_status, char* c4_prover_execute_json_status {
+%typemap(out) char* c4_verify_execute_json_status, char* c4_prover_execute_json_status, char* c4_rpc_execute_json_status {
     if ($1) {
         $result = (*jenv)->NewStringUTF(jenv, (const char *)$1);
         free($1);  // Free the dynamically allocated string

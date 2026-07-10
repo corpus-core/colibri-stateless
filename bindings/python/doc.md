@@ -177,6 +177,10 @@ class Colibri:
         beacon_apis: Optional[List[str]] = None,
         trusted_checkpoint: Optional[str] = None,
         request_handler: Optional[RequestHandler] = None,
+        privacy_mode: Optional[PrivacyMode] = None,
+        prover_mode: Optional[ProverMode] = None,
+        skip_wsp_check: bool = False,
+        max_latest_age_seconds: int = 60,
         storage: Optional[ColibriStorage] = None
     ):
         """
@@ -188,6 +192,8 @@ class Colibri:
             eth_rpcs: Ethereum RPC endpoints for execution layer
             beacon_apis: Beacon chain API endpoints
             trusted_checkpoint: Optional trusted checkpoint block hash for anchoring
+            privacy_mode: PAP mode (PrivacyMode.NONE or PrivacyMode.BASIC). Default NONE.
+            prover_mode: Proof generation mode (ProverMode.LOCAL, REMOTE, or HYBRID). Default: REMOTE if provers configured, LOCAL otherwise.
             request_handler: Custom HTTP request handler
             storage: Custom storage implementation
         """
@@ -449,9 +455,125 @@ client = Colibri(
     # Optional trusted anchoring point
     trusted_checkpoint="0x4232db57354ddacec40adda0a502f7732ede19ba0687482a1e15ad20e5e7d1e7",
     
+    # Privacy: PAP (Pragmatic Adaptive Privacy) mode
+    privacy_mode=PrivacyMode.BASIC,  # or PrivacyMode.NONE (default)
+    
     # Custom implementations
     storage=MyCustomStorage(),
     request_handler=MyCustomRequestHandler()
+)
+```
+
+### Prover Mode
+
+Controls how proofs are built and verified. Set via `prover_mode` in the constructor:
+
+- **`ProverMode.LOCAL`** -- Proofs are built entirely on the client. Requires access to a Beacon API and execution layer RPC. Fully trustless, but slower and needs more infrastructure.
+- **`ProverMode.REMOTE`** -- Proofs are fetched from a remote Colibri prover server. Fastest option but relies on the prover server for proof generation. The verifier still cryptographically checks every proof.
+- **`ProverMode.HYBRID`** -- The consensus-layer proof (BlockHeaderProof) comes from the Colibri server, while execution-layer data (account proofs, storage, etc.) is fetched directly from the RPC provider. Best balance of performance and scalability -- the Colibri server only serves lightweight, cacheable header proofs while the heavy RPC load goes to your existing provider.
+- **`ProverMode.PROXY`** -- Like remote, but the client sends its own RPC and Beacon API URLs to the prover server. The server uses these endpoints instead of its own. Useful when the client has access to private or premium RPC providers.
+- **`ProverMode.LIGHT_CLIENT`** -- Like hybrid, with additional background polling of block headers to keep the cache warm. Call `await start_light_client()` / `stop_light_client()` to control polling (default interval: 12s). By default only the compact `eth_getBlockHeader` is fetched; pass `full_block=True` to fetch the full block (useful when many `eth_getTransactionByHash` / `eth_getTransactionReceipt` calls follow).
+
+```python
+from colibri import Colibri
+from colibri.types import ProverMode
+
+# Hybrid mode: header proofs from Colibri, execution data from RPC provider
+client = Colibri(
+    chain_id=1,
+    provers=["https://mainnet.colibri-proof.tech"],
+    eth_rpcs=["https://eth-mainnet.g.alchemy.com/v2/<APIKEY>"],
+    prover_mode=ProverMode.HYBRID
+)
+
+# Light client mode with background header polling
+light_client = Colibri(
+    chain_id=1,
+    provers=["https://mainnet.colibri-proof.tech"],
+    eth_rpcs=["https://eth-mainnet.g.alchemy.com/v2/<APIKEY>"],
+    prover_mode=ProverMode.LIGHT_CLIENT
+)
+await light_client.start_light_client()                    # polls eth_getBlockHeader every 12s
+await light_client.start_light_client(full_block=True)     # or fetch the full block
+```
+
+Default: `ProverMode.REMOTE` when prover URLs are configured, `ProverMode.LOCAL` otherwise.
+
+### Weak Subjectivity Period check
+
+Whenever a sync crosses the **Weak Subjectivity Period (WSP)** -- typically ~2 to 4 months on Ethereum mainnet -- the verifier anchors the highest finalized header against an external `checkpointz` / Beacon API endpoint. The check applies to all three sync paths: verifier-driven Light Client updates, prover-supplied `LCSyncData`, and prover-supplied `ZKSyncData`. For `ZKSyncData` the verifier prefers configured **witness signatures** (`checkpoint_witness_keys` + matching signatures from the prover) and only falls back to `checkpointz` when no witness anchor is available.
+
+- `skip_wsp_check` (`bool`, default `False`) -- sets `VERIFY_FLAG_SKIP_WSP_CHECK` (bit `1 << 7`) and disables the round-trip. **SECURITY:** only safe when another trust anchor (witness signatures, hard-coded checkpoint, signed package) is in place; raises the risk of long-range attacks across periods older than the WSP. See the [threat model -- long range attacks](https://corpus-core.gitbook.io/specification-colibri-stateless/specifications/ethereum/threat-model) for background.
+
+```python
+client = Colibri(
+    chain_id=1,
+    provers=["https://mainnet.colibri-proof.tech"],
+    skip_wsp_check=True,  # only safe with an alternative trust anchor
+)
+```
+
+### Freshness window for `latest` proofs
+
+Proofs that target the **`latest`** block tag remain cryptographically valid forever -- without a freshness window, a months-old proof could still be replayed as "current". The Python binding therefore reads `time.time()` and forwards `now - max_latest_age_seconds` to the verifier, which rejects proofs whose block timestamp is older with `"proof for latest too old"`.
+
+The gate covers the following RPC methods:
+
+- **EVM:** `eth_call`, `eth_estimateGas`, `colibri_simulateTransaction`
+- **Account:** `eth_getBalance`, `eth_getCode`, `eth_getStorageAt`, `eth_getTransactionCount`, `eth_getProof`
+- **Block / header:** `eth_getBlockByNumber`, `eth_getBlockHeader`, `eth_blobBaseFee`, `eth_maxPriorityFeePerGas`
+- **Implicit-latest:** `eth_blockNumber`
+
+Account methods rely on a slim `timestamp` leaf inside the state proof which is only emitted by **prover version ≥ 1.1.27**; against older provers the verifier fails closed (`"cannot verify freshness of latest block without block context"`).
+
+- `max_latest_age_seconds` (`int`, default `60` ≈ 5 Ethereum slots) -- upper bound on the accepted age. Set to `0` to disable the check (e.g. when using legacy proof formats that do not embed a block context).
+
+> **Caveat:** the gate fires only on `"latest"` (not `"safe"`/`"finalized"`). If the host wallclock is behind `max_latest_age_seconds` (containers without time sync, sandboxes with `time = 0`), the lower bound clamps to `0` and the check is silently disabled. Make sure your runtime has a synced clock or set `max_latest_age_seconds=0` explicitly to acknowledge this state.
+
+```python
+client = Colibri(
+    chain_id=1,
+    max_latest_age_seconds=30,  # tighter window for latency-sensitive flows
+)
+```
+
+> **PAP mode:** the freshness check also applies to PAP, where the call proof arrives via `colibri_proofCall` (same proof structure as a direct `eth_call`). This requires a prover that embeds the block context (≥ 1.1.15); against an older PAP proof without a block timestamp the check fails closed (`"cannot verify freshness of latest block without block context"`). Set `max_latest_age_seconds=0` to opt out.
+
+> **`eth_getLogs`:** intentionally **not** covered. The proof witnesses individual log entries; the request range itself (up to `latest`) is not part of the proof yet. Tracked under issue #128 (full log-range proofs).
+
+### Privacy (PAP)
+
+**PAP (Pragmatic Adaptive Privacy)** reduces intent leakage towards RPC/prover by using cached data when available and verifying afterwards.
+
+- `privacy_mode` – `PrivacyMode.NONE` (default) or `PrivacyMode.BASIC`. With `BASIC`, the verifier sets the PAP flag so that method-type and verification can use cached storage for optimistic execution (e.g. for `eth_call`); method type may depend on params.
+
+*This feature is still experimental!*
+
+
+```python
+from colibri import Colibri
+from colibri.types import PrivacyMode
+
+client = Colibri(chain_id=1, privacy_mode=PrivacyMode.BASIC)
+```
+
+### Privacy-preserving `eth_call` (oblivious + PAP + hybrid)
+
+For an `eth_call` where storage privacy is preserved end-to-end, use all three options below. Defaults keep `oblivious_nodes` empty (disabled).
+
+| Setting | Role |
+|---------|------|
+| `prover_mode=ProverMode.HYBRID` | Only the block proof comes from the prover; storage/account data is fetched from RPC or oblivious node and verified locally. Remote mode would pull the full call proof from the server. |
+| `privacy_mode=PrivacyMode.BASIC` | PAP: no `eth_createAccessList` on the prover (that would leak which slots you read). Storage is resolved optimistically in the local EVM; only `eth_getProof` requests go out. |
+| `oblivious_nodes` | TEE RPC for those `eth_getProof` calls. Sets `VERIFY_FLAG_OBLIVIOUS` and **PAP automatically** when non-empty. See [Oblivious Labs](https://www.obliviouslabs.com/) for how oblivious nodes use TEE and Oblivious RAM (ORAM). |
+
+```python
+# https://rpc.safe-node.com/ requires an API key for testing
+client = Colibri(
+    chain_id=1,
+    privacy_mode=PrivacyMode.BASIC,
+    prover_mode=ProverMode.HYBRID,
+    oblivious_nodes=["https://rpc.safe-node.com/"],
 )
 ```
 
@@ -465,11 +587,15 @@ from colibri.types import (
     ProofError,        # Proof generation/verification failed
     VerificationError, # Proof verification failed
     RPCError,          # RPC call failed
+    RevertError,       # Verified EVM revert (eth_call etc.) -- subclass of RPCError
     HTTPError          # Network request failed
 )
 
 try:
     result = await client.rpc("eth_getBalance", ["0x...", "latest"])
+except RevertError as e:
+    # Verified EVM revert -- decode e.data with the contract ABI
+    print(f"Reverted with data: {e.data}")
 except ProofError as e:
     print(f"Proof error: {e}")
     # Handle proof generation failure
@@ -485,6 +611,30 @@ except HTTPError as e:
 except ColibriError as e:
     print(f"General Colibri error: {e}")
     # Handle any other Colibri error
+```
+
+### Verified EVM reverts (`RevertError`)
+
+When an `eth_call` (or similar EVM execution) is verified successfully but the
+EVM itself executed a `REVERT`, the binding raises `RevertError`. This is a
+fully verified outcome -- not a transport or proof failure -- and matches the
+Geth-style RPC error `{"code": 3, "message": "execution reverted", "data": "0x..."}`.
+
+`RevertError` is a subclass of `RPCError` (with `code = 3`) and exposes the raw
+revert return data as a `0x`-prefixed hex string in `data`. Callers typically
+ABI-decode this against the contract's error definitions (custom errors,
+`Error(string)`, etc.). This is the mechanism that lets dApp libraries decode
+`OffchainLookup` (EIP-3668 / CCIP-Read) for example for the ENS off-chain
+resolver.
+
+```python
+from colibri import RevertError
+
+try:
+    await client.rpc("eth_call", [{"to": "0x...", "data": "0x..."}, "latest"])
+except RevertError as e:
+    # e.data == "0x556f1830..."  # ABI-encoded OffchainLookup or custom error
+    print(f"reverted with: {e.data}")
 ```
 
 ### Graceful Degradation

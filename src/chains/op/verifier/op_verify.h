@@ -31,11 +31,63 @@ bool op_verify_tx_proof(verify_ctx_t* ctx);
 bool op_verify_receipt_proof(verify_ctx_t* ctx);
 bool op_verify_logs_proof(verify_ctx_t* ctx);
 bool op_verify_call_proof(verify_ctx_t* ctx);
-bool op_verify_simulate_proof(verify_ctx_t* ctx);
 bool op_verify_account_proof(verify_ctx_t* ctx);
 
-// extracts the execution payload from the block_proof and returns the ssz_ob if successful. Caller must free the ssz_ob_t!.
-ssz_ob_t* op_extract_verified_execution_payload(verify_ctx_t* ctx, ssz_ob_t block_proof, json_t* block_number, bytes32_t parent_hash);
+/**
+ * Extract and verify the OP execution payload referenced by `block_proof`.
+ *
+ * Returns an `ssz_ob_t` view (by value) onto the underlying decompressed bytes;
+ * those bytes live in `ctx->state.requests` and are released automatically
+ * during verifier teardown. On failure, the returned value has `.def == NULL`
+ * and `.bytes == NULL_BYTES`, and an error is recorded on `ctx->state`.
+ *
+ * @param ctx verify context
+ * @param block_proof SSZ `OP_BLOCKPROOF_UNION` from the proof
+ * @param block_number optional user-requested block (number or hash JSON), may be NULL
+ * @param parent_hash optional out-buffer for the 32-byte parent hash, may be NULL
+ * @return `ssz_ob_t` view; check `.def` to detect failure (no free required)
+ */
+ssz_ob_t op_extract_verified_execution_payload(verify_ctx_t* ctx, ssz_ob_t block_proof, json_t* block_number, bytes32_t parent_hash);
+
+/**
+ * Build the storage key used for the cached OP execution payload.
+ * Single slot per chain - any new full payload replaces the previous one.
+ *
+ * @param chain_id chain identifier
+ * @param out output buffer
+ * @param out_size capacity of `out` in bytes (the helper truncates to fit)
+ */
+void op_payload_key(chain_id_t chain_id, char* out, size_t out_size);
+
+/**
+ * Load a previously verified execution payload from local storage.
+ *
+ * @param chain_id chain identifier
+ * @return raw decompressed bytes [parent_hash(32) | ssz_execution_payload], or NULL_BYTES if absent.
+ *         Caller owns the returned buffer and must `safe_free(result.data)`.
+ */
+bytes_t op_load_cached_payload(chain_id_t chain_id);
+
+/**
+ * Persist a freshly verified execution payload and update the chain client state.
+ * The previous cached entry is implicitly replaced; the chain state transitions to
+ * `C4_STATE_SYNC_EXECUTION_PAYLOAD` referencing (block_number, blockhash).
+ *
+ * @param chain_id chain identifier
+ * @param decompressed_data full decompressed preconf data: [parent_hash(32) | ssz_execution_payload]
+ * @param block_number block number of the verified payload
+ * @param blockhash block hash of the verified payload
+ */
+void op_store_cached_payload(chain_id_t chain_id, bytes_t decompressed_data, uint64_t block_number, bytes32_t blockhash);
+
+/**
+ * Chain-specific RPC-context init hook (registered via CMake `INIT_RPC_CTX`).
+ *
+ * Inspects `ctx->client_state` to find a cached execution payload and prepends
+ * a `C4_DATA_TYPE_CACHE` `data_request_t` to `ctx->snapshots`, identified by
+ * the cached payload's blockhash.
+ */
+void op_init_rpc_ctx(c4_init_ctx_t* ctx);
 
 // helper
 #endif // eth_verify_h__
