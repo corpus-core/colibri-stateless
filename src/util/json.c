@@ -365,7 +365,7 @@ uint64_t json_as_uint64(json_t value) {
   buffer_t buffer  = stack_buffer(tmp);
   if (value.len > 4 && value.start && value.start[1] == '0' && value.start[2] == 'x') {
     int len = hex_to_bytes(value.start + 1, value.len - 2, bytes(tmp, 20));
-    if (len == -1) return 0;
+    if (len < 0 || len > 8) return 0; // invalid hex, or the quantity does not fit into 64 bits
     memmove(tmp + 8 - len, tmp, len);
     memset(tmp, 0, 8 - len);
     return uint64_from_be(tmp);

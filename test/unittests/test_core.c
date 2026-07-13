@@ -140,6 +140,29 @@ void test_json() {
     TEST_ASSERT_TRUE(strlen(esc_out) < sizeof(esc_buf_mem)); // no overflow, valid C string
   }
 
+  // regression: json_as_uint64 must not perform an out-of-bounds write when a hex
+  // quantity decodes to more than 8 bytes. Previously "8 - len" underflowed the
+  // pointer and the size_t passed to memset became ~SIZE_MAX (remote memory
+  // corruption reachable from any attacker-controlled hex quantity in an RPC
+  // response). Oversized values must fail closed (return 0) instead.
+  {
+    // valid values that fit into 64 bits are unaffected
+    TEST_ASSERT_EQUAL_HEX64(0x1234, json_as_uint64(json_parse("\"0x1234\"")));
+    TEST_ASSERT_EQUAL_HEX64(UINT64_MAX, json_as_uint64(json_parse("\"0xffffffffffffffff\""))); // exactly 8 bytes, upper valid edge
+
+    // 9 decoded bytes (18 hex digits): "8 - len" used to underflow and crash; caught by the len > 8 guard
+    TEST_ASSERT_EQUAL_HEX64(0, json_as_uint64(json_parse("\"0x010203040506070809\"")));
+
+    // full 256-bit quantity (32 bytes) exceeds the 20-byte scratch buffer -> hex_to_bytes returns -1 (len < 0 guard)
+    TEST_ASSERT_EQUAL_HEX64(0, json_as_uint64(json_parse("\"0x0102030405060708091011121314151617181920212223242526272829303132\"")));
+
+    // invalid hex nibble that still fits the buffer -> hex_to_bytes returns -1 (len < 0 guard)
+    TEST_ASSERT_EQUAL_HEX64(0, json_as_uint64(json_parse("\"0x12zz\"")));
+
+    // decimal (non-0x) path goes through strtoull
+    TEST_ASSERT_EQUAL_HEX64(255, json_as_uint64(json_parse("255")));
+  }
+
   // cleanup
   buffer_free(&buffer);
 }
