@@ -369,11 +369,22 @@ uint64_t json_as_uint64(json_t value) {
   uint8_t  tmp[20] = {0};
   buffer_t buffer  = stack_buffer(tmp);
   if (value.len > 4 && value.start && value.start[1] == '0' && value.start[2] == 'x') {
-    int len = hex_to_bytes(value.start + 1, value.len - 2, bytes(tmp, 20));
-    if (len < 0 || len > 8) return 0; // invalid hex, or the quantity does not fit into 64 bits
-    memmove(tmp + 8 - len, tmp, len);
-    memset(tmp, 0, 8 - len);
-    return uint64_from_be(tmp);
+    // Skip opening quote, "0x" prefix, and closing quote: hex digits sit at [start+3 .. start+len-2)
+    const char* hex     = value.start + 3;
+    size_t      hex_len = value.len - 4;
+    // Strip leading zero nibbles so that we compare significant nibbles against the 64-bit limit
+    while (hex_len > 0 && *hex == '0') {
+      hex++;
+      hex_len--;
+    }
+    if (hex_len == 0) return 0;
+    if (hex_len > 16) return 0; // more than 16 significant nibbles cannot fit into 64 bits
+    uint8_t hex_buf[8] = {0};
+    int     len        = hex_to_bytes(hex, (int) hex_len, bytes(hex_buf, 8));
+    if (len < 0) return 0; // invalid hex
+    memmove(hex_buf + 8 - len, hex_buf, len);
+    memset(hex_buf, 0, 8 - len);
+    return uint64_from_be(hex_buf);
   }
   return (uint64_t) strtoull(json_as_string(value, &buffer), NULL, 10);
 }

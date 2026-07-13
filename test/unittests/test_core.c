@@ -161,6 +161,15 @@ void test_json() {
 
     // decimal (non-0x) path goes through strtoull
     TEST_ASSERT_EQUAL_HEX64(255, json_as_uint64(json_parse("255")));
+
+    // leading zero nibbles must be stripped: significant portion fits into 64 bits
+    TEST_ASSERT_EQUAL_HEX64(2, json_as_uint64(json_parse("\"0x0000000000000000000000000000000000000000000000000000000000000000000002\"")));
+    // 32-byte quantity padded with leading zeros, non-zero part is 8 bytes
+    TEST_ASSERT_EQUAL_HEX64(0xdeadbeefcafebabeULL, json_as_uint64(json_parse("\"0x000000000000000000000000000000000000000000000000deadbeefcafebabe\"")));
+    // all-zero hex quantity
+    TEST_ASSERT_EQUAL_HEX64(0, json_as_uint64(json_parse("\"0x00000000000000000000000000000000000000000000000000000000\"")));
+    // 17 significant nibbles -> does not fit into 64 bits even after stripping leading zeros
+    TEST_ASSERT_EQUAL_HEX64(0, json_as_uint64(json_parse("\"0x0010000000000000000\"")));
   }
 
   // regression (F-ED20B2): json_to_bytes / json_as_bytes must not overflow a fixed
