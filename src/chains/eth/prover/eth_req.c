@@ -145,6 +145,11 @@ c4_status_t eth_debug_trace_call(prover_ctx_t* ctx, json_t tx, json_t* trace, ui
 c4_status_t eth_create_access_list(prover_ctx_t* ctx, json_t tx, json_t* trace, uint64_t block_number, json_t state_overrides) {
   buffer_t        buf = {0};
   data_request_t* req = NULL;
+  // The tx object is validated upstream (CHECK_JSON in c4_proof_call), but guard
+  // defensively: never decrement an unsigned length without confirming tx is a
+  // non-empty object, otherwise tx.len would wrap and %J would emit an
+  // out-of-bounds slice into the outbound request.
+  if (tx.type != JSON_TYPE_OBJECT || tx.len < 2) THROW_ERROR("invalid tx object for access list");
   tx.len--; // removing the closing '}', so we can add arguments
             //  TRY_ASYNC_FINAL(c4_send_eth_rpc(ctx, "eth_createAccessList", bprintf(&buf, "[%J,\"maxFeePerGas\":\"0x1\",\"maxPriorityFeePerGas\":\"0x1\"},\"0x%lx\"]", tx, block_number), 12, trace), buffer_free(&buf));
   if (state_overrides.type == JSON_TYPE_OBJECT)

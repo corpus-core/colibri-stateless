@@ -163,6 +163,69 @@ void test_json() {
     TEST_ASSERT_EQUAL_HEX64(255, json_as_uint64(json_parse("255")));
   }
 
+  // regression (F-ED20B2): json_to_bytes / json_as_bytes must not overflow a fixed
+  // target buffer when the hex string decodes to more bytes than the target holds.
+  // Previously json_as_bytes advertised value.len (the hex string length) as capacity
+  // to hex_to_bytes, defeating its bounds check on fixed (non-growable) buffers.
+  {
+    struct {
+      uint8_t target[32];
+      uint8_t canary[16];
+    } g;
+    memset(&g, 0xAA, sizeof(g));
+
+    // oversized (38-byte) hex value into a 32-byte target -> must fail closed (0 written), no overflow
+    uint32_t n = json_to_bytes(json_parse("\"0x0102030405060708091011121314151617181920212223242526272829303132333435363738\""), bytes(g.target, 32));
+    TEST_ASSERT_EQUAL_UINT32(0, n);
+    for (int i = 0; i < 16; i++) TEST_ASSERT_EQUAL_HEX8(0xAA, g.canary[i]); // canary intact -> no overflow
+
+    // exact 32-byte value still decodes correctly into the fixed target
+    uint32_t m = json_to_bytes(json_parse("\"0x0102030405060708091011121314151617181920212223242526272829303132\""), bytes(g.target, 32));
+    TEST_ASSERT_EQUAL_UINT32(32, m);
+    TEST_ASSERT_EQUAL_HEX8(0x01, g.target[0]);
+    TEST_ASSERT_EQUAL_HEX8(0x32, g.target[31]);
+    for (int i = 0; i < 16; i++) TEST_ASSERT_EQUAL_HEX8(0xAA, g.canary[i]);
+  }
+
+  // regression (F-07C606): json_get_path must not overflow its 256-byte scratch
+  // buffer when a path segment is >= 256 bytes. A well-formed lookup still works.
+  {
+    char longpath[300];
+    memset(longpath, 'a', 298);
+    longpath[298] = '.'; // segment of 298 chars followed by a separator triggers the old strncpy overflow
+    longpath[299] = '\0';
+    json_t r = json_get_path(json_parse("{\"a\":1}"), longpath);
+    TEST_ASSERT_TRUE(r.type == JSON_TYPE_INVALID || r.type == JSON_TYPE_NOT_FOUND); // rejected, no crash
+
+    // second overflow site: an over-long array-index segment "a[999...9]" must also be rejected
+    char idxpath[320];
+    idxpath[0] = 'a';
+    idxpath[1] = '[';
+    memset(idxpath + 2, '9', 300);
+    idxpath[302] = ']';
+    idxpath[303] = '\0';
+    json_t r2    = json_get_path(json_parse("{\"a\":[1,2,3]}"), idxpath);
+    TEST_ASSERT_TRUE(r2.type == JSON_TYPE_INVALID || r2.type == JSON_TYPE_NOT_FOUND); // rejected, no crash
+
+    // sanity: normal path lookups keep working (property and array index)
+    json_t ok = json_get_path(json_parse("{\"a\":{\"b\":42}}"), "a.b");
+    TEST_ASSERT_EQUAL_INT(42, json_as_uint32(ok));
+    json_t ok_idx = json_get_path(json_parse("{\"a\":[7,8,9]}"), "a[1]");
+    TEST_ASSERT_EQUAL_INT(8, json_as_uint32(ok_idx));
+  }
+
+  // regression (F-16D6F1): json_as_string must not underflow value.len - 2 for a
+  // malformed/synthesized STRING node with len < 2 (not producible by json_parse,
+  // but reachable via hand-built json_t). Must yield a valid (empty) C string.
+  {
+    json_t   short_str = {.type = JSON_TYPE_STRING, .start = "\"", .len = 1};
+    buffer_t sbuf      = {0};
+    char*    out       = json_as_string(short_str, &sbuf);
+    TEST_ASSERT_NOT_NULL(out);
+    TEST_ASSERT_EQUAL_STRING("", out);
+    buffer_free(&sbuf);
+  }
+
   // cleanup
   buffer_free(&buffer);
 }
