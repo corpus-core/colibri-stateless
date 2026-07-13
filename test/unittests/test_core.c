@@ -185,6 +185,18 @@ void test_json() {
     TEST_ASSERT_EQUAL_HEX8(0x01, g.target[0]);
     TEST_ASSERT_EQUAL_HEX8(0x32, g.target[31]);
     for (int i = 0; i < 16; i++) TEST_ASSERT_EQUAL_HEX8(0xAA, g.canary[i]);
+
+    // regression: on invalid hex, json_as_bytes must not leak the locally-owned
+    // fallback buffer it allocates when called with a NULL buffer (checked by valgrind).
+    buffer_t* null_buf = NULL;
+    bytes_t   inv      = json_as_bytes(json_parse("\"0xzz\""), null_buf);
+    TEST_ASSERT_NULL(inv.data);
+
+    // caller-provided buffer on invalid hex: returns NULL_BYTES, caller still owns/frees it
+    buffer_t owned = {0};
+    bytes_t  inv2  = json_as_bytes(json_parse("\"0xzz\""), &owned);
+    TEST_ASSERT_NULL(inv2.data);
+    buffer_free(&owned);
   }
 
   // regression (F-07C606): json_get_path must not overflow its 256-byte scratch

@@ -401,7 +401,10 @@ bytes_t json_as_bytes(json_t value, buffer_t* buffer) {
   // let hex_to_bytes write past its end.
   buffer->data.len = buffer_grow(buffer, value.len / 2);
   int len          = hex_to_bytes(value.start + 1, value.len - 2, buffer->data);
-  if (len == -1) return NULL_BYTES;
+  if (len == -1) {
+    if (buffer == &tmp) buffer_free(&tmp); // only the locally-owned fallback buffer; a caller-provided buffer is freed by the caller
+    return NULL_BYTES;
+  }
   buffer->data.len = (uint32_t) len;
   return buffer->data;
 }
