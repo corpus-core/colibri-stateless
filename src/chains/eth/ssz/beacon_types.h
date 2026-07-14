@@ -107,7 +107,9 @@ typedef enum {
   // on the union array at the call sites).
   ETH_SSZ_VERIFY_LC_SYNCDATA    = 45, // `LCSyncData`   (union index 1): LightClient sync data
   ETH_SSZ_VERIFY_ZK_SYNCDATA    = 46, // `ZKSyncData`   (union index 2): legacy SP1 v5 ZK sync data, 260-byte proof
-  ETH_SSZ_VERIFY_ZK_SYNCDATA_V6 = 47  // `ZKSyncDataV6` (union index 3): SP1 v6 ZK sync data, 356-byte proof
+  ETH_SSZ_VERIFY_ZK_SYNCDATA_V6 = 47, // `ZKSyncDataV6` (union index 3): SP1 v6 ZK sync data, 356-byte proof
+
+  ETH_SSZ_VERIFY_LOGS_COMPLETENESS_PROOF = 48 // `LogsCompletenessProof` (proof union index 20): completeness proof for eth_getLogs
 
 } eth_ssz_type_t;
 

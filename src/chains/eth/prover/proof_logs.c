@@ -33,6 +33,7 @@
 #include "logs_cache.h"
 #endif
 #include "patricia.h"
+#include "proof_logs_completeness.h"
 #include "prover.h"
 #include "rlp.h"
 #include "ssz.h"
@@ -371,6 +372,10 @@ static c4_status_t serialize_log_proof(prover_ctx_t* ctx, proof_logs_block_t* bl
 }
 
 c4_status_t c4_proof_logs(prover_ctx_t* ctx) {
+  // A completeness proof is only meaningful for eth_getLogs (range queries), not for eth_proofLogs.
+  if ((ctx->flags & C4_PROVER_FLAG_LOGS_COMPLETENESS) && proof_logs_block_proof_type(ctx) == ETH_GET_LOGS)
+    return c4_proof_logs_completeness(ctx);
+
   bool                hybrid        = (ctx->flags & C4_PROVER_FLAG_HYBRID) != 0;
   json_t              logs          = {0};
   proof_logs_block_t* blocks        = NULL;

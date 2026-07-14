@@ -811,3 +811,72 @@ static const ssz_def_t ETH_HYBRID_BLOCK_PROOF[] = {
 static const ssz_def_t ETH_HYBRID_BLOCK_HEADER_PROOF[] = {
     SSZ_CONTAINER("header_data", ETH_BLOCK_HEADER_DATA),
 };
+
+// :: Logs Completeness Proof
+//
+// A **Logs Completeness Proof** proves for a contiguous range of execution blocks
+// `[fromBlock, toBlock]` that **no** matching log for the `eth_getLogs` filter was
+// omitted. The normal Logs Proof only proves inclusion of the returned logs; this
+// proof additionally guarantees completeness.
+//
+// **Continuity.** A single signed anchor header (the beacon block of `toBlock`) plus a
+// parent_root chain of `ProofHeader`s down to `fromBlock`. Because the execution-layer
+// `blockNumber` increments by exactly 1 per non-empty beacon block, an unbroken
+// parent_root chain together with a gap-free `blockNumber` sequence `fromBlock..toBlock`
+// guarantees that no block was skipped. Only one sync-committee BLS signature (over the
+// anchor) is required.
+//
+// **Per block** one of two variants (covers the three scenarios of issue #128):
+//   - `BloomNegative`: `blockNumber` + `logsBloom` are proven via a multi-merkle proof
+//     against the block's `bodyRoot`. The verifier computes the query bloom(s) from the
+//     filter and asserts that none is a bit-subset of the block's `logsBloom`, hence no
+//     matching log can exist in this block.
+//   - `FullReceipts`: `blockNumber` + `blockHash` + `receiptsRoot` (and the matching
+//     transactions) are proven; all RLP receipts are delivered so the verifier rebuilds
+//     the receipts trie, compares it to the proven `receiptsRoot`, and filters the logs
+//     locally. An empty match set corresponds to scenario 2, a non-empty one to
+//     scenario 3 (the raw transactions provide the transaction hashes).
+
+// A slim transaction entry (raw payload + index) used to reconstruct transaction hashes
+// for matched logs; the transaction is bound to the block via the block's multi proof.
+static const ssz_def_t ETH_COMPLETENESS_TX[] = {
+    SSZ_BYTES("transaction", 1073741824), // the raw transaction payload
+    SSZ_UINT32("transactionIndex"),       // the index of the transaction in the block
+};
+static const ssz_def_t ETH_COMPLETENESS_TX_CONTAINER = SSZ_CONTAINER("CompletenessTx", ETH_COMPLETENESS_TX);
+
+// Bloom-negative block: proves that the query bloom is not a subset of the block's logsBloom.
+static const ssz_def_t ETH_COMPLETENESS_BLOOM_NEGATIVE[] = {
+    SSZ_UINT64("blockNumber"),         // the execution block number
+    SSZ_BYTE_VECTOR("logsBloom", 256), // the block's logsBloom (execution payload)
+    SSZ_LIST("proof", ssz_bytes32, 256), // multi proof of blockNumber + logsBloom to bodyRoot
+};
+
+// Full-receipts block: all receipts are delivered so the verifier rebuilds the receipts trie.
+static const ssz_def_t ETH_COMPLETENESS_FULL_RECEIPTS[] = {
+    SSZ_UINT64("blockNumber"),                            // the execution block number
+    SSZ_BYTES32("blockHash"),                             // the execution block hash (for reconstructed log entries)
+    SSZ_LIST("receipts", ssz_bytes_list, 65536),         // all RLP-serialized receipts of the block
+    SSZ_LIST("txs", ETH_COMPLETENESS_TX_CONTAINER, 256), // raw transactions of the matching logs (for transactionHash)
+    SSZ_LIST("proof", ssz_bytes32, 1024),                // multi proof of blockNumber + blockHash + receiptsRoot + matched transactions to bodyRoot
+};
+
+// Per-block union: a block is either proven bloom-negative or delivered with all receipts.
+static const ssz_def_t ETH_COMPLETENESS_BLOCK_UNION[] = {
+    SSZ_NONE,
+    SSZ_CONTAINER("BloomNegative", ETH_COMPLETENESS_BLOOM_NEGATIVE), // 1: no matching log possible (bloom check)
+    SSZ_CONTAINER("FullReceipts", ETH_COMPLETENESS_FULL_RECEIPTS),   // 2: all receipts delivered, filtered locally
+};
+static const ssz_def_t ETH_COMPLETENESS_BLOCK = SSZ_UNION("block", ETH_COMPLETENESS_BLOCK_UNION);
+
+// The main proof data for a logs completeness proof over a contiguous block range.
+static const ssz_def_t ETH_LOGS_COMPLETENESS_PROOF[] = {
+    SSZ_UINT64("fromBlock"),                            // first execution block of the range (inclusive)
+    SSZ_UINT64("toBlock"),                              // last execution block of the range (inclusive), == anchor block
+    SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),       // full beacon header of fromBlock (oldest; parentRoot anchors the chain)
+    SSZ_LIST("headers", PROOF_HEADER_CONTAINER, 4096),  // ProofHeaders ascending fromBlock+1..toBlock (last == signed anchor)
+    SSZ_BIT_VECTOR("sync_committee_bits", 512),         // the bits of the validators that signed the anchor
+    SSZ_BYTE_VECTOR("sync_committee_signature", 96),    // the sync committee signature over the anchor root
+    SSZ_LIST("blocks", ETH_COMPLETENESS_BLOCK, 4096),   // per-block payload ascending fromBlock..toBlock
+};
+static const ssz_def_t ETH_LOGS_COMPLETENESS_PROOF_CONTAINER = SSZ_CONTAINER("LogsCompletenessProof", ETH_LOGS_COMPLETENESS_PROOF);

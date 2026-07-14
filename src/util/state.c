@@ -47,6 +47,8 @@ void c4_append_prover_request_props(buffer_t* payload, bytes_t client_state, cha
     bprintf(payload, ",\"zk_proof\":true");
   if (flags & C4_PROVER_REQ_FLAG_INCLUDE_CODE)
     bprintf(payload, ",\"include_code\":true");
+  if (flags & C4_PROVER_REQ_FLAG_LOGS_COMPLETENESS)
+    bprintf(payload, ",\"logs_completeness\":true");
   if (witness_key.data && witness_key.len)
     bprintf(payload, ",\"signers\":\"0x%x\"", witness_key);
 }

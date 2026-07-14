@@ -79,6 +79,7 @@ typedef enum {
   C4_PROVER_FLAG_HYBRID             = 1 << 9, // hybrid mode: header proof from remote server, execution data from RPC provider
   C4_PROVER_FLAG_PROXY              = 1 << 10, // server: request used client-supplied RPC/Beacon URLs (proxy mode)
   C4_PROVER_FLAG_LIGHT_CLIENT       = 1 << 11, // light client mode: extended header cache TTL for "latest" (full block_time instead of half)
+  C4_PROVER_FLAG_LOGS_COMPLETENESS  = 1 << 12, // if true, eth_getLogs generates a completeness proof over the requested block range (proves no matching log was omitted)
 } prover_flag_types_t;
 
 /**

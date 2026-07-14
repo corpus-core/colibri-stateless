@@ -99,6 +99,7 @@ static const ssz_def_t C4_REQUEST_PROOFS_UNION[] = {
     SSZ_CONTAINER("HybridBlockProof", ETH_HYBRID_BLOCK_PROOF),             // 17: Hybrid block proof (EP only)
     SSZ_CONTAINER("HybridBlockHeaderProof", ETH_HYBRID_BLOCK_HEADER_PROOF), // 18: Hybrid block header/number proof (header_data only)
     SSZ_CONTAINER("HybridBlockReceiptsProof", ETH_HYBRID_BLOCK_RECEIPTS_PROOF), // 19: Hybrid block receipts proof (header_data only)
+    SSZ_CONTAINER("LogsCompletenessProof", ETH_LOGS_COMPLETENESS_PROOF), // 20: Completeness proof for eth_getLogs over a contiguous block range
 };
 
 // A List of possible types of sync data used to update the sync state by verifying the transition from the last period to the required.
@@ -298,6 +299,8 @@ const ssz_def_t* eth_ssz_verification_type(eth_ssz_type_t type) {
       return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, ETH_HYBRID_BLOCK_HEADER_PROOF);
     case ETH_SSZ_VERIFY_HYBRID_BLOCK_RECEIPTS_PROOF:
       return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, ETH_HYBRID_BLOCK_RECEIPTS_PROOF);
+    case ETH_SSZ_VERIFY_LOGS_COMPLETENESS_PROOF:
+      return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, ETH_LOGS_COMPLETENESS_PROOF);
     case ETH_SSZ_VERIFY_CHECKPOINT_PROOF:
       return ARRAY_TYPE(ETH_HEADER_PROOFS_UNION, ETH_CHECKPOINT_PROOF);
     case ETH_SSZ_VERIFY_LC_SYNCDATA:
