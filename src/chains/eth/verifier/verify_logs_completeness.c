@@ -42,33 +42,36 @@
 // SSZ list capacity (4096) and caps allocation before the (untrusted) range is otherwise validated.
 #define VERIFY_LOGS_COMPLETENESS_MAX_BLOCKS 4096
 
-// Verifies the parent_root header chain and the anchor's sync committee signature.
-// Fills body_roots[0..count-1] with the bodyRoot of each in-range block (ascending).
-static c4_status_t verify_chain(verify_ctx_t* ctx, ssz_ob_t header, ssz_ob_t headers, ssz_ob_t bits, ssz_ob_t sig, bytes32_t* body_roots, uint32_t count) {
-  uint32_t  header_count      = ssz_len(headers);
-  uint8_t   header_bytes[112] = {0};
-  bytes32_t last_block_root   = {0};
-  ssz_ob_t  header_ob         = {.bytes = bytes(header_bytes, sizeof(header_bytes)), .def = eth_ssz_type_for_denep(ETH_SSZ_BEACON_BLOCK_HEADER, C4_CHAIN_MAINNET)};
+// Reconstructs the ascending parentRoot header chain (oldest `header` -> anchor) without verifying
+// the anchor's canonicity (that is done separately via the shared `header_proof` union).
+// Fills body_roots[0..count-1] with the bodyRoot of each in-range block (ascending) and writes the
+// reconstructed anchor (the newest header) into `anchor_bytes`/`*anchor_out`.
+static c4_status_t reconstruct_chain(verify_ctx_t* ctx, ssz_ob_t header, ssz_ob_t headers,
+                                     bytes32_t* body_roots, uint32_t count,
+                                     uint8_t anchor_bytes[112], ssz_ob_t* anchor_out) {
+  uint32_t  header_count    = ssz_len(headers);
+  bytes32_t last_block_root = {0};
+  ssz_ob_t  header_ob       = {.bytes = bytes(anchor_bytes, 112), .def = eth_ssz_type_for_denep(ETH_SSZ_BEACON_BLOCK_HEADER, C4_CHAIN_MAINNET)};
 
   if (header_count != count - 1) THROW_ERROR("completeness proof header chain length mismatch!");
 
-  // bodyRoot of fromBlock comes from the full header
+  // bodyRoot of the oldest block comes from the full header
   memcpy(body_roots[0], ssz_get(&header, "bodyRoot").bytes.data, 32);
   ssz_hash_tree_root(header, last_block_root);
 
-  // walk the parent_root chain from fromBlock+1 up to the anchor (toBlock)
+  // walk the parent_root chain from the oldest+1 up to the anchor (newest)
   for (uint32_t i = 0; i < header_count; i++) {
     ssz_ob_t h = ssz_at(headers, i);
-    memcpy(header_bytes, h.bytes.data, 16);           // slot and proposerIndex
-    memcpy(header_bytes + 16, last_block_root, 32);   // parentRoot = previous block root
-    memcpy(header_bytes + 48, h.bytes.data + 16, 64); // stateRoot and bodyRoot
+    memcpy(anchor_bytes, h.bytes.data, 16);           // slot and proposerIndex
+    memcpy(anchor_bytes + 16, last_block_root, 32);   // parentRoot = previous block root
+    memcpy(anchor_bytes + 48, h.bytes.data + 16, 64); // stateRoot and bodyRoot
     ssz_hash_tree_root(header_ob, last_block_root);
     memcpy(body_roots[i + 1], h.bytes.data + 48, 32); // bodyRoot of this block
   }
 
-  // verify the sync committee signature over the anchor (last header, or the full header for a single-block range)
-  ssz_ob_t anchor = header_count ? header_ob : header;
-  return c4_verify_blockroot_signature(ctx, &anchor, &bits, &sig, 0, NULL);
+  // the anchor is the last reconstructed header, or the full header for a single-block range
+  *anchor_out = header_count ? header_ob : header;
+  return C4_SUCCESS;
 }
 
 static bool verify_negative_block(verify_ctx_t* ctx, ssz_ob_t block, bytes32_t body_root, bytes_t query_blooms) {
@@ -245,53 +248,108 @@ static bool bind_range_endpoint(verify_ctx_t* ctx, json_t tag, uint64_t proof_va
   return proof_value == anchor_value; // "latest"/"safe"/"finalized"
 }
 
+// Verifies the anchor `tag_proof` (ETH_STATE_BLOCK_UNION) and runs the `latest` freshness gate.
+//   - `timestamp` variant: the anchor's execution timestamp is proven against its bodyRoot via
+//     `tag_proof_branch`; the proven value feeds `eth_check_latest_freshness`.
+//   - `checkpoint_proof` variant (`safe`/`finalized`): structurally prepared but not verified yet.
+//   - `none` variant (pinned block): no timestamp -> the gate fails closed if the host demanded
+//     freshness for an open-ended tag.
+//
+// `safe`/`finalized` bind the range endpoint to the beacon checkpoint, which requires the (not yet
+// implemented) `checkpoint_proof` variant. Until then these tags are rejected fail-closed: accepting
+// the `timestamp` variant for them would let a prover anchor at an arbitrary older canonical block
+// (no freshness enforced for non-`latest` tags) and silently omit newer logs.
+static bool verify_tag_proof_freshness(verify_ctx_t* ctx, ssz_ob_t proof, json_t filter, bytes32_t anchor_body_root) {
+  json_t   to_tag    = json_get(filter, "toBlock");
+  bool     is_latest = to_tag.type == JSON_TYPE_NOT_FOUND || eth_json_is_latest(to_tag);
+  bool     is_pinned = to_tag.type == JSON_TYPE_STRING && to_tag.len > 2 && to_tag.start[1] == '0' && to_tag.start[2] == 'x';
+  if (!is_latest && !is_pinned)
+    RETURN_VERIFY_ERROR(ctx, "toBlock tag not yet supported for completeness (only a pinned block or 'latest')");
+
+  ssz_ob_t tag       = ssz_get(&proof, "tag_proof");
+  bool     is_ts     = tag.def == eth_ssz_verification_type(ETH_SSZ_DATA_STATE_BLOCK_TIMESTAMP);
+  uint64_t anchor_ts = 0;
+
+  if (is_ts) {
+    ssz_ob_t  branch    = ssz_get(&proof, "tag_proof_branch");
+    gindex_t  gindex[1] = {GINDEX_TIMESTAMP};
+    uint8_t   leaf[32]  = {0};
+    bytes32_t root      = {0};
+    if (tag.bytes.len >= 8) memcpy(leaf, tag.bytes.data, 8); // uint64 leaf: 8 bytes LE, zero-padded to 32
+    if (!ssz_verify_multi_merkle_proof(branch.bytes, bytes(leaf, 32), gindex, root))
+      RETURN_VERIFY_ERROR(ctx, "invalid tag_proof, missing nodes!");
+    if (memcmp(root, anchor_body_root, 32) != 0)
+      RETURN_VERIFY_ERROR(ctx, "invalid tag_proof, anchor body root mismatch!");
+    anchor_ts = ssz_uint64(tag);
+  }
+  else if (tag.def && tag.def->name && strcmp(tag.def->name, "checkpoint_proof") == 0)
+    RETURN_VERIFY_ERROR(ctx, "checkpoint tag_proof not yet supported for completeness");
+  else if (tag.def && tag.def->type != SSZ_TYPE_NONE)
+    RETURN_VERIFY_ERROR(ctx, "unexpected tag_proof variant in completeness proof!");
+
+  return eth_check_latest_freshness(ctx, is_latest, is_ts, anchor_ts);
+}
+
 bool verify_logs_completeness(verify_ctx_t* ctx) {
   ssz_ob_t proof   = ctx->proof;
-  uint64_t from    = ssz_get_uint64(&proof, "fromBlock");
-  uint64_t to      = ssz_get_uint64(&proof, "toBlock");
   ssz_ob_t header  = ssz_get(&proof, "header");
   ssz_ob_t headers = ssz_get(&proof, "headers");
-  ssz_ob_t bits    = ssz_get(&proof, "sync_committee_bits");
-  ssz_ob_t sig     = ssz_get(&proof, "sync_committee_signature");
   ssz_ob_t blocks  = ssz_get(&proof, "blocks");
 
-  if (to < from) RETURN_VERIFY_ERROR(ctx, "invalid completeness range (toBlock < fromBlock)!");
-  uint64_t count = to - from + 1;
+  // The claim is the requested range (from the RPC request); the proof carries no range endpoints.
+  // The block count is derived from the (proven) parentRoot chain length.
+  uint64_t count = (uint64_t) ssz_len(headers) + 1;
   // Hard upper bound before any allocation: the SSZ list caps at 4096, but lists of dynamic (union)
   // elements are not length-checked by ssz_is_valid, so reject oversized ranges up front (DoS guard).
   if (count > VERIFY_LOGS_COMPLETENESS_MAX_BLOCKS) RETURN_VERIFY_ERROR(ctx, "completeness range too large!");
 
-  // Bind the proven range to the range the client actually asked for (see bind_range_endpoint).
-  // Without this a malicious prover could shrink the range and still produce a valid-looking proof.
   json_t filter = json_at(ctx->args, 0);
   if (filter.type != JSON_TYPE_OBJECT) RETURN_VERIFY_ERROR(ctx, "eth_getLogs completeness requires a filter object!");
-  if (!bind_range_endpoint(ctx, json_get(filter, "fromBlock"), from, to)) return false;
-  if (!bind_range_endpoint(ctx, json_get(filter, "toBlock"), to, to)) return false;
 
   if ((uint64_t) ssz_len(blocks) != count) RETURN_VERIFY_ERROR(ctx, "completeness proof block count mismatch!");
 
-  bytes32_t*  body_roots = safe_calloc((size_t) count, sizeof(bytes32_t));
-  c4_status_t chain      = verify_chain(ctx, header, headers, bits, sig, body_roots, (uint32_t) count);
-  if (chain != C4_SUCCESS) {
-    // C4_PENDING (need sync committee) and C4_ERROR both propagate via ctx->state.
+  // reconstruct the parentRoot chain -> per-block bodyRoots + the reconstructed anchor (newest) header
+  bytes32_t* body_roots       = safe_calloc((size_t) count, sizeof(bytes32_t));
+  uint8_t    anchor_bytes[112] = {0};
+  ssz_ob_t   anchor           = {0};
+  if (reconstruct_chain(ctx, header, headers, body_roots, (uint32_t) count, anchor_bytes, &anchor) != C4_SUCCESS) {
+    safe_free(body_roots);
+    return false;
+  }
+
+  // Anchor the chain via the shared header_proof union (signature / header-chain / historic summaries),
+  // exactly like every other proof type. May return C4_PENDING (need sync committee) or C4_ERROR;
+  // both propagate to the caller via ctx->state.
+  if (c4_verify_header(ctx, anchor, proof) != C4_SUCCESS) {
     safe_free(body_roots);
     return false;
   }
 
   bytes_t query_blooms = c4_eth_filter_query_blooms(filter);
 
-  const ssz_def_t* logs_def     = eth_ssz_verification_type(ETH_SSZ_DATA_LOGS);
-  ssz_builder_t    data_builder = ssz_builder_for_def(logs_def);
-  uint32_t         log_count    = 0;
-  bool             success      = true;
+  const ssz_def_t* logs_def         = eth_ssz_verification_type(ETH_SSZ_DATA_LOGS);
+  ssz_builder_t    data_builder     = ssz_builder_for_def(logs_def);
+  uint32_t         log_count        = 0;
+  uint64_t         from_num         = 0;
+  uint64_t         to_num           = 0;
+  bytes32_t        anchor_body_root = {0};
+  bool             success          = true;
 
   for (uint64_t i = 0; i < count; i++) {
     ssz_ob_t union_ob = ssz_at(blocks, (uint32_t) i);
     ssz_ob_t block    = ssz_union(union_ob);
     if (!block.def) { success = false; break; }
 
-    // the gap-free blockNumber sequence together with the parent_root chain rules out skipped blocks
-    if (ssz_get_uint64(&block, "blockNumber") != from + i) { success = false; break; }
+    // blockNumber is bound to this block's bodyRoot by the per-block multi proof, so from_num/to_num
+    // become cryptographically trusted once the block is verified.
+    uint64_t bn = ssz_get_uint64(&block, "blockNumber");
+    if (i == 0) from_num = bn;
+    // the gap-free blockNumber sequence together with the parentRoot chain rules out skipped blocks
+    if (bn != from_num + i) { success = false; break; }
+    if (i + 1 == count) {
+      to_num = bn;
+      memcpy(anchor_body_root, body_roots[i], 32); // keep the anchor bodyRoot for the tag_proof below
+    }
 
     if (strcmp(block.def->name, "FullReceipts") == 0) {
       if (!verify_full_block(ctx, block, body_roots[i], &data_builder, query_blooms, &log_count)) { success = false; break; }
@@ -307,6 +365,19 @@ bool verify_logs_completeness(verify_ctx_t* ctx) {
 
   safe_free(body_roots);
   safe_free(query_blooms.data);
+
+  // Bind the proven range (now cryptographically established via the bodyRoots) to the range the
+  // client actually requested (see bind_range_endpoint). Without this a malicious prover could
+  // shrink the range and still produce a valid-looking proof.
+  if (success &&
+      (!bind_range_endpoint(ctx, json_get(filter, "fromBlock"), from_num, to_num) ||
+       !bind_range_endpoint(ctx, json_get(filter, "toBlock"), to_num, to_num)))
+    success = false;
+
+  // Freshness gate for an open-ended `toBlock` (absent -> defaults to "latest"): the anchor is only
+  // proven canonical, not recent, so a stale-but-signed anchor could otherwise omit recent logs. The
+  // anchor's block-tag is proven via the shared ETH_STATE_BLOCK_UNION (`tag_proof`).
+  if (success && !verify_tag_proof_freshness(ctx, proof, filter, anchor_body_root)) success = false;
 
   if (!success) {
     safe_free(data_builder.fixed.data.data);

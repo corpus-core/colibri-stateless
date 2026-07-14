@@ -847,8 +847,8 @@ static const ssz_def_t ETH_COMPLETENESS_TX_CONTAINER = SSZ_CONTAINER("Completene
 
 // Bloom-negative block: proves that the query bloom is not a subset of the block's logsBloom.
 static const ssz_def_t ETH_COMPLETENESS_BLOOM_NEGATIVE[] = {
-    SSZ_UINT64("blockNumber"),         // the execution block number
-    SSZ_BYTE_VECTOR("logsBloom", 256), // the block's logsBloom (execution payload)
+    SSZ_UINT64("blockNumber"),           // the execution block number
+    SSZ_BYTE_VECTOR("logsBloom", 256),   // the block's logsBloom (execution payload)
     SSZ_LIST("proof", ssz_bytes32, 256), // multi proof of blockNumber + logsBloom to bodyRoot
 };
 
@@ -858,7 +858,7 @@ static const ssz_def_t ETH_COMPLETENESS_FULL_RECEIPTS[] = {
     SSZ_BYTES32("blockHash"),                             // the execution block hash (for reconstructed log entries)
     SSZ_LIST("receipts", ssz_bytes_list, 65536),         // all RLP-serialized receipts of the block
     SSZ_LIST("txs", ETH_COMPLETENESS_TX_CONTAINER, 256), // raw transactions of the matching logs (for transactionHash)
-    SSZ_LIST("proof", ssz_bytes32, 1024),                // multi proof of blockNumber + blockHash + receiptsRoot + matched transactions to bodyRoot
+    SSZ_LIST("proof", ssz_bytes32, 1024),                // multi proof of blockNumber + blockHash + receiptsRoot + matched txs to bodyRoot
 };
 
 // Per-block union: a block is either proven bloom-negative or delivered with all receipts.
@@ -870,13 +870,25 @@ static const ssz_def_t ETH_COMPLETENESS_BLOCK_UNION[] = {
 static const ssz_def_t ETH_COMPLETENESS_BLOCK = SSZ_UNION("block", ETH_COMPLETENESS_BLOCK_UNION);
 
 // The main proof data for a logs completeness proof over a contiguous block range.
+//
+// The claim (the requested block range) comes from the RPC request, so the range endpoints are NOT
+// carried in the proof; the verifier derives fromBlock/toBlock from the (proven) per-block payloads
+// and binds them to the request. `header` is the full beacon header of the oldest block; `headers`
+// is the ascending parentRoot chain up to the anchor (the newest block). The anchor's canonicity is
+// established via the shared `header_proof` union (signature / header-chain / historic summaries),
+// exactly like every other proof type -- the verifier reconstructs the anchor header from the chain
+// and passes it to `c4_verify_header`.
+//
+// `tag_proof` proves the anchor's block tag for an open-ended `toBlock` (the same union that account
+// proofs use): the `timestamp` variant (proven via `tag_proof_branch` against the anchor's bodyRoot)
+// gates the `latest` freshness, while the `checkpoint_proof` variant is reserved for `safe`/`finalized`
+// (structurally prepared; verification pending). For a pinned `toBlock` the `none` variant is used.
 static const ssz_def_t ETH_LOGS_COMPLETENESS_PROOF[] = {
-    SSZ_UINT64("fromBlock"),                            // first execution block of the range (inclusive)
-    SSZ_UINT64("toBlock"),                              // last execution block of the range (inclusive), == anchor block
-    SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),       // full beacon header of fromBlock (oldest; parentRoot anchors the chain)
-    SSZ_LIST("headers", PROOF_HEADER_CONTAINER, 4096),  // ProofHeaders ascending fromBlock+1..toBlock (last == signed anchor)
-    SSZ_BIT_VECTOR("sync_committee_bits", 512),         // the bits of the validators that signed the anchor
-    SSZ_BYTE_VECTOR("sync_committee_signature", 96),    // the sync committee signature over the anchor root
+    SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),       // full beacon header of the oldest block (parentRoot anchors the chain)
+    SSZ_LIST("headers", PROOF_HEADER_CONTAINER, 4096),  // ProofHeaders ascending, one per block after the first (last == anchor)
+    SSZ_UNION("header_proof", ETH_HEADER_PROOFS_UNION), // proof for the correctness of the reconstructed anchor header
+    SSZ_UNION("tag_proof", ETH_STATE_BLOCK_UNION),      // anchor block-tag proof (timestamp for `latest`, checkpoint_proof for `safe`/`finalized`, none for pinned)
+    SSZ_LIST("tag_proof_branch", ssz_bytes32, 256),     // multi proof of the tag_proof leaf (timestamp) to the anchor's bodyRoot
     SSZ_LIST("blocks", ETH_COMPLETENESS_BLOCK, 4096),   // per-block payload ascending fromBlock..toBlock
 };
 static const ssz_def_t ETH_LOGS_COMPLETENESS_PROOF_CONTAINER = SSZ_CONTAINER("LogsCompletenessProof", ETH_LOGS_COMPLETENESS_PROOF);

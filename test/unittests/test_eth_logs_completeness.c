@@ -89,23 +89,47 @@ static void test_query_blooms_pap_malformed(void) {
   TEST_ASSERT_EQUAL_INT(0, pap.len);
 }
 
-// Builds a structurally well-shaped LogsCompletenessProof blob with the given range and empty
-// header/blocks lists. The sync-committee fields are dummies -- this is only used to exercise the
-// structural guards that run *before* any signature or trie work.
-static ssz_ob_t build_completeness_proof(uint64_t from, uint64_t to) {
+// Builds a structurally well-shaped LogsCompletenessProof with `header_count` ProofHeaders (i.e. a
+// range of header_count+1 blocks), a zeroed signature_proof header_proof and an empty blocks list.
+// The claim (range) now comes from the request, so the proof carries no range endpoints; this helper
+// only exercises the structural guards that run *before* chain/anchor verification.
+static ssz_ob_t build_completeness_proof(uint32_t header_count) {
   const ssz_def_t* def = eth_ssz_verification_type(ETH_SSZ_VERIFY_LOGS_COMPLETENESS_PROOF);
   TEST_ASSERT_NOT_NULL(def);
 
   uint8_t       header[112] = {0}; // slot(8)+proposerIndex(8)+parentRoot(32)+stateRoot(32)+bodyRoot(32)
-  uint8_t       bits[64]    = {0}; // sync_committee_bits (512 bits)
-  uint8_t       sig[96]     = {0}; // sync_committee_signature
   ssz_builder_t b           = ssz_builder_for_def(def);
-  ssz_add_uint64(&b, from);
-  ssz_add_uint64(&b, to);
   ssz_add_bytes(&b, "header", bytes(header, sizeof(header)));
-  ssz_add_bytes(&b, "headers", NULL_BYTES); // empty list
-  ssz_add_bytes(&b, "sync_committee_bits", bytes(bits, sizeof(bits)));
-  ssz_add_bytes(&b, "sync_committee_signature", bytes(sig, sizeof(sig)));
+
+  // headers list: header_count ProofHeaders (each slot8+proposerIndex8+stateRoot32+bodyRoot32)
+  const ssz_def_t* headers_def = ssz_get_def(def, "headers");
+  const ssz_def_t* ph_def      = headers_def->def.vector.type;
+  ssz_builder_t    hlist       = ssz_builder_for_def(headers_def);
+  for (uint32_t i = 0; i < header_count; i++) {
+    uint8_t       z8[8] = {0}, z32a[32] = {0}, z32b[32] = {0}, z8b[8] = {0};
+    ssz_builder_t ph = ssz_builder_for_def(ph_def);
+    ssz_add_bytes(&ph, "slot", bytes(z8, 8));
+    ssz_add_bytes(&ph, "proposerIndex", bytes(z8b, 8));
+    ssz_add_bytes(&ph, "stateRoot", bytes(z32a, 32));
+    ssz_add_bytes(&ph, "bodyRoot", bytes(z32b, 32));
+    ssz_add_dynamic_list_builders(&hlist, header_count, ph);
+  }
+  ssz_add_builders(&b, "headers", hlist);
+
+  // header_proof: zeroed signature_proof variant (index 0 of ETH_HEADER_PROOFS_UNION)
+  const ssz_def_t* hp_field = ssz_get_def(def, "header_proof");
+  ssz_builder_t    sp       = ssz_builder_for_def(hp_field->def.container.elements + 0);
+  uint8_t          bits[64] = {0}, sig[96] = {0};
+  ssz_add_bytes(&sp, "sync_committee_bits", bytes(bits, sizeof(bits)));
+  ssz_add_bytes(&sp, "sync_committee_signature", bytes(sig, sizeof(sig)));
+  ssz_add_builders(&b, "header_proof", sp);
+
+  // tag_proof: `none` variant (index 0 of ETH_STATE_BLOCK_UNION) + empty branch. The structural
+  // guards under test run before tag_proof verification, so its content is irrelevant here.
+  uint8_t none = 0;
+  ssz_add_bytes(&b, "tag_proof", bytes(&none, 1));
+  ssz_add_bytes(&b, "tag_proof_branch", NULL_BYTES);
+
   ssz_add_bytes(&b, "blocks", NULL_BYTES); // empty list
   return ssz_builder_to_bytes(&b);
 }
@@ -120,20 +144,10 @@ static bool run_verify(ssz_ob_t proof, json_t args, c4_state_t* state_out) {
   return ok;
 }
 
-// A reversed range (toBlock < fromBlock) must be rejected before any allocation.
-static void test_completeness_rejects_reversed_range(void) {
-  ssz_ob_t   proof = build_completeness_proof(0x200, 0x100);
-  json_t     args  = json_parse("[{\"fromBlock\":\"0x200\",\"toBlock\":\"0x100\"}]");
-  c4_state_t st    = {0};
-  TEST_ASSERT_FALSE(run_verify(proof, args, &st));
-  TEST_ASSERT_NOT_NULL(st.error);
-  c4_state_free(&st);
-  safe_free(proof.bytes.data);
-}
-
-// A range wider than the SSZ list capacity must be rejected up front (DoS guard).
+// A range wider than the SSZ list capacity must be rejected up front (DoS guard), before the chain
+// is reconstructed or the anchor signature is checked.
 static void test_completeness_rejects_oversized_range(void) {
-  ssz_ob_t   proof = build_completeness_proof(0, 5000); // count 5001 > 4096
+  ssz_ob_t   proof = build_completeness_proof(4096); // count 4097 > 4096
   json_t     args  = json_parse("[{\"fromBlock\":\"0x0\",\"toBlock\":\"0x1388\"}]");
   c4_state_t st    = {0};
   TEST_ASSERT_FALSE(run_verify(proof, args, &st));
@@ -142,32 +156,9 @@ static void test_completeness_rejects_oversized_range(void) {
   safe_free(proof.bytes.data);
 }
 
-// CRITICAL regression: a prover must not be able to shrink the proven range below the requested
-// range. Here the client asks for 0x100..0x200 but the proof only covers 0x100..0x100.
-static void test_completeness_rejects_range_shrink(void) {
-  ssz_ob_t   proof = build_completeness_proof(0x100, 0x100);
-  json_t     args  = json_parse("[{\"fromBlock\":\"0x100\",\"toBlock\":\"0x200\"}]");
-  c4_state_t st    = {0};
-  TEST_ASSERT_FALSE(run_verify(proof, args, &st));
-  TEST_ASSERT_NOT_NULL(st.error);
-  c4_state_free(&st);
-  safe_free(proof.bytes.data);
-}
-
-// An explicit fromBlock that does not match the proof's fromBlock must be rejected.
-static void test_completeness_rejects_from_mismatch(void) {
-  ssz_ob_t   proof = build_completeness_proof(0x100, 0x100);
-  json_t     args  = json_parse("[{\"fromBlock\":\"0x0\",\"toBlock\":\"0x100\"}]");
-  c4_state_t st    = {0};
-  TEST_ASSERT_FALSE(run_verify(proof, args, &st));
-  TEST_ASSERT_NOT_NULL(st.error);
-  c4_state_free(&st);
-  safe_free(proof.bytes.data);
-}
-
-// A missing filter object must be rejected (completeness needs the requested range).
+// A missing filter object must be rejected (completeness needs the requested range as its claim).
 static void test_completeness_rejects_missing_filter(void) {
-  ssz_ob_t   proof = build_completeness_proof(0x100, 0x100);
+  ssz_ob_t   proof = build_completeness_proof(0); // single-block range
   json_t     args  = json_parse("[]");
   c4_state_t st    = {0};
   TEST_ASSERT_FALSE(run_verify(proof, args, &st));
@@ -176,10 +167,10 @@ static void test_completeness_rejects_missing_filter(void) {
   safe_free(proof.bytes.data);
 }
 
-// With a matching range but an empty blocks list, the block-count guard must fire.
+// The blocks list length must equal the block count derived from the header chain (headers+1).
 static void test_completeness_rejects_block_count_mismatch(void) {
-  ssz_ob_t   proof = build_completeness_proof(0x100, 0x102); // count 3, but blocks list is empty
-  json_t     args  = json_parse("[{\"fromBlock\":\"0x100\",\"toBlock\":\"0x102\"}]");
+  ssz_ob_t   proof = build_completeness_proof(0); // count 1, but blocks list is empty
+  json_t     args  = json_parse("[{\"fromBlock\":\"0x100\",\"toBlock\":\"0x100\"}]");
   c4_state_t st    = {0};
   TEST_ASSERT_FALSE(run_verify(proof, args, &st));
   TEST_ASSERT_NOT_NULL(st.error);
@@ -195,10 +186,7 @@ int main(void) {
   RUN_TEST(test_bloom_negative_bad_block_len);
   RUN_TEST(test_query_blooms_pap_array);
   RUN_TEST(test_query_blooms_pap_malformed);
-  RUN_TEST(test_completeness_rejects_reversed_range);
   RUN_TEST(test_completeness_rejects_oversized_range);
-  RUN_TEST(test_completeness_rejects_range_shrink);
-  RUN_TEST(test_completeness_rejects_from_mismatch);
   RUN_TEST(test_completeness_rejects_missing_filter);
   RUN_TEST(test_completeness_rejects_block_count_mismatch);
   return UNITY_END();

@@ -28,6 +28,7 @@
 #include "eth_compute_units.h"
 #include "eth_req.h"
 #include "eth_tools.h"
+#include "historic_proof.h"
 #include "json.h"
 #include "logger.h"
 #include "ssz.h"
@@ -39,6 +40,10 @@
 #define COMPLETENESS_BLOCK_NONE     0
 #define COMPLETENESS_BLOCK_NEGATIVE 1
 #define COMPLETENESS_BLOCK_FULL     2
+
+// Union selectors for ETH_STATE_BLOCK_UNION used as the anchor `tag_proof` (see verify_proof_types.h).
+#define STATE_BLOCK_UNION_NONE      0
+#define STATE_BLOCK_UNION_TIMESTAMP 4
 
 static uint32_t g_max_blocks = C4_LOGS_COMPLETENESS_DEFAULT_MAX_BLOCKS;
 
@@ -164,10 +169,47 @@ static void serialize_full_block(prover_ctx_t* ctx, ssz_builder_t* blist, uint32
   safe_free(vbytes.bytes.data);
 }
 
-static c4_status_t serialize_completeness_proof(prover_ctx_t* ctx, compl_block_t* blocks, uint32_t count, bytes_t query_blooms) {
-  ssz_builder_t    proof      = ssz_builder_for_type(ETH_SSZ_VERIFY_LOGS_COMPLETENESS_PROOF);
-  compl_block_t*   first      = &blocks[0];
-  compl_block_t*   anchor     = &blocks[count - 1];
+// True if the JSON string token `t` equals the C string `s` (token includes the surrounding quotes).
+static bool json_str_eq(json_t t, const char* s) {
+  size_t n = strlen(s);
+  return t.type == JSON_TYPE_STRING && (size_t) t.len == n + 2 && strncmp(t.start + 1, s, n) == 0;
+}
+
+// True if the block tag is a pinned hex quantity/hash (e.g. "0x...").
+static bool tag_is_pinned(json_t tag) {
+  return tag.type == JSON_TYPE_STRING && tag.len > 2 && tag.start[1] == '0' && tag.start[2] == 'x';
+}
+
+// Builds the anchor `tag_proof` union (+ branch). A pinned block tag needs no freshness proof (`none`),
+// `latest` uses the `timestamp` variant proven against the anchor bodyRoot. `safe`/`finalized` would use
+// the `checkpoint_proof` variant (structurally prepared, not yet emitted) and are rejected earlier.
+static void serialize_tag_proof(prover_ctx_t* ctx, ssz_builder_t* proof, compl_block_t* anchor, json_t to_tag) {
+  if (tag_is_pinned(to_tag)) {
+    uint8_t none = STATE_BLOCK_UNION_NONE;
+    ssz_add_bytes(proof, "tag_proof", bytes(&none, 1));
+    ssz_add_bytes(proof, "tag_proof_branch", NULL_BYTES);
+    return;
+  }
+
+  // `latest`: prove the anchor's execution timestamp against its bodyRoot so the verifier can run the
+  // `latest` freshness gate.
+  uint8_t tag[9] = {0};
+  tag[0]         = STATE_BLOCK_UNION_TIMESTAMP;
+  memcpy(tag + 1, ssz_get(&anchor->beacon.execution, "timestamp").bytes.data, 8);
+  ssz_add_bytes(proof, "tag_proof", bytes(tag, sizeof(tag)));
+
+  gindex_t  gindex[1] = {ssz_gindex(anchor->beacon.body.def, 2, "executionPayload", "timestamp")};
+  bytes32_t tmp_root  = {0};
+  bytes_t   branch    = ssz_create_multi_proof_for_gindexes(anchor->beacon.body, tmp_root, gindex, 1);
+  eth_cu_add_multi_proof(ctx, 1);
+  ssz_add_bytes(proof, "tag_proof_branch", branch);
+  safe_free(branch.data);
+}
+
+static c4_status_t serialize_completeness_proof(prover_ctx_t* ctx, compl_block_t* blocks, uint32_t count, bytes_t query_blooms, blockroot_proof_t anchor_proof, json_t to_tag) {
+  ssz_builder_t    proof       = ssz_builder_for_type(ETH_SSZ_VERIFY_LOGS_COMPLETENESS_PROOF);
+  compl_block_t*   first       = &blocks[0];
+  compl_block_t*   anchor      = &blocks[count - 1];
   const ssz_def_t* headers_def = ssz_get_def(proof.def, "headers");
   const ssz_def_t* blocks_def  = ssz_get_def(proof.def, "blocks");
   const ssz_def_t* ph_def      = headers_def->def.vector.type;
@@ -176,12 +218,11 @@ static c4_status_t serialize_completeness_proof(prover_ctx_t* ctx, compl_block_t
   for (uint32_t i = 0; i < count; i++)
     ssz_hash_tree_root(blocks[i].beacon.body, blocks[i].body_root);
 
-  ssz_add_uint64(&proof, first->block_number);
-  ssz_add_uint64(&proof, anchor->block_number);
+  // full header of the oldest block; parentRoot anchors the ascending chain
   ssz_add_builders(&proof, "header", c4_proof_add_header(first->beacon.header, first->body_root));
 
-  // parent_root chain: ProofHeaders for fromBlock+1 .. toBlock
-  ssz_builder_t headers = ssz_builder_for_def(headers_def);
+  // parentRoot chain: ProofHeaders for the oldest+1 .. anchor (newest)
+  ssz_builder_t headers      = ssz_builder_for_def(headers_def);
   uint32_t      header_count = count - 1;
   for (uint32_t i = 1; i < count; i++) {
     ssz_builder_t ph = ssz_builder_for_def(ph_def);
@@ -194,9 +235,12 @@ static c4_status_t serialize_completeness_proof(prover_ctx_t* ctx, compl_block_t
   ssz_add_builders(&proof, "headers", headers);
   eth_cu_add(ctx, header_count * CU_HISTORIC_HEADER_HOP);
 
-  // anchor signature (sync aggregate of the block following the anchor)
-  ssz_add_bytes(&proof, "sync_committee_bits", ssz_get(&anchor->beacon.sync_aggregate, "syncCommitteeBits").bytes);
-  ssz_add_bytes(&proof, "sync_committee_signature", ssz_get(&anchor->beacon.sync_aggregate, "syncCommitteeSignature").bytes);
+  // anchor the newest block via the shared header_proof union (signature / header-chain / historic)
+  ssz_add_header_proof(&proof, &anchor->beacon, anchor_proof);
+
+  // anchor block-tag proof (freshness) for an open-ended toBlock -- must be added in field order
+  // (after header_proof, before blocks)
+  serialize_tag_proof(ctx, &proof, anchor, to_tag);
 
   // per-block payloads
   ssz_builder_t blist = ssz_builder_for_def(blocks_def);
@@ -225,6 +269,11 @@ c4_status_t c4_proof_logs_completeness(prover_ctx_t* ctx) {
   json_t   to_id   = json_get(filter, "toBlock");
   if (from_id.type == JSON_TYPE_NOT_FOUND) from_id = json_parse(bprintf(&bf, "\"latest\""));
   if (to_id.type == JSON_TYPE_NOT_FOUND) to_id = json_parse(bprintf(&bt, "\"latest\""));
+
+  // `safe`/`finalized` require binding the anchor to the beacon checkpoint (checkpoint_proof variant),
+  // which is not implemented yet. Reject up front instead of emitting a proof the verifier would reject.
+  if (!tag_is_pinned(to_id) && !json_str_eq(to_id, "latest"))
+    THROW_ERROR("eth_getLogs completeness currently supports only a pinned toBlock or 'latest'");
 
   beacon_block_t from_block = {0};
   beacon_block_t to_block   = {0};
@@ -268,7 +317,19 @@ c4_status_t c4_proof_logs_completeness(prover_ctx_t* ctx) {
     return status;
   }
 
-  status = serialize_completeness_proof(ctx, blocks, (uint32_t) count, query_blooms);
+  // single header proof for the whole range: anchor the newest block via the shared header_proof
+  // union (direct signature, header-chain or historic summaries, depending on how recent it is).
+  blockroot_proof_t anchor_proof = {0};
+  status                         = c4_check_blockroot_proof(ctx, &anchor_proof, &blocks[count - 1].beacon);
+  if (status != C4_SUCCESS) {
+    c4_free_block_proof(&anchor_proof);
+    safe_free(blocks);
+    safe_free(query_blooms.data);
+    return status;
+  }
+
+  status = serialize_completeness_proof(ctx, blocks, (uint32_t) count, query_blooms, anchor_proof, to_id);
+  c4_free_block_proof(&anchor_proof);
   safe_free(blocks);
   safe_free(query_blooms.data);
   return status;
