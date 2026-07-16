@@ -10,7 +10,7 @@ Colibri Stateless is a highly efficient prover/verifier for Ethereum (with upcom
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 [![npm](https://img.shields.io/npm/v/@corpus-core/colibri-stateless.svg)](https://www.npmjs.com/package/@corpus-core/colibri-stateless)
 
-🌐 [**Website**](https://www.corpuscore.tech/colibri) · 📖 [**Docs**](https://corpus-core.gitbook.io/specification-colibri-stateless) · 📄 [**Whitepaper**](https://corpus-core.gitbook.io/whitepaper-colibri-stateless) · 🔒 [**Privacy (PAP)**](https://corpus-core.gitbook.io/pap-colibri-stateless)
+[**Website**](https://www.corpuscore.tech/colibri) · [**Docs**](https://corpus-core.gitbook.io/specification-colibri-stateless) · [**Whitepaper**](https://corpus-core.gitbook.io/whitepaper-colibri-stateless) · [**Privacy (PAP)**](https://corpus-core.gitbook.io/pap-colibri-stateless)
 
 ```mermaid
 flowchart LR
@@ -20,16 +20,18 @@ flowchart LR
 
 ## Why Colibri?
 
-- 🪶 **Almost stateless** — the verifier only stores the current sync committee state (rotates every ~27h). No block-by-block header processing, no full node.
-- 🔐 **Cryptographically verified RPC** — the prover creates proofs for the validity of RPC responses; the verifier checks them against BLS signatures.
-- 💤 **On-demand, not always-on** — Colibri only does work when you actually make a request. It does **not** continuously sync in the background, so it never burns bandwidth, CPU, or battery while your app is idle (see [How is Colibri different?](#how-is-colibri-different-from-other-light-clients) below).
-- 🕰️ **Verifies historical data (older than ~27h / 8192 blocks)** — a unique capability: using `historical_summaries` Merkle proofs from the beacon state, Colibri cleanly verifies old transactions and receipts where other light clients simply fail.
-- 📜 **`eth_getLogs` completeness proofs** — cryptographic guarantee that for a requested block range **no matching event was omitted** ([PR #318](https://github.com/corpus-core/colibri-stateless/pull/318)). No other light client offers this today.
-- 🧪 **Fully verified local transaction simulation** — `colibri_simulateTransaction` lets wallets simulate a transaction against verified state *before signing*, so users can be shown exactly what a transaction will do.
-- ⚡ **Tiny & fast** — a portable C core for websites, mobile apps, and embedded systems. Most requests are barely slower than a plain RPC call — see the [benchmarks](https://corpus-core.gitbook.io/specification-colibri-stateless/specifications/ethereum/benchmark).
-- 🔗 **Multi-chain** — Ethereum today, Layer-2s (OP-Stack) and more coming.
-- 🧩 **Bindings everywhere** — JavaScript/TypeScript, Swift, Kotlin/Java, Python, and Dart.
-- 🕵️ **Privacy-aware** — Pragmatic Adaptive Privacy (PAP) mode. See the [Privacy Whitepaper](https://corpus-core.gitbook.io/pap-colibri-stateless).
+- **Stateless** — verification needs nothing but the proof and the sync committee it is checked against. The sync committee is cached locally so it does not have to travel with every request, but it works just as well with an empty cache or none at all. No persistent state, no block-by-block header processing, no full node.
+- **Cryptographically verified RPC** — the prover creates proofs for the validity of RPC responses; the verifier checks them against BLS signatures.
+- **Offline verification** — a proof is fully self-contained and can be verified without any network connection. A phone can hand a complete event proof to an offline device — e.g. a smart lock over Bluetooth — which then verifies it locally. This is made possible by zk-proofs for the sync committee and signed checkpoints.
+- **Flexible trust bootstrap** — initialize either from a checkpoint (the classic light-client bootstrap) or from a zk-proof that recursively proves every sync-committee transition back to the trusted root.
+- **On-demand, not always-on** — Colibri only does work when you actually make a request. It does not continuously sync in the background, so it never burns bandwidth, CPU, or battery while your app is idle (see [How is Colibri different?](#how-is-colibri-different-from-other-light-clients) below).
+- **Verifies historical data (older than ~27h / 8192 blocks)** — a unique capability: using `historical_summaries` Merkle proofs from the beacon state, Colibri cleanly verifies old transactions and receipts where other light clients simply fail.
+- **`eth_getLogs` completeness proofs** — cryptographic guarantee that for a requested block range no matching event was omitted ([PR #318](https://github.com/corpus-core/colibri-stateless/pull/318)). No other light client offers this today.
+- **Fully verified local transaction simulation** — `colibri_simulateTransaction` lets wallets simulate a transaction against verified state *before signing*, so users can be shown exactly what a transaction will do.
+- **Tiny & fast** — a portable C core for websites, mobile apps, and embedded systems. Most requests are barely slower than a plain RPC call — see the [benchmarks](https://corpus-core.gitbook.io/specification-colibri-stateless/specifications/ethereum/benchmark).
+- **Multi-chain** — Ethereum today, Layer-2s (OP-Stack) and more coming.
+- **Bindings everywhere** — JavaScript/TypeScript, Swift, Kotlin/Java, Python, and Dart.
+- **Privacy-aware** — Pragmatic Adaptive Privacy (PAP) mode. See the [Privacy Whitepaper](https://corpus-core.gitbook.io/pap-colibri-stateless).
 
 ## How is Colibri different from other light clients?
 
@@ -39,9 +41,10 @@ Classic light clients (e.g. Helios) keep a **continuous sync** running: they fol
 |---|---|---|
 | **When it works** | Continuously syncs every block | Only when you make a request |
 | **Idle cost** | Ongoing bandwidth / CPU / battery | Zero — nothing runs in the background |
-| **State kept** | Follows the head over time | Just the current sync committee (~27h) |
-| **Historical data (> ~27h)** | Typically fails / not supported | ✅ Verified via `historical_summaries` proofs |
-| **`eth_getLogs` completeness** | Not proven | ✅ Cryptographic completeness proof |
+| **State kept** | Follows the head over time | None required — sync committee is cached or delivered |
+| **Offline verification** | Needs a live connection | Yes — proofs are self-contained |
+| **Historical data (> ~27h)** | Typically fails / not supported | Yes — verified via `historical_summaries` proofs |
+| **`eth_getLogs` completeness** | Not proven | Yes — cryptographic completeness proof |
 | **Footprint** | Larger runtime | Tiny C core, embeddable |
 
 Each Colibri result is a self-contained, cryptographically verifiable proof — so it fits naturally into wallets, dApps, mobile, and embedded devices that can't afford an always-on sync loop.
@@ -64,7 +67,7 @@ const block = await client.request('eth_getBlockByNumber', ['latest', false]);
 console.log("Latest block:", block.number);
 ```
 
-📖 [**Full JavaScript/TypeScript Documentation**](https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/bindings/javascript-typescript)
+[**Full JavaScript/TypeScript Documentation**](https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/bindings/javascript-typescript)
 
 ## Other Bindings
 
@@ -94,7 +97,7 @@ let result = try await colibri.rpc(method: "eth_getBalance", params: [
 print("Account balance:", result as? String ?? "n/a")
 ```
 
-📖 [**Full Swift Documentation**](https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/bindings/swift)
+[**Full Swift Documentation**](https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/bindings/swift)
 
 </details>
 
@@ -124,7 +127,7 @@ val blockNumber = String(result).removePrefix("0x").toLong(16)
 println("Current block: #$blockNumber")
 ```
 
-📦 [**GitHub Packages**](https://github.com/corpus-core/colibri-stateless/packages) · 📖 [**Full Kotlin/Java Documentation**](https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/bindings/kotlin-java)
+[**GitHub Packages**](https://github.com/corpus-core/colibri-stateless/packages) · [**Full Kotlin/Java Documentation**](https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/bindings/kotlin-java)
 
 </details>
 
@@ -143,7 +146,7 @@ block_number = client.request('eth_blockNumber', [])
 print(f"Current block: {block_number}")
 ```
 
-📖 [**Full Python Documentation**](https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/bindings/python)
+[**Full Python Documentation**](https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/bindings/python)
 
 </details>
 
@@ -165,7 +168,7 @@ final blockNumber = await colibri.rpc('eth_blockNumber', []);
 colibri.close();
 ```
 
-📖 [**Full Dart Documentation**](https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/bindings/dart) · 📖 [**Flutter Plugin Documentation**](bindings/dart/flutter/colibri_flutter/README.md) · 📦 [**pub.dev**](https://pub.dev/packages/colibri_flutter)
+[**Full Dart Documentation**](https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/bindings/dart) · [**Flutter Plugin Documentation**](bindings/dart/flutter/colibri_flutter/README.md) · [**pub.dev**](https://pub.dev/packages/colibri_flutter)
 
 </details>
 
@@ -185,7 +188,7 @@ cmake --build build/default
 build/default/bin/verify -i https://mainnet1.colibri-proof.tech eth_blockNumber
 ```
 
-📖 [**Full CLI Documentation**](https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/bindings/cli)
+[**Full CLI Documentation**](https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/bindings/cli)
 
 </details>
 
@@ -207,7 +210,7 @@ docker run -p 8090:8090 ghcr.io/corpus-core/colibri-prover:latest
 
 The prover server is lightweight (single-threaded, ~100MB internal cache) and benefits greatly from Memcached for caching external requests (24h TTL).
 
-📖 [**Full Docker Documentation**](bindings/docker/README.md) · 📦 [**GitHub Container Registry**](https://github.com/corpus-core/colibri-stateless/pkgs/container/colibri-prover)
+[**Full Docker Documentation**](bindings/docker/README.md) · [**GitHub Container Registry**](https://github.com/corpus-core/colibri-stateless/pkgs/container/colibri-prover)
 
 </details>
 
@@ -215,10 +218,10 @@ The prover server is lightweight (single-threaded, ~100MB internal cache) and be
 
 | | |
 |---|---|
-| 🌐 **Product website** | [corpuscore.tech/colibri](https://www.corpuscore.tech/colibri) |
-| 📄 **Whitepaper** | [General whitepaper](https://corpus-core.gitbook.io/whitepaper-colibri-stateless) |
-| 🔒 **Privacy concept (PAP)** | [Privacy whitepaper](https://corpus-core.gitbook.io/pap-colibri-stateless) |
-| 📖 **Specification & developer docs** | [Colibri Stateless Specification](https://corpus-core.gitbook.io/specification-colibri-stateless) |
+| **Product website** | [corpuscore.tech/colibri](https://www.corpuscore.tech/colibri) |
+| **Whitepaper** | [General whitepaper](https://corpus-core.gitbook.io/whitepaper-colibri-stateless) |
+| **Privacy concept (PAP)** | [Privacy whitepaper](https://corpus-core.gitbook.io/pap-colibri-stateless) |
+| **Specification & developer docs** | [Colibri Stateless Specification](https://corpus-core.gitbook.io/specification-colibri-stateless) |
 
 The specification covers architecture and concepts, the complete API reference, supported RPC methods, SSZ type definitions, developer guides for all bindings, and the [threat model](https://corpus-core.gitbook.io/specification-colibri-stateless/specifications/ethereum/threat-model).
 
