@@ -541,6 +541,7 @@ bool c4_handle_proof_request(client_t* client) {
   json_t client_state = json_get(rpc_req, "c4");
   json_t include_code = json_get(rpc_req, "include_code");
   json_t zk_proof     = json_get(rpc_req, "zk_proof");
+  json_t logs_compl   = json_get(rpc_req, "logs_completeness");
   json_t signers      = json_get(rpc_req, "signers");
   if (method.type != JSON_TYPE_STRING || params.type != JSON_TYPE_ARRAY) {
     c4_write_error_response(client, 400, "Invalid request");
@@ -596,6 +597,7 @@ bool c4_handle_proof_request(client_t* client) {
   prover_flags_t extra_flags = 0;
   if (include_code.type == JSON_TYPE_BOOLEAN && include_code.start[0] == 't') extra_flags |= C4_PROVER_FLAG_INCLUDE_CODE;
   if (zk_proof.type == JSON_TYPE_BOOLEAN && zk_proof.start[0] == 't') extra_flags |= C4_PROVER_FLAG_ZK_PROOF;
+  if (logs_compl.type == JSON_TYPE_BOOLEAN && logs_compl.start[0] == 't') extra_flags |= C4_PROVER_FLAG_LOGS_COMPLETENESS;
 
   buffer_t client_state_buf = {0};
   bytes_t  cs               = NULL_BYTES;

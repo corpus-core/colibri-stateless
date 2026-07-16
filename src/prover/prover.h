@@ -79,12 +79,38 @@ typedef enum {
   C4_PROVER_FLAG_HYBRID             = 1 << 9, // hybrid mode: header proof from remote server, execution data from RPC provider
   C4_PROVER_FLAG_PROXY              = 1 << 10, // server: request used client-supplied RPC/Beacon URLs (proxy mode)
   C4_PROVER_FLAG_LIGHT_CLIENT       = 1 << 11, // light client mode: extended header cache TTL for "latest" (full block_time instead of half)
+  C4_PROVER_FLAG_LOGS_COMPLETENESS  = 1 << 12, // if true, eth_getLogs generates a completeness proof over the requested block range (proves no matching log was omitted)
+  C4_PROVER_FLAG_INPUT_VALIDATED    = 1 << 13, // internal/transient: set once the request input params have been validated (see CHECK_JSON_INPUT). Prevents re-validation on async re-entries and nested dispatch. Not a request option and never serialized.
 } prover_flag_types_t;
 
 /**
  * a bitmask holding flags used during the prover context.
  */
 typedef uint32_t prover_flags_t;
+
+/**
+ * **CHECK_JSON_INPUT(val, def, error_prefix)** - Validate request input params once per context.
+ *
+ * Validates `val` against the schema `def`, but only if the input parameters have not been
+ * validated yet for this prover context. On success it sets `C4_PROVER_FLAG_INPUT_VALIDATED`
+ * so async re-entries (repeated `C4_PENDING` executions) and nested dispatch skip re-validation.
+ *
+ * Prefer this over `CHECK_JSON_CACHED` for request parameters: it avoids hashing the payload on
+ * every call and instead relies on a single per-context flag. `CHECK_JSON_CACHED` remains the
+ * right choice for large *results* (e.g. `eth_getBlockReceipts`) which are validated once but are
+ * not the request input. Assumes a `prover_ctx_t* ctx` is in scope.
+ *
+ * ```c
+ * CHECK_JSON_INPUT(json_at(ctx->params, 0), JSON_GET_LOGS_FILTER_FIELDS, "Invalid eth_getLogs filter: ");
+ * ```
+ */
+#define CHECK_JSON_INPUT(val, def, error_prefix)          \
+  do {                                                    \
+    if (!(ctx->flags & C4_PROVER_FLAG_INPUT_VALIDATED)) { \
+      CHECK_JSON(val, def, error_prefix);                 \
+      ctx->flags |= C4_PROVER_FLAG_INPUT_VALIDATED;       \
+    }                                                     \
+  } while (0)
 
 #ifdef PROVER_CACHE
 typedef union {

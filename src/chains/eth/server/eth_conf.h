@@ -12,6 +12,7 @@ typedef struct {
   int   period_full_sync;            // if set and period_master_url is configured, periodically sync full period_store from master
   char* period_prover_key_file;      // Path to file containing SP1/Network private key
   int   eth_logs_cache_blocks;
+  int   logs_completeness_max_blocks; // max block range for an eth_getLogs completeness proof (0 = keep default)
 
 } eth_config_t;
 

@@ -113,11 +113,11 @@ c4_status_t c4_op_proof_account(prover_ctx_t* ctx) {
   uint64_t      block_number_uint64 = 0;
 
   if (is_storage_at)
-    CHECK_JSON(ctx->params, "[address,bytes32,block]", "Invalid arguments for eth_getStorageAt: ");
+    CHECK_JSON_INPUT(ctx->params, "[address,bytes32,block]", "Invalid arguments for eth_getStorageAt: ");
   else if (is_proof)
-    CHECK_JSON(ctx->params, "[address,[bytes32],block]", "Invalid arguments for eth_getProof: ");
+    CHECK_JSON_INPUT(ctx->params, "[address,[bytes32],block]", "Invalid arguments for eth_getProof: ");
   else
-    CHECK_JSON(ctx->params, "[address,block]", "Invalid arguments for AccountProof: ");
+    CHECK_JSON_INPUT(ctx->params, "[address,block]", "Invalid arguments for AccountProof: ");
   TRY_ASYNC(c4_op_create_block_proof(ctx, block_number, &block_proof));
   ssz_ob_t* execution_payload = op_get_execution_payload(&block_proof);
   block_number_uint64         = ssz_get_uint64(execution_payload, "blockNumber");

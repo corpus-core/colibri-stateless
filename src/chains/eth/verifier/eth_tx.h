@@ -37,6 +37,7 @@ extern "C" {
 // power-of-two boundary; if a future fork changes the layout, all the
 // constants below must be revisited together.
 #define GINDEX_RECEIPT_ROOT 803
+#define GINDEX_LOGS_BLOOM   804
 #define GINDEX_BLOCKUMBER   806
 #define GINDEX_TIMESTAMP    809
 #define GINDEX_BLOCHASH     812

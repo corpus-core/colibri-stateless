@@ -61,6 +61,7 @@ class Colibri:
         prover_mode: Optional['ProverMode'] = None,
         checkpoint_witness_keys: Optional[str] = None,
         skip_wsp_check: bool = False,
+        logs_completeness: bool = False,
         max_latest_age_seconds: int = 60,
         storage: Optional[ColibriStorage] = None,
         request_handler: Optional[Any] = None,  # For testing
@@ -86,6 +87,9 @@ class Colibri:
                 anchor (witness signatures, hard-coded checkpoint, signed package); disabling
                 raises the risk of long-range attacks across periods older than the WSP.
                 Default: False.
+            logs_completeness: If True, eth_getLogs produces and requires a completeness proof
+                over the requested block range (prover flag 1<<12, verify flag 1<<9), guaranteeing
+                that no matching log was omitted. Default: False.
             max_latest_age_seconds: Maximum age (in seconds) accepted for a proof whose
                 request uses the ``"latest"`` block tag. The verifier rejects proofs whose
                 ``block.timestamp`` is older than ``time.time() - max_latest_age_seconds``
@@ -111,6 +115,7 @@ class Colibri:
         self.prover_mode = prover_mode
         self.checkpoint_witness_keys = checkpoint_witness_keys
         self.skip_wsp_check = skip_wsp_check
+        self.logs_completeness = logs_completeness
         self.max_latest_age_seconds = max_latest_age_seconds
         self.request_handler = request_handler
         self._light_client_task: Optional[asyncio.Task] = None
@@ -239,6 +244,8 @@ class Colibri:
             flags |= 1 << 6
         if self.skip_wsp_check:
             flags |= 1 << 7
+        if self.logs_completeness:
+            flags |= 1 << 9
         return flags
 
     def _get_min_latest_block_ts(self) -> int:
@@ -315,7 +322,7 @@ class Colibri:
         try:
             # Create prover context
             params_json = json.dumps(params)
-            prover_flags = (1 if self.include_code else 0) | ((1 << 6) if self.use_accesslist else 0)
+            prover_flags = (1 if self.include_code else 0) | ((1 << 6) if self.use_accesslist else 0) | ((1 << 12) if self.logs_completeness else 0)
             ctx = native.create_prover_ctx(
                 method, 
                 params_json, 
@@ -456,7 +463,7 @@ class Colibri:
             raise ColibriError("Native module not available")
 
         params_json = json.dumps(params)
-        prover_flags = (1 if self.include_code else 0) | ((1 << 6) if self.use_accesslist else 0) | ((1 << 7) if self.zk_proof else 0)
+        prover_flags = (1 if self.include_code else 0) | ((1 << 6) if self.use_accesslist else 0) | ((1 << 7) if self.zk_proof else 0) | ((1 << 12) if self.logs_completeness else 0)
         resolved_mode = self.prover_mode if self.prover_mode is not None else (ProverMode.REMOTE if self.provers else ProverMode.LOCAL)
         native_mode = int(ProverMode.HYBRID) if resolved_mode == ProverMode.LIGHT_CLIENT else int(resolved_mode)
 

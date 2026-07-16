@@ -289,8 +289,9 @@ void c4_request_free(data_request_t* req);
  * Bit positions for `flags` passed to `c4_append_prover_request_props`.
  * Must stay in sync with `prover_flag_types_t` in `prover.h`.
  */
-#define C4_PROVER_REQ_FLAG_INCLUDE_CODE (1u << 0)
-#define C4_PROVER_REQ_FLAG_ZK_PROOF     (1u << 7)
+#define C4_PROVER_REQ_FLAG_INCLUDE_CODE      (1u << 0)
+#define C4_PROVER_REQ_FLAG_ZK_PROOF          (1u << 7)
+#define C4_PROVER_REQ_FLAG_LOGS_COMPLETENESS (1u << 12)
 
 /**
  * Appends common remote-prover JSON fields to an open object (after `method` / `params`).

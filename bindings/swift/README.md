@@ -1,8 +1,26 @@
-# Colibri Swift Bindings
+# Colibri Stateless — Swift
 
-Native Swift Package for secure, verified blockchain interactions.
+**Verify Ethereum RPC data cryptographically — without running a full node.**
 
-## 🚀 Quick Start
+![ETH2.0 Spec Version 1.4.0](https://img.shields.io/badge/ETH2.0_Spec_Version-1.4.0-2e86c1.svg)
+![License](https://img.shields.io/badge/license-MIT-green.svg)
+
+Colibri Stateless is a highly efficient prover/verifier for Ethereum (with upcoming support for Layer-2s such as OP-Stack). This native Swift Package wraps the C core and verifies every RPC response against the beacon chain — no full node, no continuous sync.
+
+[**Website**](https://www.corpuscore.tech/colibri) · [**Docs**](https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/bindings/swift) · [**Whitepaper**](https://corpus-core.gitbook.io/whitepaper-colibri-stateless) · [**Privacy (PAP)**](https://corpus-core.gitbook.io/pap-colibri-stateless)
+
+## Why Colibri?
+
+- **Stateless** — verification needs nothing but the proof and the sync committee it is checked against. The committee is cached locally so it does not have to travel with every request, but it works just as well with an empty cache or none at all. No persistent state, no full node.
+- **Cryptographically verified RPC** — every RPC response is checked against BLS signatures.
+- **Offline verification** — proofs are fully self-contained and verify without any network connection, thanks to zk-proofs for the sync committee and signed checkpoints.
+- **On-demand, not always-on** — work happens only when you make a request; no background sync burning bandwidth, CPU, or battery.
+- **Verifies historical data (older than ~27h / 8192 blocks)** — via `historical_summaries` proofs, where other light clients simply fail.
+- **`eth_getLogs` completeness proofs** — optional `logsCompleteness = true` proves no matching log was omitted in the requested range.
+- **Fully verified local transaction simulation** — simulate a transaction against verified state before signing.
+- **Privacy-aware** — Pragmatic Adaptive Privacy (PAP) mode. *Experimental.*
+
+## Quick Start
 
 ### iOS
 
@@ -30,14 +48,13 @@ let balance = try await colibri.rpc(method: "eth_getBalance", params: [
 swift build && swift test
 ```
 
-## ✨ Features
+## Platform notes
 
-- **🔐 Cryptographic Verification** - Merkle proofs for all RPC responses
-- **📱 iOS + macOS** - Native Swift Package for Apple platforms  
-- **🗄️ Flexible Storage** - Customizable storage implementations
-- **🧪 28 Tests** - Unit + Integration tests with mock data
+- **iOS + macOS** — native Swift Package for Apple platforms.
+- **Flexible storage** — customizable storage implementations (see below).
+- **Well tested** — unit and integration tests with mock data.
 
-## 📖 Examples
+## Examples
 
 ### Chains
 
@@ -79,7 +96,7 @@ class MyStorage: ColibriStorage {
 StorageBridge.registerStorage(MyStorage())
 ```
 
-## 🏗️ Build
+## Build
 
 ```bash
 # iOS XCFramework
@@ -89,7 +106,7 @@ StorageBridge.registerStorage(MyStorage())
 ./build_macos.sh -dev
 ```
 
-## 🧪 Testing
+## Testing
 
 ```bash
 swift test                                     # All tests
@@ -98,9 +115,9 @@ swift test --filter GeneratedIntegrationTests # Integration tests
 cd test_ios_app && swift test                # iOS example
 ```
 
-## 📚 Documentation
+## Documentation
 
-- **[📖 Complete Guide](https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/bindings/swift)** - Full API reference and guide
-- **[�� iOS Test App](test_ios_app/)** - Reference implementation & CI example
-- **[📄 Local Documentation](doc.md)** - Source documentation
-- **[�� Core Repository](https://github.com/corpus-core/colibri-stateless)** - Source code
+- **[Complete Guide](https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/bindings/swift)** - Full API reference and guide
+- **[iOS Test App](test_ios_app/)** - Reference implementation & CI example
+- **[Local Documentation](doc.md)** - Source documentation
+- **[Core Repository](https://github.com/corpus-core/colibri-stateless)** - Source code

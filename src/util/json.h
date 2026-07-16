@@ -228,6 +228,7 @@ json_t json_dup(json_t json);
  *    - "uint"      : JSON number (integer)
  *    - "suint"     : JSON string (integer) like "1234567890"
  *    - "bool"      : JSON boolean (true/false)
+ *    - "null"      : JSON null (useful in alternations, e.g. topics wildcards)
  *    - "block"     : block identifier (hex uint or "latest", "safe", "finalized")
  *
  * 2. ARRAYS:
@@ -249,7 +250,12 @@ json_t json_dup(json_t json);
  *    Example: "{*:bytes32}" - object with arbitrary keys, all values must be bytes32
  *    Use case: For objects with unknown/dynamic property names
  *
- * 5. NESTED STRUCTURES:
+ * 5. OR OPERATOR:
+ *    Syntax: type1|type2
+ *    Example: "uint|suint" - value must be either a uint or a suint
+ *    Use case: For values that can be either a uint or a suint
+ *
+ * 6. NESTED STRUCTURES:
  *    Types can be nested arbitrarily:
  *    Example: "{logs:[{address:address,topics:[bytes32],data:bytes}]}"
  *

@@ -146,6 +146,7 @@ export default class C4Client {
     if (this.config.privacy_mode === 'basic' || this.config.oblivious_nodes?.length) this.verify_flags |= 2;
     if (this.config.oblivious_nodes?.length) this.verify_flags |= (1 << 6);
     if (this.config.skip_wsp_check) this.verify_flags |= (1 << 7);
+    if (this.config.logs_completeness) { this.flags |= (1 << 12); this.verify_flags |= (1 << 9); }
 
     if (!this.config.warningHandler)
       this.config.warningHandler = async (req: RequestArguments, message: string) => console.warn(message)

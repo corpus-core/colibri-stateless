@@ -66,7 +66,7 @@ c4_status_t c4_op_proof_receipt(prover_ctx_t* ctx) {
   buffer_t    buf            = stack_buffer(block_hash);
   c4_status_t status         = C4_SUCCESS;
 
-  CHECK_JSON(txhash, "bytes32", "Invalid arguments for Tx: ");
+  CHECK_JSON_INPUT(txhash, "bytes32", "Invalid arguments for Tx: ");
 
   TRY_ASYNC(get_eth_tx(ctx, txhash, &tx_data)); // TODO get thos from tx cache if available
 

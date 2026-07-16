@@ -1,12 +1,29 @@
-<img src="https://github.com/corpus-core/colibri-stateless/raw/dev/c4_logo.png" alt="C4 Logo" width="300"/>
+<img src="https://github.com/corpus-core/colibri-stateless/raw/dev/c4_logo.png" alt="Colibri Logo" width="300"/>
 
-# Colibri Python Bindings (corpus core colibri client)
+# Colibri Stateless — Python
 
-![ETH2.0_Spec_Version 1.4.0](https://img.shields.io/badge/ETH2.0_Spec_Version-1.4.0-2e86c1.svg)
+**Verify Ethereum RPC data cryptographically — without running a full node.**
 
-The colibri client is a stateless and trustless ethereum client, which is optimized for the mobile apps or embedded devices, because it does not hols the state, but verifies on demand. 
+![ETH2.0 Spec Version 1.4.0](https://img.shields.io/badge/ETH2.0_Spec_Version-1.4.0-2e86c1.svg)
+![License](https://img.shields.io/badge/license-MIT-green.svg)
+[![PyPI](https://img.shields.io/pypi/v/colibri-stateless.svg)](https://pypi.org/project/colibri-stateless/)
 
-## 🚀 Quick Start
+Colibri Stateless is a highly efficient prover/verifier for Ethereum (with upcoming support for Layer-2s such as OP-Stack). These Python bindings wrap the C core and give you an async API that verifies every RPC response against the beacon chain — no full node, no continuous sync.
+
+[**Website**](https://www.corpuscore.tech/colibri) · [**Docs**](https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/bindings/python) · [**Whitepaper**](https://corpus-core.gitbook.io/whitepaper-colibri-stateless) · [**Privacy (PAP)**](https://corpus-core.gitbook.io/pap-colibri-stateless)
+
+## Why Colibri?
+
+- **Stateless** — verification needs nothing but the proof and the sync committee it is checked against. The committee is cached locally so it does not have to travel with every request, but it works just as well with an empty cache or none at all. No persistent state, no full node.
+- **Cryptographically verified RPC** — every RPC response is checked against BLS signatures.
+- **Offline verification** — proofs are fully self-contained and verify without any network connection, thanks to zk-proofs for the sync committee and signed checkpoints.
+- **On-demand, not always-on** — work happens only when you make a request; no background sync burning bandwidth, CPU, or battery.
+- **Verifies historical data (older than ~27h / 8192 blocks)** — via `historical_summaries` proofs, where other light clients simply fail.
+- **`eth_getLogs` completeness proofs** — optional `logs_completeness=True` proves no matching log was omitted in the requested range.
+- **Fully verified local transaction simulation** — simulate a transaction against verified state before signing.
+- **Privacy-aware** — Pragmatic Adaptive Privacy (PAP) mode (`privacy_mode=PrivacyMode.BASIC`). *Experimental.*
+
+## Quick Start
 
 ### Installation
 
@@ -39,28 +56,26 @@ async def main():
 asyncio.run(main())
 ```
 
-## ✨ Key Features
+## Python-specific features
 
-- **🔐 Cryptographic Verification** - All RPC responses verified with Merkle proofs
-- **🚀 Async/Await Support** - Modern Python async support for network operations  
-- **💾 Pluggable Storage** - Customizable storage backends for caching
-- **🧪 Comprehensive Testing** - Mock HTTP requests and storage for testing
-- **🌐 Multi-Chain Support** - Ethereum Mainnet, Sepolia, Gnosis Chain, and more
-- **📦 Easy Integration** - Simple pip install with pre-built native extensions
-- **🔒 Privacy (PAP)** - Optional Pragmatic Adaptive Privacy mode (`privacy_mode=PrivacyMode.BASIC`) to reduce intent leakage ( *This feature is still experimental!* )
-- **🔐 Privacy-preserving `eth_call`** - `ProverMode.HYBRID` + `PrivacyMode.BASIC` + `oblivious_nodes` (default empty; e.g. `https://rpc.safe-node.com/`, API key for testing). Oblivious auto-enables PAP. TEE/ORAM: [Oblivious Labs](https://www.obliviouslabs.com/).
+- **Async/await** — modern async API for all network operations.
+- **Pluggable storage** — customizable storage backends for caching.
+- **Easy integration** — `pip install` with pre-built native extensions.
+- **Testing utilities** — mock HTTP requests and storage for deterministic tests.
+- **Multi-chain** — Ethereum Mainnet, Sepolia, Gnosis Chain, and more.
+- **Privacy-preserving `eth_call`** — combine `ProverMode.HYBRID` + `PrivacyMode.BASIC` + `oblivious_nodes` (default empty; e.g. `https://rpc.safe-node.com/`, API key for testing). Setting `oblivious_nodes` auto-enables PAP. TEE/ORAM background: [Oblivious Labs](https://www.obliviouslabs.com/).
 
-## 📖 Documentation
+## Documentation
 
-**Full Documentation**: [GitBook Guide](https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/bindings/python)
+**Full documentation**: [GitBook Guide](https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/bindings/python)
 
-- **API Reference** - Complete class and method documentation
-- **Storage System** - Custom storage implementations
-- **Testing Framework** - Mock data and integration tests  
-- **Configuration** - Chain setup and advanced options
-- **Building from Source** - Development and contribution guide
+- **API Reference** — complete class and method documentation
+- **Storage System** — custom storage implementations
+- **Testing Framework** — mock data and integration tests
+- **Configuration** — chain setup and advanced options
+- **Building from Source** — development and contribution guide
 
-## 🛠️ Development
+## Development
 
 ### Building from Source
 
@@ -119,23 +134,23 @@ for test_name, test_config in tests.items():
     print(f"Test {test_name}: {'PASSED' if result else 'FAILED'}")
 ```
 
-## 📋 System Requirements
+## System Requirements
 
 - **Python 3.8+**
 - **CMake 3.20+** (for building from source)
 - **C++17 compiler** (for building from source)
 
-## 🔗 Related Projects
+## Related Projects
 
 - **Core Library**: [colibri-stateless](https://github.com/corpus-core/colibri-stateless)
 - **Swift Bindings**: iOS/macOS native integration
 - **Kotlin Bindings**: Android/JVM integration
 - **JavaScript Bindings**: Web/Node.js integration
 
-## 📄 License
+## License
 
 MIT License - see [LICENSE](../../LICENSE) for details.
 
-## 🤝 Contributing
+## Contributing
 
 Contributions welcome! Please read our [Contributing Guide](../../CONTRIBUTING.md) and check the [Development Documentation](https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/bindings/python).

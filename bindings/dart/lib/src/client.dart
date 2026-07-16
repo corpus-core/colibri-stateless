@@ -44,6 +44,7 @@ class Colibri {
     this.proverMode,
     this.checkpointWitnessKeys,
     this.skipWspCheck = false,
+    this.logsCompleteness = false,
     this.maxLatestAgeSeconds = 60,
     this.logProverRequests = false,
     this.storage,
@@ -102,6 +103,10 @@ class Colibri {
   /// signed package) is in place. Disabling raises the risk of long-range
   /// attacks across periods older than the WSP. Default: `false`.
   final bool skipWspCheck;
+  /// If true, `eth_getLogs` produces and requires a completeness proof over the
+  /// requested block range (prover flag `1 << 12`, verify flag `1 << 9`),
+  /// guaranteeing that no matching log was omitted. Default: `false`.
+  final bool logsCompleteness;
   /// Maximum age (in seconds) accepted for a proof whose request uses the
   /// `"latest"` block tag. The verifier compares `block.timestamp` from the
   /// proof against `DateTime.now().millisecondsSinceEpoch ~/ 1000 - maxLatestAgeSeconds`;
@@ -172,7 +177,8 @@ class Colibri {
     final pap = privacyMode == PrivacyMode.basic || obliviousNodes.isNotEmpty;
     return (pap ? 2 : 0)
         | (obliviousNodes.isNotEmpty ? (1 << 6) : 0)
-        | (skipWspCheck ? (1 << 7) : 0);
+        | (skipWspCheck ? (1 << 7) : 0)
+        | (logsCompleteness ? (1 << 9) : 0);
   }
 
   /// Computes the lower bound for `block.timestamp` accepted on `"latest"`
@@ -208,7 +214,7 @@ class Colibri {
   /// (ZK proofs are produced by remote provers, not the local prover).
   Future<Uint8List> createProof(String method, List<dynamic> params) async {
     final paramsJson = jsonEncode(params);
-    final flags = (includeCode ? 1 : 0) | (useAccesslist ? (1 << 6) : 0);
+    final flags = (includeCode ? 1 : 0) | (useAccesslist ? (1 << 6) : 0) | (logsCompleteness ? (1 << 12) : 0);
     final ctx = _native.createProverCtx(
       method,
       paramsJson,
@@ -310,7 +316,7 @@ class Colibri {
   /// data requests.
   Future<dynamic> rpc(String method, List<dynamic> params) async {
     final paramsJson = jsonEncode(params);
-    final proverFlags = (includeCode ? 1 : 0) | (useAccesslist ? (1 << 6) : 0) | (zkProof ? (1 << 7) : 0);
+    final proverFlags = (includeCode ? 1 : 0) | (useAccesslist ? (1 << 6) : 0) | (zkProof ? (1 << 7) : 0) | (logsCompleteness ? (1 << 12) : 0);
     final resolvedMode = proverMode ?? (provers.isEmpty ? ProverMode.local : ProverMode.remote);
     final nativeMode = resolvedMode == ProverMode.lightClient ? ProverMode.hybrid.value : resolvedMode.value;
 

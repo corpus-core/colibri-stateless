@@ -50,24 +50,50 @@ static const char* next_name(const char* pos, const char** next, int* len) {
   return start;
 }
 
-static const char* next_type(const char* pos, const char** next, int* len) {
+// Consume exactly one type token (a name, a `[...]` array or a `{...}` object) and
+// advance `*next` past it. Returns the start of the token or NULL on an unbalanced bracket.
+static const char* next_single_type(const char* pos, const char** next) {
   while (*pos && isspace((unsigned char)*pos)) pos++;
   const char* start = pos;
   if (*pos == '[') {
     const char* end = find_end(pos + 1, '[', ']');
     if (!end) return NULL;
     *next = end + 1;
-    *len  = end - start;
     return start;
   }
   if (*pos == '{') {
     const char* end = find_end(pos + 1, '{', '}');
     if (!end) return NULL;
     *next = end + 1;
-    *len  = end - start;
     return start;
   }
-  return next_name(pos, next, len);
+  int len = 0;
+  return next_name(pos, next, &len);
+}
+
+// Consume a full type expression including top-level alternations (`type|type|...`) and
+// advance `*next` past the whole chain. This keeps `|` usable at any position inside an
+// object definition, not just as the last field. The actual alternation is evaluated later
+// by json_validate(); here we only need to skip over the complete expression.
+static const char* next_type(const char* pos, const char** next, int* len) {
+  while (*pos && isspace((unsigned char)*pos)) pos++;
+  const char* start = pos;
+  const char* end   = NULL;
+  if (!next_single_type(pos, &end)) return NULL;
+
+  for (const char* p = end; *p;) {
+    while (*p && isspace((unsigned char)*p)) p++;
+    if (*p != '|') {
+      end = p;
+      break;
+    }
+    if (!next_single_type(p + 1, &end)) return NULL;
+    p = end;
+  }
+
+  *next = end;
+  *len  = end - start;
+  return start;
 }
 
 static bool starts_with_dot(const char* str) {
@@ -186,7 +212,9 @@ static const char* check_suint(json_t val, const char* error_prefix) {
   return NULL;
 }
 
-const char* json_validate(json_t val, const char* def, const char* error_prefix) {
+
+
+static const char* json_validate_def(json_t val, const char* def, const char* error_prefix) {
   if (val.type == JSON_TYPE_INVALID) return strdup("Invalid JSON");
   if (*def == '[') return check_array(val, def, error_prefix ? error_prefix : "");
   if (*def == '{') return check_object(val, def, error_prefix ? error_prefix : "");
@@ -198,9 +226,56 @@ const char* json_validate(json_t val, const char* def, const char* error_prefix)
   if (strncmp(def, "uint", 4) == 0) return val.type == JSON_TYPE_NUMBER ? NULL : strdup("Expected uint");
   if (strncmp(def, "suint", 5) == 0) return val.type == JSON_TYPE_STRING ? NULL : strdup("Expected suint");
   if (strncmp(def, "bool", 4) == 0) return val.type == JSON_TYPE_BOOLEAN ? NULL : strdup("Expected boolean");
+  if (strncmp(def, "null", 4) == 0) return val.type == JSON_TYPE_NULL ? NULL : strdup("Expected null");
   if (strncmp(def, "block", 5) == 0) return check_block(val, error_prefix);
   if (strncmp(def, "string", 6) == 0) return val.type == JSON_TYPE_STRING ? NULL : strdup("Expected string");
   ERROR("%sUnknown type %s", error_prefix ? error_prefix : "", def);
+}
+
+const char* json_validate(json_t val, const char* def, const char* error_prefix) {
+  // parse the definition
+
+  const char* current = def;
+  int level=0;
+  char start=0,end=0;
+  for (const char* p = def; *p; p++) {
+    if (start) {
+      if (*p == start) 
+        level++;
+      else if (*p == end) {
+        level--;
+        if (level == 0) {
+          start = 0;
+          end = 0;
+        }
+      }
+      continue;
+    }
+    
+
+    if (*p == '[') {
+      level=1;
+      start = *p;
+      end = ']';
+    } else if (*p == '{') {
+      level=1;
+      start = *p;
+      end = '}';
+    }
+    else if (*p == '|') { // we run the first expression and if it fails, we simply continue with the second expression
+      const char* err = json_validate_def(val, current, error_prefix);
+      if (!err) return NULL;
+      safe_free((char*) err);
+      current = p + 1;
+      continue;
+    }
+    else if (*p == '}' || *p == ']' || *p == ')' || *p == ',' || *p == ':') break;
+
+  }
+
+
+  if (current && *current) return json_validate_def(val, current, error_prefix);
+  ERROR("%sinvalid json def: %s", error_prefix,  def);
 }
 
 // Lightweight cache for json validation results (non-security critical).
