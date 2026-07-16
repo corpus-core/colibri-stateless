@@ -186,7 +186,9 @@ static const char* check_suint(json_t val, const char* error_prefix) {
   return NULL;
 }
 
-const char* json_validate(json_t val, const char* def, const char* error_prefix) {
+
+
+static const char* json_validate_def(json_t val, const char* def, const char* error_prefix) {
   if (val.type == JSON_TYPE_INVALID) return strdup("Invalid JSON");
   if (*def == '[') return check_array(val, def, error_prefix ? error_prefix : "");
   if (*def == '{') return check_object(val, def, error_prefix ? error_prefix : "");
@@ -201,6 +203,52 @@ const char* json_validate(json_t val, const char* def, const char* error_prefix)
   if (strncmp(def, "block", 5) == 0) return check_block(val, error_prefix);
   if (strncmp(def, "string", 6) == 0) return val.type == JSON_TYPE_STRING ? NULL : strdup("Expected string");
   ERROR("%sUnknown type %s", error_prefix ? error_prefix : "", def);
+}
+
+const char* json_validate(json_t val, const char* def, const char* error_prefix) {
+  // parse the definition
+
+  const char* current = def;
+  int level=0;
+  char start=0,end=0;
+  for (const char* p = def; *p; p++) {
+    if (start) {
+      if (*p == start) 
+        level++;
+      else if (*p == end) {
+        level--;
+        if (level == 0) {
+          start = 0;
+          end = 0;
+        }
+      }
+      continue;
+    }
+    
+
+    if (*p == '[') {
+      level=1;
+      start = *p;
+      end = ']';
+    } else if (*p == '{') {
+      level=1;
+      start = *p;
+      end = '}';
+    }
+    else if (*p == '|') { // we run the first expression and if it fails, we simply continue with the second expression
+      const char* err = json_validate_def(val, current, error_prefix);
+      if (!err) return NULL;
+      safe_free((char*) err);
+      current = p + 1;
+      continue;
+    }
+    else if (*p == '}' || *p == ']' || *p == ')' || *p == ',' || *p == ':') break;
+
+  }
+
+
+  if (current && *current) return json_validate_def(val, current, error_prefix);
+  ERROR("%sinvalid json def: %s", error_prefix,  def);
 }
 
 // Lightweight cache for json validation results (non-security critical).

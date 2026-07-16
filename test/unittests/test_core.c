@@ -251,6 +251,15 @@ void test_json() {
   buffer_free(&buffer);
 }
 
+void test_json_validate_or() {
+  const char* err = json_validate(json_parse("\"0x1\""), "address|hexuint", "");
+  TEST_ASSERT_NULL_MESSAGE(err, err);
+
+  err = json_validate(json_parse("true"), "address|hexuint", "");
+  TEST_ASSERT_NOT_NULL_MESSAGE(err, "true");
+  safe_free((char*) err);
+
+}
 void test_json_validate_block() {
   // All standard block tags must be accepted by the "block" type.
   const char* tags[] = {"\"latest\"", "\"safe\"", "\"finalized\"", "\"earliest\"", "\"pending\"", "\"0x1b4\"", "\"0x0\""};
@@ -969,6 +978,7 @@ int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_json);
   RUN_TEST(test_json_validate_block);
+  RUN_TEST(test_json_validate_or);
   RUN_TEST(test_bprintf);
   RUN_TEST(test_bprintf_extended);
   RUN_TEST(test_bprintf_json_ssz);
