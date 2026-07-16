@@ -228,6 +228,7 @@ json_t json_dup(json_t json);
  *    - "uint"      : JSON number (integer)
  *    - "suint"     : JSON string (integer) like "1234567890"
  *    - "bool"      : JSON boolean (true/false)
+ *    - "null"      : JSON null (useful in alternations, e.g. topics wildcards)
  *    - "block"     : block identifier (hex uint or "latest", "safe", "finalized")
  *
  * 2. ARRAYS:
