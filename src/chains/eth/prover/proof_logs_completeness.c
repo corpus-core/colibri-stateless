@@ -261,14 +261,13 @@ c4_status_t c4_proof_logs_completeness(prover_ctx_t* ctx) {
   json_t filter = json_at(ctx->params, 0);
   CHECK_JSON_INPUT(filter, JSON_GET_LOGS_FILTER_FIELDS, "Invalid eth_getLogs filter: ");
 
-  // resolve the range endpoints (fromBlock/toBlock, defaulting to "latest")
-  uint8_t  tmp_from[16], tmp_to[16];
-  buffer_t bf      = stack_buffer(tmp_from);
-  buffer_t bt      = stack_buffer(tmp_to);
-  json_t   from_id = json_get(filter, "fromBlock");
-  json_t   to_id   = json_get(filter, "toBlock");
-  if (from_id.type == JSON_TYPE_NOT_FOUND) from_id = json_parse(bprintf(&bf, "\"latest\""));
-  if (to_id.type == JSON_TYPE_NOT_FOUND) to_id = json_parse(bprintf(&bt, "\"latest\""));
+  // resolve the range endpoints (fromBlock/toBlock, defaulting to "latest").
+  // json_parse keeps a pointer into the source string, so the string literal
+  // (static storage duration) is safe here and no temporary buffer is needed.
+  json_t from_id = json_get(filter, "fromBlock");
+  json_t to_id   = json_get(filter, "toBlock");
+  if (from_id.type == JSON_TYPE_NOT_FOUND) from_id = json_parse("\"latest\"");
+  if (to_id.type == JSON_TYPE_NOT_FOUND) to_id = json_parse("\"latest\"");
 
   // `safe`/`finalized` require binding the anchor to the beacon checkpoint (checkpoint_proof variant),
   // which is not implemented yet. Reject up front instead of emitting a proof the verifier would reject.
