@@ -150,9 +150,18 @@ bool c4_eth_bloom_negative(bytes_t query_blooms, bytes_t block_bloom) {
 
   for (uint32_t v = 0; v < variant_count; v++) {
     const uint8_t* q         = query_blooms.data + (size_t) v * BLOOM_BYTE_LENGTH;
+    const uint8_t* b         = block_bloom.data;
     bool           is_subset = true;
-    for (uint32_t i = 0; i < BLOOM_BYTE_LENGTH; i++) {
-      if (q[i] & (uint8_t) ~block_bloom.data[i]) {
+    // Compare 8 bytes per step (BLOOM_BYTE_LENGTH is a multiple of 8): the variant
+    // is a subset iff no required bit is missing in the block bloom, i.e. (q & ~b) == 0
+    // for every word. Endianness is irrelevant since we only test whether any word has
+    // a bit set in q but not in b. memcpy avoids unaligned reads and is lowered to a
+    // single load by the compiler.
+    for (uint32_t i = 0; i < BLOOM_BYTE_LENGTH; i += 8) {
+      uint64_t qi, bi;
+      memcpy(&qi, q + i, sizeof(qi));
+      memcpy(&bi, b + i, sizeof(bi));
+      if (qi & ~bi) {
         is_subset = false; // a required bit is missing in the block bloom
         break;
       }
