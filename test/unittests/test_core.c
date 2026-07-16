@@ -260,6 +260,80 @@ void test_json_validate_or() {
   safe_free((char*) err);
 
 }
+
+void test_json_validate_or_in_object() {
+  // An alternation (`|`) field is no longer required to be the last object field:
+  // json_validate must keep validating fields that follow it.
+  const char* schema = "{a?:address|[address],b?:bytes32,c?:block}";
+
+  const char* ok[] = {
+      "{}",
+      "{\"a\":\"0x1111111111111111111111111111111111111111\",\"b\":\"0x3333333333333333333333333333333333333333333333333333333333333333\",\"c\":\"latest\"}",
+      "{\"a\":[\"0x1111111111111111111111111111111111111111\"],\"c\":\"0x5\"}",
+  };
+  for (size_t i = 0; i < sizeof(ok) / sizeof(ok[0]); i++) {
+    const char* err = json_validate(json_parse(ok[i]), schema, "");
+    TEST_ASSERT_NULL_MESSAGE(err, ok[i]);
+  }
+
+  // Regression: a bad field AFTER the alternation field must still be rejected
+  // (previously object parsing terminated right after the `|` field).
+  const char* bad[] = {
+      "{\"a\":\"0x1111111111111111111111111111111111111111\",\"b\":\"0xzz\"}", // bad bytes32 after OR field
+      "{\"a\":\"0x1111111111111111111111111111111111111111\",\"c\":\"head\"}", // bad block after OR field
+      "{\"a\":\"0xzz\",\"b\":\"0x3333333333333333333333333333333333333333333333333333333333333333\"}", // bad OR field itself
+  };
+  for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+    const char* err = json_validate(json_parse(bad[i]), schema, "");
+    TEST_ASSERT_NOT_NULL_MESSAGE(err, bad[i]);
+    safe_free((char*) err);
+  }
+}
+
+void test_json_validate_null() {
+  // The standalone `null` type only accepts JSON null (needed for topics wildcards).
+  const char* err = json_validate(json_parse("null"), "null", "");
+  TEST_ASSERT_NULL_MESSAGE(err, err);
+
+  err = json_validate(json_parse("\"0x1\""), "null", "");
+  TEST_ASSERT_NOT_NULL_MESSAGE(err, "string is not null");
+  safe_free((char*) err);
+}
+
+void test_json_validate_getlogs_filter() {
+  // Mirrors JSON_GET_LOGS_FILTER_FIELDS: `address` (top-level '|') must be last, `topics` uses
+  // '|' only inside brackets and may contain null wildcard positions.
+  const char* schema =
+      "{fromBlock?:block,toBlock?:block,blockHash?:bytes32,topics?:[bytes32|[bytes32|null]|null],bloomFilter?:[bytes],address?:address|[address]}";
+
+  const char* ok[] = {
+      "{}",
+      "{\"fromBlock\":\"0x1\",\"toBlock\":\"latest\"}",
+      "{\"address\":\"0x1111111111111111111111111111111111111111\"}",
+      "{\"address\":[\"0x1111111111111111111111111111111111111111\",\"0x2222222222222222222222222222222222222222\"]}",
+      "{\"topics\":[\"0x1111111111111111111111111111111111111111111111111111111111111111\",null,[\"0x2222222222222222222222222222222222222222222222222222222222222222\",null]]}",
+      "{\"blockHash\":\"0x3333333333333333333333333333333333333333333333333333333333333333\"}",
+  };
+  for (size_t i = 0; i < sizeof(ok) / sizeof(ok[0]); i++) {
+    const char* err = json_validate(json_parse(ok[i]), schema, "");
+    TEST_ASSERT_NULL_MESSAGE(err, ok[i]);
+  }
+
+  const char* bad[] = {
+      "5",                                                          // not an object
+      "{\"address\":\"0xzz\"}",                                     // invalid hex
+      "{\"address\":\"0x11\"}",                                     // wrong length
+      "{\"address\":[\"0x11\"]}",                                   // wrong length inside array
+      "{\"fromBlock\":\"head\"}",                                   // invalid block tag
+      "{\"topics\":[5]}",                                           // topic neither hex, array nor null
+  };
+  for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+    const char* err = json_validate(json_parse(bad[i]), schema, "");
+    TEST_ASSERT_NOT_NULL_MESSAGE(err, bad[i]);
+    safe_free((char*) err);
+  }
+}
+
 void test_json_validate_block() {
   // All standard block tags must be accepted by the "block" type.
   const char* tags[] = {"\"latest\"", "\"safe\"", "\"finalized\"", "\"earliest\"", "\"pending\"", "\"0x1b4\"", "\"0x0\""};
@@ -979,6 +1053,9 @@ int main(void) {
   RUN_TEST(test_json);
   RUN_TEST(test_json_validate_block);
   RUN_TEST(test_json_validate_or);
+  RUN_TEST(test_json_validate_or_in_object);
+  RUN_TEST(test_json_validate_null);
+  RUN_TEST(test_json_validate_getlogs_filter);
   RUN_TEST(test_bprintf);
   RUN_TEST(test_bprintf_extended);
   RUN_TEST(test_bprintf_json_ssz);

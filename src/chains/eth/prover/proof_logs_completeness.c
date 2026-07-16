@@ -259,7 +259,7 @@ static c4_status_t serialize_completeness_proof(prover_ctx_t* ctx, compl_block_t
 c4_status_t c4_proof_logs_completeness(prover_ctx_t* ctx) {
   if (ctx->flags & C4_PROVER_FLAG_HYBRID) THROW_ERROR("logs completeness proof is not supported in hybrid mode");
   json_t filter = json_at(ctx->params, 0);
-  if (filter.type != JSON_TYPE_OBJECT) THROW_ERROR("eth_getLogs completeness requires a filter object");
+  CHECK_JSON_CACHED(filter, JSON_GET_LOGS_FILTER_FIELDS, "Invalid eth_getLogs filter: ");
 
   // resolve the range endpoints (fromBlock/toBlock, defaulting to "latest")
   uint8_t  tmp_from[16], tmp_to[16];
