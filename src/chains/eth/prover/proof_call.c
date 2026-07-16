@@ -306,13 +306,13 @@ c4_status_t c4_proof_call(prover_ctx_t* ctx) {
   TRACE_START(ctx, "get_block_for_eth");
 
   if (strcmp(ctx->method, "eth_call") == 0) {
-    CHECK_JSON(ctx->params, "[" JSON_TX_CALL_FIELDS ",block," JSON_STATE_OVERRIDES_FIELDS "]", "Invalid transaction");
+    CHECK_JSON_INPUT(ctx->params, "[" JSON_TX_CALL_FIELDS ",block," JSON_STATE_OVERRIDES_FIELDS "]", "Invalid transaction");
   }
   else if (is_proof_call) {
-    CHECK_JSON(ctx->params, "[" JSON_ACCESS_LIST_FIELDS ",block]", "Invalid transaction");
+    CHECK_JSON_INPUT(ctx->params, "[" JSON_ACCESS_LIST_FIELDS ",block]", "Invalid transaction");
   }
   else {
-    CHECK_JSON(ctx->params, "[" JSON_TX_CALL_FIELDS ",block," JSON_STATE_OVERRIDES_FIELDS "]", "Invalid transaction");
+    CHECK_JSON_INPUT(ctx->params, "[" JSON_TX_CALL_FIELDS ",block," JSON_STATE_OVERRIDES_FIELDS "]", "Invalid transaction");
   }
   if (has_overrides) TRY_ASYNC(eth_parse_state_overrides_state(&ctx->state, state_overrides, &overrides_parsed));
 

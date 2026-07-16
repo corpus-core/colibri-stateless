@@ -375,7 +375,7 @@ c4_status_t c4_proof_logs(prover_ctx_t* ctx) {
   // Validate the eth_getLogs filter object up front. eth_proofLogs passes the logs array as params,
   // so the filter schema only applies to eth_getLogs.
   if (proof_logs_block_proof_type(ctx) == ETH_GET_LOGS)
-    CHECK_JSON_CACHED(json_at(ctx->params, 0), JSON_GET_LOGS_FILTER_FIELDS, "Invalid eth_getLogs filter: ");
+    CHECK_JSON_INPUT(json_at(ctx->params, 0), JSON_GET_LOGS_FILTER_FIELDS, "Invalid eth_getLogs filter: ");
 
   // A completeness proof is only meaningful for eth_getLogs (range queries), not for eth_proofLogs.
   if ((ctx->flags & C4_PROVER_FLAG_LOGS_COMPLETENESS) && proof_logs_block_proof_type(ctx) == ETH_GET_LOGS)
