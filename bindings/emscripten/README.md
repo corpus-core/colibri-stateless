@@ -306,6 +306,10 @@ The constructor of the colibri client accepts a configuration-object, which may 
     ```js
     new Colibri({ include_code:  true})
     ```
+- `logs_completeness` - if true, `eth_getLogs` produces (prover) and requires (verifier) a **completeness proof** over the requested block range `[fromBlock, toBlock]`. It proves that no matching log was omitted, not just that the returned logs are valid. This sets the prover flag (`1 << 12`) and the verifier flag (`1 << 9`) and requires a prover that supports it. The range end (`toBlock`) may be a pinned block hash/number or `"latest"`; `"safe"`/`"finalized"` are not supported yet. (default: false, tracks issue #128)
+    ```js
+    new Colibri({ logs_completeness: true })
+    ```
 - `privacy_mode` - **PAP (Pragmatic Adaptive Privacy)** mode: `"none"` (default) or `"basic"`. With `"basic"`, the verifier may use cached storage for optimistic execution and verify afterwards; method type can depend on params. *This feature is still experimental!*
     ```js
     new Colibri({ privacy_mode: "basic" })

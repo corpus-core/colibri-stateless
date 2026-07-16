@@ -36,6 +36,7 @@ swift build && swift test
 - **📱 iOS + macOS** - Native Swift Package for Apple platforms  
 - **🗄️ Flexible Storage** - Customizable storage implementations
 - **🧪 28 Tests** - Unit + Integration tests with mock data
+- **📜 Log completeness proofs** - Optional `logsCompleteness = true` for `eth_getLogs` proves the requested block range is complete (no matching log omitted; issue #128)
 
 ## 📖 Examples
 
