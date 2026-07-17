@@ -116,7 +116,7 @@ Output locations:
 ./scripts/publish_colibri_flutter.sh             # build + publish
 ```
 
-The publish script calls `build_native_libs.sh --all`, verifies the binaries exist, then runs `dart pub publish`.
+The publish script calls `build_native_libs.sh --all`, verifies the binaries exist, then publishes from an isolated temp copy (so monorepo `.gitignore` / parent `.pubignore` do not hide `pubspec.yaml` or the native binaries).
 
 3. **Repository verification:** pub.dev expects the [repository](pubspec.yaml) URL to clone to a repo that contains a `pubspec.yaml` with `name: colibri_flutter` at root. This package lives in a monorepo subdirectory, so to pass that check either:
    - **Option A:** Create a mirror repo (e.g. `corpus-core/colibri-flutter`) with this directory's contents at root. Push the mirror, set `repository: https://github.com/corpus-core/colibri-flutter` in [pubspec.yaml](pubspec.yaml), then publish.
