@@ -6,7 +6,7 @@ Flutter plugin for Colibri Stateless with **bundled native binaries** (Android, 
 
 ```yaml
 dependencies:
-  colibri_flutter: ^0.1.7
+  colibri_flutter: ^0.2.0
 ```
 
 Then:
@@ -45,7 +45,7 @@ flutter run
 
 **2. In your own app**
 
-- Add dependency: `colibri_flutter: ^0.1.7` (and run `flutter pub get`).
+- Add dependency: `colibri_flutter: ^0.2.0` (and run `flutter pub get`).
 - Use the same constructor so the plugin's library is used on all platforms:
 
 ```dart
@@ -59,7 +59,7 @@ final colibri = Colibri(chainId: 1, libraryPath: colibriFlutterLibraryPath);
 **3. If the app crashes on the first Colibri call**
 
 - **Android**: Ensure the plugin's `jniLibs` contain `libcolibri.so` for your ABI (arm64-v8a, armeabi-v7a, x86_64). If you depend on the published package, they are included. If you use a path dependency, run `./scripts/build_native_libs.sh --android` from the plugin directory or `./scripts/build_flutter_binaries.sh --android` from the repo root.
-- **iOS**: Ensure the XCFramework is present under `ios/Frameworks/` in the plugin (run `./scripts/build_native_libs.sh --ios` from the plugin directory, or `./scripts/build_flutter_binaries.sh --ios` from the repo root).
+- **iOS**: Ensure the XCFramework is present under `ios/colibri_flutter/Frameworks/` in the plugin (run `./scripts/build_native_libs.sh --ios` from the plugin directory, or `./scripts/build_flutter_binaries.sh --ios` from the repo root).
 - **Desktop**: Pass `libraryPath: colibriFlutterLibraryPath` and ensure you have run the build script for macOS/Linux so the bundled lib exists.
 
 ## Local / path dependency
@@ -102,7 +102,7 @@ Native binaries (`.so`, `.xcframework`) are **not** checked into git. They must 
 Output locations:
 
 - `android/src/main/jniLibs/<abi>/libcolibri.so`
-- `ios/Frameworks/c4_swift.xcframework`
+- `ios/colibri_flutter/Frameworks/c4_swift.xcframework` (CocoaPods + Swift Package Manager)
 - `macos/Frameworks/libcolibri.dylib` (universal; repo-root script only)
 - `linux/lib/libcolibri.so` (repo-root script only)
 

@@ -42,7 +42,7 @@ The Colibri Dart bindings provide an async Dart API that calls the Colibri C cor
 
 ```yaml
 dependencies:
-  colibri_stateless: ^0.1.5
+  colibri_stateless: ^0.2.0
 ```
 
 You must build or provide the native library separately (see Building from source). Alternatively, use **colibri_flutter** for mobile/desktop with bundled binaries.
@@ -357,7 +357,7 @@ Flutter plugin for Colibri Stateless with **bundled native binaries** for Androi
 
 ```yaml
 dependencies:
-  colibri_flutter: ^0.1.5
+  colibri_flutter: ^0.2.0
 ```
 
 ```bash

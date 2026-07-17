@@ -36,7 +36,7 @@ for abi in arm64-v8a armeabi-v7a x86_64; do
     fi
 done
 
-xcfw="$PLUGIN_DIR/ios/Frameworks/c4_swift.xcframework"
+xcfw="$PLUGIN_DIR/ios/colibri_flutter/Frameworks/c4_swift.xcframework"
 if [[ -d "$xcfw" ]]; then
     echo "  OK: c4_swift.xcframework ($(du -sh "$xcfw" | cut -f1))"
 else

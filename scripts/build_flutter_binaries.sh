@@ -164,8 +164,9 @@ build_ios() {
   cp -R "$src_xcframework" "$dest_dir/"
   echo "Copied: $dest_dir/c4_swift.xcframework"
 
-  if [[ -d "$FLUTTER_PLUGIN_DIR/ios/Frameworks" ]]; then
-    local plugin_dir="$FLUTTER_PLUGIN_DIR/ios/Frameworks"
+  if [[ -d "$FLUTTER_PLUGIN_DIR/ios" ]]; then
+    local plugin_dir="$FLUTTER_PLUGIN_DIR/ios/colibri_flutter/Frameworks"
+    mkdir -p "$plugin_dir"
     rm -rf "$plugin_dir/c4_swift.xcframework"
     cp -R "$src_xcframework" "$plugin_dir/"
     echo "Copied: $plugin_dir/c4_swift.xcframework"

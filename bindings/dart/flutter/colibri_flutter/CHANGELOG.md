@@ -1,3 +1,16 @@
+## 0.2.1
+
+- iOS: keep `c4_rpc_set_proxy_urls` in `force_link.c` (Dart FFI requires it; Release device builds dead-stripped it while simulator often still worked).
+- macOS: add `s.dependency 'FlutterMacOS'` to the podspec so `import FlutterMacOS` resolves under Xcode Explicit Modules / current Flutter tooling.
+
+## 0.2.0
+
+- **Colibri v2** package line (`0.2.x`). Requires `colibri_stateless: ^0.2.0`.
+- **iOS (SPM):** Swift Package Manager support via `ios/colibri_flutter/Package.swift` with `.binaryTarget` for `c4_swift.xcframework` (path shared with CocoaPods under `ios/colibri_flutter/Frameworks/`).
+- iOS: fix missing `c4_create_prover_ctx` (and other FFI symbols) when Flutter builds the plugin as a dynamic framework (`use_frameworks!`).
+  - `force_link.c` now keeps file-scope `__attribute__((used))` symbol pointers so Clang cannot empty the force-link object under optimization.
+  - Podspec adds `-force_load` for the static `c4_swift` archive so Colibri objects are always linked into `colibri_flutter.framework`.
+
 ## 0.1.8
 
 - Requires `colibri_stateless: ^0.1.8`.

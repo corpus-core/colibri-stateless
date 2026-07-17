@@ -7,9 +7,19 @@ Pod::Spec.new do |s|
   s.license          = { :file => '../LICENSE' }
   s.author           = { 'corpus.core' => 'info@corpuscore.tech' }
   s.source           = { :path => '.' }
-  s.source_files     = 'Classes/**/*'
+  # Shared with Swift Package Manager under ios/colibri_flutter/
+  s.source_files     = 'colibri_flutter/Sources/colibri_flutter/**/*.swift',
+                       'colibri_flutter/Sources/colibri_force_link/**/*.{c,h}'
+  s.public_header_files = 'colibri_flutter/Sources/colibri_force_link/**/*.h'
   s.platform         = :ios, '13.0'
   s.swift_version    = '5.0'
-  s.vendored_frameworks = 'Frameworks/c4_swift.xcframework'
+  # Static archive inside the XCFramework. With Flutter `use_frameworks!` this
+  # pod becomes a dynamic framework; -force_load pulls every object file so
+  # Dart FFI symbols are present even before force_link.c references resolve.
+  s.vendored_frameworks = 'colibri_flutter/Frameworks/c4_swift.xcframework'
   s.dependency 'Flutter'
+  s.pod_target_xcconfig = {
+    'DEFINES_MODULE' => 'YES',
+    'OTHER_LDFLAGS' => '$(inherited) -force_load "$(PODS_XCFRAMEWORKS_BUILD_DIR)/colibri_flutter/c4_swift.framework/c4_swift"',
+  }
 end
