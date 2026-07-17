@@ -66,7 +66,7 @@ typedef struct {
 // Builds a JSON block identifier ("0x..") for the given block number into buf.
 static json_t block_id_json(uint64_t block_number, buffer_t* buf) {
   buffer_reset(buf);
-  return json_parse(bprintf(buf, "\"0x%" PRIx64 "\"", block_number));
+  return json_parse(bprintf(buf, "\"0x%lx\"", block_number));
 }
 
 // Serializes one bloom-negative block (blockNumber + logsBloom proven to bodyRoot).
