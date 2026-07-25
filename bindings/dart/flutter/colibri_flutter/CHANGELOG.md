@@ -1,3 +1,19 @@
+## 0.2.3
+
+- macOS: build the bundled universal `libcolibri.dylib` with the plugin's
+  supported deployment targets (macOS 11.0 for `arm64`, 10.15 for `x86_64`).
+  Version 0.2.2 inherited macOS 26.0 from the build host SDK and could not run
+  on older supported macOS versions.
+
+## 0.2.2
+
+- macOS: ship a **universal** `libcolibri.dylib` (`arm64` + `x86_64`). The bundled
+  `blst` static library is now compiled for the requested
+  `CMAKE_OSX_ARCHITECTURES` slice, so Intel (`x86_64`) macOS apps link and run
+  Colibri correctly. Previously the x86_64 slice was missing, causing
+  `symbol(s) not found for architecture x86_64` at link time and missing `c4_*`
+  symbols on Intel Macs at runtime.
+
 ## 0.2.1
 
 - iOS: keep `c4_rpc_set_proxy_urls` in `force_link.c` (Dart FFI requires it; Release device builds dead-stripped it while simulator often still worked).

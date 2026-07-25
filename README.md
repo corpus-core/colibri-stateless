@@ -173,11 +173,11 @@ colibri.close();
 
 #### Dart / Flutter
 
-For Flutter apps (Android, iOS, macOS, Linux) with **bundled native binaries**:
+For Flutter apps (Android, iOS, macOS, Linux) with **bundled native binaries** (**Colibri v2**, `0.2.x`):
 
 ```yaml
 dependencies:
-  colibri_flutter: ^0.1.7
+  colibri_flutter: ^0.2.1
 ```
 
 ```dart

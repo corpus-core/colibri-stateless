@@ -1,12 +1,14 @@
 # Colibri Flutter
 
-Flutter plugin for Colibri Stateless with **bundled native binaries** (Android, iOS, macOS, Linux). No manual build or `libraryPath` needed on mobile; on desktop use `colibriFlutterLibraryPath`.
+Flutter plugin for **Colibri v2** (package line `0.2.x`) with **bundled native binaries** (Android, iOS, macOS, Linux). No manual build or `libraryPath` needed on mobile; on desktop use `colibriFlutterLibraryPath`.
+
+Depends on [`colibri_stateless`](https://pub.dev/packages/colibri_stateless) `^0.2.0`.
 
 ## Install (pub.dev)
 
 ```yaml
 dependencies:
-  colibri_flutter: ^0.2.0
+  colibri_flutter: ^0.2.1
 ```
 
 Then:
@@ -43,9 +45,11 @@ flutter run
 # Pick a device (e.g. Android emulator or iOS simulator), then tap "Fetch block number".
 ```
 
+Prefer testing **Release on a physical iPhone** as well as the simulator — some FFI link issues only show up on device Release builds.
+
 **2. In your own app**
 
-- Add dependency: `colibri_flutter: ^0.2.0` (and run `flutter pub get`).
+- Add dependency: `colibri_flutter: ^0.2.1` (and run `flutter pub get`).
 - Use the same constructor so the plugin's library is used on all platforms:
 
 ```dart
@@ -53,18 +57,20 @@ final colibri = Colibri(chainId: 1, libraryPath: colibriFlutterLibraryPath);
 ```
 
 - **Android**: The plugin loads `libcolibri.so` from `jniLibs` when the engine attaches. No path needed; `colibriFlutterLibraryPath` is `null`.
-- **iOS**: The XCFramework is linked into the app; no path needed.
+- **iOS**: The XCFramework is linked into the app; no path needed. CocoaPods and Swift Package Manager both use `ios/colibri_flutter/`.
 - **macOS / Linux**: You must pass `colibriFlutterLibraryPath` and have built the desktop binaries (see "Building native binaries" below).
 
-**3. If the app crashes on the first Colibri call**
+**3. If the app crashes or FFI fails on the first Colibri call**
 
 - **Android**: Ensure the plugin's `jniLibs` contain `libcolibri.so` for your ABI (arm64-v8a, armeabi-v7a, x86_64). If you depend on the published package, they are included. If you use a path dependency, run `./scripts/build_native_libs.sh --android` from the plugin directory or `./scripts/build_flutter_binaries.sh --android` from the repo root.
-- **iOS**: Ensure the XCFramework is present under `ios/colibri_flutter/Frameworks/` in the plugin (run `./scripts/build_native_libs.sh --ios` from the plugin directory, or `./scripts/build_flutter_binaries.sh --ios` from the repo root).
+- **iOS – missing symbol** (e.g. `c4_create_prover_ctx`, `c4_rpc_set_proxy_urls`): Dart FFI uses `DynamicLibrary.process()`. With Flutter `use_frameworks!`, Colibri is a static archive linked into `colibri_flutter.framework`. Symbols used only via `dlsym` must be retained by `ios/colibri_flutter/Sources/colibri_force_link/force_link.c` and `-force_load` in the podspec. Simulator/Debug can appear fine while **Release on device** fails if a keeper is missing. Ensure you are on **≥ 0.2.1**, clean rebuild (`flutter clean`, `pod install`), and that every symbol looked up in `colibri_stateless` `native.dart` has a `COLIBRI_KEEP(...)` entry.
+- **iOS – XCFramework missing** (path dependency): Build with `./scripts/build_native_libs.sh --ios` so `ios/colibri_flutter/Frameworks/c4_swift.xcframework` exists.
+- **macOS – `unable to resolve module dependency: 'FlutterMacOS'`**: The macOS podspec must declare `s.dependency 'FlutterMacOS'` (included since **0.2.1**). Run `flutter clean` and rebuild.
 - **Desktop**: Pass `libraryPath: colibriFlutterLibraryPath` and ensure you have run the build script for macOS/Linux so the bundled lib exists.
 
 ## Local / path dependency
 
-For development against a local `colibri_stateless`:
+For development against a local checkout:
 
 ```yaml
 dependencies:
@@ -73,6 +79,8 @@ dependencies:
   colibri_stateless:
     path: /path/to/colibri-stateless/bindings/dart
 ```
+
+Build native binaries in the plugin directory before running (see below).
 
 ## Building native binaries (for maintainers)
 
@@ -106,9 +114,15 @@ Output locations:
 - `macos/Frameworks/libcolibri.dylib` (universal; repo-root script only)
 - `linux/lib/libcolibri.so` (repo-root script only)
 
+## iOS integration notes
+
+- iOS does not allow dynamic `dlopen` of external libraries. The XCFramework is linked into the app; Dart FFI uses `DynamicLibrary.process()` / `executable()`.
+- Layout: `ios/colibri_flutter/` holds `Package.swift`, `Sources/` (Swift plugin + `colibri_force_link`), and `Frameworks/c4_swift.xcframework`. The CocoaPods podspec points at the same tree.
+- When adding new C API symbols used from Dart, update **both** `colibri_stateless` FFI bindings and `force_link.c` (`COLIBRI_KEEP`), then bump the plugin patch version.
+
 ## Publishing (pub.dev)
 
-1. Publish **colibri_stateless** first from `bindings/dart`.
+1. Publish **colibri_stateless** (`0.2.x`) first from `bindings/dart`.
 2. Build binaries and publish in one step:
 
 ```bash
@@ -122,7 +136,3 @@ The publish script calls `build_native_libs.sh --all`, verifies the binaries exi
    - **Option A:** Create a mirror repo (e.g. `corpus-core/colibri-flutter`) with this directory's contents at root. Push the mirror, set `repository: https://github.com/corpus-core/colibri-flutter` in [pubspec.yaml](pubspec.yaml), then publish.
    - **Option B:** Run `./scripts/prepare_pub_mirror.sh` from this directory to copy the package into a sibling folder; push that folder as the mirror repo, then set `repository` in pubspec to the mirror URL and publish.
 4. Manual alternative: `dart pub publish --dry-run`, then `dart pub publish` (after building binaries separately).
-
-## iOS note
-
-iOS does not allow dynamic `dlopen` of external libraries. The XCFramework is linked into the app; the Dart FFI loader uses `DynamicLibrary.process()`.

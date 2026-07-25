@@ -2,7 +2,14 @@
 
 # Colibri Dart Bindings
 
-Dart FFI bindings for Colibri Stateless (proof generation + verification).
+Dart FFI bindings for **Colibri v2** (package line `0.2.x`) — proof generation and verification.
+
+Current package versions:
+
+| Package | Version |
+|---------|---------|
+| [`colibri_stateless`](pubspec.yaml) | **0.2.0** |
+| [`colibri_flutter`](flutter/colibri_flutter/pubspec.yaml) | **0.2.1** |
 
 ## Quick Start
 
@@ -51,7 +58,7 @@ For Flutter apps, use the **colibri_flutter** package on pub.dev — it includes
 
 ```yaml
 dependencies:
-  colibri_flutter: ^0.2.0
+  colibri_flutter: ^0.2.1
 ```
 
 ```dart
@@ -63,7 +70,7 @@ See [flutter/colibri_flutter/README.md](flutter/colibri_flutter/README.md). On A
 
 ### iOS (building yourself)
 
-iOS does not allow dynamic `dlopen` of external libraries. When building yourself, place the XCFramework at `bindings/dart/flutter/colibri_flutter/ios/colibri_flutter/Frameworks/c4_swift.xcframework`, or use **colibri_flutter** from pub.dev (see above).
+iOS does not allow dynamic `dlopen` of external libraries. When building yourself, place the XCFramework at `bindings/dart/flutter/colibri_flutter/ios/colibri_flutter/Frameworks/c4_swift.xcframework`, or use **colibri_flutter** from pub.dev (see above). FFI symbols are retained via `force_link.c` + `-force_load` (see the Flutter plugin README troubleshooting section).
 
 ## Build (Debug)
 

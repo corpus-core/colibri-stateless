@@ -2,11 +2,11 @@
 
 :: Dart
 
-Dart FFI bindings for the Colibri stateless Ethereum proof library. Generate and verify cryptographic proofs for Ethereum RPC calls from Dart applications (CLI, servers, or desktop).
+Dart FFI bindings for **Colibri v2** (`colibri_stateless` **0.2.x**). Generate and verify cryptographic proofs for Ethereum RPC calls from Dart applications (CLI, servers, or desktop).
 
 ## Overview
 
-The Colibri Dart bindings provide an async Dart API that calls the Colibri C core via FFI. They are used both as a standalone package (`colibri_stateless`) and as the runtime behind the Flutter plugin (`colibri_flutter`). All RPC responses can be validated with Merkle proofs; ZK proofs are requested from remote provers when configured.
+The Colibri Dart bindings provide an async Dart API that calls the Colibri C core via FFI. They are used both as a standalone package (`colibri_stateless` **0.2.0**) and as the runtime behind the Flutter plugin (`colibri_flutter` **0.2.1**). All RPC responses can be validated with Merkle proofs; ZK proofs are requested from remote provers when configured.
 
 ### Core Features
 
@@ -357,7 +357,7 @@ Flutter plugin for Colibri Stateless with **bundled native binaries** for Androi
 
 ```yaml
 dependencies:
-  colibri_flutter: ^0.2.0
+  colibri_flutter: ^0.2.1
 ```
 
 ```bash
@@ -393,7 +393,8 @@ colibri.close();
 ## Platform notes
 
 - **Android** – `libcolibri.so` is loaded from the plugin’s `jniLibs` when the engine attaches.
-- **iOS** – The XCFramework is linked; no path needed. When building yourself, place it under `ios/Frameworks/` or use the published package.
+- **iOS** – The XCFramework under `ios/colibri_flutter/Frameworks/` is linked (CocoaPods + SPM). Dart FFI uses `DynamicLibrary.process()`. Release device builds require every FFI symbol to be retained via `force_link.c` / `-force_load` (use plugin **≥ 0.2.1**). When building yourself, run the iOS binary build script or use the published package.
+- **macOS** – Podspec depends on `FlutterMacOS` (required since **0.2.1** for Explicit Modules). Pass `colibriFlutterLibraryPath` after building desktop binaries.
 - **Desktop** – Build binaries from the repo root with `./scripts/build_flutter_binaries.sh --macos` (or `--linux`, `--windows` as appropriate). Requires Android NDK for Android, Xcode on macOS for iOS.
 - **Storage** – On Android and iOS, if you omit **storage**, the client uses in-memory storage by default (native file storage is not used on mobile).
 

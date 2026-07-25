@@ -179,6 +179,9 @@ build_macos() {
     return
   fi
 
+  # Match the plugin podspec so the bundled dylib runs on every macOS version
+  # supported by colibri_flutter instead of inheriting the host SDK version.
+  local macos_deployment_target="10.15"
   local macos_archs=("arm64" "x86_64")
   local dylibs=()
   for arch in "${macos_archs[@]}"; do
@@ -188,6 +191,7 @@ build_macos() {
       -DDART=ON \
       -DETH_ZKPROOF=ON \
       -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_OSX_DEPLOYMENT_TARGET="$macos_deployment_target" \
       -DCMAKE_OSX_ARCHITECTURES="$arch"
     cmake --build "$build_dir" --target colibri_dart
 
