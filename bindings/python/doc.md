@@ -181,6 +181,7 @@ class Colibri:
         prover_mode: Optional[ProverMode] = None,
         skip_wsp_check: bool = False,
         max_latest_age_seconds: int = 60,
+        logs_completeness: bool = False,
         storage: Optional[ColibriStorage] = None
     ):
         """
@@ -194,6 +195,7 @@ class Colibri:
             trusted_checkpoint: Optional trusted checkpoint block hash for anchoring
             privacy_mode: PAP mode (PrivacyMode.NONE or PrivacyMode.BASIC). Default NONE.
             prover_mode: Proof generation mode (ProverMode.LOCAL, REMOTE, or HYBRID). Default: REMOTE if provers configured, LOCAL otherwise.
+            logs_completeness: If True, eth_getLogs produces and requires a completeness proof over the requested block range (proves no matching log was omitted). Sets the prover flag (1 << 12) and the verify flag (1 << 9). Default: False.
             request_handler: Custom HTTP request handler
             storage: Custom storage implementation
         """
@@ -539,7 +541,20 @@ client = Colibri(
 
 > **PAP mode:** the freshness check also applies to PAP, where the call proof arrives via `colibri_proofCall` (same proof structure as a direct `eth_call`). This requires a prover that embeds the block context (≥ 1.1.15); against an older PAP proof without a block timestamp the check fails closed (`"cannot verify freshness of latest block without block context"`). Set `max_latest_age_seconds=0` to opt out.
 
-> **`eth_getLogs`:** intentionally **not** covered. The proof witnesses individual log entries; the request range itself (up to `latest`) is not part of the proof yet. Tracked under issue #128 (full log-range proofs).
+> **`eth_getLogs`:** the per-method freshness gate does not apply. Instead, enable `logs_completeness` (see below) to get a dedicated completeness proof over the whole requested block range (issue #128).
+
+### Logs completeness proof
+
+By default an `eth_getLogs` proof witnesses the returned log entries but not the completeness of the requested range -- a prover could omit matching logs. Enabling `logs_completeness` makes the prover produce and the verifier require a **completeness proof** over the requested block range `[fromBlock, toBlock]`, guaranteeing that no matching log was omitted.
+
+- `logs_completeness` (`bool`, default `False`) -- sets the prover flag (`1 << 12`) and the verifier flag (`1 << 9`). Requires a prover that supports it. The range end (`toBlock`) may be a pinned block hash/number or `"latest"`; `"safe"`/`"finalized"` are not supported yet. Tracks issue #128.
+
+```python
+client = Colibri(
+    chain_id=1,
+    logs_completeness=True,
+)
+```
 
 ### Privacy (PAP)
 

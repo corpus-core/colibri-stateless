@@ -115,6 +115,7 @@ class Colibri {
     this.trustedCheckpoint,
     this.includeCode = false,
     this.zkProof = false,
+    this.logsCompleteness = false,
     this.proverMode,
     this.checkpointWitnessKeys,
     this.skipWspCheck = false,
@@ -140,6 +141,8 @@ class Colibri {
 - **close** – Releases native resources; call when done.
 
 Constructor: **libraryPath** overrides the default native library (or use env `COLIBRI_DART_LIBRARY`). **storage** registers a custom cache; **zkProof** requests ZK proofs from remote provers when using **rpc** with provers. **onDebug** can contain sensitive data; do not forward to production logging.
+
+**logsCompleteness** (`bool`, default `false`) makes `eth_getLogs` produce (prover) and require (verifier) a **completeness proof** over the requested block range `[fromBlock, toBlock]`. The proof guarantees that no matching log was omitted, not just that the returned logs are valid. It sets the prover flag (`1 << 12`) and the verifier flag (`1 << 9`) and requires a prover that supports it. The range end (`toBlock`) may be a pinned block hash/number or `"latest"`; `"safe"`/`"finalized"` are not supported yet. Tracks issue #128.
 
 ### Storage
 

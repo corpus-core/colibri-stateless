@@ -137,6 +137,12 @@ export interface Config extends ChainConfig {
     /** Pragmatic Adaptive Privacy mode. Default "none". "basic" sets verify flag for PAP. */
     privacy_mode?: PrivacyMode;
     zk_proof?: boolean;
+    /**
+     * If true, `eth_getLogs` requests produce and require a completeness proof over the
+     * requested block range: the proof guarantees that no matching log was omitted.
+     * Sets the prover flag (`1 << 12`) and the verify flag (`1 << 9`). Default: false.
+     */
+    logs_completeness?: boolean;
     /** Proof generation mode. Default: "remote" if prover URLs configured, otherwise "local". */
     prover_mode?: ProverMode;
     /**

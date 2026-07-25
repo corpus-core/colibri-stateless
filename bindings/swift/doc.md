@@ -199,6 +199,11 @@ public class Colibri {
     /// `colibri_simulateTransaction`. Default: 60.
     public var maxLatestAgeSeconds: UInt64
 
+    /// If true, `eth_getLogs` produces (prover) and requires (verifier) a completeness
+    /// proof over the requested block range, guaranteeing that no matching log was
+    /// omitted. Sets the prover flag (1 << 12) and the verify flag (1 << 9). Default: false.
+    public var logsCompleteness: Bool
+
     /// Initialization
     public init()
     
@@ -274,7 +279,7 @@ The gate covers the following RPC methods:
 - **Block / header:** `eth_getBlockByNumber`, `eth_getBlockHeader`, `eth_blobBaseFee`, `eth_maxPriorityFeePerGas`
 - **Implicit-latest:** `eth_blockNumber`
 
-`eth_getLogs` is **not** covered yet (tracked in issue #128). Account methods rely on a slim `timestamp` leaf inside the state proof which is only emitted by **prover version ≥ 1.1.27**; against older provers the verifier fails closed (`"cannot verify freshness of latest block without block context"`).
+`eth_getLogs` is not part of this per-method freshness gate; instead, enabling `logsCompleteness` (see below) produces a dedicated completeness proof over the whole requested block range (issue #128). Account methods rely on a slim `timestamp` leaf inside the state proof which is only emitted by **prover version ≥ 1.1.27**; against older provers the verifier fails closed (`"cannot verify freshness of latest block without block context"`).
 
 - `maxLatestAgeSeconds` (`UInt64`, default `60` ≈ 5 Ethereum slots) -- upper bound on the accepted age. Set to `0` to disable the check (e.g. when using legacy proof formats that do not embed a block context).
 
@@ -287,6 +292,18 @@ colibri.maxLatestAgeSeconds = 30 // tighter window for latency-sensitive flows
 ```
 
 > **PAP mode:** the freshness check also applies to PAP, where the call proof arrives via `colibri_proofCall` (same proof structure as a direct `eth_call`). This requires a prover that embeds the block context (≥ 1.1.15); against an older PAP proof without a block timestamp the check fails closed (`"cannot verify freshness of latest block without block context"`). Set `maxLatestAgeSeconds = 0` to opt out.
+
+### Logs completeness proof
+
+By default an `eth_getLogs` proof witnesses the returned log entries but not the completeness of the requested range -- a prover could omit matching logs. Enabling `logsCompleteness` makes the prover produce and the verifier require a **completeness proof** over the requested block range `[fromBlock, toBlock]`, guaranteeing that no matching log was omitted.
+
+- `logsCompleteness` (`Bool`, default `false`) -- sets the prover flag (`1 << 12`) and the verifier flag (`1 << 9`). Requires a prover that supports it. The range end (`toBlock`) may be a pinned block hash/number or `"latest"`; `"safe"`/`"finalized"` are not supported yet. Tracks issue #128.
+
+```swift
+let colibri = Colibri()
+colibri.chainId = 1
+colibri.logsCompleteness = true
+```
 
 ### Privacy-preserving `eth_call` (oblivious + PAP + hybrid)
 

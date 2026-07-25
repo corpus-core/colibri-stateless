@@ -1,6 +1,6 @@
-<img src="https://github.com/corpus-core/colibri-stateless/raw/dev/c4_logo.png" alt="C4 Logo" width="300"/>
+<img src="https://github.com/corpus-core/colibri-stateless/raw/dev/c4_logo.png" alt="Colibri Logo" width="300"/>
 
-# Colibri Dart Bindings
+# Colibri Stateless — Dart / Flutter
 
 Dart FFI bindings for **Colibri v2** (package line `0.2.x`) — proof generation and verification.
 
@@ -10,6 +10,27 @@ Current package versions:
 |---------|---------|
 | [`colibri_stateless`](pubspec.yaml) | **0.2.0** |
 | [`colibri_flutter`](flutter/colibri_flutter/pubspec.yaml) | **0.2.1** |
+
+**Verify Ethereum RPC data cryptographically — without running a full node.**
+
+![ETH2.0 Spec Version 1.4.0](https://img.shields.io/badge/ETH2.0_Spec_Version-1.4.0-2e86c1.svg)
+![License](https://img.shields.io/badge/license-MIT-green.svg)
+[![pub](https://img.shields.io/pub/v/colibri_flutter.svg)](https://pub.dev/packages/colibri_flutter)
+
+Colibri Stateless is a highly efficient prover/verifier for Ethereum (with upcoming support for Layer-2s such as OP-Stack). These Dart FFI bindings wrap the C core and verify every RPC response against the beacon chain — no full node, no continuous sync. Use them standalone (`colibri_stateless`) or via the Flutter plugin (`colibri_flutter`) with bundled native binaries.
+
+[**Website**](https://www.corpuscore.tech/colibri) · [**Docs**](https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/bindings/dart) · [**Whitepaper**](https://corpus-core.gitbook.io/whitepaper-colibri-stateless) · [**Privacy (PAP)**](https://corpus-core.gitbook.io/pap-colibri-stateless)
+
+## Why Colibri?
+
+- **Stateless** — verification needs nothing but the proof and the sync committee it is checked against. The committee is cached locally so it does not have to travel with every request, but it works just as well with an empty cache or none at all. No persistent state, no full node.
+- **Cryptographically verified RPC** — every RPC response is checked against BLS signatures.
+- **Offline verification** — proofs are fully self-contained and verify without any network connection, thanks to zk-proofs for the sync committee and signed checkpoints.
+- **On-demand, not always-on** — work happens only when you make a request; no background sync burning bandwidth, CPU, or battery.
+- **Verifies historical data (older than ~27h / 8192 blocks)** — via `historical_summaries` proofs, where other light clients simply fail.
+- **`eth_getLogs` completeness proofs** — proves no matching log was omitted in the requested range.
+- **Fully verified local transaction simulation** — simulate a transaction against verified state before signing.
+- **Privacy-aware** — Pragmatic Adaptive Privacy (PAP) mode. *Experimental.*
 
 ## Quick Start
 
@@ -43,12 +64,12 @@ final colibri = Colibri(
 }
 ```
 
-## Features
+## Dart-specific features
 
-- Proof generation + verification through the C core
 - Async request handling with `dart:async`
 - Multi-chain configuration with sensible defaults
-- **Privacy-preserving `eth_call`** – `proverMode: hybrid`, `privacyMode: basic`, `obliviousNodes` (default empty; e.g. `https://rpc.safe-node.com/`, API key for testing). Oblivious auto-enables PAP. TEE/ORAM: [Oblivious Labs](https://www.obliviouslabs.com/).
+- Flutter plugin (`colibri_flutter`) with bundled Android/iOS/desktop binaries
+- **Privacy-preserving `eth_call`** – `proverMode: hybrid`, `privacyMode: basic`, `obliviousNodes` (default empty; e.g. `https://rpc.safe-node.com/`, API key for testing). Setting `obliviousNodes` auto-enables PAP. TEE/ORAM: [Oblivious Labs](https://www.obliviouslabs.com/).
 
 You can also set the library path via `COLIBRI_DART_LIBRARY`.
 

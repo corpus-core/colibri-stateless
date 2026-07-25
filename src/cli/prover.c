@@ -80,6 +80,7 @@
 // | `-o`           | `<outputfile>`  | SSZ file with the proof                                                     | `stdout`     |
 // | `-d`           | `<chain_store>` | Use `chain_data` from the `chain_store` found within the path               |              |
 // | `-i`           |                 | Include code in the proof                                                   |              |
+// | `-G`           |                 | Generate an `eth_getLogs` completeness proof over the requested block range (proves no matching log was omitted; sets `C4_PROVER_FLAG_LOGS_COMPLETENESS`) |              |
 // | `<method>`     |                 | The method to execute                                                       |              |
 // | `<params>`     |                 | Parameters for the method                                                   |              |
 
@@ -115,6 +116,7 @@ int main(int argc, char* argv[]) {
                     "  -o <outputfile>  : ssz file with the proof ( default to stdout )\n"
                     "  -d <chain_store> : use chain_data from the chain_store found within the path\n"
                     "  -i               : include code in the proof\n"
+                    "  -G               : generate an eth_getLogs completeness proof over the requested block range (proves no matching log was omitted)\n"
                     "  --version, -v    : display version information\n"
                     "\n",
             argv[0]);
@@ -159,6 +161,10 @@ int main(int argc, char* argv[]) {
           case 'i':
             // Include contract code in the proof (for call proofs)
             flags |= C4_PROVER_FLAG_INCLUDE_CODE;
+            break;
+          case 'G':
+            // Generate an eth_getLogs completeness proof over the requested block range
+            flags |= C4_PROVER_FLAG_LOGS_COMPLETENESS;
             break;
 #ifdef TEST
 #ifdef USE_CURL

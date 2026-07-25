@@ -32,6 +32,14 @@
 #define JSON_TX_CALL_FIELDS     "{to:address,data:bytes,gas?:hexuint,value?:hexuint,gasPrice?:hexuint,from?:address}"
 #define JSON_ACCESS_LIST_FIELDS "{accessList:[{address:address,storageKeys:[hex32]}],error?:string,gasUsed?:hexuint}"
 
+// Schema for the eth_getLogs filter object (all fields optional):
+//   - fromBlock/toBlock: block tag ("latest"/"safe"/...) or a hex block number
+//   - blockHash: a single 32-byte block hash (mutually exclusive with from/toBlock, not enforced here)
+//   - topics: array where each position is a single topic, an array of alternatives, or null (wildcard)
+//   - bloomFilter: optional pre-computed query blooms used by PAP mode
+//   - address: a single address or an array of addresses
+#define JSON_GET_LOGS_FILTER_FIELDS "{fromBlock?:block,toBlock?:block,blockHash?:bytes32,topics?:[bytes32|[bytes32|null]|null],bloomFilter?:[bytes],address?:address|[address]}"
+
 // Forward declaration (defined in src/chains/eth/verifier/state_overrides.h).
 // Prover code only needs the pointer type.
 typedef struct eth_state_overrides eth_state_overrides_t;

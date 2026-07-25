@@ -1,11 +1,29 @@
 
-<img src="https://github.com/corpus-core/colibri-stateless/raw/dev/c4_logo.png" alt="C4 Logo" width="300"/>
+<img src="https://github.com/corpus-core/colibri-stateless/raw/dev/c4_logo.png" alt="Colibri Logo" width="300"/>
 
-# Kotlin/Java Bindings for Colibri
+# Colibri Stateless — Kotlin / Java
 
-The Colibri bindings for Kotlin/Java are built using CMake and Gradle. It can be used as AAR (Android Archive) or JAR (Java Archive).
+**Verify Ethereum RPC data cryptographically — without running a full node.**
 
-> 💡 **Quick Start**: Check out the [Example Android App](./example) for a complete working implementation!
+![ETH2.0 Spec Version 1.4.0](https://img.shields.io/badge/ETH2.0_Spec_Version-1.4.0-2e86c1.svg)
+![License](https://img.shields.io/badge/license-MIT-green.svg)
+
+Colibri Stateless is a highly efficient prover/verifier for Ethereum (with upcoming support for Layer-2s such as OP-Stack). These Kotlin/Java bindings wrap the C core and verify every RPC response against the beacon chain — no full node, no continuous sync. Distributed as an AAR (Android) or JAR (JVM/server).
+
+[**Website**](https://www.corpuscore.tech/colibri) · [**Docs**](https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/bindings/kotlin-java) · [**Whitepaper**](https://corpus-core.gitbook.io/whitepaper-colibri-stateless) · [**Privacy (PAP)**](https://corpus-core.gitbook.io/pap-colibri-stateless)
+
+> **Quick Start:** check out the [Example Android App](./example) for a complete working implementation.
+
+## Why Colibri?
+
+- **Stateless** — verification needs nothing but the proof and the sync committee it is checked against. The committee is cached locally so it does not have to travel with every request, but it works just as well with an empty cache or none at all. No persistent state, no full node.
+- **Cryptographically verified RPC** — every RPC response is checked against BLS signatures.
+- **Offline verification** — proofs are fully self-contained and verify without any network connection, thanks to zk-proofs for the sync committee and signed checkpoints.
+- **On-demand, not always-on** — work happens only when you make a request; no background sync burning bandwidth, CPU, or battery.
+- **Verifies historical data (older than ~27h / 8192 blocks)** — via `historical_summaries` proofs, where other light clients simply fail.
+- **`eth_getLogs` completeness proofs** — proves no matching log was omitted in the requested range.
+- **Fully verified local transaction simulation** — simulate a transaction against verified state before signing.
+- **Privacy-aware** — Pragmatic Adaptive Privacy (PAP) mode. *Experimental.*
 
 ## Installation
 
@@ -139,10 +157,10 @@ cd example && ./gradlew build && ./gradlew installDebug
 
 ## Resources
 
-- 📦 **[GitHub Packages](https://github.com/corpus-core/colibri-stateless/packages)** - All published versions
-- 📖 **[Complete Documentation](https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/bindings/kotlin-java)** - Detailed API reference and guides
-- 🔗 **[Supported RPC Methods](https://corpus-core.gitbook.io/specification-colibri-stateless/specifications/ethereum/supported-rpc-methods)** - Full list of available Ethereum RPC calls
-- 🏗️ **[Building Guide](https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/building)** - Build from source instructions
+- **[GitHub Packages](https://github.com/corpus-core/colibri-stateless/packages)** - All published versions
+- **[Complete Documentation](https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/bindings/kotlin-java)** - Detailed API reference and guides
+- **[Supported RPC Methods](https://corpus-core.gitbook.io/specification-colibri-stateless/specifications/ethereum/supported-rpc-methods)** - Full list of available Ethereum RPC calls
+- **[Building Guide](https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/building)** - Build from source instructions
 
 ## Building
 Make sure you have the Java SDK, Cmake and Swig installed.

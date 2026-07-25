@@ -265,6 +265,11 @@ public class Colibri {
     /// the WSP. Default: false.
     public var skipWspCheck: Bool = false
 
+    /// If true, `eth_getLogs` produces and requires a completeness proof over the requested
+    /// block range (prover flag `1 << 12`, verify flag `1 << 9`), guaranteeing that no
+    /// matching log was omitted. Default: false.
+    public var logsCompleteness: Bool = false
+
     /// Maximum age (in seconds) accepted for a proof whose request uses the
     /// `"latest"` block tag. The verifier compares `block.timestamp` from the
     /// proof against `now - maxLatestAgeSeconds`; older proofs are rejected
@@ -428,6 +433,9 @@ public class Colibri {
         if skipWspCheck {
             flags |= 1 << 7
         }
+        if logsCompleteness {
+            flags |= 1 << 9
+        }
         return flags
     }
 
@@ -479,7 +487,7 @@ public class Colibri {
             free(paramsPtr)
         }
         
-        let proverFlags: UInt32 = (includeCode ? 1 : 0) | (useAccesslist ? (1 << 6) : 0)
+        let proverFlags: UInt32 = (includeCode ? 1 : 0) | (useAccesslist ? (1 << 6) : 0) | (logsCompleteness ? (1 << 12) : 0)
         guard let ctx = c4_create_prover_ctx(methodPtr, paramsPtr, chainId, proverFlags) else {
             throw ColibriError.contextCreationFailed
         }
@@ -615,7 +623,7 @@ public class Colibri {
         }
         defer { free(mPtr); free(pPtr) }
 
-        let proverFlags: UInt32 = (includeCode ? 1 : 0) | (useAccesslist ? (1 << 6) : 0) | (zkProof ? (1 << 7) : 0)
+        let proverFlags: UInt32 = (includeCode ? 1 : 0) | (useAccesslist ? (1 << 6) : 0) | (zkProof ? (1 << 7) : 0) | (logsCompleteness ? (1 << 12) : 0)
         // Base prover-mode auto-detection on the user-configured `provers` array,
         // NOT on the per-chain default fallback. Consumers passing `[]` explicitly
         // signal "no remote prover" -- if we consulted the fallback here, any

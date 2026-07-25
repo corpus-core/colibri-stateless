@@ -143,6 +143,12 @@ class Colibri(
      */
     var skipWspCheck: Boolean = false,
     /**
+     * If true, `eth_getLogs` produces and requires a completeness proof over the requested
+     * block range (prover flag `1 shl 12`, verify flag `1 shl 9`), guaranteeing that no
+     * matching log was omitted. Default: false.
+     */
+    var logsCompleteness: Boolean = false,
+    /**
      * Maximum age (in seconds) accepted for a proof whose request uses the
      * `"latest"` block tag. The verifier compares `block.timestamp` from the
      * proof against `System.currentTimeMillis() / 1000 - maxLatestAgeSeconds`;
@@ -283,7 +289,8 @@ class Colibri(
         val pap = privacyMode == PrivacyMode.BASIC || obliviousNodes.isNotEmpty()
         return (if (pap) 2L else 0L) or
                 (if (obliviousNodes.isNotEmpty()) (1L shl 6) else 0L) or
-                (if (skipWspCheck) (1L shl 7) else 0L)
+                (if (skipWspCheck) (1L shl 7) else 0L) or
+                (if (logsCompleteness) (1L shl 9) else 0L)
     }
 
     /**
@@ -474,7 +481,7 @@ class Colibri(
         return withContext(Dispatchers.IO) {
             val jsonArgs = formatArgsArray(args) // Use helper
             // Create the prover context with properly formatted JSON args
-            val proverFlags = (if (includeCode) 1L else 0L) or (if (useAccesslist) (1L shl 6) else 0L)
+            val proverFlags = (if (includeCode) 1L else 0L) or (if (useAccesslist) (1L shl 6) else 0L) or (if (logsCompleteness) (1L shl 12) else 0L)
             val ctx = com.corpuscore.colibri.c4.c4_create_prover_ctx(method, jsonArgs, chainId, proverFlags)
                 ?: throw ColibriException("Failed to create prover context for method $method")
 
@@ -715,7 +722,7 @@ class Colibri(
     suspend fun rpc(method: String, args: Array<Any?>): Any? {
         return withContext(Dispatchers.IO) {
             val jsonArgs = formatArgsArray(args)
-            val proverFlags = (if (includeCode) 1L else 0L) or (if (useAccesslist) (1L shl 6) else 0L) or (if (zkProof) (1L shl 7) else 0L)
+            val proverFlags = (if (includeCode) 1L else 0L) or (if (useAccesslist) (1L shl 6) else 0L) or (if (zkProof) (1L shl 7) else 0L) or (if (logsCompleteness) (1L shl 12) else 0L)
             // Base prover-mode auto-detection on the user-configured `provers` array,
             // NOT on `effectiveProvers()`. Consumers passing `emptyArray()` explicitly
             // signal "no remote prover" -- if we consulted the per-chain fallback here,

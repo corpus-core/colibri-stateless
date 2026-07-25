@@ -165,7 +165,7 @@ c4_status_t c4_proof_receipt(prover_ctx_t* ctx) {
   uint32_t          tx_index       = 0;
   json_t            block_number   = {0};
 
-  CHECK_JSON(txhash, "bytes32", "Invalid arguments for Tx: ");
+  CHECK_JSON_INPUT(txhash, "bytes32", "Invalid arguments for Tx: ");
 
   TRACE_START(ctx, "get_tx_data");
 

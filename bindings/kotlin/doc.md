@@ -236,7 +236,7 @@ The gate covers the following RPC methods:
 - **Block / header:** `eth_getBlockByNumber`, `eth_getBlockHeader`, `eth_blobBaseFee`, `eth_maxPriorityFeePerGas`
 - **Implicit-latest:** `eth_blockNumber`
 
-`eth_getLogs` is **not** covered yet (tracked in issue #128). Account methods rely on a slim `timestamp` leaf inside the state proof which is only emitted by **prover version ≥ 1.1.27**; against older provers the verifier fails closed (`"cannot verify freshness of latest block without block context"`).
+`eth_getLogs` is not part of this per-method freshness gate; instead, enabling `logsCompleteness` (see below) produces a dedicated completeness proof over the whole requested block range (issue #128). Account methods rely on a slim `timestamp` leaf inside the state proof which is only emitted by **prover version ≥ 1.1.27**; against older provers the verifier fails closed (`"cannot verify freshness of latest block without block context"`).
 
 - `maxLatestAgeSeconds` (`Long`, default `60` ≈ 5 Ethereum slots) -- upper bound on the accepted age. Set to `0` to disable the check (e.g. when using legacy proof formats that do not embed a block context).
 
@@ -250,6 +250,19 @@ val colibri = Colibri(
 ```
 
 > **PAP mode:** the freshness check also applies to PAP, where the call proof arrives via `colibri_proofCall` (same proof structure as a direct `eth_call`). This requires a prover that embeds the block context (≥ 1.1.15); against an older PAP proof without a block timestamp the check fails closed (`"cannot verify freshness of latest block without block context"`). Set `maxLatestAgeSeconds = 0L` to opt out.
+
+### Logs completeness proof
+
+By default an `eth_getLogs` proof witnesses the returned log entries but not the completeness of the requested range -- a prover could omit matching logs. Enabling `logsCompleteness` makes the prover produce and the verifier require a **completeness proof** over the requested block range `[fromBlock, toBlock]`, guaranteeing that no matching log was omitted.
+
+- `logsCompleteness` (`Boolean`, default `false`) -- sets the prover flag (`1L shl 12`) and the verifier flag (`1L shl 9`). Requires a prover that supports it. The range end (`toBlock`) may be a pinned block hash/number or `"latest"`; `"safe"`/`"finalized"` are not supported yet. Tracks issue #128.
+
+```kotlin
+val colibri = Colibri(
+    chainId = BigInteger.ONE,
+    logsCompleteness = true,
+)
+```
 
 ### Privacy-preserving `eth_call` (oblivious + PAP + hybrid)
 

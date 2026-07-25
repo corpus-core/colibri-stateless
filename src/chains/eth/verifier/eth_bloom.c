@@ -124,6 +124,53 @@ static int build_bloom_variants(bytes_t addresses, bytes_t topics[C4_ETH_LOG_MAX
   return total;
 }
 
+bytes_t c4_eth_filter_query_blooms(json_t filter) {
+  json_t bloom_filter = json_get(filter, "bloomFilter");
+  if (bloom_filter.type == JSON_TYPE_ARRAY) {
+    buffer_t out = {0};
+    uint8_t  tmp[256];
+    buffer_t b = stack_buffer(tmp);
+    json_for_each_value(bloom_filter, entry) {
+      bytes_t v = json_as_bytes(entry, &b);
+      if (v.len != BLOOM_BYTE_LENGTH) {
+        buffer_free(&out);
+        return NULL_BYTES; // malformed PAP bloom -> cannot decide negativity
+      }
+      buffer_append(&out, v);
+    }
+    return out.data;
+  }
+  return c4_eth_create_bloomfilter(filter);
+}
+
+bool c4_eth_bloom_negative(bytes_t query_blooms, bytes_t block_bloom) {
+  if (block_bloom.len != BLOOM_BYTE_LENGTH) return false;
+  uint32_t variant_count = query_blooms.len / BLOOM_BYTE_LENGTH;
+  if (variant_count == 0) return false; // no variants -> cannot prove absence
+
+  for (uint32_t v = 0; v < variant_count; v++) {
+    const uint8_t* q         = query_blooms.data + (size_t) v * BLOOM_BYTE_LENGTH;
+    const uint8_t* b         = block_bloom.data;
+    bool           is_subset = true;
+    // Compare 8 bytes per step (BLOOM_BYTE_LENGTH is a multiple of 8): the variant
+    // is a subset iff no required bit is missing in the block bloom, i.e. (q & ~b) == 0
+    // for every word. Endianness is irrelevant since we only test whether any word has
+    // a bit set in q but not in b. memcpy avoids unaligned reads and is lowered to a
+    // single load by the compiler.
+    for (uint32_t i = 0; i < BLOOM_BYTE_LENGTH; i += 8) {
+      uint64_t qi, bi;
+      memcpy(&qi, q + i, sizeof(qi));
+      memcpy(&bi, b + i, sizeof(bi));
+      if (qi & ~bi) {
+        is_subset = false; // a required bit is missing in the block bloom
+        break;
+      }
+    }
+    if (is_subset) return false; // this variant might match -> not bloom-negative
+  }
+  return true; // no variant can match -> provably no matching log
+}
+
 bytes_t c4_eth_create_bloomfilter(json_t filter) {
   bytes_t result                                  = {0};
   bytes_t addresses                               = {0};
@@ -140,8 +187,6 @@ bytes_t c4_eth_create_bloomfilter(json_t filter) {
   for (int i = 0; i < C4_ETH_LOG_MAX_TOPICS; i++) safe_free(topics[i].data);
   return result;
 }
-
-#ifdef PAP
 
 static bool log_address_matches(bytes_t filter_addresses, bytes_t log_address) {
   if (filter_addresses.len == 0) return true;
@@ -198,5 +243,3 @@ ssz_ob_t c4_eth_filter_logs(ssz_ob_t logs, json_t filter) {
 
   return ssz_builder_to_bytes(&builder);
 }
-
-#endif // PAP

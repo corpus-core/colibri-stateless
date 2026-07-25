@@ -159,13 +159,27 @@ void main() {
   }
 
   /// Prover fails (500) then fallback to local createProof succeeds via fixture mock.
-  if (testDirs.isNotEmpty) {
-    final dir = testDirs.first;
+  /// `listSync()` order is filesystem-dependent (differs between e.g. APFS and ext4), so
+  /// sort for a deterministic pick and skip fixtures the local createProof fallback cannot
+  /// regenerate: `remote_prover` proofs are only produced by a real remote prover, and
+  /// `requires_chain_store` needs a populated chain store.
+  final fallbackCandidates = [...testDirs]..sort((a, b) => a.path.compareTo(b.path));
+  Directory? fallbackDir;
+  for (final candidate in fallbackCandidates) {
+    final cfg = jsonDecode(
+      File('${candidate.path}${Platform.pathSeparator}test.json').readAsStringSync(),
+    ) as Map<String, dynamic>;
+    if ((cfg['requires_chain_store'] as bool?) ?? false) continue;
+    if ((cfg['remote_prover'] as bool?) ?? false) continue;
+    fallbackDir = candidate;
+    break;
+  }
+  if (fallbackDir != null) {
+    final dir = fallbackDir;
     final name = dir.path.split(Platform.pathSeparator).last;
     test('prover failure falls back to createProof: $name', () async {
       final testJson = File('${dir.path}${Platform.pathSeparator}test.json');
       final content = jsonDecode(testJson.readAsStringSync()) as Map<String, dynamic>;
-      if ((content['requires_chain_store'] as bool?) ?? false) return;
 
       final method = content['method'] as String;
       final params = content['params'] as List<dynamic>;
