@@ -99,6 +99,17 @@ static void ensure_kzg_setup_loaded(void) {
 // Forward declarations for BLS tests
 void test_precompile_bls_g1add_infinity(void);
 void test_precompile_bls_g2add_infinity(void);
+void test_precompile_bls_g1add_double(void);
+void test_precompile_bls_g2add_double(void);
+void test_precompile_bls_g1add_wrong_order(void);
+void test_precompile_bls_g2add_wrong_order(void);
+void test_precompile_bls_g1msm_wrong_order_rejected(void);
+void test_precompile_bls_g1add_p_plus_inf(void);
+void test_precompile_bls_g1add_inf_plus_p(void);
+void test_precompile_bls_g1add_p_plus_neg_p(void);
+void test_precompile_bls_g1add_off_curve_rejected(void);
+void test_precompile_bls_g2msm_wrong_order_rejected(void);
+void test_precompile_bls_pairing_wrong_order_rejected(void);
 void test_precompile_bls_pairing_empty(void);
 void test_precompile_bls_map_fp_to_g1_zero(void);
 void test_precompile_bls_map_fp2_to_g2_zero(void);
@@ -686,6 +697,233 @@ void test_precompile_bls_g2add_infinity() {
   buffer_free(&output);
 }
 
+// Canonical EIP-2537 vectors (add_G1_bls.json / add_G2_bls.json).
+// Regression coverage for two fixed defects:
+//   1. G1ADD/G2ADD returned encoded infinity for P + P instead of 2*P.
+//   2. G1ADD/G2ADD rejected valid on-curve points outside the prime-order
+//      subgroup, although EIP-2537 requires no subgroup check for ADD.
+static const char* BLS_G1ADD_DOUBLE_INPUT =
+    "0000000000000000000000000000000017f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f171bac586c55e83ff97a1aeffb3af00adb22c6bb"
+    "0000000000000000000000000000000008b3f481e3aaa0f1a09e30ed741d8ae4fcf5e095d5d00af600db18cb2c04b3edd03cc744a2888ae40caa232946c5e7e1"
+    "0000000000000000000000000000000017f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f171bac586c55e83ff97a1aeffb3af00adb22c6bb"
+    "0000000000000000000000000000000008b3f481e3aaa0f1a09e30ed741d8ae4fcf5e095d5d00af600db18cb2c04b3edd03cc744a2888ae40caa232946c5e7e1";
+static const char* BLS_G1ADD_DOUBLE_EXPECTED =
+    "000000000000000000000000000000000572cbea904d67468808c8eb50a9450c9721db309128012543902d0ac358a62ae28f75bb8f1c7c42c39a8c5529bf0f4e"
+    "00000000000000000000000000000000166a9d8cabc673a322fda673779d8e3822ba3ecb8670e461f73bb9021d5fd76a4c56d9d4cd16bd1bba86881979749d28";
+
+static const char* BLS_G1ADD_WRONG_ORDER_INPUT =
+    "000000000000000000000000000000000123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    "00000000000000000000000000000000193fb7cedb32b2c3adc06ec11a96bc0d661869316f5e4a577a9f7c179593987beb4fb2ee424dbb2f5dd891e228b46c4a"
+    "0000000000000000000000000000000017f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f171bac586c55e83ff97a1aeffb3af00adb22c6bb"
+    "0000000000000000000000000000000008b3f481e3aaa0f1a09e30ed741d8ae4fcf5e095d5d00af600db18cb2c04b3edd03cc744a2888ae40caa232946c5e7e1";
+static const char* BLS_G1ADD_WRONG_ORDER_EXPECTED =
+    "000000000000000000000000000000000abe7ae4ae2b092a5cc1779b1f5605d904fa6ec59b0f084907d1f5e4d2663e117a3810e027210a72186159a21271df3e"
+    "0000000000000000000000000000000001e1669f00e10205f2e2f1195d65c21022f6a9a6de21f329756309815281a4434b2864d34ebcbc1d7e7cfaaee3feeea2";
+
+static const char* BLS_G2ADD_DOUBLE_INPUT =
+    "00000000000000000000000000000000024aa2b2f08f0a91260805272dc51051c6e47ad4fa403b02b4510b647ae3d1770bac0326a805bbefd48056c8c121bdb8"
+    "0000000000000000000000000000000013e02b6052719f607dacd3a088274f65596bd0d09920b61ab5da61bbdc7f5049334cf11213945d57e5ac7d055d042b7e"
+    "000000000000000000000000000000000ce5d527727d6e118cc9cdc6da2e351aadfd9baa8cbdd3a76d429a695160d12c923ac9cc3baca289e193548608b82801"
+    "000000000000000000000000000000000606c4a02ea734cc32acd2b02bc28b99cb3e287e85a763af267492ab572e99ab3f370d275cec1da1aaa9075ff05f79be"
+    "00000000000000000000000000000000024aa2b2f08f0a91260805272dc51051c6e47ad4fa403b02b4510b647ae3d1770bac0326a805bbefd48056c8c121bdb8"
+    "0000000000000000000000000000000013e02b6052719f607dacd3a088274f65596bd0d09920b61ab5da61bbdc7f5049334cf11213945d57e5ac7d055d042b7e"
+    "000000000000000000000000000000000ce5d527727d6e118cc9cdc6da2e351aadfd9baa8cbdd3a76d429a695160d12c923ac9cc3baca289e193548608b82801"
+    "000000000000000000000000000000000606c4a02ea734cc32acd2b02bc28b99cb3e287e85a763af267492ab572e99ab3f370d275cec1da1aaa9075ff05f79be";
+static const char* BLS_G2ADD_DOUBLE_EXPECTED =
+    "000000000000000000000000000000001638533957d540a9d2370f17cc7ed5863bc0b995b8825e0ee1ea1e1e4d00dbae81f14b0bf3611b78c952aacab827a053"
+    "000000000000000000000000000000000a4edef9c1ed7f729f520e47730a124fd70662a904ba1074728114d1031e1572c6c886f6b57ec72a6178288c47c33577"
+    "000000000000000000000000000000000468fb440d82b0630aeb8dca2b5256789a66da69bf91009cbfe6bd221e47aa8ae88dece9764bf3bd999d95d71e4c9899"
+    "000000000000000000000000000000000f6d4552fa65dd2638b361543f887136a43253d9c66c411697003f7a13c308f5422e1aa0a59c8967acdefd8b6e36ccf3";
+
+static const char* BLS_G2ADD_WRONG_ORDER_INPUT =
+    "00000000000000000000000000000000197bfd0342bbc8bee2beced2f173e1a87be576379b343e93232d6cef98d84b1d696e5612ff283ce2cfdccb2cfb65fa0c"
+    "00000000000000000000000000000000184e811f55e6f9d84d77d2f79102fd7ea7422f4759df5bf7f6331d550245e3f1bcf6a30e3b29110d85e0ca16f9f6ae7a"
+    "000000000000000000000000000000000f10e1eb3c1e53d2ad9cf2d398b2dc22c5842fab0a74b174f691a7e914975da3564d835cd7d2982815b8ac57f507348f"
+    "000000000000000000000000000000000767d1c453890f1b9110fda82f5815c27281aba3f026ee868e4176a0654feea41a96575e0c4d58a14dbfbcc05b5010b1"
+    "00000000000000000000000000000000024aa2b2f08f0a91260805272dc51051c6e47ad4fa403b02b4510b647ae3d1770bac0326a805bbefd48056c8c121bdb8"
+    "0000000000000000000000000000000013e02b6052719f607dacd3a088274f65596bd0d09920b61ab5da61bbdc7f5049334cf11213945d57e5ac7d055d042b7e"
+    "000000000000000000000000000000000ce5d527727d6e118cc9cdc6da2e351aadfd9baa8cbdd3a76d429a695160d12c923ac9cc3baca289e193548608b82801"
+    "000000000000000000000000000000000606c4a02ea734cc32acd2b02bc28b99cb3e287e85a763af267492ab572e99ab3f370d275cec1da1aaa9075ff05f79be";
+static const char* BLS_G2ADD_WRONG_ORDER_EXPECTED =
+    "0000000000000000000000000000000011f00077935238fc57086414804303b20fab5880bc29f35ebda22c13dd44e586c8a889fe2ba799082c8458d861ac10cf"
+    "0000000000000000000000000000000007318be09b19be000fe5df77f6e664a8286887ad8373005d7f7a203fcc458c28004042780146d3e43fa542d921c69512"
+    "000000000000000000000000000000001287eab085d6f8a29f1f1aedb5ad9e8546963f0b11865e05454d86b9720c281db567682a233631f63a2794432a5596ae"
+    "0000000000000000000000000000000012ec87cea1bacb75aa97728bcd64b27c7a42dd2319a2e17fe3837a05f85d089c5ebbfb73c1d08b7007e2b59ec9c8e065";
+
+// The G1 point from the wrong-order ADD vector: on-curve but not in the
+// prime-order subgroup. Reused by the MSM negative test below.
+static const char* BLS_G1_WRONG_ORDER_POINT =
+    "000000000000000000000000000000000123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    "00000000000000000000000000000000193fb7cedb32b2c3adc06ec11a96bc0d661869316f5e4a577a9f7c179593987beb4fb2ee424dbb2f5dd891e228b46c4a";
+
+// The canonical G1 generator (in the prime-order subgroup).
+static const char* BLS_G1_GENERATOR =
+    "0000000000000000000000000000000017f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f171bac586c55e83ff97a1aeffb3af00adb22c6bb"
+    "0000000000000000000000000000000008b3f481e3aaa0f1a09e30ed741d8ae4fcf5e095d5d00af600db18cb2c04b3edd03cc744a2888ae40caa232946c5e7e1";
+
+// The negation of the G1 generator: same X, Y replaced by (p - Y). Used to
+// exercise P + (-P) = O, i.e. the "addition yields infinity" output path.
+static const char* BLS_G1_GENERATOR_NEG =
+    "0000000000000000000000000000000017f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f171bac586c55e83ff97a1aeffb3af00adb22c6bb"
+    "00000000000000000000000000000000114d1d6855d545a8aa7d76c8cf2e21f267816aef1db507c96655b9d5caac42364e6f38ba0ecb751bad54dcd6b939c2ca";
+
+// The canonical G2 generator (in the prime-order subgroup), first point of
+// the G2ADD double vector above.
+static const char* BLS_G2_GENERATOR =
+    "00000000000000000000000000000000024aa2b2f08f0a91260805272dc51051c6e47ad4fa403b02b4510b647ae3d1770bac0326a805bbefd48056c8c121bdb8"
+    "0000000000000000000000000000000013e02b6052719f607dacd3a088274f65596bd0d09920b61ab5da61bbdc7f5049334cf11213945d57e5ac7d055d042b7e"
+    "000000000000000000000000000000000ce5d527727d6e118cc9cdc6da2e351aadfd9baa8cbdd3a76d429a695160d12c923ac9cc3baca289e193548608b82801"
+    "000000000000000000000000000000000606c4a02ea734cc32acd2b02bc28b99cb3e287e85a763af267492ab572e99ab3f370d275cec1da1aaa9075ff05f79be";
+
+// The G2 point from the wrong-order ADD vector: on-curve but not in the
+// prime-order subgroup. Reused by the G2MSM negative test below.
+static const char* BLS_G2_WRONG_ORDER_POINT =
+    "00000000000000000000000000000000197bfd0342bbc8bee2beced2f173e1a87be576379b343e93232d6cef98d84b1d696e5612ff283ce2cfdccb2cfb65fa0c"
+    "00000000000000000000000000000000184e811f55e6f9d84d77d2f79102fd7ea7422f4759df5bf7f6331d550245e3f1bcf6a30e3b29110d85e0ca16f9f6ae7a"
+    "000000000000000000000000000000000f10e1eb3c1e53d2ad9cf2d398b2dc22c5842fab0a74b174f691a7e914975da3564d835cd7d2982815b8ac57f507348f"
+    "000000000000000000000000000000000767d1c453890f1b9110fda82f5815c27281aba3f026ee868e4176a0654feea41a96575e0c4d58a14dbfbcc05b5010b1";
+
+static void run_bls_add_success_vector(uint8_t precompile, const char* input_hex, const char* expected_hex, uint64_t expected_gas) {
+  uint8_t addr[20];
+  make_precompile_address(precompile, addr);
+  bytes_t  input    = hex_to_bytes_alloc(input_hex);
+  bytes_t  expected = hex_to_bytes_alloc(expected_hex);
+  buffer_t output   = {0};
+  uint64_t gas_used = 0;
+
+  pre_result_t res = eth_execute_precompile(addr, input, &output, &gas_used);
+  TEST_ASSERT_EQUAL(PRE_SUCCESS, res);
+  TEST_ASSERT_EQUAL_UINT64(expected_gas, gas_used);
+  TEST_ASSERT_EQUAL((int) expected.len, (int) output.data.len);
+  TEST_ASSERT_EQUAL_MEMORY(expected.data, output.data.data, expected.len);
+
+  free(input.data);
+  free(expected.data);
+  buffer_free(&output);
+}
+
+// G1ADD: P + P must yield 2*P, not the point at infinity (defect 1).
+void test_precompile_bls_g1add_double() {
+  run_bls_add_success_vector(0x0b, BLS_G1ADD_DOUBLE_INPUT, BLS_G1ADD_DOUBLE_EXPECTED, 375);
+}
+
+// G2ADD: P + P must yield 2*P, not the point at infinity (defect 1).
+void test_precompile_bls_g2add_double() {
+  run_bls_add_success_vector(0x0d, BLS_G2ADD_DOUBLE_INPUT, BLS_G2ADD_DOUBLE_EXPECTED, 600);
+}
+
+// G1ADD: an on-curve, wrong-order point must be accepted (defect 2).
+void test_precompile_bls_g1add_wrong_order() {
+  run_bls_add_success_vector(0x0b, BLS_G1ADD_WRONG_ORDER_INPUT, BLS_G1ADD_WRONG_ORDER_EXPECTED, 375);
+}
+
+// G2ADD: an on-curve, wrong-order point must be accepted (defect 2).
+void test_precompile_bls_g2add_wrong_order() {
+  run_bls_add_success_vector(0x0d, BLS_G2ADD_WRONG_ORDER_INPUT, BLS_G2ADD_WRONG_ORDER_EXPECTED, 600);
+}
+
+// G1MSM must still reject wrong-order points: EIP-2537 requires a subgroup
+// check for MSM. Guards against an over-broad relaxation of validation.
+void test_precompile_bls_g1msm_wrong_order_rejected() {
+  uint8_t addr[20];
+  make_precompile_address(0x0c, addr);
+  // scalar = 1 followed by the on-curve, wrong-order G1 point.
+  char scalar_hex[65];
+  memset(scalar_hex, '0', 64);
+  scalar_hex[63] = '1';
+  scalar_hex[64] = '\0';
+  char input_hex[65 + 256];
+  snprintf(input_hex, sizeof(input_hex), "%s%s", scalar_hex, BLS_G1_WRONG_ORDER_POINT);
+
+  bytes_t  input    = hex_to_bytes_alloc(input_hex);
+  buffer_t output   = {0};
+  uint64_t gas_used = 0;
+  pre_result_t res  = eth_execute_precompile(addr, input, &output, &gas_used);
+  TEST_ASSERT_EQUAL(PRE_INVALID_INPUT, res);
+
+  free(input.data);
+  buffer_free(&output);
+}
+
+// Runs a precompile expecting mathematical rejection (PRE_INVALID_INPUT).
+static void run_precompile_reject(uint8_t precompile, const char* input_hex) {
+  uint8_t addr[20];
+  make_precompile_address(precompile, addr);
+  bytes_t      input    = hex_to_bytes_alloc(input_hex);
+  buffer_t     output   = {0};
+  uint64_t     gas_used = 0;
+  pre_result_t res      = eth_execute_precompile(addr, input, &output, &gas_used);
+  TEST_ASSERT_EQUAL(PRE_INVALID_INPUT, res);
+  free(input.data);
+  buffer_free(&output);
+}
+
+// G1ADD: P + O must return P unchanged (exercises the inf2 branch).
+void test_precompile_bls_g1add_p_plus_inf() {
+  char zero_hex[257];
+  memset(zero_hex, '0', 256);
+  zero_hex[256] = '\0';
+  char input_hex[513];
+  snprintf(input_hex, sizeof(input_hex), "%s%s", BLS_G1_GENERATOR, zero_hex);
+  run_bls_add_success_vector(0x0b, input_hex, BLS_G1_GENERATOR, 375);
+}
+
+// G1ADD: O + P must return P unchanged (exercises the inf1 branch).
+void test_precompile_bls_g1add_inf_plus_p() {
+  char zero_hex[257];
+  memset(zero_hex, '0', 256);
+  zero_hex[256] = '\0';
+  char input_hex[513];
+  snprintf(input_hex, sizeof(input_hex), "%s%s", zero_hex, BLS_G1_GENERATOR);
+  run_bls_add_success_vector(0x0b, input_hex, BLS_G1_GENERATOR, 375);
+}
+
+// G1ADD: P + (-P) must return the point at infinity (encoded as zeros).
+// Exercises the path where a real addition produces infinity and must be
+// re-encoded via blst_p1_is_inf, not returned as raw affine coordinates.
+void test_precompile_bls_g1add_p_plus_neg_p() {
+  char zero_hex[257];
+  memset(zero_hex, '0', 256);
+  zero_hex[256] = '\0';
+  char input_hex[513];
+  snprintf(input_hex, sizeof(input_hex), "%s%s", BLS_G1_GENERATOR, BLS_G1_GENERATOR_NEG);
+  run_bls_add_success_vector(0x0b, input_hex, zero_hex, 375);
+}
+
+// G1ADD: an off-curve point must still be rejected even though the subgroup
+// check is disabled for ADD (guards against dropping the on-curve check).
+// x = 1, y = 1 => y^2 = 1 != x^3 + 4 = 5 (mod p), so definitely off-curve.
+void test_precompile_bls_g1add_off_curve_rejected() {
+  char point_hex[257];
+  memset(point_hex, '0', 256);
+  point_hex[127] = '1'; // low nibble of X = 1
+  point_hex[255] = '1'; // low nibble of Y = 1
+  point_hex[256] = '\0';
+  char input_hex[513];
+  snprintf(input_hex, sizeof(input_hex), "%s%s", point_hex, BLS_G1_GENERATOR);
+  run_precompile_reject(0x0b, input_hex);
+}
+
+// G2MSM must still reject wrong-order points (subgroup check required by
+// EIP-2537 for MSM, mirroring the G1MSM negative test).
+void test_precompile_bls_g2msm_wrong_order_rejected() {
+  char scalar_hex[65];
+  memset(scalar_hex, '0', 64);
+  scalar_hex[63] = '1';
+  scalar_hex[64] = '\0';
+  char input_hex[65 + 512];
+  snprintf(input_hex, sizeof(input_hex), "%s%s", scalar_hex, BLS_G2_WRONG_ORDER_POINT);
+  run_precompile_reject(0x0e, input_hex);
+}
+
+// Pairing check must still reject wrong-order points (subgroup check required
+// by EIP-2537 for pairing). Wrong-order G1 paired with the valid G2 generator.
+void test_precompile_bls_pairing_wrong_order_rejected() {
+  char input_hex[256 + 512 + 1];
+  snprintf(input_hex, sizeof(input_hex), "%s%s", BLS_G1_WRONG_ORDER_POINT, BLS_G2_GENERATOR);
+  run_precompile_reject(0x0f, input_hex);
+}
+
 void test_precompile_bls_pairing_empty() {
   uint8_t addr[20];
   make_precompile_address(0x0f, addr);
@@ -891,6 +1129,17 @@ int main(void) {
   // BLS12-381 EIP-2537
   RUN_TEST(test_precompile_bls_g1add_infinity);
   RUN_TEST(test_precompile_bls_g2add_infinity);
+  RUN_TEST(test_precompile_bls_g1add_double);
+  RUN_TEST(test_precompile_bls_g2add_double);
+  RUN_TEST(test_precompile_bls_g1add_wrong_order);
+  RUN_TEST(test_precompile_bls_g2add_wrong_order);
+  RUN_TEST(test_precompile_bls_g1msm_wrong_order_rejected);
+  RUN_TEST(test_precompile_bls_g1add_p_plus_inf);
+  RUN_TEST(test_precompile_bls_g1add_inf_plus_p);
+  RUN_TEST(test_precompile_bls_g1add_p_plus_neg_p);
+  RUN_TEST(test_precompile_bls_g1add_off_curve_rejected);
+  RUN_TEST(test_precompile_bls_g2msm_wrong_order_rejected);
+  RUN_TEST(test_precompile_bls_pairing_wrong_order_rejected);
   RUN_TEST(test_precompile_bls_pairing_empty);
   RUN_TEST(test_precompile_bls_map_fp_to_g1_zero);
   RUN_TEST(test_precompile_bls_map_fp2_to_g2_zero);

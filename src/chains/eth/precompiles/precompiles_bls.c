@@ -52,7 +52,7 @@ static inline void be64_from_blst_fp(uint8_t out[64], const blst_fp* in) {
   blst_bendian_from_fp(out + 16, in);
 }
 
-static inline bool read_g1_affine(const uint8_t in[128], blst_p1_affine* out, bool* is_inf) {
+static inline bool read_g1_affine(const uint8_t in[128], blst_p1_affine* out, bool* is_inf, bool check_subgroup) {
   *is_inf = is_all_zero(in, 128);
   if (*is_inf) {
     // Represent infinity by zero output in our encoding; BLST affine infinity representation
@@ -61,8 +61,8 @@ static inline bool read_g1_affine(const uint8_t in[128], blst_p1_affine* out, bo
   }
   blst_fp_from_be64(&out->x, in);
   blst_fp_from_be64(&out->y, in + 64);
-  // Validate
-  if (!blst_p1_affine_on_curve(out) || !blst_p1_affine_in_g1(out)) return false;
+  if (!blst_p1_affine_on_curve(out)) return false;
+  if (check_subgroup && !blst_p1_affine_in_g1(out)) return false;
   return true;
 }
 
@@ -75,7 +75,7 @@ static inline void write_g1_affine(const blst_p1_affine* in, uint8_t out[128], b
   be64_from_blst_fp(out + 64, &in->y);
 }
 
-static inline bool read_g2_affine(const uint8_t in[256], blst_p2_affine* out, bool* is_inf) {
+static inline bool read_g2_affine(const uint8_t in[256], blst_p2_affine* out, bool* is_inf, bool check_subgroup) {
   *is_inf = is_all_zero(in, 256);
   if (*is_inf) return true;
   // X = (c0, c1), Y = (c0, c1)
@@ -83,7 +83,8 @@ static inline bool read_g2_affine(const uint8_t in[256], blst_p2_affine* out, bo
   blst_fp_from_be64(&out->x.fp[1], in + 64);
   blst_fp_from_be64(&out->y.fp[0], in + 128);
   blst_fp_from_be64(&out->y.fp[1], in + 192);
-  if (!blst_p2_affine_on_curve(out) || !blst_p2_affine_in_g2(out)) return false;
+  if (!blst_p2_affine_on_curve(out)) return false;
+  if (check_subgroup && !blst_p2_affine_in_g2(out)) return false;
   return true;
 }
 
@@ -105,8 +106,9 @@ static pre_result_t pre_bls12_g1add(bytes_t input, buffer_t* output, uint64_t* g
 
   blst_p1_affine p1 = {0}, p2 = {0};
   bool           inf1 = false, inf2 = false;
-  if (!read_g1_affine(input.data, &p1, &inf1)) return PRE_INVALID_INPUT;
-  if (!read_g1_affine(input.data + 128, &p2, &inf2)) return PRE_INVALID_INPUT;
+  // EIP-2537 requires on-curve validation but no subgroup check for G1ADD.
+  if (!read_g1_affine(input.data, &p1, &inf1, false)) return PRE_INVALID_INPUT;
+  if (!read_g1_affine(input.data + 128, &p2, &inf2, false)) return PRE_INVALID_INPUT;
 
   blst_p1        r     = {0};
   blst_p1_affine r_aff = {0};
@@ -123,7 +125,7 @@ static pre_result_t pre_bls12_g1add(bytes_t input, buffer_t* output, uint64_t* g
   }
   else {
     blst_p1_from_affine(&r, &p1);
-    blst_p1_add_affine(&r, &r, &p2);
+    blst_p1_add_or_double_affine(&r, &r, &p2);
   }
 
   if (!inf1 || !inf2) {
@@ -149,8 +151,9 @@ static pre_result_t pre_bls12_g2add(bytes_t input, buffer_t* output, uint64_t* g
 
   blst_p2_affine q1 = {0}, q2 = {0};
   bool           inf1 = false, inf2 = false;
-  if (!read_g2_affine(input.data, &q1, &inf1)) return PRE_INVALID_INPUT;
-  if (!read_g2_affine(input.data + 256, &q2, &inf2)) return PRE_INVALID_INPUT;
+  // EIP-2537 requires on-curve validation but no subgroup check for G2ADD.
+  if (!read_g2_affine(input.data, &q1, &inf1, false)) return PRE_INVALID_INPUT;
+  if (!read_g2_affine(input.data + 256, &q2, &inf2, false)) return PRE_INVALID_INPUT;
 
   blst_p2        r     = {0};
   blst_p2_affine r_aff = {0};
@@ -167,7 +170,7 @@ static pre_result_t pre_bls12_g2add(bytes_t input, buffer_t* output, uint64_t* g
   }
   else {
     blst_p2_from_affine(&r, &q1);
-    blst_p2_add_affine(&r, &r, &q2);
+    blst_p2_add_or_double_affine(&r, &r, &q2);
   }
 
   if (!inf1 || !inf2) {
@@ -235,7 +238,7 @@ static pre_result_t pre_bls12_g1msm(bytes_t input, buffer_t* output, uint64_t* g
     // read scalar (big-endian 32 bytes)
     memcpy(scalars_store + 32 * i, base, 32);
     bool inf = false;
-    if (!read_g1_affine(base + 32, &points_store[i], &inf)) {
+    if (!read_g1_affine(base + 32, &points_store[i], &inf, true)) {
       safe_free(points);
       safe_free(points_store);
       safe_free(scalars);
@@ -301,7 +304,7 @@ static pre_result_t pre_bls12_g2msm(bytes_t input, buffer_t* output, uint64_t* g
     const uint8_t* base = input.data + i * LEN_PER_PAIR;
     memcpy(scalars_store + 32 * i, base, 32);
     bool inf = false;
-    if (!read_g2_affine(base + 32, &points_store[i], &inf)) {
+    if (!read_g2_affine(base + 32, &points_store[i], &inf, true)) {
       safe_free(points_store);
       safe_free(scalars_store);
       safe_free(points);
@@ -371,14 +374,14 @@ static pre_result_t pre_bls12_pairing_check(bytes_t input, buffer_t* output, uin
   for (uint32_t i = 0; i < k; i++) {
     const uint8_t* base = input.data + i * LEN_PER_PAIR;
     bool           pinf = false, qinf = false;
-    if (!read_g1_affine(base, &Ps_store[i], &pinf)) {
+    if (!read_g1_affine(base, &Ps_store[i], &pinf, true)) {
       safe_free(Ps);
       safe_free(Qs);
       safe_free(Ps_store);
       safe_free(Qs_store);
       return PRE_INVALID_INPUT;
     }
-    if (!read_g2_affine(base + 128, &Qs_store[i], &qinf)) {
+    if (!read_g2_affine(base + 128, &Qs_store[i], &qinf, true)) {
       safe_free(Ps);
       safe_free(Qs);
       safe_free(Ps_store);
