@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # Build native libraries and publish colibri_flutter to pub.dev.
 #
+# Publishes from a temporary copy so monorepo ignore rules do not empty the
+# package:
+#   - bindings/dart/.pubignore has `flutter/` (hides this package in-tree)
+#   - root .gitignore excludes jniLibs/ and the iOS XCFramework
+#
 # Prerequisites:
 #   - ANDROID_NDK_HOME set (for Android .so files)
 #   - macOS with Xcode (for iOS XCFramework)
@@ -36,7 +41,7 @@ for abi in arm64-v8a armeabi-v7a x86_64; do
     fi
 done
 
-xcfw="$PLUGIN_DIR/ios/Frameworks/c4_swift.xcframework"
+xcfw="$PLUGIN_DIR/ios/colibri_flutter/Frameworks/c4_swift.xcframework"
 if [[ -d "$xcfw" ]]; then
     echo "  OK: c4_swift.xcframework ($(du -sh "$xcfw" | cut -f1))"
 else
@@ -50,7 +55,38 @@ if $missing; then
     exit 1
 fi
 
+# Step 3: Publish from an isolated copy (avoids parent .pubignore / gitignore)
 echo ""
-echo "Step 3: Publishing to pub.dev..."
-cd "$PLUGIN_DIR"
-dart pub publish "$@"
+echo "Step 3: Publishing to pub.dev from isolated copy..."
+TMP_DIR="$(mktemp -d)"
+trap 'rm -rf "$TMP_DIR"' EXIT
+
+rsync -a \
+  --exclude='.dart_tool/' \
+  --exclude='build/' \
+  --exclude='scripts/' \
+  --exclude='example/scripts/' \
+  --exclude='pubspec_overrides.yaml' \
+  --exclude='.pubignore' \
+  "$PLUGIN_DIR/" "$TMP_DIR/"
+
+# Ensure LICENSE / README / CHANGELOG / natives are present in the copy
+for f in LICENSE README.md CHANGELOG.md pubspec.yaml; do
+  if [[ ! -f "$TMP_DIR/$f" ]]; then
+    echo "Error: missing $f in publish copy"
+    exit 1
+  fi
+done
+for abi in arm64-v8a armeabi-v7a x86_64; do
+  if [[ ! -f "$TMP_DIR/android/src/main/jniLibs/$abi/libcolibri.so" ]]; then
+    echo "Error: missing jniLibs/$abi/libcolibri.so in publish copy"
+    exit 1
+  fi
+done
+if [[ ! -d "$TMP_DIR/ios/colibri_flutter/Frameworks/c4_swift.xcframework" ]]; then
+  echo "Error: missing c4_swift.xcframework in publish copy"
+  exit 1
+fi
+
+echo "Publishing colibri_flutter from $TMP_DIR"
+(cd "$TMP_DIR" && dart pub publish "$@")

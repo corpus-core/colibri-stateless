@@ -1,3 +1,9 @@
+## 0.2.0
+
+- **Colibri v2** package line (`0.2.x`).
+- First release of the Dart FFI bindings under the v2 versioning scheme.
+- Pair with **colibri_flutter** `0.2.x` (iOS device Release requires plugin **≥ 0.2.1** for complete FFI symbol keepers).
+
 ## 0.1.8
 
 - Configurable timeouts: added `rpcTimeout` (default 30s) and `proverTimeout` (default 120s) to `Colibri` constructor, replacing hardcoded 30s timeouts.

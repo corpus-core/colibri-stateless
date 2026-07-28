@@ -1,3 +1,32 @@
+## 0.2.3
+
+- macOS: build the bundled universal `libcolibri.dylib` with the plugin's
+  supported deployment targets (macOS 11.0 for `arm64`, 10.15 for `x86_64`).
+  Version 0.2.2 inherited macOS 26.0 from the build host SDK and could not run
+  on older supported macOS versions.
+
+## 0.2.2
+
+- macOS: ship a **universal** `libcolibri.dylib` (`arm64` + `x86_64`). The bundled
+  `blst` static library is now compiled for the requested
+  `CMAKE_OSX_ARCHITECTURES` slice, so Intel (`x86_64`) macOS apps link and run
+  Colibri correctly. Previously the x86_64 slice was missing, causing
+  `symbol(s) not found for architecture x86_64` at link time and missing `c4_*`
+  symbols on Intel Macs at runtime.
+
+## 0.2.1
+
+- iOS: keep `c4_rpc_set_proxy_urls` in `force_link.c` (Dart FFI requires it; Release device builds dead-stripped it while simulator often still worked).
+- macOS: add `s.dependency 'FlutterMacOS'` to the podspec so `import FlutterMacOS` resolves under Xcode Explicit Modules / current Flutter tooling.
+
+## 0.2.0
+
+- **Colibri v2** package line (`0.2.x`). Requires `colibri_stateless: ^0.2.0`.
+- **iOS (SPM):** Swift Package Manager support via `ios/colibri_flutter/Package.swift` with `.binaryTarget` for `c4_swift.xcframework` (path shared with CocoaPods under `ios/colibri_flutter/Frameworks/`).
+- iOS: fix missing `c4_create_prover_ctx` (and other FFI symbols) when Flutter builds the plugin as a dynamic framework (`use_frameworks!`).
+  - `force_link.c` now keeps file-scope `__attribute__((used))` symbol pointers so Clang cannot empty the force-link object under optimization.
+  - Podspec adds `-force_load` for the static `c4_swift` archive so Colibri objects are always linked into `colibri_flutter.framework`.
+
 ## 0.1.8
 
 - Requires `colibri_stateless: ^0.1.8`.

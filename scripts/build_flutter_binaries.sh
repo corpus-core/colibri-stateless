@@ -164,8 +164,9 @@ build_ios() {
   cp -R "$src_xcframework" "$dest_dir/"
   echo "Copied: $dest_dir/c4_swift.xcframework"
 
-  if [[ -d "$FLUTTER_PLUGIN_DIR/ios/Frameworks" ]]; then
-    local plugin_dir="$FLUTTER_PLUGIN_DIR/ios/Frameworks"
+  if [[ -d "$FLUTTER_PLUGIN_DIR/ios" ]]; then
+    local plugin_dir="$FLUTTER_PLUGIN_DIR/ios/colibri_flutter/Frameworks"
+    mkdir -p "$plugin_dir"
     rm -rf "$plugin_dir/c4_swift.xcframework"
     cp -R "$src_xcframework" "$plugin_dir/"
     echo "Copied: $plugin_dir/c4_swift.xcframework"
@@ -178,6 +179,9 @@ build_macos() {
     return
   fi
 
+  # Match the plugin podspec so the bundled dylib runs on every macOS version
+  # supported by colibri_flutter instead of inheriting the host SDK version.
+  local macos_deployment_target="10.15"
   local macos_archs=("arm64" "x86_64")
   local dylibs=()
   for arch in "${macos_archs[@]}"; do
@@ -187,6 +191,7 @@ build_macos() {
       -DDART=ON \
       -DETH_ZKPROOF=ON \
       -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_OSX_DEPLOYMENT_TARGET="$macos_deployment_target" \
       -DCMAKE_OSX_ARCHITECTURES="$arch"
     cmake --build "$build_dir" --target colibri_dart
 

@@ -15,7 +15,7 @@ ROOT_DIR="$(cd "$PLUGIN_DIR/../../../.." && pwd)"
 ANDROID_ABIS=("arm64-v8a" "armeabi-v7a" "x86_64")
 ANDROID_API_LEVEL=23
 JNILIBS_DIR="$PLUGIN_DIR/android/src/main/jniLibs"
-IOS_FRAMEWORKS_DIR="$PLUGIN_DIR/ios/Frameworks"
+IOS_FRAMEWORKS_DIR="$PLUGIN_DIR/ios/colibri_flutter/Frameworks"
 
 build_android=false
 build_ios=false

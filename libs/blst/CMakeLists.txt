@@ -168,7 +168,23 @@ else()
                 OUTPUT_VARIABLE MACOS_SDK_PATH
                 OUTPUT_STRIP_TRAILING_WHITESPACE
             )
-            set(BLST_CFLAGS "-isysroot ${MACOS_SDK_PATH} ${EXTRA_C_FLAGS}")
+            # blst's build.sh compiles for the host architecture unless the target
+            # arch is passed explicitly. When cross-building a macOS slice
+            # (CMAKE_OSX_ARCHITECTURES, e.g. x86_64 on an arm64 host) blst would
+            # otherwise emit a host-arch libblst.a and the final link fails with
+            # "symbol(s) not found for architecture ...". Forward every requested
+            # arch and deployment target so the static lib matches the rest of the
+            # build. Flags stay empty when CMake has no explicit values, preserving
+            # prior behavior for plain native builds.
+            set(BLST_ARCH_FLAGS "")
+            foreach(_blst_arch ${CMAKE_OSX_ARCHITECTURES})
+                set(BLST_ARCH_FLAGS "${BLST_ARCH_FLAGS}-arch ${_blst_arch} ")
+            endforeach()
+            set(BLST_DEPLOYMENT_TARGET_FLAGS "")
+            if(CMAKE_OSX_DEPLOYMENT_TARGET)
+                set(BLST_DEPLOYMENT_TARGET_FLAGS "-mmacosx-version-min=${CMAKE_OSX_DEPLOYMENT_TARGET} ")
+            endif()
+            set(BLST_CFLAGS "-isysroot ${MACOS_SDK_PATH} ${BLST_ARCH_FLAGS}${BLST_DEPLOYMENT_TARGET_FLAGS}${EXTRA_C_FLAGS}")
         else()
             set(BLST_CFLAGS "${EXTRA_C_FLAGS}-ffunction-sections -fdata-sections")
         endif()

@@ -12,5 +12,9 @@ Pod::Spec.new do |s|
   s.swift_version    = '5.0'
   s.vendored_libraries = 'Frameworks/libcolibri.dylib'
   s.preserve_paths   = 'Frameworks/libcolibri.dylib'
+  s.dependency 'FlutterMacOS'
   s.xcconfig         = { 'LD_RUNPATH_SEARCH_PATHS' => '@loader_path/../Frameworks' }
+  s.pod_target_xcconfig = {
+    'DEFINES_MODULE' => 'YES',
+  }
 end
