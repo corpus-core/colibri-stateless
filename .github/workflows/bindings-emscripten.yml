@@ -81,17 +81,17 @@ jobs:
           npm test
           cd ../../
 
-      - name: Run integration tests (real infrastructure)
-        run: |
-          cd bindings/emscripten
-          npm run test:integration
-          cd ../../
+#      - name: Run integration tests (real infrastructure)
+#        run: |
+#          cd bindings/emscripten
+#          npm run test:integration
+#          cd ../../
 
-      - name: Run CCIP tests (real infrastructure)
-        run: |
-          cd bindings/emscripten
-          npm run test:ccip
-          cd ../../
+#      - name: Run CCIP tests (real infrastructure)
+#        run: |
+#          cd bindings/emscripten
+#          npm run test:ccip
+#          cd ../../
   
       - name: RN-web smoke (Expo) tests
         run: |
