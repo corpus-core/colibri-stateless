@@ -97,9 +97,25 @@ elseif(EMBEDDED)
         VERBATIM
     )
 elseif(WIN32)
+    # GitHub's Windows runners expose an unusually large PATH. blst's
+    # build.bat expands it in a single `set PATH=...;%PATH%` command,
+    # which exceeds cmd.exe's 8191-character command-line limit before
+    # the compiler is invoked. Run it through a generated wrapper with
+    # only the MSVC tools and Windows system utilities on PATH.
+    get_filename_component(BLST_MSVC_BIN_DIR "${CMAKE_C_COMPILER}" DIRECTORY)
+    set(BLST_WINDOWS_BUILD_WRAPPER "${CMAKE_CURRENT_BINARY_DIR}/build_blst.cmd")
+    file(GENERATE
+        OUTPUT "${BLST_WINDOWS_BUILD_WRAPPER}"
+        CONTENT
+"@echo off
+set \"PATH=$ENV{WINDIR}/system32;${BLST_MSVC_BIN_DIR}\"
+call \"${blst_SOURCE_DIR}/build.bat\" %*
+exit /b %ERRORLEVEL%
+"
+    )
     add_custom_command(
         OUTPUT ${BLST_LIB}
-        COMMAND ${CMAKE_COMMAND} -E env CFLAGS="${EXTRA_C_FLAGS}-ffunction-sections -fdata-sections /wd4210" ${blst_SOURCE_DIR}/build.bat -D__BLST_PORTABLE__
+        COMMAND ${CMAKE_COMMAND} -E env CFLAGS="${EXTRA_C_FLAGS}-ffunction-sections -fdata-sections /wd4210" ${BLST_WINDOWS_BUILD_WRAPPER} -D__BLST_PORTABLE__
         COMMAND ${CMAKE_COMMAND} -E echo "Checking if blst.lib exists"
         COMMAND ${CMAKE_COMMAND} -E copy ${blst_SOURCE_DIR}/blst.lib ${BLST_LIB}
         WORKING_DIRECTORY ${blst_SOURCE_DIR}
