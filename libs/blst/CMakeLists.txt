@@ -97,34 +97,9 @@ elseif(EMBEDDED)
         VERBATIM
     )
 elseif(WIN32)
-    # GitHub's Windows runners expose an unusually large PATH. blst's
-    # build.bat expands it in a single `set PATH=...;%PATH%` command,
-    # which exceeds cmd.exe's 8191-character command-line limit before
-    # the compiler is invoked. Run it through a generated wrapper with
-    # only the MSVC tools and Windows system utilities on PATH.
-    #
-    # All paths in the wrapper must use backslashes: cmd.exe's legacy
-    # parser treats a forward slash as an option prefix and does not
-    # search PATH entries written with forward slashes, which makes
-    # `cl` unresolvable ("'cl' is not recognized ...").
-    # Plain string replacement instead of file(TO_NATIVE_PATH), whose
-    # result depends on the host CMake runs on.
-    get_filename_component(BLST_MSVC_BIN_DIR "${CMAKE_C_COMPILER}" DIRECTORY)
-    string(REPLACE "/" "\\" BLST_MSVC_BIN_DIR_NATIVE "${BLST_MSVC_BIN_DIR}")
-    string(REPLACE "/" "\\" BLST_BUILD_BAT_NATIVE "${blst_SOURCE_DIR}/build.bat")
-    set(BLST_WINDOWS_BUILD_WRAPPER "${CMAKE_CURRENT_BINARY_DIR}/build_blst.cmd")
-    file(GENERATE
-        OUTPUT "${BLST_WINDOWS_BUILD_WRAPPER}"
-        CONTENT
-"@echo off
-set \"PATH=%windir%\\system32;${BLST_MSVC_BIN_DIR_NATIVE}\"
-call \"${BLST_BUILD_BAT_NATIVE}\" %*
-exit /b %ERRORLEVEL%
-"
-    )
     add_custom_command(
         OUTPUT ${BLST_LIB}
-        COMMAND ${CMAKE_COMMAND} -E env CFLAGS="${EXTRA_C_FLAGS}-ffunction-sections -fdata-sections /wd4210" ${BLST_WINDOWS_BUILD_WRAPPER} -D__BLST_PORTABLE__
+        COMMAND ${CMAKE_COMMAND} -E env CFLAGS="${EXTRA_C_FLAGS}-ffunction-sections -fdata-sections /wd4210" ${blst_SOURCE_DIR}/build.bat -D__BLST_PORTABLE__
         COMMAND ${CMAKE_COMMAND} -E echo "Checking if blst.lib exists"
         COMMAND ${CMAKE_COMMAND} -E copy ${blst_SOURCE_DIR}/blst.lib ${BLST_LIB}
         WORKING_DIRECTORY ${blst_SOURCE_DIR}

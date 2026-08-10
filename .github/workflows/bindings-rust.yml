@@ -98,6 +98,34 @@ jobs:
           git config --global --get core.longpaths
           exit 0
 
+      # cmd.exe cannot cope with an environment whose PATH exceeds 8191
+      # characters (KB 830473): blst's build.bat dies with "The input
+      # line is too long" when it prepends system32 to %PATH%. The
+      # default runner PATH plus the Rust toolchain, MSBuild and choco
+      # additions crosses that limit, so replace it with a short curated
+      # list for all following steps. rustc, the cc crate and CMake
+      # locate MSVC through vswhere/registry, not PATH.
+      - name: Shorten PATH (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          Write-Host "PATH length before: $($env:PATH.Length)"
+          $keep = @(
+            "$env:USERPROFILE\.cargo\bin",
+            "$env:SystemRoot\system32",
+            "$env:SystemRoot",
+            "$env:SystemRoot\System32\WindowsPowerShell\v1.0",
+            "$env:ProgramFiles\PowerShell\7",
+            "$env:ProgramFiles\CMake\bin",
+            "$env:ProgramFiles\Git\cmd"
+          )
+          # Keep toolchain entries the actions above put on PATH.
+          $dynamic = ($env:PATH -split ';') | Where-Object { $_ -match 'MSBuild|Visual Studio|Python' }
+          $newPath = (($keep + $dynamic) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique) -join ';'
+          Write-Host "PATH length after: $($newPath.Length)"
+          Write-Host $newPath
+          "PATH=$newPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       - name: Extract version from Git tag
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
