@@ -111,7 +111,7 @@ void main() {
       final hasExpectedResult = content.containsKey('expected_result');
       final expected = content['expected_result'];
       final includeCode = (content['include_code'] as bool?) ?? false;
-      final useAccesslist = (content['use_accesslist'] as bool?) ?? false;
+      final useAccesslist = (content['use_accesslist'] as bool?) ?? true;
       final pap = (content['pap'] as bool?) ?? false;
       final remoteProver = (content['remote_prover'] as bool?) ?? false;
 
@@ -187,7 +187,7 @@ void main() {
       final trusted = content['trusted_blockhash']?.toString();
       final expected = content['expected_result'];
       final includeCode = (content['include_code'] as bool?) ?? false;
-      final useAccesslist = (content['use_accesslist'] as bool?) ?? false;
+      final useAccesslist = (content['use_accesslist'] as bool?) ?? true;
 
       const proverUrl = 'http://prover.example';
       final responder = FileBasedMockResponder(dir);

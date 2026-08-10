@@ -583,7 +583,7 @@ cat >> "$GENERATED_TESTS_FILE" << 'EOF'
         colibri.requestHandler = mockHandler
         colibri.chainId = UInt64(chainId)  // Set chain ID from test.json
         colibri.includeCode = (testJson["include_code"] as? Bool) ?? false
-        colibri.useAccesslist = (testJson["use_accesslist"] as? Bool) ?? false
+        colibri.useAccesslist = (testJson["use_accesslist"] as? Bool) ?? true
         let pap = (testJson["pap"] as? Bool) ?? false
         let remoteProver = (testJson["remote_prover"] as? Bool) ?? false
         colibri.privacyMode = pap ? .basic : .none

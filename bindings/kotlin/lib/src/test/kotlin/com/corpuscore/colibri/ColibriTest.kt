@@ -285,7 +285,7 @@ class ColibriTest {
             requestHandler = mockHandler,
             provers = if (remoteProver) arrayOf("http://mock-prover") else emptyArray(),
             includeCode = testConf.optBoolean("include_code", false),
-            useAccesslist = testConf.optBoolean("use_accesslist", false),
+            useAccesslist = testConf.optBoolean("use_accesslist", true),
             privacyMode = if (pap) PrivacyMode.BASIC else PrivacyMode.NONE,
             maxLatestAgeSeconds = 0L
         )

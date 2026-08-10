@@ -115,7 +115,7 @@ Include `"c4_assert.h"` which provides the full test infrastructure.
 **Prover flags:**
 - `C4_PROVER_FLAG_INCLUDE_CODE` -- Include contract code in proof.
 - `C4_PROVER_FLAG_CHAIN_STORE` -- Use chain store.
-- `C4_PROVER_FLAG_USE_ACCESSLIST` -- Use access list.
+- `C4_PROVER_FLAG_USE_DEBUG_TRACE` -- Use legacy `debug_traceCall` instead of default `eth_createAccessList`.
 - `C4_PROVER_FLAG_NO_CACHE` -- Disable cache (defined in `c4_assert.h` as `1 << 30`).
 
 Example pattern (from `test_eth_verify_call.c`):

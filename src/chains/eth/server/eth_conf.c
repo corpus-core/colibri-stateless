@@ -47,5 +47,5 @@ void eth_configure() {
     c4_eth_set_logs_completeness_max_blocks((uint32_t) eth_config.logs_completeness_max_blocks);
 #endif
 
-  http_server.prover_flags |= (eth_config.period_store ? C4_PROVER_FLAG_CHAIN_STORE : 0) | C4_PROVER_FLAG_USE_ACCESSLIST;
+  http_server.prover_flags |= (eth_config.period_store ? C4_PROVER_FLAG_CHAIN_STORE : 0);
 }

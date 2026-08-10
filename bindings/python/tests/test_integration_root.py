@@ -227,7 +227,7 @@ class TestSpecificIntegrationCases:
             chain_id=config['chain_id'],
             provers=[],  # CRITICAL: Empty list forces local proof creation with mock data
             include_code=config.get('include_code', False),
-            use_accesslist=config.get('use_accesslist', False),
+            use_accesslist=config.get('use_accesslist', True),
             storage=mock_storage,
             request_handler=mock_request_handler,
             max_latest_age_seconds=0
@@ -294,7 +294,7 @@ class TestSpecificIntegrationCases:
             chain_id=config['chain_id'],
             provers=[],  # CRITICAL: Empty list forces local proof creation with mock data
             include_code=config.get('include_code', False),
-            use_accesslist=config.get('use_accesslist', False),
+            use_accesslist=config.get('use_accesslist', True),
             storage=mock_storage,
             request_handler=mock_request_handler,
             max_latest_age_seconds=0

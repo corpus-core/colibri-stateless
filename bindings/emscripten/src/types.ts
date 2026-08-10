@@ -133,6 +133,11 @@ export interface Config extends ChainConfig {
     cache?: Cache;
     debug?: boolean;
     include_code?: boolean;
+    /**
+     * Prefer `eth_createAccessList` for eth_call proofs (default true).
+     * Set to `false` to opt into the legacy `debug_traceCall` (prestateTracer) path
+     * (`C4_PROVER_FLAG_USE_DEBUG_TRACE`).
+     */
     use_accesslist?: boolean;
     /** Pragmatic Adaptive Privacy mode. Default "none". "basic" sets verify flag for PAP. */
     privacy_mode?: PrivacyMode;

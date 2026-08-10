@@ -114,6 +114,7 @@ class Colibri {
     List<String>? obliviousNodes,
     this.trustedCheckpoint,
     this.includeCode = false,
+    this.useAccesslist = true,
     this.zkProof = false,
     this.logsCompleteness = false,
     this.proverMode,
@@ -142,6 +143,8 @@ class Colibri {
 
 Constructor: **libraryPath** overrides the default native library (or use env `COLIBRI_DART_LIBRARY`). **storage** registers a custom cache; **zkProof** requests ZK proofs from remote provers when using **rpc** with provers. **onDebug** can contain sensitive data; do not forward to production logging.
 
+**useAccesslist** (`bool`, default `true`) prefers `eth_createAccessList` when building local `eth_call` / `eth_estimateGas` / `colibri_simulateTransaction` proofs. Set to `false` only to opt into the legacy `debug_traceCall` prestateTracer path (`C4_PROVER_FLAG_USE_DEBUG_TRACE`). Most RPC providers support `eth_createAccessList`; `debug_traceCall` often does not. Irrelevant when proofs come from a remote prover that already chose its own path.
+
 **logsCompleteness** (`bool`, default `false`) makes `eth_getLogs` produce (prover) and require (verifier) a **completeness proof** over the requested block range `[fromBlock, toBlock]`. The proof guarantees that no matching log was omitted, not just that the returned logs are valid. It sets the prover flag (`1 << 12`) and the verifier flag (`1 << 9`) and requires a prover that supports it. The range end (`toBlock`) may be a pinned block hash/number or `"latest"`; `"safe"`/`"finalized"` are not supported yet. Tracks issue #128.
 
 ### Storage
@@ -169,8 +172,13 @@ final colibri = Colibri(
   beaconApis: ['https://lodestar-mainnet.chainsafe.io'],
   trustedCheckpoint: '0x…',  // optional
   libraryPath: 'native/libcolibri.dylib',
+  useAccesslist: true, // default: eth_createAccessList for local eth_call proofs
 );
 ```
+
+### Access list vs `debug_traceCall`
+
+For local `eth_call` proofs, `useAccesslist` (default `true`) selects `eth_createAccessList`. Set `useAccesslist: false` only to opt into the legacy `debug_traceCall` path (`C4_PROVER_FLAG_USE_DEBUG_TRACE`).
 
 ### Privacy-preserving `eth_call` (oblivious + PAP + hybrid)
 

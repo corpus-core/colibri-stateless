@@ -55,7 +55,7 @@ class Colibri:
         oblivious_nodes: Optional[List[str]] = None,
         trusted_checkpoint: Optional[str] = None,
         include_code: bool = False,
-        use_accesslist: bool = False,
+        use_accesslist: bool = True,
         zk_proof: bool = False,
         privacy_mode: Optional[PrivacyMode] = None,
         prover_mode: Optional['ProverMode'] = None,
@@ -78,7 +78,8 @@ class Colibri:
             oblivious_nodes: TEE RPC endpoints for eth_getProof (privacy-preserving storage reads)
             trusted_checkpoint: Optional trusted checkpoint as hex string (0x-prefixed, 66 chars)
             include_code: Whether to include code in proofs
-            use_accesslist: Whether to use eth_createAccessList instead of debug_traceCall
+            use_accesslist: Whether to use eth_createAccessList (default True). Set False
+                to opt into the legacy debug_traceCall path (C4_PROVER_FLAG_USE_DEBUG_TRACE).
             zk_proof: Whether to request ZK sync proofs from remote provers
             privacy_mode: PAP mode (PrivacyMode.NONE or PrivacyMode.BASIC). Default NONE.
             checkpoint_witness_keys: Optional hex-encoded witness signer keys (0x-prefixed)
@@ -322,7 +323,7 @@ class Colibri:
         try:
             # Create prover context
             params_json = json.dumps(params)
-            prover_flags = (1 if self.include_code else 0) | ((1 << 6) if self.use_accesslist else 0) | ((1 << 12) if self.logs_completeness else 0)
+            prover_flags = (1 if self.include_code else 0) | ((1 << 6) if not self.use_accesslist else 0) | ((1 << 12) if self.logs_completeness else 0)
             ctx = native.create_prover_ctx(
                 method, 
                 params_json, 
@@ -463,7 +464,7 @@ class Colibri:
             raise ColibriError("Native module not available")
 
         params_json = json.dumps(params)
-        prover_flags = (1 if self.include_code else 0) | ((1 << 6) if self.use_accesslist else 0) | ((1 << 7) if self.zk_proof else 0) | ((1 << 12) if self.logs_completeness else 0)
+        prover_flags = (1 if self.include_code else 0) | ((1 << 6) if not self.use_accesslist else 0) | ((1 << 7) if self.zk_proof else 0) | ((1 << 12) if self.logs_completeness else 0)
         resolved_mode = self.prover_mode if self.prover_mode is not None else (ProverMode.REMOTE if self.provers else ProverMode.LOCAL)
         native_mode = int(ProverMode.HYBRID) if resolved_mode == ProverMode.LIGHT_CLIENT else int(resolved_mode)
 

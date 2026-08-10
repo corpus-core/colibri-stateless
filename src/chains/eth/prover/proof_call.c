@@ -233,13 +233,12 @@ c4_status_t c4_get_eth_proofs(prover_ctx_t* ctx, json_t trace, uint64_t block_nu
   }
 
   // For colibri_proofCall the trace IS the access-list object ({"accessList":[...]})
-  // independent of the USE_ACCESSLIST prover flag (that flag only selects the trace
-  // builder for eth_call). Branch on the actual trace shape so the access-list parser
-  // is used whenever a list is present; otherwise a missing flag would make us fall
-  // into the prestate-trace branch and treat the property name "accessList" as an
-  // account address (producing eth_getProof("accessList", ...)).
+  // independent of the USE_DEBUG_TRACE prover flag (that flag only selects the legacy
+  // debug_traceCall builder for eth_call). Branch on the actual trace shape so the
+  // access-list parser is used whenever a list is present; otherwise a missing
+  // accessList array with USE_DEBUG_TRACE set falls into the prestate-trace branch.
   json_t access_list = json_get(trace, "accessList");
-  if ((ctx->flags & C4_PROVER_FLAG_USE_ACCESSLIST) || access_list.type == JSON_TYPE_ARRAY) {
+  if (!(ctx->flags & C4_PROVER_FLAG_USE_DEBUG_TRACE) || access_list.type == JSON_TYPE_ARRAY) {
     accounts_len = json_len(access_list);
     json_for_each_value(access_list, values) {
       buffer_t buf = stack_buffer(address);
@@ -281,7 +280,9 @@ c4_status_t c4_get_eth_proofs(prover_ctx_t* ctx, json_t trace, uint64_t block_nu
   // if we know, that we just started the eth_getProof requests,
   // and there are no other requests to start, we can already set the worker thread flag
   // so next execution will be in a worker thread so we don't have to go through all to reach this point.
-  if (status == C4_PENDING && ((ctx->flags & C4_PROVER_FLAG_INCLUDE_CODE) ? (ctx->flags & C4_PROVER_FLAG_USE_ACCESSLIST) == 0 : true))
+  // debug_traceCall embeds code in the prestate; with INCLUDE_CODE the getProof phase
+  // can move to a worker immediately. eth_createAccessList still needs eth_getCode first.
+  if (status == C4_PENDING && ((ctx->flags & C4_PROVER_FLAG_INCLUDE_CODE) ? (ctx->flags & C4_PROVER_FLAG_USE_DEBUG_TRACE) != 0 : true))
     REQUEST_WORKER_THREAD(ctx);
 
   return status;
@@ -329,7 +330,7 @@ c4_status_t c4_proof_call(prover_ctx_t* ctx) {
   else if (has_overrides)
     TRY_ADD_ASYNC(status, eth_create_access_list(ctx, tx, &trace, target_block, state_overrides));
   else
-    TRY_ADD_ASYNC(status, ctx->flags & C4_PROVER_FLAG_USE_ACCESSLIST ? eth_create_access_list(ctx, tx, &trace, target_block, (json_t) {0}) : eth_debug_trace_call(ctx, tx, &trace, target_block));
+    TRY_ADD_ASYNC(status, ctx->flags & C4_PROVER_FLAG_USE_DEBUG_TRACE ? eth_debug_trace_call(ctx, tx, &trace, target_block) : eth_create_access_list(ctx, tx, &trace, target_block, (json_t) {0}));
 
   if (block.header_only) {
     TRY_ASYNC_CATCH(status, c4_free_block_proof(&historic_proof); eth_state_overrides_free(&overrides_parsed));

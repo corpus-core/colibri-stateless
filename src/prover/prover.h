@@ -73,7 +73,7 @@ typedef enum {
   C4_PROVER_FLAG_CHAIN_STORE        = 1 << 3, // allows the prover to use internal request with data from the chain stroe
   C4_PROVER_FLAG_UNSTABLE_LATEST    = 1 << 4, // usually we use latest-1, but if this is set we return the real "latest"
   C4_PROVER_FLAG_INCLUDE_SYNC       = 1 << 5, // if true, the sync data will be included in the proof (requires the client_state to be set)
-  C4_PROVER_FLAG_USE_ACCESSLIST     = 1 << 6, // if true, eth_call will use eth_createAccessList instead of eth_debug_traceCall
+  C4_PROVER_FLAG_USE_DEBUG_TRACE    = 1 << 6, // if true, eth_call uses legacy debug_traceCall (prestateTracer) instead of the default eth_createAccessList
   C4_PROVER_FLAG_ZK_PROOF           = 1 << 7, // if true, the the prover will try to store the zk_proof within the sync_section
   C4_PROVER_FLAG_CALL_BLOCK_CONTEXT = 1 << 8, // if true, eth_call state_proof uses blockContext union variant and multi-proof with execution payload fields
   C4_PROVER_FLAG_HYBRID             = 1 << 9, // hybrid mode: header proof from remote server, execution data from RPC provider

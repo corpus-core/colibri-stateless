@@ -248,7 +248,8 @@ public class Colibri {
     public var trustedCheckpoint: String? = nil
     public var chainId: UInt64 = 1 // Default: Ethereum Mainnet
     public var includeCode: Bool = false
-    public var useAccesslist: Bool = false
+    /// Prefer `eth_createAccessList` (default true). Set false for legacy `debug_traceCall`.
+    public var useAccesslist: Bool = true
     /// Whether to request ZK sync proofs from remote provers.
     public var zkProof: Bool = false
     /// PAP mode; .basic sets verify flag for Pragmatic Adaptive Privacy.
@@ -487,7 +488,7 @@ public class Colibri {
             free(paramsPtr)
         }
         
-        let proverFlags: UInt32 = (includeCode ? 1 : 0) | (useAccesslist ? (1 << 6) : 0) | (logsCompleteness ? (1 << 12) : 0)
+        let proverFlags: UInt32 = (includeCode ? 1 : 0) | (useAccesslist ? 0 : (1 << 6)) | (logsCompleteness ? (1 << 12) : 0)
         guard let ctx = c4_create_prover_ctx(methodPtr, paramsPtr, chainId, proverFlags) else {
             throw ColibriError.contextCreationFailed
         }
@@ -623,7 +624,7 @@ public class Colibri {
         }
         defer { free(mPtr); free(pPtr) }
 
-        let proverFlags: UInt32 = (includeCode ? 1 : 0) | (useAccesslist ? (1 << 6) : 0) | (zkProof ? (1 << 7) : 0) | (logsCompleteness ? (1 << 12) : 0)
+        let proverFlags: UInt32 = (includeCode ? 1 : 0) | (useAccesslist ? 0 : (1 << 6)) | (zkProof ? (1 << 7) : 0) | (logsCompleteness ? (1 << 12) : 0)
         // Base prover-mode auto-detection on the user-configured `provers` array,
         // NOT on the per-chain default fallback. Consumers passing `[]` explicitly
         // signal "no remote prover" -- if we consulted the fallback here, any

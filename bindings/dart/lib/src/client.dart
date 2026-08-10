@@ -38,7 +38,7 @@ class Colibri {
     List<String>? obliviousNodes,
     this.trustedCheckpoint,
     this.includeCode = false,
-    this.useAccesslist = false,
+    this.useAccesslist = true,
     this.zkProof = false,
     this.privacyMode = PrivacyMode.none,
     this.proverMode,
@@ -87,7 +87,7 @@ class Colibri {
   final String? trustedCheckpoint;
   /// Whether to include code in proof requests.
   final bool includeCode;
-  /// Whether to include an access list in proof requests.
+  /// Prefer eth_createAccessList for eth_call proofs (default true). Set false for legacy debug_traceCall.
   final bool useAccesslist;
   /// Whether to request ZK sync proofs from provers.
   final bool zkProof;
@@ -214,7 +214,7 @@ class Colibri {
   /// (ZK proofs are produced by remote provers, not the local prover).
   Future<Uint8List> createProof(String method, List<dynamic> params) async {
     final paramsJson = jsonEncode(params);
-    final flags = (includeCode ? 1 : 0) | (useAccesslist ? (1 << 6) : 0) | (logsCompleteness ? (1 << 12) : 0);
+    final flags = (includeCode ? 1 : 0) | (useAccesslist ? 0 : (1 << 6)) | (logsCompleteness ? (1 << 12) : 0);
     final ctx = _native.createProverCtx(
       method,
       paramsJson,
@@ -316,7 +316,7 @@ class Colibri {
   /// data requests.
   Future<dynamic> rpc(String method, List<dynamic> params) async {
     final paramsJson = jsonEncode(params);
-    final proverFlags = (includeCode ? 1 : 0) | (useAccesslist ? (1 << 6) : 0) | (zkProof ? (1 << 7) : 0) | (logsCompleteness ? (1 << 12) : 0);
+    final proverFlags = (includeCode ? 1 : 0) | (useAccesslist ? 0 : (1 << 6)) | (zkProof ? (1 << 7) : 0) | (logsCompleteness ? (1 << 12) : 0);
     final resolvedMode = proverMode ?? (provers.isEmpty ? ProverMode.local : ProverMode.remote);
     final nativeMode = resolvedMode == ProverMode.lightClient ? ProverMode.hybrid.value : resolvedMode.value;
 

@@ -142,7 +142,8 @@ export default class C4Client {
     this.config = baseConfig;
 
     if (this.config.include_code) this.flags |= 1;
-    if (this.config.use_accesslist) this.flags |= (1 << 6);
+    // Default true: eth_createAccessList. Opt out (false) → USE_DEBUG_TRACE (bit 6).
+    if (this.config.use_accesslist === false) this.flags |= (1 << 6);
     if (this.config.privacy_mode === 'basic' || this.config.oblivious_nodes?.length) this.verify_flags |= 2;
     if (this.config.oblivious_nodes?.length) this.verify_flags |= (1 << 6);
     if (this.config.skip_wsp_check) this.verify_flags |= (1 << 7);

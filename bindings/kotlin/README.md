@@ -64,7 +64,7 @@ dependencies {
 }
 ```
 
-**Configuration:** For a privacy-preserving `eth_call`, use `proverMode = HYBRID`, `privacyMode = BASIC`, and `obliviousNodes` (default empty; e.g. `https://rpc.safe-node.com/`, API key for testing). Setting `obliviousNodes` also enables PAP automatically. How oblivious nodes work (TEE, ORAM): [Oblivious Labs](https://www.obliviouslabs.com/).
+**Configuration:** Local `eth_call` proofs default to `useAccesslist = true` (`eth_createAccessList`; set `false` for legacy `debug_traceCall`). For a privacy-preserving `eth_call`, use `proverMode = HYBRID`, `privacyMode = BASIC`, and `obliviousNodes` (default empty; e.g. `https://rpc.safe-node.com/`, API key for testing). Setting `obliviousNodes` also enables PAP automatically. How oblivious nodes work (TEE, ORAM): [Oblivious Labs](https://www.obliviouslabs.com/).
 
 Use it like this:
 ```java

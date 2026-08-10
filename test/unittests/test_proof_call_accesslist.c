@@ -26,13 +26,14 @@
 //
 // For `colibri_proofCall` the prover's `trace` is *always* the access-list
 // object `{"accessList":[{"address":...,"storageKeys":[...]}]}`, regardless of
-// the `C4_PROVER_FLAG_USE_ACCESSLIST` prover flag (that flag only selects which
+// the `C4_PROVER_FLAG_USE_DEBUG_TRACE` prover flag (that flag only selects which
 // trace builder is used for a plain `eth_call`).
 //
-// The bug: parser selection used to depend solely on the flag. With the flag
-// UNSET the prestate-trace branch ran and iterated the object's PROPERTY NAMES,
-// treating the literal key "accessList" as an account address. That produced an
-// `eth_getProof("accessList", [], block)` request which upstream nodes reject.
+// The bug: parser selection used to depend solely on the (then) USE_ACCESSLIST
+// flag. With that flag UNSET the prestate-trace branch ran and iterated the
+// object's PROPERTY NAMES, treating the literal key "accessList" as an account
+// address. That produced an `eth_getProof("accessList", [], block)` request
+// which upstream nodes reject.
 //
 // The fix branches on the actual trace shape (presence of an `"accessList"`
 // array) so the access-list parser is used whenever a list is present.
@@ -106,26 +107,25 @@ static void run_accesslist_case(prover_flags_t flags) {
   c4_state_free(&ctx.state);
 }
 
-// :: Regression: USE_ACCESSLIST flag UNSET (the previously broken path)
+// :: Default path (no USE_DEBUG_TRACE): access-list parser via default or shape
 //
-// Before the fix this fell into the prestate-trace branch and built
-// eth_getProof("accessList", ...). The access-list parser must now be selected
-// purely from the trace shape.
-void test_proof_call_accesslist_without_flag(void) {
+// eth_createAccessList is the default; the access-list-shaped trace must be
+// parsed correctly without any special flag.
+void test_proof_call_accesslist_default(void) {
   run_accesslist_case(0);
 }
 
-// :: Control: USE_ACCESSLIST flag SET (was always correct)
+// :: Legacy path: USE_DEBUG_TRACE set, but access-list shape still wins
 //
-// Pins that the flag-set path keeps producing the correct request, so both
-// branches of the new condition converge on the same behaviour.
-void test_proof_call_accesslist_with_flag(void) {
-  run_accesslist_case(C4_PROVER_FLAG_USE_ACCESSLIST);
+// Pins that the shape-based branch still selects the access-list parser even
+// when the host opted into the legacy debug_traceCall builder for eth_call.
+void test_proof_call_accesslist_with_debug_trace_flag(void) {
+  run_accesslist_case(C4_PROVER_FLAG_USE_DEBUG_TRACE);
 }
 
 int main(void) {
   UNITY_BEGIN();
-  RUN_TEST(test_proof_call_accesslist_without_flag);
-  RUN_TEST(test_proof_call_accesslist_with_flag);
+  RUN_TEST(test_proof_call_accesslist_default);
+  RUN_TEST(test_proof_call_accesslist_with_debug_trace_flag);
   return UNITY_END();
 }

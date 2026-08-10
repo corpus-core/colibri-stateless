@@ -63,6 +63,7 @@ asyncio.run(main())
 - **Easy integration** — `pip install` with pre-built native extensions.
 - **Testing utilities** — mock HTTP requests and storage for deterministic tests.
 - **Multi-chain** — Ethereum Mainnet, Sepolia, Gnosis Chain, and more.
+- **Local `eth_call` proofs** — `use_accesslist=True` (default) uses `eth_createAccessList`; set `False` for legacy `debug_traceCall`.
 - **Privacy-preserving `eth_call`** — combine `ProverMode.HYBRID` + `PrivacyMode.BASIC` + `oblivious_nodes` (default empty; e.g. `https://rpc.safe-node.com/`, API key for testing). Setting `oblivious_nodes` auto-enables PAP. TEE/ORAM background: [Oblivious Labs](https://www.obliviouslabs.com/).
 
 ## Documentation
@@ -72,7 +73,7 @@ asyncio.run(main())
 - **API Reference** — complete class and method documentation
 - **Storage System** — custom storage implementations
 - **Testing Framework** — mock data and integration tests
-- **Configuration** — chain setup and advanced options
+- **Configuration** — chain setup, `use_accesslist` / prover mode, and other advanced options
 - **Building from Source** — development and contribution guide
 
 ## Development
