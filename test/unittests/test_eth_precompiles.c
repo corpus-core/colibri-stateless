@@ -115,6 +115,13 @@ void test_precompile_bls_map_fp_to_g1_zero(void);
 void test_precompile_bls_map_fp2_to_g2_zero(void);
 void test_precompile_bls_g1msm_zero(void);
 void test_precompile_bls_g2msm_zero(void);
+void test_precompile_bls_fp_nonzero_padding_rejected(void);
+void test_precompile_bls_fp_eq_modulus_rejected(void);
+void test_precompile_bls_fp_gt_modulus_rejected(void);
+void test_precompile_bls_fp_max_canonical_accepted(void);
+void test_precompile_bls_fp2_second_limb_eq_modulus_rejected(void);
+void test_precompile_bls_g1add_nonzero_padding_rejected(void);
+void test_precompile_bls_g2add_nonzero_padding_rejected(void);
 
 // Test 1: ECRecover (0x01)
 // Example from https://www.evm.codes/precompiled
@@ -1001,6 +1008,89 @@ void test_precompile_bls_g2msm_zero() {
   buffer_free(&output);
 }
 
+// EIP-2537 Fp encoding (64 bytes): top 16 bytes must be zero and the remaining
+// 48 bytes must encode a value strictly less than the base field modulus p.
+// p = 0x1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab
+static const char* BLS_FP_MODULUS =
+    "000000000000000000000000000000001a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab";
+static const char* BLS_FP_GT_MODULUS =
+    "000000000000000000000000000000001a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaac";
+static const char* BLS_FP_MAX_CANONICAL =
+    "000000000000000000000000000000001a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaaa";
+static const char* BLS_FP_NONZERO_PADDING =
+    "00000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
+
+// MAP_FP_TO_G1 must reject a field element with non-zero top-16 padding.
+void test_precompile_bls_fp_nonzero_padding_rejected() {
+  run_precompile_reject(0x10, BLS_FP_NONZERO_PADDING);
+}
+
+// MAP_FP_TO_G1 must reject a field element equal to the modulus p.
+void test_precompile_bls_fp_eq_modulus_rejected() {
+  run_precompile_reject(0x10, BLS_FP_MODULUS);
+}
+
+// MAP_FP_TO_G1 must reject a field element strictly greater than p.
+void test_precompile_bls_fp_gt_modulus_rejected() {
+  run_precompile_reject(0x10, BLS_FP_GT_MODULUS);
+}
+
+// MAP_FP_TO_G1 must accept the largest canonical value p-1.
+void test_precompile_bls_fp_max_canonical_accepted() {
+  uint8_t addr[20];
+  make_precompile_address(0x10, addr);
+  bytes_t      input    = hex_to_bytes_alloc(BLS_FP_MAX_CANONICAL);
+  buffer_t     output   = {0};
+  uint64_t     gas_used = 0;
+  pre_result_t res      = eth_execute_precompile(addr, input, &output, &gas_used);
+  TEST_ASSERT_EQUAL(PRE_SUCCESS, res);
+  TEST_ASSERT_EQUAL_UINT64(5500, gas_used);
+  TEST_ASSERT_EQUAL(128, output.data.len);
+  free(input.data);
+  buffer_free(&output);
+}
+
+// MAP_FP2_TO_G2 must validate both Fp limbs: keep c0 canonical (zero) and set
+// c1 == p so a missing second-limb check would incorrectly succeed.
+void test_precompile_bls_fp2_second_limb_eq_modulus_rejected() {
+  char zero_fp_hex[129];
+  memset(zero_fp_hex, '0', 128);
+  zero_fp_hex[128] = '\0';
+  char input_hex[257];
+  snprintf(input_hex, sizeof(input_hex), "%s%s", zero_fp_hex, BLS_FP_MODULUS);
+  run_precompile_reject(0x11, input_hex);
+}
+
+// G1ADD must also reject non-canonical encodings via the shared point decoder:
+// take a valid P || O input and set one padding byte in P.x non-zero.
+void test_precompile_bls_g1add_nonzero_padding_rejected() {
+  char zero_hex[257];
+  memset(zero_hex, '0', 256);
+  zero_hex[256] = '\0';
+  char point_hex[257];
+  snprintf(point_hex, sizeof(point_hex), "%s", BLS_G1_GENERATOR);
+  // Flip the least-significant nibble of the 16-byte padding of X (byte 15).
+  point_hex[31] = '1';
+  char input_hex[513];
+  snprintf(input_hex, sizeof(input_hex), "%s%s", point_hex, zero_hex);
+  run_precompile_reject(0x0b, input_hex);
+}
+
+// G2ADD must reject non-zero Fp padding via read_g2_affine (mirrors the G1ADD
+// padding test so a G2-only wiring omission cannot slip through).
+void test_precompile_bls_g2add_nonzero_padding_rejected() {
+  char zero_hex[513];
+  memset(zero_hex, '0', 512);
+  zero_hex[512] = '\0';
+  char point_hex[513];
+  snprintf(point_hex, sizeof(point_hex), "%s", BLS_G2_GENERATOR);
+  // Flip the least-significant nibble of the 16-byte padding of X.c0 (byte 15).
+  point_hex[31] = '1';
+  char input_hex[1025];
+  snprintf(input_hex, sizeof(input_hex), "%s%s", point_hex, zero_hex);
+  run_precompile_reject(0x0d, input_hex);
+}
+
 void test_precompile_p256verify_ok() {
   uint8_t  addr[20];
   buffer_t output   = {0};
@@ -1145,6 +1235,13 @@ int main(void) {
   RUN_TEST(test_precompile_bls_map_fp2_to_g2_zero);
   RUN_TEST(test_precompile_bls_g1msm_zero);
   RUN_TEST(test_precompile_bls_g2msm_zero);
+  RUN_TEST(test_precompile_bls_fp_nonzero_padding_rejected);
+  RUN_TEST(test_precompile_bls_fp_eq_modulus_rejected);
+  RUN_TEST(test_precompile_bls_fp_gt_modulus_rejected);
+  RUN_TEST(test_precompile_bls_fp_max_canonical_accepted);
+  RUN_TEST(test_precompile_bls_fp2_second_limb_eq_modulus_rejected);
+  RUN_TEST(test_precompile_bls_g1add_nonzero_padding_rejected);
+  RUN_TEST(test_precompile_bls_g2add_nonzero_padding_rejected);
 
   // EIP-4844 point evaluation
   RUN_TEST(test_precompile_point_evaluation_valid);
