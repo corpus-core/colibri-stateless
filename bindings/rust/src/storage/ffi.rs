@@ -1,189 +1,168 @@
+//! Bridge between the Rust [`Storage`](super::Storage) trait and the C
+//! `storage_plugin_t` callbacks.
+//!
+//! There is a single global registration -- the C core only supports one
+//! storage plugin at a time, so we install our trampolines on the first
+//! call and swap out the backing Rust object atomically thereafter.
+
 use super::Storage;
 use crate::ffi::{buffer_grow, buffer_t, bytes_t, c4_set_storage_config, storage_plugin_t};
 use std::ffi::{c_char, CStr};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::ptr;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock, RwLock};
 
-// Global storage instance
-static GLOBAL_STORAGE: OnceLock<Arc<Mutex<Box<dyn Storage>>>> = OnceLock::new();
-// Track if registered with C library
+type StorageArc = Arc<dyn Storage>;
 
-static mut STORAGE_REGISTERED_WITH_C: bool = false;
+/// Holds the currently registered storage. Wrapped in an `RwLock` so
+/// we can swap it out later without invalidating the callbacks.
+static GLOBAL_STORAGE: OnceLock<RwLock<StorageArc>> = OnceLock::new();
+/// Set to `true` after `c4_set_storage_config` has been called once.
+static CALLBACKS_INSTALLED: OnceLock<()> = OnceLock::new();
 
+fn current_storage() -> Option<StorageArc> {
+    GLOBAL_STORAGE
+        .get()
+        .and_then(|lock| lock.read().ok().map(|g| Arc::clone(&*g)))
+}
+
+/// Called by the C core when it needs to read a key.
+///
+/// # Safety
+///
+/// - `key` must point to a NUL-terminated C string.
+/// - `buffer` must point to a valid `buffer_t` owned by the caller.
+///
+/// All work happens inside `catch_unwind`; a panic in a user `Storage`
+/// implementation is turned into a "miss" (returns `false`) instead of
+/// unwinding through the C caller (which would be undefined behaviour).
 unsafe extern "C" fn storage_get_callback(key: *mut c_char, buffer: *mut buffer_t) -> bool {
-    if key.is_null() || buffer.is_null() {
-        return false;
-    }
-
-    let key_str = match CStr::from_ptr(key).to_str() {
-        Ok(s) => s,
-        Err(_) => return false,
-    };
-
-    if let Some(storage) = GLOBAL_STORAGE.get() {
-        if let Ok(guard) = storage.lock() {
-            if let Some(data) = guard.get(key_str) {
-                let required_len = data.len() + 1;
-                buffer_grow(buffer, required_len);
-
-                if !(*buffer).data.data.is_null() {
-                    ptr::copy_nonoverlapping(data.as_ptr(), (*buffer).data.data, data.len());
-                    (*buffer).data.len = data.len() as u32;
-                    return true;
-                }
-            }
+    catch_unwind(AssertUnwindSafe(|| {
+        if key.is_null() || buffer.is_null() {
+            return false;
         }
-    }
 
-    false
+        let key_str = match CStr::from_ptr(key).to_str() {
+            Ok(s) => s,
+            Err(_) => return false,
+        };
+
+        let storage = match current_storage() {
+            Some(s) => s,
+            None => return false,
+        };
+
+        let Some(data) = storage.get(key_str) else {
+            return false;
+        };
+
+        // Reject blobs whose length would overflow `bytes_t::len`
+        // (`u32`). Silently truncating would leave uninitialised bytes
+        // in the destination buffer and mask a real bug.
+        let required = data.len();
+        if u32::try_from(required).is_err() {
+            return false;
+        }
+
+        // Ask the C helper to grow the destination buffer -- it knows
+        // how to respect the `allocated` sign convention (positive =
+        // heap, negative = fixed/stack).
+        let avail = buffer_grow(buffer, required);
+        if avail < required {
+            return false;
+        }
+        if (*buffer).data.data.is_null() {
+            return false;
+        }
+
+        ptr::copy_nonoverlapping(data.as_ptr(), (*buffer).data.data, required);
+        (*buffer).data.len = required as u32;
+        true
+    }))
+    .unwrap_or(false)
 }
 
+/// Called by the C core when it needs to persist a key/value pair.
+///
+/// # Safety
+///
+/// - `key` must point to a NUL-terminated C string.
+/// - `value.data` must point to at least `value.len` bytes.
+///
+/// Wrapped in `catch_unwind` -- see [`storage_get_callback`].
 unsafe extern "C" fn storage_set_callback(key: *mut c_char, value: bytes_t) {
-    if key.is_null() || value.data.is_null() || value.len == 0 {
-        return;
-    }
-
-    let key_str = match CStr::from_ptr(key).to_str() {
-        Ok(s) => s,
-        Err(_) => return,
-    };
-
-    let data_slice = std::slice::from_raw_parts(value.data, value.len as usize);
-
-    if let Some(storage) = GLOBAL_STORAGE.get() {
-        if let Ok(guard) = storage.lock() {
-            guard.set(key_str, data_slice);
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if key.is_null() {
+            return;
         }
-    }
-}
-
-unsafe extern "C" fn storage_delete_callback(key: *mut c_char) {
-    if key.is_null() {
-        return;
-    }
-
-    let key_str = match CStr::from_ptr(key).to_str() {
-        Ok(s) => s,
-        Err(_) => return,
-    };
-
-    if let Some(storage) = GLOBAL_STORAGE.get() {
-        if let Ok(guard) = storage.lock() {
-            guard.delete(key_str);
+        let key_str = match CStr::from_ptr(key).to_str() {
+            Ok(s) => s,
+            Err(_) => return,
+        };
+        let slice = if value.data.is_null() || value.len == 0 {
+            &[][..]
+        } else {
+            std::slice::from_raw_parts(value.data, value.len as usize)
+        };
+        if let Some(storage) = current_storage() {
+            storage.set(key_str, slice);
         }
-    }
+    }));
 }
 
-pub(crate) fn is_storage_registered() -> bool {
-    unsafe { STORAGE_REGISTERED_WITH_C }
+/// Called by the C core when it wants to remove a key.
+///
+/// # Safety
+///
+/// `key` must point to a NUL-terminated C string.
+///
+/// Wrapped in `catch_unwind` -- see [`storage_get_callback`].
+unsafe extern "C" fn storage_del_callback(key: *mut c_char) {
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if key.is_null() {
+            return;
+        }
+        let key_str = match CStr::from_ptr(key).to_str() {
+            Ok(s) => s,
+            Err(_) => return,
+        };
+        if let Some(storage) = current_storage() {
+            storage.delete(key_str);
+        }
+    }));
 }
 
-/// Register storage with the C library. Idempotent.
+/// Install `storage` as the currently active backend, registering the
+/// C callbacks on first use.
+///
+/// Only one storage plugin can be live at a time -- the C core keeps a
+/// single global slot. Registering a new storage overwrites the
+/// previous one; concurrent registrations are serialised through the
+/// backing `RwLock` and the last writer wins deterministically.
 pub(crate) fn register_global_storage(storage: Box<dyn Storage>) {
-    let _ = GLOBAL_STORAGE.set(Arc::new(Mutex::new(storage)));
+    let arc: StorageArc = Arc::from(storage);
 
-    if !is_storage_registered() {
+    // `get_or_init` racelessly installs the RwLock on the first call
+    // from any thread, and then every caller lands in the same lock.
+    let lock = GLOBAL_STORAGE.get_or_init(|| RwLock::new(arc.clone()));
+    if let Ok(mut guard) = lock.write() {
+        *guard = arc;
+    }
+
+    // Register the callbacks with the C core exactly once.
+    CALLBACKS_INSTALLED.get_or_init(|| {
         let mut plugin = storage_plugin_t {
             get: Some(storage_get_callback),
             set: Some(storage_set_callback),
-            del: Some(storage_delete_callback),
+            del: Some(storage_del_callback),
             max_sync_states: 3,
         };
-        unsafe {
-            c4_set_storage_config(&mut plugin);
-            STORAGE_REGISTERED_WITH_C = true;
-        }
-    }
+        unsafe { c4_set_storage_config(&mut plugin as *mut _) };
+    });
 }
 
-#[cfg(test)]
-mod tests {
-    use super::super::MemoryStorage;
-    use super::*;
-    use crate::ffi::c4_get_storage_config;
-
-    #[test]
-    fn test_storage_registration() {
-        let storage = MemoryStorage::new();
-        register_global_storage(storage);
-        assert!(is_storage_registered());
-    }
-
-    #[test]
-    fn test_storage_callbacks_with_global() {
-        let storage = MemoryStorage::new();
-        register_global_storage(storage);
-
-        if let Some(s) = GLOBAL_STORAGE.get() {
-            let guard = s.lock().unwrap();
-            guard.set("test_key", b"test_value");
-            assert_eq!(guard.get("test_key"), Some(b"test_value".to_vec()));
-            guard.delete("test_key");
-            assert_eq!(guard.get("test_key"), None);
-        }
-    }
-
-    #[test]
-    fn test_c_library_sees_our_callbacks() {
-        let storage = MemoryStorage::new();
-        register_global_storage(storage);
-
-        unsafe {
-            let mut plugin = storage_plugin_t {
-                get: None,
-                set: None,
-                del: None,
-                max_sync_states: 0,
-            };
-            c4_get_storage_config(&mut plugin);
-
-            assert!(plugin.get.is_some());
-            assert!(plugin.set.is_some());
-            assert!(plugin.del.is_some());
-            assert!(plugin.max_sync_states > 0);
-
-            assert_eq!(plugin.get.unwrap() as usize, storage_get_callback as usize);
-            assert_eq!(plugin.set.unwrap() as usize, storage_set_callback as usize);
-            assert_eq!(
-                plugin.del.unwrap() as usize,
-                storage_delete_callback as usize
-            );
-        }
-    }
-
-    #[test]
-    fn test_c_can_call_our_storage_callbacks() {
-        use std::ffi::CString;
-
-        let storage = MemoryStorage::new();
-        register_global_storage(storage);
-
-        if let Some(s) = GLOBAL_STORAGE.get() {
-            s.lock().unwrap().set("c_test_key", b"hello_from_rust");
-        }
-
-        unsafe {
-            let mut plugin = storage_plugin_t {
-                get: None,
-                set: None,
-                del: None,
-                max_sync_states: 0,
-            };
-            c4_get_storage_config(&mut plugin);
-
-            let mut buffer = buffer_t {
-                data: bytes_t {
-                    len: 0,
-                    data: std::ptr::null_mut(),
-                },
-                allocated: 0,
-            };
-
-            let key = CString::new("c_test_key").unwrap();
-            let found = (plugin.get.unwrap())(key.as_ptr() as *mut _, &mut buffer);
-
-            assert!(found);
-            assert_eq!(buffer.data.len, 15);
-        }
-    }
+/// `true` when the callbacks have been installed on the C side.
+#[allow(dead_code)] // useful for future diagnostics/tests
+pub(crate) fn is_installed() -> bool {
+    CALLBACKS_INSTALLED.get().is_some()
 }

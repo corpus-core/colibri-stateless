@@ -1,264 +1,151 @@
-<img src="https://github.com/corpus-core/colibri-stateless/raw/dev/c4_logo.png" alt="C4 Logo" width="300"/>
+<img src="https://github.com/corpus-core/colibri-stateless/raw/dev/c4_logo.png" alt="Colibri Logo" width="300"/>
 
-# Colibri Rust Bindings
+# colibri-stateless
 
-![ETH2.0_Spec_Version 1.4.0](https://img.shields.io/badge/ETH2.0_Spec_Version-1.4.0-2e86c1.svg)
+[![Crates.io](https://img.shields.io/crates/v/colibri-stateless.svg)](https://crates.io/crates/colibri-stateless)
+[![Documentation](https://docs.rs/colibri-stateless/badge.svg)](https://docs.rs/colibri-stateless)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](../../LICENSE)
+[![ETH2.0 Spec 1.4.0](https://img.shields.io/badge/ETH2.0_Spec_Version-1.4.0-2e86c1.svg)](https://github.com/ethereum/consensus-specs)
 
-Rust bindings for Colibri - a stateless and trustless Ethereum light client optimized for resource-constrained environments. Provides cryptographic proof generation and verification without holding state.
+Rust bindings for [Colibri Stateless](https://github.com/corpus-core/colibri-stateless) --
+an ultra-light prover / verifier for Ethereum and OP-Stack chains.
 
-## 🚀 Quick Start
+- Cryptographically verifies every RPC response against Merkle / SSZ
+  proofs -- no reliance on centralised RPC providers.
+- `async/await` API on `tokio`, using `reqwest` (rustls) internally.
+- Same C core, same test fixtures as the Python / Dart / Kotlin /
+  Swift bindings; nothing chain-specific lives in the Rust layer.
+- Ships without vendored C sources on crates.io; `build.rs`
+  downloads a matching prebuilt archive from the corresponding GitHub
+  Release, or builds from source inside the monorepo.
 
-### Installation
-
-Add to your `Cargo.toml`:
+## Quick start
 
 ```toml
 [dependencies]
-colibri = { path = "path/to/colibri/bindings/rust" }
-tokio = { version = "1.0", features = ["full"] }
+colibri-stateless = "0.1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 ```
 
-### Basic Usage
-
 ```rust
-use colibri::{ColibriClient, ColibriError, MAINNET};
+use colibri_stateless::Colibri;
 
 #[tokio::main]
-async fn main() -> Result<(), ColibriError> {
-    // Initialize client with mainnet defaults
-    let client = ColibriClient::new(None, None);
+async fn main() -> anyhow::Result<()> {
+    let client = Colibri::builder(1)
+        .provers(vec!["https://mainnet.colibri-proof.tech".into()])
+        .build();
 
-    // Generate a cryptographic proof
-    let proof = client.prove("eth_blockNumber", "[]", MAINNET, 0).await?;
-    println!("Proof generated: {} bytes", proof.len());
-
-    // Verify the proof and get result
-    let result = client.verify(&proof, "eth_blockNumber", "[]", MAINNET, "").await?;
-    println!("Verified result: {}", result);
-
+    let block = client.rpc("eth_blockNumber", &[]).await?;
+    println!("current block = {block}");
     Ok(())
 }
 ```
 
-### Custom Configuration
+### Local proof generation (no remote prover)
 
 ```rust
-use colibri::{ColibriClient, ClientConfig, ColibriError, MAINNET};
+use colibri_stateless::Colibri;
+use serde_json::json;
 
-#[tokio::main]
-async fn main() -> Result<(), ColibriError> {
-    // Create client with custom URLs
-    let config = ClientConfig::new(MAINNET)
-        .with_eth_rpcs(vec!["https://my-rpc.com".into()])
-        .with_beacon_apis(vec!["https://my-beacon.com".into()]);
+let client = Colibri::builder(1)
+    .provers(Vec::<String>::new())
+    .eth_rpcs(vec!["https://eth.llamarpc.com".into()])
+    .beacon_apis(vec!["https://lodestar-mainnet.chainsafe.io".into()])
+    .build();
 
-    let client = ColibriClient::new(Some(config), None);
+let balance = client
+    .rpc(
+        "eth_getBalance",
+        &json!(["0x95222290DD7278Aa3Ddd389Cc1E1d165CC4BAfe5", "latest"]),
+    )
+    .await?;
+```
 
-    let proof = client.prove("eth_blockNumber", "[]", MAINNET, 0).await?;
-    println!("Proof: {} bytes", proof.len());
+## Features
 
-    Ok(())
+| | |
+|---|---|
+| **Verified RPC** | `eth_call`, `eth_getBalance`, `eth_getLogs`, `eth_getProof`, `eth_getTransactionReceipt`, etc. |
+| **Multiple modes** | `Local`, `Remote`, `Hybrid`, `Proxy` proof strategies |
+| **Pluggable storage** | In-memory, file-system, or a custom `Storage` impl |
+| **Pluggable transport** | Default `reqwest` handler, or your own `RequestHandler` |
+| **PAP privacy** | Optional Pragmatic Adaptive Privacy mode (experimental) |
+| **Shared fixtures** | Replays the monorepo `test/data/*` corpus via `colibri_stateless::testing` |
+
+See the full API tour in the crate-level docs on
+[docs.rs](https://docs.rs/colibri-stateless) or the developer guide on
+[GitBook](https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/bindings/rust).
+
+## Native library distribution
+
+The Rust crate is a thin `unsafe` shim on top of the `libc4.a` C
+static archive. Where that archive comes from depends on your build:
+
+- **`crates.io` install** -- `build.rs` downloads
+  `colibri-native-<target>.tar.gz` from the GitHub Release matching
+  the crate version. Supported targets: `x86_64-unknown-linux-gnu`,
+  `aarch64-apple-darwin`, `x86_64-apple-darwin`,
+  `x86_64-pc-windows-msvc`.
+- **Monorepo checkout** -- `build.rs` shells out to CMake and links
+  the just-built archives. Requires CMake ≥ 3.20 and a C compiler.
+- **BYO archive** -- set `COLIBRI_LIB_DIR=/path/to/dir/with/libc4.a`.
+  Handy for embedded or cross-compilation targets not covered by the
+  Release matrix.
+- **docs.rs** -- the native build is skipped (`DOCS_RS` env var);
+  only the API docs are produced.
+
+## Testing against shared fixtures
+
+The same fixtures in `test/data/*` used by the C / Python / Dart /
+Swift test suites are exposed as [`colibri_stateless::testing`](https://docs.rs/colibri-stateless/latest/colibri_stateless/testing/):
+
+```rust
+use std::sync::Arc;
+use colibri_stateless::{Colibri, PrivacyMode};
+use colibri_stateless::testing::{
+    discover_tests, find_test_data_root,
+    FileBackedMockRequestHandler, FileBackedMockStorage,
+};
+
+let root  = find_test_data_root().expect("test/data/ found");
+let cases = discover_tests(&root);
+
+for tc in cases {
+    let handler = Arc::new(FileBackedMockRequestHandler::new(tc.directory.clone()));
+    let storage = FileBackedMockStorage::new(tc.directory.clone());
+
+    let client = Colibri::builder(tc.chain_id)
+        .provers(if tc.remote_prover { vec!["http://mock-prover".into()] } else { vec![] })
+        .privacy_mode(if tc.pap { PrivacyMode::Basic } else { PrivacyMode::None })
+        .include_code(tc.include_code)
+        .use_accesslist(tc.use_accesslist)
+        .max_latest_age_seconds(0)
+        .storage(storage)
+        .request_handler(handler)
+        .build();
+
+    let result = client.rpc(&tc.method, &tc.params).await.unwrap();
+    if let Some(expected) = tc.expected_result {
+        assert_eq!(result, expected);
+    }
 }
 ```
 
-## ✨ Key Features
+## Documentation
 
-- **🔐 Cryptographic Verification** - All RPC responses verified with Merkle proofs
-- **⚡ Async/Await Support** - Modern async Rust for efficient network operations
-- **🦀 Memory Safe** - Leverages Rust's ownership system for safety
-- **🔧 Zero-Copy FFI** - Efficient C library integration
-- **🌐 Multi-Chain Support** - Ethereum Mainnet, Sepolia, Gnosis Chain, and more
-- **📦 Native Performance** - Direct access to optimized C++ implementation
+- **Crate docs** -- [docs.rs/colibri-stateless](https://docs.rs/colibri-stateless)
+- **User guide** -- [GitBook -- Rust bindings](https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/bindings/rust)
+- **Core repository** -- [github.com/corpus-core/colibri-stateless](https://github.com/corpus-core/colibri-stateless)
 
-## 📖 Documentation
+## Feedback
 
-**Full Documentation**: [GitBook Guide](https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/bindings/rust)
+Bug reports and feature ideas go into the
+[shared issue tracker](https://github.com/corpus-core/colibri-stateless/issues).
+Please label Rust-specific issues with `bindings:rust`.
 
-- **API Reference** - Complete struct and method documentation
-- **Supported RPC Methods** - Full list of available Ethereum RPC calls
-- **Integration Guide** - Best practices for production use
-- **Building from Source** - Development and contribution guide
+## License
 
-## 🛠️ API Reference
-
-### ColibriClient
-
-The main client for interacting with Colibri.
-
-#### Constructor
-
-- `new(config, storage)` - Create a client with optional config and storage
-  - `config: Option<ClientConfig>` - Configuration (None uses mainnet defaults)
-  - `storage: Option<Box<dyn Storage>>` - Custom storage (None uses file storage)
-
-#### Methods
-
-- `prove(method, params, chain_id, flags)` - Generate a cryptographic proof
-- `verify(proof, method, params, chain_id, checkpoint)` - Verify a proof and get the result
-- `chain_id()` - Get the configured chain ID
-- `get_method_support(method)` - Check if a method is supported
-
-### ClientConfig
-
-Builder for client configuration.
-
-- `new(chain_id)` - Create config with defaults for a chain
-- `with_eth_rpcs(urls)` - Set Ethereum RPC URLs
-- `with_beacon_apis(urls)` - Set Beacon API URLs
-- `with_provers(urls)` - Set prover URLs
-- `with_checkpointz(urls)` - Set checkpoint sync URLs
-- `with_trusted_checkpoint(checkpoint)` - Set trusted checkpoint
-- `with_include_code(bool)` - Include contract code in proofs
-
-### Chain Constants
-
-- `MAINNET` (1) - Ethereum Mainnet
-- `SEPOLIA` (11155111) - Sepolia Testnet
-- `GNOSIS` (100) - Gnosis Chain
-- `CHIADO` (10200) - Chiado Testnet
-
-### Supported RPC Methods
-
-- `eth_blockNumber` - Get the latest block number
-- `eth_getBalance` - Get account balance
-- `eth_getBlockByNumber` - Get block by number
-- `eth_getBlockByHash` - Get block by hash
-- `eth_getTransactionByHash` - Get transaction details
-- `eth_getTransactionReceipt` - Get transaction receipt
-- `eth_call` - Execute a call without creating a transaction
-- And more...
-
-Full list available in the [documentation](https://corpus-core.gitbook.io/specification-colibri-stateless/specifications/ethereum/supported-rpc-methods).
-
-## 🔨 Development
-
-### Building from Source
-
-```bash
-# Clone repository
-git clone https://github.com/corpus-core/colibri-stateless.git
-cd colibri-stateless
-
-# Build C++ library first
-./build.sh
-
-# Build Rust bindings
-cd bindings/rust
-cargo build --release
-
-# Run the example
-cargo run --example colibri_example
-
-# Run tests
-cargo test
-
-# Format code
-cargo fmt
-
-# Check for issues
-cargo clippy
-```
-
-### Cross-Compilation
-
-The Rust bindings support cross-compilation to multiple platforms.
-
-#### Supported Targets
-
-| Target | Platform |
-|--------|----------|
-| `aarch64-apple-darwin` | macOS Apple Silicon |
-| `x86_64-apple-darwin` | macOS Intel |
-| `aarch64-unknown-linux-gnu` | Linux ARM64 |
-| `x86_64-unknown-linux-gnu` | Linux x86_64 |
-| `aarch64-apple-ios` | iOS Device |
-| `aarch64-linux-android` | Android ARM64 |
-
-#### Building for a Target
-
-```bash
-# Step 1: Build the C library for your target
-./build.sh --target aarch64-apple-darwin
-
-# Step 2: Add the Rust target (if not already installed)
-rustup target add aarch64-apple-darwin
-
-# Step 3: Build Rust bindings for the target
-cargo build --target aarch64-apple-darwin
-```
-
-#### Examples
-
-```bash
-# Cross-compile to macOS Intel from Apple Silicon
-./build.sh --target x86_64-apple-darwin
-cargo build --target x86_64-apple-darwin
-
-# Cross-compile to Linux ARM64 (requires cross-compiler)
-./build.sh --target aarch64-unknown-linux-gnu
-cargo build --target aarch64-unknown-linux-gnu
-
-# Cross-compile to Android (requires ANDROID_NDK_HOME)
-export ANDROID_NDK_HOME=/path/to/ndk
-./build.sh --target aarch64-linux-android
-cargo build --target aarch64-linux-android
-```
-
-The compiled libraries are stored in target-specific directories:
-- C library: `target/colibri/<target>/libcolibri_combined.a`
-- Rust output: `target/<target>/release/libcolibri.rlib`
-
-### Running Tests
-
-```bash
-# Unit tests
-cargo test --lib
-
-# Integration tests
-cargo test --test '*'
-
-# Run with verbose output
-cargo test -- --nocapture
-
-# Run specific test
-cargo test test_method_support
-```
-
-### Example
-
-A complete working example is available in `examples/colibri_example.rs`:
-
-```bash
-cargo run --example colibri_example
-```
-
-## 📋 System Requirements
-
-- **Rust 1.70+** - Modern async/await support
-- **CMake 3.20+** - For building C++ library
-- **C++17 compiler** - For native library compilation
-- **OpenSSL** - For cryptographic operations
-
-## 🔗 Related Projects
-
-- **Core Library**: [colibri-stateless](https://github.com/corpus-core/colibri-stateless)
-- **Python Bindings**: Python async integration
-- **Swift Bindings**: iOS/macOS native integration
-- **Kotlin Bindings**: Android/JVM integration
-- **JavaScript Bindings**: Web/Node.js integration
-
-## 📄 License
-
-MIT License - see [LICENSE](../../LICENSE) for details.
-
-## 🤝 Contributing
-
-Contributions welcome! Please read our [Contributing Guide](../../CONTRIBUTING.md) and check the [Development Documentation](https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/bindings/rust).
-
-### Development Guidelines
-
-1. Follow Rust best practices and idioms
-2. Maintain compatibility with the C library API
-3. Add tests for new functionality
-4. Update documentation for API changes
-5. Run `cargo fmt` and `cargo clippy` before submitting
+Licensed under the MIT License (see [LICENSE](../../LICENSE)). Some
+third-party libraries bundled with the C core carry their own
+licenses -- see `libs/*/LICENSE` for details.

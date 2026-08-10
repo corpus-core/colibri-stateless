@@ -34,6 +34,7 @@ const doc_files = [
     "../bindings/kotlin/doc.md",
     "../bindings/swift/doc.md",
     "../bindings/python/doc.md",
+    "../bindings/rust/doc.md",
 
     // installer
     "../installer/README.md",

@@ -1,0 +1,267 @@
+name: Rust CI
+
+on:
+  workflow_call:
+    secrets:
+      CARGO_REGISTRY_TOKEN:
+        required: false
+
+permissions:
+  contents: write
+  checks: write
+  pull-requests: write
+  actions: read
+
+jobs:
+  build-and-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            asset: colibri-native-x86_64-unknown-linux-gnu.tar.gz
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            asset: colibri-native-aarch64-apple-darwin.tar.gz
+          - os: macos-13
+            target: x86_64-apple-darwin
+            asset: colibri-native-x86_64-apple-darwin.tar.gz
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            asset: colibri-native-x86_64-pc-windows-msvc.tar.gz
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+          components: rustfmt, clippy
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            bindings/rust/target
+          key: cargo-${{ matrix.target }}-${{ hashFiles('bindings/rust/Cargo.toml', 'bindings/rust/Cargo.lock') }}
+          restore-keys: |
+            cargo-${{ matrix.target }}-
+
+      - name: Install Build Dependencies (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake build-essential
+
+      - name: Install Build Dependencies (macOS)
+        if: startsWith(matrix.os, 'macos')
+        run: |
+          if ! command -v cmake &> /dev/null; then
+            brew install cmake
+          fi
+
+      - name: Install Build Dependencies (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: cmd
+        run: |
+          choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
+          cmake --version
+
+      - name: Setup MSBuild (Windows)
+        if: matrix.os == 'windows-latest'
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Extract version from Git tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        working-directory: bindings/rust
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          echo "Setting Cargo.toml version to $VERSION"
+          python3 - <<PY
+          import re, pathlib
+          p = pathlib.Path("Cargo.toml")
+          txt = p.read_text()
+          txt = re.sub(r'^version\s*=\s*".*"', f'version = "$VERSION"', txt, count=1, flags=re.M)
+          p.write_text(txt)
+          PY
+          grep '^version' Cargo.toml
+
+      - name: cargo fmt --check
+        if: matrix.os == 'ubuntu-latest'
+        working-directory: bindings/rust
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy
+        if: matrix.os == 'ubuntu-latest'
+        working-directory: bindings/rust
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: cargo build (release)
+        working-directory: bindings/rust
+        shell: bash
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: cargo test (release)
+        working-directory: bindings/rust
+        shell: bash
+        # `--test-threads=1` -- storage plugin is global; the shipped
+        # tests are already `#[serial]`, but this keeps the corpus
+        # stable across future test additions.
+        run: cargo test --release --target ${{ matrix.target }} -- --test-threads=1
+
+      - name: Package Native Archive
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        working-directory: bindings/rust
+        run: |
+          set -euo pipefail
+          mkdir -p native-out/${{ matrix.target }}/{lib,include}
+
+          # Collect every static archive produced by the CMake build.
+          BUILD_DIR=$(find target/${{ matrix.target }}/release/build -type d -name default -path '*/build/default' | head -1)
+          if [ -z "$BUILD_DIR" ]; then
+            echo "CMake build directory not found under target/${{ matrix.target }}/release/build"
+            find target/${{ matrix.target }}/release/build -maxdepth 3 -type d
+            exit 1
+          fi
+          echo "Using CMake build dir: $BUILD_DIR"
+
+          find "$BUILD_DIR" -name '*.a' -exec cp {} native-out/${{ matrix.target }}/lib/ \;
+
+          cp ../colibri.h native-out/${{ matrix.target }}/include/
+          cp ../colibri_common.h native-out/${{ matrix.target }}/include/ 2>/dev/null || true
+
+          tar -czf ${{ matrix.asset }} -C native-out/${{ matrix.target }} .
+
+          # SHA-256 sidecar for build.rs to verify against.
+          if command -v sha256sum >/dev/null; then
+            sha256sum ${{ matrix.asset }} > ${{ matrix.asset }}.sha256
+          else
+            shasum -a 256 ${{ matrix.asset }} > ${{ matrix.asset }}.sha256
+          fi
+          ls -la ${{ matrix.asset }}*
+
+      - name: Package Native Archive (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        working-directory: bindings/rust
+        run: |
+          $target = "${{ matrix.target }}"
+          $out    = "native-out/$target"
+          New-Item -ItemType Directory -Force -Path "$out/lib"     | Out-Null
+          New-Item -ItemType Directory -Force -Path "$out/include" | Out-Null
+
+          $buildDir = Get-ChildItem -Path "target/$target/release/build" -Directory -Recurse `
+                         | Where-Object { $_.FullName -match 'build[/\\]default$' } `
+                         | Select-Object -First 1
+          if (-not $buildDir) {
+            Write-Host "CMake build directory not found"
+            exit 1
+          }
+          Write-Host "Using CMake build dir: $($buildDir.FullName)"
+
+          Get-ChildItem -Path $buildDir.FullName -Recurse -Include *.lib,*.a `
+            | ForEach-Object { Copy-Item $_.FullName "$out/lib/" }
+
+          Copy-Item "../colibri.h"        "$out/include/"
+          Copy-Item "../colibri_common.h" "$out/include/" -ErrorAction SilentlyContinue
+
+          tar -czf "${{ matrix.asset }}" -C $out .
+
+          $hash = (Get-FileHash "${{ matrix.asset }}" -Algorithm SHA256).Hash.ToLower()
+          "$hash  ${{ matrix.asset }}" | Out-File -Encoding ASCII -NoNewline "${{ matrix.asset }}.sha256"
+
+          Get-ChildItem "${{ matrix.asset }}*"
+
+      - name: Upload Native Archive Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-native-${{ matrix.target }}
+          path: |
+            bindings/rust/${{ matrix.asset }}
+            bindings/rust/${{ matrix.asset }}.sha256
+          if-no-files-found: error
+
+  publish-release-assets:
+    needs: build-and-test
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Download All Native Archives
+        uses: actions/download-artifact@v4
+        with:
+          pattern: rust-native-*
+          path: native-archives/
+          merge-multiple: true
+
+      - name: Upload to GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "Uploading native archives to release ${GITHUB_REF#refs/tags/}"
+          ls -la native-archives/
+
+          for asset in native-archives/*; do
+            echo "Uploading $asset"
+            gh release upload "${GITHUB_REF#refs/tags/}" "$asset" --clobber
+          done
+
+  publish-crate:
+    needs: publish-release-assets
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Set crate version from Git tag
+        working-directory: bindings/rust
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          echo "Setting Cargo.toml version to $VERSION"
+          python3 - <<PY
+          import re, pathlib
+          p = pathlib.Path("Cargo.toml")
+          txt = p.read_text()
+          txt = re.sub(r'^version\s*=\s*".*"', f'version = "$VERSION"', txt, count=1, flags=re.M)
+          p.write_text(txt)
+          PY
+          grep '^version' Cargo.toml
+
+      - name: cargo package (dry-run)
+        working-directory: bindings/rust
+        env:
+          # Skip the native build during `cargo package` -- the crate on
+          # crates.io downloads prebuilt archives at build time.
+          COLIBRI_SKIP_NATIVE: "1"
+        run: cargo package --allow-dirty --no-verify
+
+      - name: cargo publish
+        if: env.CARGO_REGISTRY_TOKEN != ''
+        working-directory: bindings/rust
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          COLIBRI_SKIP_NATIVE: "1"
+        run: cargo publish --allow-dirty --no-verify

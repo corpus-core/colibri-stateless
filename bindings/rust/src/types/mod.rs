@@ -1,38 +1,23 @@
+//! Public types shared across the crate.
+//!
+//! Split into small focused sub-modules -- chain identifiers, error
+//! taxonomy, method classification and the JSON status wire format.
+
+/// Chain identifiers and default endpoint URLs.
 pub mod chain;
+/// Error types shared across the crate.
 pub mod error;
+/// Method classification (proofable, local, ...).
 pub mod method;
+/// Wire types for the JSON status protocol.
 pub mod request;
-pub mod status;
 
 pub use chain::{
-    CHIADO,
-    CHIADO_BEACON_API,
-    CHIADO_ETH_RPC,
-    CHIADO_PROVER,
-    DEFAULT_PROVER,
-    GNOSIS,
-    GNOSIS_BEACON_API,
-    GNOSIS_ETH_RPC,
-    GNOSIS_PROVER,
-    // Chain IDs
-    MAINNET,
-    // Beacon API URLs
-    MAINNET_BEACON_API,
-    // Checkpointz URLs
-    MAINNET_CHECKPOINTZ_1,
-    MAINNET_CHECKPOINTZ_2,
-    MAINNET_CHECKPOINTZ_3,
-    MAINNET_CHECKPOINTZ_4,
-    // ETH RPC URLs
-    MAINNET_ETH_RPC,
-    // Prover URLs
-    MAINNET_PROVER,
-    SEPOLIA,
-    SEPOLIA_BEACON_API,
-    SEPOLIA_ETH_RPC,
-    SEPOLIA_PROVER,
+    default_beacon_apis, default_checkpointz, default_eth_rpcs, default_provers, CHIADO, GNOSIS,
+    MAINNET, SEPOLIA,
 };
-pub use error::{ColibriError, HTTPError, ProofError, RPCError, StorageError, VerificationError};
-pub use method::MethodType;
-pub use request::{Encoding, HttpMethod, RequestType};
-pub use status::{HttpRequest, Status};
+pub use error::{
+    ColibriError, HttpError, ProofError, RevertError, RpcError, StorageError, VerificationError,
+};
+pub use method::{MethodType, PrivacyMode, ProverMode};
+pub use request::{DataRequest, Encoding, HttpMethod, RequestType, Status};

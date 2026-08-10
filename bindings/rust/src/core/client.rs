@@ -1,577 +1,643 @@
-use super::helpers;
-use super::prover::Prover;
-use super::verifier::Verifier;
-use crate::types::chain::{
-    CHIADO, CHIADO_BEACON_API, CHIADO_ETH_RPC, CHIADO_PROVER, DEFAULT_PROVER, GNOSIS,
-    GNOSIS_BEACON_API, GNOSIS_ETH_RPC, GNOSIS_PROVER, MAINNET, MAINNET_BEACON_API,
-    MAINNET_CHECKPOINTZ_1, MAINNET_CHECKPOINTZ_2, MAINNET_CHECKPOINTZ_3, MAINNET_CHECKPOINTZ_4,
-    MAINNET_ETH_RPC, MAINNET_PROVER, SEPOLIA, SEPOLIA_BEACON_API, SEPOLIA_ETH_RPC, SEPOLIA_PROVER,
-};
-use crate::types::{
-    ColibriError, Encoding, HTTPError, HttpMethod, HttpRequest, MethodType, ProofError,
-    RequestType, Status, VerificationError,
-};
-use reqwest::Client;
-use serde_json;
-use std::time::Duration;
+//! High-level [`Colibri`] host: manages HTTP + storage + freshness and
+//! drives the C state machine to completion.
+//!
+//! Mirrors [`bindings/python/src/colibri/client.py`][py] one to one --
+//! same URL routing, same flag encoding, same `rpc()` /
+//! `create_proof()` / `verify_proof()` surface. Every request loop is
+//! entirely asynchronous and fetches pending data in parallel via
+//! `futures::future::join_all`.
+//!
+//! [py]: https://github.com/corpus-core/colibri-stateless/blob/dev/bindings/python/src/colibri/client.py
 
-/// Configuration for the Colibri client
+use std::sync::Arc;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use async_trait::async_trait;
+use futures::future::join_all;
+use reqwest::Client as HttpClient;
+use serde_json::Value as JsonValue;
+
+use super::helpers::get_current_version_number;
+use super::prover::Prover;
+use super::request::{set_error as req_set_error, set_response as req_set_response};
+use super::rpc::{set_checkpoint, RpcCtx};
+use super::verifier::Verifier;
+use crate::storage::{register_storage, FileStorage, MemoryStorage, Storage};
+use crate::types::{
+    default_beacon_apis, default_checkpointz, default_eth_rpcs, default_provers, ColibriError,
+    DataRequest, Encoding, HttpMethod, PrivacyMode, ProverMode, RequestType, RevertError, RpcError,
+    Status, MAINNET,
+};
+
+/// Configuration for a [`Colibri`] client -- endpoint lists, prover
+/// flags and freshness policy. Construct via [`Colibri::builder`].
 #[derive(Clone)]
-pub struct ClientConfig {
+#[allow(missing_docs)]
+pub struct ColibriConfig {
     pub chain_id: u64,
+    pub provers: Vec<String>,
     pub eth_rpcs: Vec<String>,
     pub beacon_apis: Vec<String>,
     pub checkpointz: Vec<String>,
-    pub provers: Vec<String>,
+    pub oblivious_nodes: Vec<String>,
     pub trusted_checkpoint: Option<String>,
     pub include_code: bool,
+    pub use_accesslist: bool,
+    pub zk_proof: bool,
+    pub privacy_mode: PrivacyMode,
+    pub prover_mode: Option<ProverMode>,
+    pub checkpoint_witness_keys: Option<String>,
+    pub skip_wsp_check: bool,
+    pub logs_completeness: bool,
+    /// Upper bound (in seconds) on the age of a `"latest"`-anchored
+    /// proof accepted by the verifier. `0` disables the check.
+    pub max_latest_age_seconds: u64,
+    /// Overall HTTP request timeout.
+    pub request_timeout: Duration,
 }
 
-impl ClientConfig {
-    /// Create a new configuration with default servers for the given chain
+impl ColibriConfig {
+    /// Fresh configuration with default endpoints for `chain_id`.
     pub fn new(chain_id: u64) -> Self {
         Self {
             chain_id,
+            provers: default_provers(chain_id),
             eth_rpcs: default_eth_rpcs(chain_id),
             beacon_apis: default_beacon_apis(chain_id),
             checkpointz: default_checkpointz(chain_id),
-            provers: default_provers(chain_id),
+            oblivious_nodes: Vec::new(),
             trusted_checkpoint: None,
             include_code: false,
+            use_accesslist: true,
+            zk_proof: false,
+            privacy_mode: PrivacyMode::None,
+            prover_mode: None,
+            checkpoint_witness_keys: None,
+            skip_wsp_check: false,
+            logs_completeness: false,
+            max_latest_age_seconds: 60,
+            request_timeout: Duration::from_secs(30),
         }
     }
 
-    /// Set custom Ethereum RPC URLs
-    pub fn with_eth_rpcs(mut self, urls: Vec<String>) -> Self {
-        self.eth_rpcs = urls;
-        self
+    /// Compute the prover flag bitset from user-facing options. Kept in
+    /// sync with `Colibri._get_verify_flags`/`Colibri._get_prover_flags`
+    /// in the Python binding.
+    fn prover_flags(&self) -> u32 {
+        let mut flags: u32 = 0;
+        if self.include_code {
+            flags |= 1;
+        }
+        if !self.use_accesslist {
+            flags |= 1 << 6;
+        }
+        if self.zk_proof {
+            flags |= 1 << 7;
+        }
+        if self.logs_completeness {
+            flags |= 1 << 12;
+        }
+        flags
     }
 
-    /// Set custom beacon API URLs
-    pub fn with_beacon_apis(mut self, urls: Vec<String>) -> Self {
-        self.beacon_apis = urls;
-        self
+    fn verify_flags(&self) -> u32 {
+        let pap = self.privacy_mode == PrivacyMode::Basic || !self.oblivious_nodes.is_empty();
+        let mut flags: u32 = 0;
+        if pap {
+            flags |= 2;
+        }
+        if !self.oblivious_nodes.is_empty() {
+            flags |= 1 << 6;
+        }
+        if self.skip_wsp_check {
+            flags |= 1 << 7;
+        }
+        if self.logs_completeness {
+            flags |= 1 << 9;
+        }
+        flags
     }
 
-    /// Set custom checkpointz URLs
-    pub fn with_checkpointz(mut self, urls: Vec<String>) -> Self {
-        self.checkpointz = urls;
-        self
-    }
-
-    /// Set custom prover URLs
-    pub fn with_provers(mut self, urls: Vec<String>) -> Self {
-        self.provers = urls;
-        self
-    }
-
-    /// Set trusted checkpoint
-    pub fn with_trusted_checkpoint(mut self, checkpoint: String) -> Self {
-        self.trusted_checkpoint = Some(checkpoint);
-        self
-    }
-
-    /// Set include_code flag for proofs
-    pub fn with_include_code(mut self, include: bool) -> Self {
-        self.include_code = include;
-        self
-    }
-}
-
-fn default_eth_rpcs(chain_id: u64) -> Vec<String> {
-    match chain_id {
-        MAINNET => vec![MAINNET_ETH_RPC.into()],
-        SEPOLIA => vec![SEPOLIA_ETH_RPC.into()],
-        GNOSIS => vec![GNOSIS_ETH_RPC.into()],
-        CHIADO => vec![CHIADO_ETH_RPC.into()],
-        _ => vec![MAINNET_ETH_RPC.into()],
-    }
-}
-
-fn default_beacon_apis(chain_id: u64) -> Vec<String> {
-    match chain_id {
-        MAINNET => vec![MAINNET_BEACON_API.into()],
-        SEPOLIA => vec![SEPOLIA_BEACON_API.into()],
-        GNOSIS => vec![GNOSIS_BEACON_API.into()],
-        CHIADO => vec![CHIADO_BEACON_API.into()],
-        _ => vec![MAINNET_BEACON_API.into()],
+    fn min_latest_block_ts(&self) -> u64 {
+        if self.max_latest_age_seconds == 0 {
+            return 0;
+        }
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        now.saturating_sub(self.max_latest_age_seconds)
     }
 }
 
-fn default_checkpointz(chain_id: u64) -> Vec<String> {
-    match chain_id {
-        MAINNET => vec![
-            MAINNET_CHECKPOINTZ_1.into(),
-            MAINNET_CHECKPOINTZ_2.into(),
-            MAINNET_CHECKPOINTZ_3.into(),
-            MAINNET_CHECKPOINTZ_4.into(),
-        ],
-        _ => vec![],
+/// Trait for injecting a custom request handler (used by the testing
+/// module to serve fixtures from disk). Implementors return the
+/// response payload as bytes -- errors are turned into
+/// `c4_req_set_error` calls.
+#[async_trait]
+pub trait RequestHandler: Send + Sync {
+    /// Serve the given request. Returning `Err` triggers
+    /// `c4_req_set_error(req_ptr, ...)`.
+    async fn handle(&self, request: &DataRequest) -> Result<Vec<u8>, ColibriError>;
+}
+
+/// Fluent builder for [`Colibri`].
+pub struct ColibriBuilder {
+    config: ColibriConfig,
+    storage: Option<Box<dyn Storage>>,
+    request_handler: Option<Arc<dyn RequestHandler>>,
+    http_client: Option<HttpClient>,
+}
+
+impl ColibriBuilder {
+    fn new(chain_id: u64) -> Self {
+        Self {
+            config: ColibriConfig::new(chain_id),
+            storage: None,
+            request_handler: None,
+            http_client: None,
+        }
     }
-}
 
-fn default_provers(chain_id: u64) -> Vec<String> {
-    match chain_id {
-        MAINNET => vec![MAINNET_PROVER.into()],
-        SEPOLIA => vec![SEPOLIA_PROVER.into()],
-        GNOSIS => vec![GNOSIS_PROVER.into()],
-        CHIADO => vec![CHIADO_PROVER.into()],
-        _ => vec![DEFAULT_PROVER.into()],
+    /// Colibri prover endpoints (used for `prover` requests + remote
+    /// / hybrid proof modes).
+    pub fn provers(mut self, urls: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        self.config.provers = urls.into_iter().map(Into::into).collect();
+        self
     }
-}
+    /// Execution-layer JSON-RPC endpoints.
+    pub fn eth_rpcs(mut self, urls: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        self.config.eth_rpcs = urls.into_iter().map(Into::into).collect();
+        self
+    }
+    /// Beacon-chain REST endpoints.
+    pub fn beacon_apis(mut self, urls: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        self.config.beacon_apis = urls.into_iter().map(Into::into).collect();
+        self
+    }
+    /// Beacon checkpoint sync endpoints.
+    pub fn checkpointz(mut self, urls: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        self.config.checkpointz = urls.into_iter().map(Into::into).collect();
+        self
+    }
+    /// Oblivious-node endpoints for privacy-preserving
+    /// `eth_getProof` (PAP).
+    pub fn oblivious_nodes(mut self, urls: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        self.config.oblivious_nodes = urls.into_iter().map(Into::into).collect();
+        self
+    }
+    /// Set the trusted checkpoint (66-char `0x`-prefixed hex).
+    pub fn trusted_checkpoint(mut self, checkpoint: impl Into<String>) -> Self {
+        self.config.trusted_checkpoint = Some(checkpoint.into());
+        self
+    }
+    /// Include contract code in state proofs (prover flag 1).
+    pub fn include_code(mut self, include: bool) -> Self {
+        self.config.include_code = include;
+        self
+    }
+    /// Use `eth_createAccessList` for `eth_call` proofs (default). Set
+    /// to `false` to fall back to `debug_traceCall`.
+    pub fn use_accesslist(mut self, use_accesslist: bool) -> Self {
+        self.config.use_accesslist = use_accesslist;
+        self
+    }
+    /// Request ZK-based sync proofs from a remote prover.
+    pub fn zk_proof(mut self, zk: bool) -> Self {
+        self.config.zk_proof = zk;
+        self
+    }
+    /// Enable PAP (Pragmatic Adaptive Privacy) mode.
+    pub fn privacy_mode(mut self, mode: PrivacyMode) -> Self {
+        self.config.privacy_mode = mode;
+        self
+    }
+    /// Force a specific [`ProverMode`]. When unset, the mode is
+    /// derived from whether any prover URLs are configured.
+    pub fn prover_mode(mut self, mode: ProverMode) -> Self {
+        self.config.prover_mode = Some(mode);
+        self
+    }
+    /// Witness signer keys (hex, `0x`-prefixed) for accepting
+    /// alternative trust anchors.
+    pub fn checkpoint_witness_keys(mut self, keys: impl Into<String>) -> Self {
+        self.config.checkpoint_witness_keys = Some(keys.into());
+        self
+    }
+    /// Skip the Weak Subjectivity Period check. SECURITY: only safe
+    /// with an alternative trust anchor (witness signatures /
+    /// hard-coded checkpoint).
+    pub fn skip_wsp_check(mut self, skip: bool) -> Self {
+        self.config.skip_wsp_check = skip;
+        self
+    }
+    /// Enable log-completeness proofs for `eth_getLogs`.
+    pub fn logs_completeness(mut self, enable: bool) -> Self {
+        self.config.logs_completeness = enable;
+        self
+    }
+    /// Maximum age (in seconds) accepted for a `"latest"`-anchored
+    /// proof. `0` disables the freshness check.
+    pub fn max_latest_age_seconds(mut self, seconds: u64) -> Self {
+        self.config.max_latest_age_seconds = seconds;
+        self
+    }
+    /// Overall HTTP request timeout applied to the default reqwest
+    /// client (ignored when a custom [`http_client`] is provided).
+    ///
+    /// [`http_client`]: ColibriBuilder::http_client
+    pub fn request_timeout(mut self, timeout: Duration) -> Self {
+        self.config.request_timeout = timeout;
+        self
+    }
+    /// Provide a custom storage backend. Registered globally on
+    /// [`build`](ColibriBuilder::build) -- the C core only supports
+    /// one storage plugin.
+    pub fn storage(mut self, storage: impl Storage + 'static) -> Self {
+        self.storage = Some(Box::new(storage));
+        self
+    }
+    /// Inject a mock request handler (used by
+    /// `bindings/rust/src/testing.rs`).
+    pub fn request_handler(mut self, handler: Arc<dyn RequestHandler>) -> Self {
+        self.request_handler = Some(handler);
+        self
+    }
+    /// Provide a pre-configured `reqwest` client (e.g. with custom TLS,
+    /// proxies, or connection pooling). When omitted, a plain client
+    /// with the configured `request_timeout` is used.
+    pub fn http_client(mut self, client: HttpClient) -> Self {
+        self.http_client = Some(client);
+        self
+    }
 
-/// Unified client for both proving and verifying operations.
-///
-/// This client handles the HTTP communication required for proof generation
-/// and verification. It manages connections to beacon nodes and Ethereum RPC endpoints
-/// with automatic fallback across multiple servers.
-///
-/// # Example
-///
-/// ```rust
-/// use colibri::{ColibriClient, ClientConfig};
-///
-/// // Simple: use defaults for mainnet
-/// let client = ColibriClient::new(None, None);
-///
-/// // Sepolia with defaults
-/// let client = ColibriClient::new(Some(ClientConfig::new(11155111)), None);
-///
-/// // Custom configuration
-/// let config = ClientConfig::new(1)
-///     .with_eth_rpcs(vec!["https://my-rpc.com".into()])
-///     .with_beacon_apis(vec!["https://my-beacon.com".into()]);
-/// let client = ColibriClient::new(Some(config), None);
-/// ```
-pub struct ColibriClient {
-    http_client: Client,
-    config: ClientConfig,
-}
-
-impl ColibriClient {
-    /// Create a new Colibri client
-    ///
-    /// # Arguments
-    ///
-    /// * `config` - Optional client configuration. If None, uses mainnet defaults.
-    /// * `storage` - Optional storage implementation. If None, uses file storage.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use colibri::{ColibriClient, ClientConfig, MemoryStorage, Storage};
-    ///
-    /// // Mainnet with defaults
-    /// let client = ColibriClient::new(None, None);
-    ///
-    /// // Sepolia
-    /// let client = ColibriClient::new(Some(ClientConfig::new(11155111)), None);
-    ///
-    /// // Custom config with memory storage
-    /// let config = ClientConfig::new(1)
-    ///     .with_eth_rpcs(vec!["https://my-rpc.com".into()]);
-    /// let storage: Option<Box<dyn Storage>> = Some(MemoryStorage::new());
-    /// let client = ColibriClient::new(Some(config), storage);
-    /// ```
-    pub fn new(
-        config: Option<ClientConfig>,
-        storage: Option<Box<dyn crate::storage::Storage>>,
-    ) -> Self {
-        let config = config.unwrap_or_else(|| ClientConfig::new(MAINNET));
-
-        let http_client = Client::builder()
-            .timeout(Duration::from_secs(30))
-            .build()
-            .unwrap_or_else(|_| Client::new());
-
-        let storage = storage.unwrap_or_else(|| match crate::storage::default_storage() {
-            Ok(fs) => Box::new(fs) as Box<dyn crate::storage::Storage>,
-            Err(_) => crate::storage::MemoryStorage::new() as Box<dyn crate::storage::Storage>,
+    /// Consume the builder and return the [`Colibri`].
+    pub fn build(self) -> Colibri {
+        let http = self.http_client.unwrap_or_else(|| {
+            HttpClient::builder()
+                .timeout(self.config.request_timeout)
+                .build()
+                .unwrap_or_else(|_| HttpClient::new())
         });
 
-        crate::storage::ffi::register_global_storage(storage);
-
-        Self {
-            http_client,
-            config,
-        }
-    }
-
-    /// Get the chain ID
-    pub fn chain_id(&self) -> u64 {
-        self.config.chain_id
-    }
-
-    /// Check if a method is supported and get its type
-    pub fn get_method_support(&self, method: &str) -> Result<MethodType, ColibriError> {
-        helpers::get_method_type(self.config.chain_id, method)
-    }
-
-    fn get_servers_for_request(&self, request_type: RequestType) -> &[String] {
-        match request_type {
-            RequestType::Checkpointz => &self.config.checkpointz,
-            RequestType::BeaconApi => &self.config.beacon_apis,
-            RequestType::JsonRpc => &self.config.eth_rpcs,
-        }
-    }
-
-    async fn execute_request(
-        &self,
-        req: &HttpRequest,
-        server: &str,
-    ) -> Result<Vec<u8>, ColibriError> {
-        let full_url = if req.url.is_empty() || req.request_type == RequestType::JsonRpc {
-            server.to_string()
-        } else {
-            let base = server.trim_end_matches('/');
-            let path = req.url.trim_start_matches('/');
-            format!("{}/{}", base, path)
+        let storage: Box<dyn Storage> = match self.storage {
+            Some(s) => s,
+            None => match FileStorage::new(None) {
+                Ok(fs) => Box::new(fs),
+                Err(_) => Box::new(MemoryStorage::new()),
+            },
         };
+        register_boxed_storage(storage);
 
-        let mut request_builder = match req.method {
-            HttpMethod::Get => self.http_client.get(&full_url),
-            HttpMethod::Post => {
-                let mut builder = self.http_client.post(&full_url);
-
-                if req.request_type == RequestType::JsonRpc {
-                    if let Some(payload) = &req.payload {
-                        let json_body = serde_json::to_string(payload)?;
-                        builder = builder
-                            .header("Content-Type", "application/json")
-                            .body(json_body);
-                    } else if let Some(body) = &req.body {
-                        builder = builder
-                            .header("Content-Type", "application/json")
-                            .body(body.clone());
-                    }
-                } else if let Some(body) = &req.body {
-                    builder = builder.body(body.clone());
-                }
-
-                builder
-            }
-        };
-
-        request_builder = match req.encoding {
-            Encoding::Ssz => request_builder.header("Accept", "application/octet-stream"),
-            Encoding::Json => request_builder.header("Accept", "application/json"),
-        };
-
-        for (key, value) in &req.headers {
-            request_builder = request_builder.header(key, value);
+        Colibri {
+            config: self.config,
+            http,
+            request_handler: self.request_handler,
         }
+    }
+}
 
-        let response = request_builder.send().await?;
-        let status = response.status();
-        let bytes = response.bytes().await?;
-
-        if !status.is_success() {
-            return Err(
-                HTTPError::full(String::from_utf8_lossy(&bytes), status.as_u16(), server).into(),
-            );
+fn register_boxed_storage(storage: Box<dyn Storage>) {
+    struct BoxedWrapper(Box<dyn Storage>);
+    impl Storage for BoxedWrapper {
+        fn get(&self, key: &str) -> Option<Vec<u8>> {
+            self.0.get(key)
         }
+        fn set(&self, key: &str, value: &[u8]) {
+            self.0.set(key, value);
+        }
+        fn delete(&self, key: &str) {
+            self.0.delete(key);
+        }
+    }
+    register_storage(BoxedWrapper(storage));
+}
 
-        Ok(bytes.to_vec())
+/// High-level Colibri client. Cheap to `clone` once constructed
+/// (backed by an `Arc<HttpClient>`).
+#[derive(Clone)]
+pub struct Colibri {
+    config: ColibriConfig,
+    http: HttpClient,
+    request_handler: Option<Arc<dyn RequestHandler>>,
+}
+
+impl Colibri {
+    /// Start a builder configured with default endpoints for
+    /// `chain_id`. See [`ColibriBuilder`].
+    pub fn builder(chain_id: u64) -> ColibriBuilder {
+        ColibriBuilder::new(chain_id)
     }
 
-    async fn handle_request(&self, req: &HttpRequest) -> Result<Vec<u8>, ColibriError> {
-        let servers = self.get_servers_for_request(req.request_type);
-
-        if servers.is_empty() {
-            return Err(ColibriError::Config(format!(
-                "No servers configured for request type '{:?}'",
-                req.request_type
-            )));
-        }
-
-        let mut last_error = None;
-
-        for (i, server) in servers.iter().enumerate() {
-            if req.exclude_mask & (1 << i) != 0 {
-                continue;
-            }
-
-            match self.execute_request(req, server).await {
-                Ok(data) => return Ok(data),
-                Err(e) => {
-                    last_error = Some(e);
-                    continue;
-                }
-            }
-        }
-
-        Err(last_error.unwrap_or_else(|| {
-            HTTPError::new(format!("All servers failed for {:?}", req.request_type)).into()
-        }))
+    /// Convenience: default mainnet client.
+    pub fn mainnet() -> Self {
+        Self::builder(MAINNET).build()
     }
 
-    /// Generate a proof for an Ethereum RPC method.
+    /// Access the underlying configuration.
+    pub fn config(&self) -> &ColibriConfig {
+        &self.config
+    }
+
+    // ------------------------------------------------------------------
+    // High-level API: rpc / create_proof / verify_proof.
+    // ------------------------------------------------------------------
+
+    /// Execute an RPC call through the unified state machine (the
+    /// recommended entry point). Depending on
+    /// [`ColibriConfig::prover_mode`] this runs proof generation and
+    /// verification locally, remotely, or in a hybrid mode.
     ///
-    /// # Arguments
-    ///
-    /// * `method` - The RPC method name (e.g., "eth_blockNumber", "eth_getBalance")
-    /// * `params` - JSON-encoded parameters for the method
-    /// * `chain_id` - The chain ID (1 for mainnet, 11155111 for Sepolia, etc.)
-    /// * `flags` - Optional flags for proof generation (usually 0)
-    ///
-    /// # Returns
-    ///
-    /// Returns the generated proof as a byte vector.
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// # async fn example() -> Result<(), colibri::ColibriError> {
-    /// let client = colibri::ColibriClient::new(None, None);
-    /// let proof = client.prove("eth_blockNumber", "[]", 1, 0).await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub async fn prove(
-        &self,
-        method: &str,
-        params: &str,
-        chain_id: u64,
-        flags: u32,
-    ) -> Result<Vec<u8>, ColibriError> {
-        let mut prover = Prover::new(method, params, chain_id, flags)?;
+    /// Returns the verified result as raw JSON. Reverts produce
+    /// [`ColibriError::Revert`].
+    pub async fn rpc(&self, method: &str, params: &JsonValue) -> Result<JsonValue, ColibriError> {
+        let params_json = serde_json::to_string(params)?;
+        let resolved_mode = self
+            .config
+            .prover_mode
+            .unwrap_or(if self.config.provers.is_empty() {
+                ProverMode::Local
+            } else {
+                ProverMode::Remote
+            });
+
+        let mut ctx = RpcCtx::new(
+            method,
+            &params_json,
+            self.config.chain_id,
+            self.config.prover_flags(),
+            self.config.verify_flags(),
+            resolved_mode,
+        )?;
+
+        if resolved_mode == ProverMode::Proxy {
+            ctx.set_proxy_urls(
+                &self.config.eth_rpcs.join(","),
+                &self.config.beacon_apis.join(","),
+            )?;
+        }
+        if let Some(cp) = self.config.trusted_checkpoint.as_deref() {
+            set_checkpoint(self.config.chain_id, cp)?;
+        }
+        if let Some(keys) = self.config.checkpoint_witness_keys.as_deref() {
+            ctx.set_witness_keys(keys)?;
+        }
+        ctx.set_min_latest_block_ts(self.config.min_latest_block_ts());
 
         loop {
-            let json_str = prover.execute_json_status()?;
-            let status: Status = serde_json::from_str(&json_str)?;
-
-            match status {
+            let raw = ctx.execute_json_status()?;
+            match Status::parse(&raw)? {
                 Status::Pending { requests } => {
-                    for request in requests {
-                        match self.handle_request(&request).await {
-                            Ok(data) => {
-                                prover.set_response(request.request_id, &data, request.node_index);
-                            }
-                            Err(err) => {
-                                prover.set_error(
-                                    request.request_id,
-                                    &err.to_string(),
-                                    request.node_index,
-                                )?;
-                            }
-                        }
-                    }
+                    self.handle_requests(&requests, true).await;
                 }
-                Status::Success => {
-                    return prover.get_proof();
-                }
+                Status::Success { result } => return Ok(result.unwrap_or(JsonValue::Null)),
+                Status::Revert { data } => return Err(RevertError { data }.into()),
                 Status::Error { message } => {
-                    return Err(ProofError::Generation(message).into());
+                    return Err(RpcError::new(message).into());
                 }
             }
         }
     }
 
-    /// Verify a proof and return the verified result.
-    ///
-    /// # Arguments
-    ///
-    /// * `proof` - The proof bytes to verify
-    /// * `method` - The RPC method name that was proved
-    /// * `params` - The parameters that were used for proving
-    /// * `chain_id` - The chain ID
-    /// * `trusted_checkpoint` - Optional trusted checkpoint (empty string uses client default)
-    ///
-    /// # Returns
-    ///
-    /// Returns the verified result as a JSON value.
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// # async fn example() -> Result<(), colibri::ColibriError> {
-    /// let client = colibri::ColibriClient::new(None, None);
-    /// let proof = vec![/* proof bytes */];
-    /// let result = client.verify(&proof, "eth_blockNumber", "[]", 1, "").await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub async fn verify(
+    /// Generate a proof for `method(params)` and return the raw proof
+    /// bytes. Skips verification -- use [`verify_proof`] afterwards.
+    pub async fn create_proof(
+        &self,
+        method: &str,
+        params: &JsonValue,
+    ) -> Result<Vec<u8>, ColibriError> {
+        let params_json = serde_json::to_string(params)?;
+        let mut prover = Prover::new(
+            method,
+            &params_json,
+            self.config.chain_id,
+            self.config.prover_flags(),
+        )?;
+
+        loop {
+            let raw = prover.execute_json_status()?;
+            match Status::parse(&raw)? {
+                Status::Pending { requests } => {
+                    self.handle_requests(&requests, false).await;
+                }
+                Status::Success { .. } => return prover.get_proof(),
+                Status::Revert { data } => return Err(RevertError { data }.into()),
+                Status::Error { message } => {
+                    return Err(crate::types::ProofError::Generation(message).into());
+                }
+            }
+        }
+    }
+
+    /// Verify a previously generated proof and return the verified
+    /// result. Reverts produce [`ColibriError::Revert`].
+    pub async fn verify_proof(
         &self,
         proof: &[u8],
         method: &str,
-        params: &str,
-        chain_id: u64,
-        trusted_checkpoint: &str,
-    ) -> Result<serde_json::Value, ColibriError> {
-        let checkpoint = if trusted_checkpoint.is_empty() {
-            self.config.trusted_checkpoint.as_deref().unwrap_or("")
-        } else {
-            trusted_checkpoint
-        };
-
-        let mut verifier = Verifier::new(proof, method, params, chain_id, checkpoint)?;
+        params: &JsonValue,
+    ) -> Result<JsonValue, ColibriError> {
+        let params_json = serde_json::to_string(params)?;
+        let mut verifier = Verifier::new(
+            proof,
+            method,
+            &params_json,
+            self.config.chain_id,
+            self.config.trusted_checkpoint.as_deref(),
+            self.config.verify_flags(),
+        )?;
+        verifier.set_min_latest_block_ts(self.config.min_latest_block_ts());
 
         loop {
-            let json_str = verifier.execute_json_status()?;
-            let status_json: serde_json::Value = serde_json::from_str(&json_str)?;
-            let status: Status = serde_json::from_value(status_json.clone())?;
-
-            match status {
+            let raw = verifier.execute_json_status()?;
+            match Status::parse(&raw)? {
                 Status::Pending { requests } => {
-                    for request in requests {
-                        match self.handle_request(&request).await {
-                            Ok(data) => {
-                                verifier.set_response(
-                                    request.request_id,
-                                    &data,
-                                    request.node_index,
-                                );
-                            }
-                            Err(err) => {
-                                verifier.set_error(
-                                    request.request_id,
-                                    &err.to_string(),
-                                    request.node_index,
-                                )?;
-                            }
-                        }
-                    }
+                    self.handle_requests(&requests, true).await;
                 }
-                Status::Success => {
-                    if let Some(result) = status_json.get("result") {
-                        return Ok(result.clone());
-                    }
-                    return Err(VerificationError::Failed(
-                        "Success but no result found".to_string(),
-                    )
-                    .into());
-                }
+                Status::Success { result } => return Ok(result.unwrap_or(JsonValue::Null)),
+                Status::Revert { data } => return Err(RevertError { data }.into()),
                 Status::Error { message } => {
-                    return Err(VerificationError::Failed(message).into());
+                    return Err(crate::types::VerificationError::Failed(message).into());
                 }
             }
         }
+    }
+
+    // ------------------------------------------------------------------
+    // Request handling.
+    // ------------------------------------------------------------------
+
+    async fn handle_requests(&self, requests: &[DataRequest], use_prover_fallback: bool) {
+        let futs = requests
+            .iter()
+            .map(|req| self.handle_single_request(req, use_prover_fallback));
+        // Errors here have already been forwarded to the C core via
+        // `c4_req_set_error`; the outer `join_all` swallows them.
+        join_all(futs).await;
+    }
+
+    async fn handle_single_request(&self, req: &DataRequest, use_prover_fallback: bool) {
+        // Respect the delay hint used by e.g. oblivious-node retries.
+        if req.delay > 0 {
+            tokio::time::sleep(Duration::from_millis(req.delay as u64)).await;
+        }
+
+        // Injected mock handler wins -- used by the testing module.
+        //
+        // Safety: `req.req_ptr` originates from a `pending` status
+        // returned by the very context we are still executing (see
+        // `Colibri::rpc` / `create_proof` / `verify_proof`). It stays
+        // valid until the next `execute_json_status` call, which is
+        // strictly after this fanout completes.
+        if let Some(handler) = self.request_handler.as_ref() {
+            match handler.handle(req).await {
+                Ok(bytes) => unsafe { req_set_response(req.req_ptr, &bytes, 0) },
+                Err(err) => unsafe {
+                    let _ = req_set_error(req.req_ptr, &err.to_string(), 0);
+                },
+            }
+            return;
+        }
+
+        let servers = self.pick_servers(req, use_prover_fallback);
+        if servers.is_empty() {
+            unsafe {
+                let _ = req_set_error(
+                    req.req_ptr,
+                    &format!("no servers configured for {:?}", req.request_type),
+                    0,
+                );
+            }
+            return;
+        }
+
+        match self.execute_http(req, &servers).await {
+            Ok((bytes, node_index)) => unsafe { req_set_response(req.req_ptr, &bytes, node_index) },
+            Err(err) => unsafe {
+                let _ = req_set_error(req.req_ptr, &err.to_string(), 0);
+            },
+        }
+    }
+
+    fn pick_servers(&self, req: &DataRequest, use_prover_fallback: bool) -> Vec<String> {
+        match req.request_type {
+            RequestType::Checkpointz => {
+                let mut v = self.config.checkpointz.clone();
+                v.extend(self.config.beacon_apis.iter().cloned());
+                v
+            }
+            RequestType::Prover => self.config.provers.clone(),
+            RequestType::BeaconApi => {
+                if use_prover_fallback && !self.config.provers.is_empty() {
+                    self.config.provers.clone()
+                } else {
+                    self.config.beacon_apis.clone()
+                }
+            }
+            RequestType::EthRpc => {
+                if is_get_proof(req) && !self.config.oblivious_nodes.is_empty() {
+                    self.config.oblivious_nodes.clone()
+                } else {
+                    self.config.eth_rpcs.clone()
+                }
+            }
+            // `intern`, `cache`, `rest_api` -- fall back to the generic
+            // eth_rpc list; the C core does not normally emit these to
+            // the host.
+            _ => self.config.eth_rpcs.clone(),
+        }
+    }
+
+    async fn execute_http(
+        &self,
+        req: &DataRequest,
+        servers: &[String],
+    ) -> Result<(Vec<u8>, u16), ColibriError> {
+        let mut last_error: Option<ColibriError> = None;
+
+        // The C core caps the node list at C4_MAX_NODES (currently 16)
+        // and the exclude_mask is a `u32`. We cap our iteration at 32
+        // so `1u32 << i` never overflows -- Rust `<<` on out-of-range
+        // shifts panics in debug and yields `0` in release, silently
+        // dropping the exclusion.
+        for (i, server) in servers.iter().enumerate().take(32) {
+            if req.exclude_mask & (1u32 << i) != 0 {
+                continue;
+            }
+            let url = if req.url.is_empty() {
+                server.trim_end_matches('/').to_string()
+            } else {
+                format!(
+                    "{}/{}",
+                    server.trim_end_matches('/'),
+                    req.url.trim_start_matches('/')
+                )
+            };
+
+            let mut builder = match req.method {
+                HttpMethod::Get => self.http.get(&url),
+                HttpMethod::Post => self.http.post(&url),
+                HttpMethod::Put => self.http.put(&url),
+                HttpMethod::Delete => self.http.delete(&url),
+            };
+
+            builder = builder.header(
+                reqwest::header::ACCEPT,
+                match req.encoding {
+                    Encoding::Json => "application/json",
+                    Encoding::Ssz => "application/octet-stream",
+                },
+            );
+            if req.ttl > 0 {
+                builder = builder.header(
+                    reqwest::header::CACHE_CONTROL,
+                    format!("max-age={}", req.ttl),
+                );
+            }
+            if req.request_type == RequestType::Prover {
+                // Hint to the prover that the caller supports the
+                // current wire format.
+                builder =
+                    builder.header("Colibri-Version", get_current_version_number().to_string());
+            }
+
+            if let Some(payload) = req.payload.as_ref() {
+                builder = builder
+                    .header(reqwest::header::CONTENT_TYPE, "application/json")
+                    .json(payload);
+            }
+
+            match builder.send().await {
+                Ok(resp) => {
+                    let status = resp.status();
+                    match resp.bytes().await {
+                        Ok(bytes) if status.is_success() => {
+                            return Ok((bytes.to_vec(), i as u16));
+                        }
+                        Ok(bytes) => {
+                            last_error = Some(
+                                crate::types::HttpError::full(
+                                    String::from_utf8_lossy(&bytes).into_owned(),
+                                    status.as_u16(),
+                                    &url,
+                                )
+                                .into(),
+                            );
+                        }
+                        Err(e) => last_error = Some(e.into()),
+                    }
+                }
+                Err(e) => last_error = Some(e.into()),
+            }
+        }
+
+        Err(last_error.unwrap_or_else(|| crate::types::HttpError::new("all servers failed").into()))
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::collections::HashMap;
-
-    #[test]
-    fn test_default_configs() {
-        let config = ClientConfig::new(MAINNET);
-        assert!(!config.eth_rpcs.is_empty());
-        assert!(!config.beacon_apis.is_empty());
-        assert!(!config.provers.is_empty());
-    }
-
-    #[test]
-    fn test_client_defaults() {
-        let client = ColibriClient::new(None, None);
-        assert_eq!(client.chain_id(), 1);
-        assert!(!client.config.eth_rpcs.is_empty());
-    }
-
-    #[test]
-    fn test_client_with_config() {
-        let config = ClientConfig::new(MAINNET)
-            .with_beacon_apis(vec!["https://beacon.test".into()])
-            .with_eth_rpcs(vec!["https://rpc.test".into()]);
-        let client = ColibriClient::new(Some(config), None);
-        assert_eq!(client.config.beacon_apis, vec!["https://beacon.test"]);
-        assert_eq!(client.config.eth_rpcs, vec!["https://rpc.test"]);
-    }
-
-    #[test]
-    fn test_config_builder() {
-        let config = ClientConfig::new(MAINNET)
-            .with_eth_rpcs(vec!["https://custom-rpc.com".into()])
-            .with_include_code(true);
-
-        assert_eq!(config.eth_rpcs, vec!["https://custom-rpc.com"]);
-        assert!(config.include_code);
-    }
-
-    #[test]
-    fn test_get_servers_for_request() {
-        let client = ColibriClient::new(None, None);
-
-        let beacon_servers = client.get_servers_for_request(RequestType::BeaconApi);
-        assert!(!beacon_servers.is_empty());
-
-        let rpc_servers = client.get_servers_for_request(RequestType::JsonRpc);
-        assert!(!rpc_servers.is_empty());
-    }
-
-    struct TestRequestBuilder {
-        request: HttpRequest,
-    }
-
-    impl TestRequestBuilder {
-        fn new() -> Self {
-            Self {
-                request: HttpRequest {
-                    request_id: 1,
-                    node_index: 0,
-                    url: String::new(),
-                    method: HttpMethod::Get,
-                    headers: HashMap::new(),
-                    body: None,
-                    payload: None,
-                    encoding: Encoding::Json,
-                    request_type: RequestType::BeaconApi,
-                    chain_id: MAINNET,
-                    exclude_mask: 0,
-                },
-            }
-        }
-
-        fn with_url(mut self, url: &str) -> Self {
-            self.request.url = url.to_string();
-            self
-        }
-
-        fn with_type(mut self, request_type: RequestType) -> Self {
-            self.request.request_type = request_type;
-            self
-        }
-
-        fn build(self) -> HttpRequest {
-            self.request
-        }
-    }
-
-    #[tokio::test]
-    async fn test_handle_request_with_fallback() {
-        let config = ClientConfig::new(1).with_beacon_apis(vec![
-            "https://invalid-server-1.test".into(),
-            "https://invalid-server-2.test".into(),
-        ]);
-
-        let client = ColibriClient::new(Some(config), None);
-
-        let request = TestRequestBuilder::new()
-            .with_url("/eth/v1/beacon/genesis")
-            .with_type(RequestType::BeaconApi)
-            .build();
-
-        let result = client.handle_request(&request).await;
-        assert!(result.is_err());
-    }
-
-    #[tokio::test]
-    async fn test_handle_request_empty_servers() {
-        let config = ClientConfig::new(1).with_checkpointz(vec![]);
-
-        let client = ColibriClient::new(Some(config), None);
-
-        let request = TestRequestBuilder::new()
-            .with_type(RequestType::Checkpointz)
-            .build();
-
-        let result = client.handle_request(&request).await;
-        assert!(result.is_err());
-
-        if let Err(e) = result {
-            assert!(e.to_string().contains("No servers configured"));
-        }
-    }
+fn is_get_proof(req: &DataRequest) -> bool {
+    matches!(
+        req.payload.as_ref().and_then(|p| p.get("method")),
+        Some(JsonValue::String(m)) if m == "eth_getProof"
+    )
 }

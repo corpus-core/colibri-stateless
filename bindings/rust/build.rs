@@ -1,70 +1,339 @@
+// Build script for the `colibri-stateless` crate.
+//
+// The crate needs a set of native static libraries produced from the C
+// code in `bindings/colibri.c` + `bindings/colibri_common.c` and the
+// core Colibri libraries (verifier, prover, chain modules, third-party
+// crypto). This script covers three scenarios:
+//
+// 1. `COLIBRI_LIB_DIR` env var: skip building and link statically
+//    against the archives already present in that directory. Used by
+//    CI when the native library is produced by a separate job.
+// 2. Dev mode: when the crate is inside the upstream repository (i.e.
+//    the parent directory contains `CMakeLists.txt`), invoke CMake to
+//    build a curated set of targets, then either merge them into a
+//    single archive or emit multiple `-l static=<name>` directives.
+// 3. Published mode: when installed from crates.io the C sources are
+//    missing; the script attempts to download a prebuilt archive from
+//    GitHub Releases matching the crate version.
+//
+// `DOCS_RS=1` and `COLIBRI_SKIP_NATIVE=1` skip everything (used by
+// rustdoc and CI systems that build the native library separately).
+
 use std::env;
-use std::path::PathBuf;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 
 fn main() {
-    // Build script that uses a pre-built combined library
-    // Run build.sh first to create the combined library
-    // For cross-compilation: ./build.sh --target <target>
+    println!("cargo:rerun-if-env-changed=COLIBRI_LIB_DIR");
+    println!("cargo:rerun-if-env-changed=COLIBRI_SKIP_NATIVE");
+    println!("cargo:rerun-if-env-changed=DOCS_RS");
+    println!("cargo:rerun-if-changed=build.rs");
 
-    let target = env::var("TARGET").unwrap();
-    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
-
-    let project_root = manifest_dir
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .to_path_buf();
-
-    // Compile the colibri.c wrapper
-    // The cc crate automatically handles cross-compilation
-    cc::Build::new()
-        .file(project_root.join("bindings/colibri.c"))
-        .include(project_root.join("bindings"))
-        .include(project_root.join("src/util"))
-        .include(project_root.join("src/prover"))
-        .include(project_root.join("src/verifier"))
-        .include(project_root.join("src/chains/eth"))
-        .include(project_root.join("src/chains/eth/ssz"))
-        .include(project_root.join("src/chains/eth/verifier"))
-        .include(project_root.join("libs/crypto"))
-        .compile("colibri_wrapper");
-
-    // Link the combined library from target-specific directory
-    // Library should be at: target/colibri/<target>/libcolibri_combined.a
-    let lib_dir = manifest_dir.join("target/colibri").join(&target);
-
-    // Check if target-specific library exists, fall back to legacy path
-    let lib_path = if lib_dir.join("libcolibri_combined.a").exists() {
-        lib_dir
-    } else {
-        // Fall back to legacy non-target-specific path for backwards compatibility
-        manifest_dir.join("target/colibri")
-    };
-
-    println!("cargo:rustc-link-search=native={}", lib_path.display());
-    println!("cargo:rustc-link-lib=static=colibri_combined");
-
-    // Re-run build script if library changes
-    println!(
-        "cargo:rerun-if-changed={}/libcolibri_combined.a",
-        lib_path.display()
+    let target = env::var("TARGET").expect("TARGET env var must be set by cargo");
+    let manifest_dir = PathBuf::from(
+        env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR must be set by cargo"),
     );
 
-    // Platform-specific system libraries
-    if target.contains("apple-darwin") {
+    if env::var("DOCS_RS").is_ok() {
+        return;
+    }
+
+    if env::var("COLIBRI_SKIP_NATIVE").ok().as_deref() == Some("1") {
+        println!(
+            "cargo:warning=COLIBRI_SKIP_NATIVE=1 -- skipping native lib build/link. \
+             Provide -lc4 (or the individual archives) yourself."
+        );
+        return;
+    }
+
+    let link = resolve_link_setup(&manifest_dir, &target);
+
+    for search in &link.search_paths {
+        println!("cargo:rustc-link-search=native={}", search.display());
+        println!("cargo:rerun-if-changed={}", search.display());
+    }
+    for lib in &link.static_libs {
+        println!("cargo:rustc-link-lib=static={lib}");
+    }
+
+    link_system_libs(&target);
+}
+
+struct LinkSetup {
+    search_paths: Vec<PathBuf>,
+    static_libs: Vec<String>,
+}
+
+fn resolve_link_setup(manifest_dir: &Path, target: &str) -> LinkSetup {
+    if let Ok(dir) = env::var("COLIBRI_LIB_DIR") {
+        let dir = PathBuf::from(dir);
+        assert!(
+            dir.exists(),
+            "COLIBRI_LIB_DIR ({}) does not exist",
+            dir.display(),
+        );
+        return LinkSetup {
+            static_libs: vec!["c4".into()],
+            search_paths: vec![dir],
+        };
+    }
+
+    let repo_root = manifest_dir
+        .parent()
+        .and_then(Path::parent)
+        .map(Path::to_path_buf);
+    if let Some(root) = repo_root.as_ref() {
+        if root.join("CMakeLists.txt").exists() && root.join("bindings/colibri.c").exists() {
+            return build_with_cmake(root);
+        }
+    }
+
+    if let Some(setup) = fetch_prebuilt(target) {
+        return setup;
+    }
+
+    panic!(
+        "colibri-stateless: cannot locate the native library.\n\
+         \n\
+         Set COLIBRI_LIB_DIR=<path with libc4.a> to point at a pre-built\n\
+         static library, or build from a git checkout so `build.rs` can\n\
+         invoke CMake automatically. See bindings/rust/README.md for\n\
+         details."
+    );
+}
+
+/// Invoke CMake in the repo checkout to produce the archives, then
+/// link against every archive we need.
+fn build_with_cmake(repo_root: &Path) -> LinkSetup {
+    // We deliberately do NOT use `COMBINED_STATIC_LIB` from the repo's
+    // CMakeLists.txt: its dependency walk misses transitive static
+    // libraries and produces an archive with only `verify.o` +
+    // `prover.o`. Instead we build the top-level targets we need and
+    // link every resulting `.a` file individually -- reliable and
+    // avoids touching shared CMake logic.
+    let mut cfg = cmake::Config::new(repo_root);
+    cfg.define("CURL", "OFF")
+        .define("CLI", "OFF")
+        .define("HTTP_SERVER", "OFF")
+        .define("CHAIN_OP", "OFF")
+        .define("CMAKE_BUILD_TYPE", "Release")
+        .define("CMAKE_POSITION_INDEPENDENT_CODE", "ON")
+        // `build` builds ALL_BUILD implicitly, which contains every
+        // registered chain module plus the deps.
+        .build_target("verifier");
+    let dst = cfg.build();
+    let build_dir = dst.join("build");
+
+    // We also need the prover / chain module archives that aren't
+    // pulled in by "verifier" alone. A second build call reuses the
+    // same build directory and just adds targets.
+    let extra_targets = ["prover", "eth_verifier", "eth_prover"];
+    for tgt in extra_targets {
+        // Use raw `cmake --build <dir> --target <t>` so we don't reset
+        // build-system state.
+        let ok = Command::new("cmake")
+            .arg("--build")
+            .arg(&build_dir)
+            .arg("--target")
+            .arg(tgt)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if !ok {
+            println!("cargo:warning=Failed to build extra target {tgt}");
+        }
+    }
+
+    // Compile `bindings/colibri.c` + `colibri_common.c` here so the
+    // `.o` files live inside the crate's build output (avoids polluting
+    // the shared CMake tree). The archive we produce is called
+    // `libcolibri_wrapper.a` and is linked BEFORE all the deep
+    // dependencies so that `c4_create_*_ctx` etc. resolve into our
+    // wrapper first.
+    let wrapper_out = compile_wrapper(repo_root, &dst);
+    let mut search_paths = vec![wrapper_out];
+
+    // Now discover every static archive under the build dir. We link
+    // them all -- macOS/BSD `ld` and GNU `ld --start-group` both
+    // handle the resulting order-independence for us.
+    let mut static_libs: Vec<String> = vec!["colibri_wrapper".into()];
+    let archives = find_static_archives(&build_dir);
+    for archive in archives {
+        let name = archive_lib_name(&archive);
+        if name == "colibri_wrapper" {
+            continue;
+        }
+        let dir = archive
+            .parent()
+            .expect("archive path should have parent")
+            .to_path_buf();
+        if !search_paths.contains(&dir) {
+            search_paths.push(dir);
+        }
+        if !static_libs.contains(&name) {
+            static_libs.push(name);
+        }
+    }
+
+    LinkSetup {
+        search_paths,
+        static_libs,
+    }
+}
+
+/// Compile the two bindings wrappers with the `cc` crate. Returns the
+/// directory containing the resulting `libcolibri_wrapper.a`.
+fn compile_wrapper(repo_root: &Path, dst: &Path) -> PathBuf {
+    let mut build = cc::Build::new();
+    build
+        .file(repo_root.join("bindings/colibri.c"))
+        .file(repo_root.join("bindings/colibri_common.c"))
+        .include(repo_root.join("bindings"))
+        .include(repo_root.join("src/util"))
+        .include(repo_root.join("src/prover"))
+        .include(repo_root.join("src/verifier"))
+        .include(repo_root.join("src/chains"))
+        .include(repo_root.join("src/chains/eth"))
+        .include(repo_root.join("src/chains/eth/ssz"))
+        .include(repo_root.join("src/chains/eth/verifier"))
+        .include(repo_root.join("libs/crypto"))
+        // The generated dispatcher headers `verifiers.h` / `provers.h`
+        // and `version.h` live in the CMake build directory root.
+        .include(dst.join("build"));
+    // Match core defines used by the CMake build.
+    build.define("CHAIN_ETH", None);
+    build.define("VERIFIER", None);
+    build.define("PROVER", None);
+    build.compile("colibri_wrapper");
+    // `cc` places the archive into $OUT_DIR by default.
+    PathBuf::from(env::var("OUT_DIR").unwrap())
+}
+
+fn find_static_archives(root: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    if !root.exists() {
+        return out;
+    }
+    walk_archives(root, &mut out);
+    out
+}
+
+fn walk_archives(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            walk_archives(&path, out);
+        } else if is_static_archive(&path) {
+            out.push(path);
+        }
+    }
+}
+
+fn is_static_archive(p: &Path) -> bool {
+    match p.extension().and_then(|e| e.to_str()) {
+        Some("a") => true,
+        Some("lib") => cfg!(target_env = "msvc"),
+        _ => false,
+    }
+}
+
+fn archive_lib_name(p: &Path) -> String {
+    let stem = p
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_string();
+    // Unix archives are `lib<name>.a`; MSVC ships `<name>.lib`.
+    stem.strip_prefix("lib").unwrap_or(&stem).to_string()
+}
+
+/// Try to download a prebuilt static-library archive matching the
+/// current crate version and target triple. Uses `curl` and `tar`
+/// which are available on all Tier-1 platforms.
+fn fetch_prebuilt(target: &str) -> Option<LinkSetup> {
+    let version = env::var("CARGO_PKG_VERSION").ok()?;
+    let out_dir = PathBuf::from(env::var("OUT_DIR").ok()?);
+    let extract_dir = out_dir.join("prebuilt");
+
+    let sentinel = extract_dir.join(".ok");
+    if !sentinel.exists() {
+        let asset = format!("colibri-native-{target}.tar.gz");
+        let url = format!(
+            "https://github.com/corpus-core/colibri-stateless/releases/download/v{version}/{asset}"
+        );
+        let archive_path = out_dir.join(&asset);
+
+        if !download(&url, &archive_path) {
+            eprintln!("cargo:warning=Could not download {url}");
+            return None;
+        }
+        fs::create_dir_all(&extract_dir).ok()?;
+        let ok = Command::new("tar")
+            .arg("-xzf")
+            .arg(&archive_path)
+            .arg("-C")
+            .arg(&extract_dir)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if !ok {
+            eprintln!("cargo:warning=Extraction of {asset} failed");
+            return None;
+        }
+        fs::write(&sentinel, format!("{version}\n")).ok()?;
+    }
+
+    // Prebuilt archives ship every `.a` / `.lib` under `lib/`. Link
+    // them all so the CI archive layout doesn't have to know which
+    // symbols downstream crates end up pulling in.
+    let lib_dir = extract_dir.join("lib");
+    let archives = find_static_archives(&lib_dir);
+    if archives.is_empty() {
+        eprintln!(
+            "cargo:warning=Prebuilt archive contained no static libraries under {}",
+            lib_dir.display()
+        );
+        return None;
+    }
+    let mut static_libs = Vec::new();
+    for a in &archives {
+        let name = archive_lib_name(a);
+        if !static_libs.contains(&name) {
+            static_libs.push(name);
+        }
+    }
+    Some(LinkSetup {
+        search_paths: vec![lib_dir],
+        static_libs,
+    })
+}
+
+fn download(url: &str, dest: &Path) -> bool {
+    let status = Command::new("curl")
+        .args(["-fsSL", "-o"])
+        .arg(dest)
+        .arg(url)
+        .status();
+    matches!(status, Ok(s) if s.success()) && dest.exists()
+}
+
+/// Platform system libraries required by the C core (C++ runtime for
+/// `evmone`, TLS is handled by rustls in reqwest).
+fn link_system_libs(target: &str) {
+    if target.contains("apple") {
+        println!("cargo:rustc-link-lib=c++");
         println!("cargo:rustc-link-lib=framework=CoreFoundation");
         println!("cargo:rustc-link-lib=framework=Security");
-        println!("cargo:rustc-link-lib=c++");
-    } else if target.contains("apple-ios") {
-        println!("cargo:rustc-link-lib=framework=CoreFoundation");
-        println!("cargo:rustc-link-lib=framework=Security");
-        println!("cargo:rustc-link-lib=c++");
-    } else if target.contains("linux") {
-        println!("cargo:rustc-link-lib=dylib=ssl");
-        println!("cargo:rustc-link-lib=dylib=crypto");
-        println!("cargo:rustc-link-lib=stdc++");
+    } else if target.contains("msvc") {
+        // MSVC statically links its runtime; nothing to add.
     } else if target.contains("android") {
         println!("cargo:rustc-link-lib=c++_shared");
+    } else if target.contains("linux") || target.contains("unknown-linux") {
+        println!("cargo:rustc-link-lib=stdc++");
+        println!("cargo:rustc-link-lib=m");
     }
 }

@@ -1,25 +1,60 @@
 [package]
-name = "colibri"
+name = "colibri-stateless"
 version = "0.1.0"
 edition = "2021"
-authors = ["Colibri Contributors"]
-description = "Rust bindings for Colibri stateless Ethereum client"
+rust-version = "1.75"
+authors = ["corpus.core <office@corpus.core>", "Colibri Contributors"]
+description = "Rust bindings for Colibri Stateless -- a stateless prover/verifier for Ethereum and OP-Stack chains."
 license = "MIT"
 repository = "https://github.com/corpus-core/colibri-stateless"
+homepage = "https://github.com/corpus-core/colibri-stateless"
+documentation = "https://docs.rs/colibri-stateless"
+readme = "README.md"
+keywords = ["ethereum", "prover", "verifier", "light-client", "stateless"]
+categories = ["cryptography::cryptocurrencies", "api-bindings", "no-std::no-alloc"]
+# Keep the crate on crates.io small: ship only the wrapper sources, the Rust
+# code and the docs. Native library + third-party sources live in the repo and
+# are fetched by `build.rs` (either via CMake in dev mode or via prebuilt
+# archives from GitHub Releases in the published mode).
+include = [
+    "src/**/*.rs",
+    "build.rs",
+    "Cargo.toml",
+    "README.md",
+    "doc.md",
+    "LICENSE",
+    "wrapper.h",
+]
 
 [dependencies]
 libc = "0.2"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-tokio = { version = "1.35", features = ["full"] }
-reqwest = { version = "0.11", features = ["json"] }
-thiserror = "1.0"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+tokio = { version = "1", default-features = false, features = ["rt", "sync", "macros", "time"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+thiserror = "2"
+futures = { version = "0.3", default-features = false, features = ["std", "async-await"] }
 async-trait = "0.1"
-futures = "0.3.31"
 
 [build-dependencies]
-cc = "1.0"
+cmake = "0.1"
+cc = "1"
 
 [dev-dependencies]
-tokio-test = "0.4"
-mockito = "1.2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tempfile = "3"
+serial_test = "3"
+
+[[example]]
+name = "rpc"
+path = "examples/rpc.rs"
+
+[[example]]
+name = "storage"
+path = "examples/storage.rs"
+
+[package.metadata.docs.rs]
+# docs.rs cannot build the native library (no network, sandboxed). Skip the
+# native build via the DOCS_RS env var and only produce documentation.
+rustdoc-args = ["--cfg", "docsrs"]
+no-default-features = true
