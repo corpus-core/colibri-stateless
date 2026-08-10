@@ -34,8 +34,8 @@ let package = Package(
                     "../../build_macos_arm/libs/zstd/zstd_build/lib/libzstd.a",
                     "../../build_macos_arm/libs/evmone/libevmone_wrapper.a",
                     "../../build_macos_arm/_deps/evmone_external-build/libevmone.a",
+                    "../../build_macos_arm/libs/evmone/libkeccak_bridge.a",
                     "../../build_macos_arm/libs/intx/libintx_wrapper.a",
-                    "../../build_macos_arm/_deps/ethhash_external-build/libkeccak.a",
                     "../../build_macos_arm/libs/crypto/libcrypto.a",
                     "../../build_macos_arm/libs/blst/libblst.a",
                     "../../build_macos_arm/bindings/swift/libc4_swift_binding.a"

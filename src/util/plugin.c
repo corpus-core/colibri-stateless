@@ -31,6 +31,62 @@
 #define MAX_SYNC_STATES_DEFAULT 3
 
 storage_plugin_t storage_conf = {0};
+
+static c4_parallel_for_fn g_parallel_for = NULL;
+
+#ifdef MEMORY_STORAGE
+typedef struct mem_entry {
+  char*             key;
+  bytes_t           value;
+  struct mem_entry* next;
+} mem_entry_t;
+
+static mem_entry_t* mem_head = NULL;
+
+static mem_entry_t* memory_find(const char* key) {
+  for (mem_entry_t* e = mem_head; e; e = e->next)
+    if (strcmp(e->key, key) == 0)
+      return e;
+  return NULL;
+}
+
+static bool memory_get(char* key, buffer_t* data) {
+  mem_entry_t* e = memory_find(key);
+  if (!e) return false;
+  buffer_append(data, e->value);
+  return true;
+}
+
+static void memory_set(char* key, bytes_t value) {
+  mem_entry_t* e = memory_find(key);
+  if (e) {
+    safe_free(e->value.data);
+    e->value = bytes_dup(value);
+    return;
+  }
+  e        = safe_malloc(sizeof(mem_entry_t));
+  e->key   = strdup(key);
+  e->value = bytes_dup(value);
+  e->next  = mem_head;
+  mem_head = e;
+}
+
+static void memory_delete(char* key) {
+  mem_entry_t** p = &mem_head;
+  while (*p) {
+    if (strcmp((*p)->key, key) == 0) {
+      mem_entry_t* e = *p;
+      *p             = e->next;
+      safe_free(e->key);
+      safe_free(e->value.data);
+      safe_free(e);
+      return;
+    }
+    p = &(*p)->next;
+  }
+}
+#endif
+
 #ifdef FILE_STORAGE
 char* state_data_dir = NULL;
 
@@ -70,12 +126,19 @@ static bool file_get(char* filename, buffer_t* data) {
 
 static void file_set(char* key, bytes_t value) {
   char* full_path = combine_filename(key);
-  if (full_path == NULL) return;
-  FILE* file = fopen(full_path, "wb");
-  safe_free(full_path);
-  if (!file) return;
+  if (!full_path) return;
+  char* tmp_path = bprintf(NULL, "%s.tmp", full_path);
+  FILE* file     = fopen(tmp_path, "wb");
+  if (!file) {
+    safe_free(full_path);
+    safe_free(tmp_path);
+    return;
+  }
   fwrite(value.data, 1, value.len, file);
   fclose(file);
+  rename(tmp_path, full_path);
+  safe_free(tmp_path);
+  safe_free(full_path);
 }
 static void file_delete(char* filename) {
   char* full_path = combine_filename(filename);
@@ -84,21 +147,51 @@ static void file_delete(char* filename) {
   safe_free(full_path);
 }
 
+void c4_get_file_storage_plugin(storage_plugin_t* plugin) {
+  plugin->get             = file_get;
+  plugin->set             = file_set;
+  plugin->del             = file_delete;
+  plugin->max_sync_states = MAX_SYNC_STATES_DEFAULT;
+}
+
 #endif
 
 void c4_get_storage_config(storage_plugin_t* plugin) {
   if (!storage_conf.max_sync_states) storage_conf.max_sync_states = MAX_SYNC_STATES_DEFAULT;
-#ifdef FILE_STORAGE
   if (!storage_conf.get) {
+#ifdef MEMORY_STORAGE
+    storage_conf.get = memory_get;
+    storage_conf.set = memory_set;
+    storage_conf.del = memory_delete;
+#elif defined(FILE_STORAGE)
     storage_conf.get = file_get;
     storage_conf.set = file_set;
     storage_conf.del = file_delete;
-  }
 #endif
+  }
   *plugin = storage_conf;
 }
 
 void c4_set_storage_config(storage_plugin_t* plugin) {
   storage_conf = *plugin;
   if (!storage_conf.max_sync_states) storage_conf.max_sync_states = MAX_SYNC_STATES_DEFAULT;
+}
+
+void c4_set_parallel_for(c4_parallel_for_fn fn) {
+  g_parallel_for = fn;
+}
+
+c4_parallel_for_fn c4_get_parallel_for(void) {
+  return g_parallel_for;
+}
+
+bytes_t c4_get_client_state(chain_id_t chain_id) {
+  storage_plugin_t storage = {0};
+  c4_get_storage_config(&storage);
+  char name[100] = {0};
+  sbprintf(name, "states_%l", (uint64_t) chain_id);
+  buffer_t state_buf = {0};
+  if (storage.get && storage.get(name, &state_buf) && state_buf.data.data && state_buf.data.len)
+    return state_buf.data;
+  return NULL_BYTES;
 }

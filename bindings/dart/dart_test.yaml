@@ -1,0 +1,3 @@
+# Run test files sequentially because the native C library uses global state
+# (storage callbacks, trusted checkpoint cache) that is not isolate-safe.
+concurrency: 1

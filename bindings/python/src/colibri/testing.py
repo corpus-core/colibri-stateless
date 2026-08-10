@@ -346,7 +346,8 @@ class FileBasedMockStorage(ColibriStorage):
         file_path = self._find_file_with_truncation(key)
         if file_path:
             data = file_path.read_bytes()
-            # Load file from storage
+            if key.startswith('tx_pending_'):
+                data = self._refresh_pending_timestamps(data)
             self._cache[key] = data
             return data
         else:
@@ -354,6 +355,17 @@ class FileBasedMockStorage(ColibriStorage):
             self._cache[key] = None
             return None
     
+    @staticmethod
+    def _refresh_pending_timestamps(data: bytes) -> bytes:
+        """Refresh timestamps in pending tx entries so the TTL check always passes.
+        Each entry is 40 bytes: 32 bytes tx_hash + 8 bytes uint64 LE timestamp."""
+        import struct, time
+        buf = bytearray(data)
+        now = int(time.time())
+        for i in range(0, len(buf) - 39, 40):
+            struct.pack_into('<Q', buf, i + 32, now)
+        return bytes(buf)
+
     def set(self, key: str, value: bytes) -> None:
         # Cache value in mock storage
         self._cache[key] = value
@@ -414,8 +426,18 @@ class FileBasedMockRequestHandler:
         
         # Convert request to filename base (without extension) - matching C implementation
         if request.url:
-            # Sanitize URL to create filename base
+            # Sanitize URL to create filename base. Mirror `c4_req_mockname` in
+            # src/util/state.c: cache-friendly proof URLs of the form
+            # `proof/<method>/<block>/<version>/<zk|std>/<c4>` are compressed to
+            # `proof/<method>/<block>` so fixtures stay stable across client-version bumps,
+            # the zk/std flag, and client-state changes.
             base_name = request.url
+            if base_name.startswith('proof/'):
+                rest = base_name[6:]
+                first_slash = rest.find('/')
+                second_slash = rest.find('/', first_slash + 1) if first_slash >= 0 else -1
+                if first_slash >= 0 and second_slash >= 0:
+                    base_name = 'proof/' + rest[:second_slash]
             # Replace problematic characters with underscore (matching C implementation)
             for char in ['/', '.', ',', ' ', ':', '=', '?', '"', '&', '[', ']', '{', '}']:
                 base_name = base_name.replace(char, '_')
@@ -426,7 +448,7 @@ class FileBasedMockRequestHandler:
             params = request.payload.get('params', [])
             base_name = method
             for param in params:
-                param_str = param if isinstance(param, str) else json.dumps(param)
+                param_str = param if isinstance(param, str) else json.dumps(param, separators=(',', ':'))
                 base_name += '_' + param_str
             # Sanitize the base name
             for char in ['/', '.', ',', ' ', ':', '=', '?', '"', '&', '[', ']', '{', '}']:
@@ -526,7 +548,11 @@ def discover_tests(test_data_root=None):
                 'method': test_config['method'],
                 'params': test_config['params'],
                 'chain_id': test_config['chain_id'],
-                'expected_result': test_config.get('expected_result')
+                'expected_result': test_config.get('expected_result'),
+                'pap': test_config.get('pap', False),
+                'remote_prover': test_config.get('remote_prover', False),
+                'include_code': test_config.get('include_code', False),
+                'use_accesslist': test_config.get('use_accesslist', True),
             }
             
             test_cases.append(test_case)
@@ -548,12 +574,18 @@ async def run_test_case(test_case):
     # Lazy import to avoid circular import issues
     from .client import Colibri
     
+    from .types import PrivacyMode
+
     test_name = test_case['name']
     test_dir = test_case['directory']
     method = test_case['method']
     params = test_case['params']
     chain_id = test_case['chain_id']
     expected_result = test_case.get('expected_result')
+    pap = test_case.get('pap', False)
+    remote_prover = test_case.get('remote_prover', False)
+    include_code = test_case.get('include_code', False)
+    use_accesslist = test_case.get('use_accesslist', True)
     
     print(f"\nRunning test: {test_name}")
     print(f"   Method: {method}")
@@ -563,12 +595,21 @@ async def run_test_case(test_case):
     mock_storage = FileBasedMockStorage(test_dir)
     mock_request_handler = FileBasedMockRequestHandler(test_dir)
     
-    # Create client with NO provers to force local proof creation
+    # Only tests with remote_prover:true use a mock prover URL;
+    # all others use an empty provers list to force local proof creation.
+    # The fixtures under test/data are static recordings whose `latest` blocks
+    # are inevitably stale, so disable the freshness check here (otherwise
+    # eth_call/simulate proofs fail with "proof for latest too old"). The check
+    # itself is covered by the C unit test test_verify_call_freshness.
     client = Colibri(
         chain_id=chain_id,
-        provers=[],  # CRITICAL: No remote provers! Use only mock data
+        provers=['http://mock-prover'] if remote_prover else [],
+        include_code=include_code,
+        use_accesslist=use_accesslist,
+        privacy_mode=PrivacyMode.BASIC if pap else PrivacyMode.NONE,
         storage=mock_storage,
-        request_handler=mock_request_handler
+        request_handler=mock_request_handler,
+        max_latest_age_seconds=0
     )
     
     try:

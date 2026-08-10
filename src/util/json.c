@@ -72,7 +72,7 @@ static const char* find_end(const char* pos, char start, char end) {
     }
     else if (*pos == '"') {
       in_string = !in_string;
-      if (!in_string && *pos == end) return pos;
+      if (!in_string && end == '"') return pos; // closing quote of a top-level string reached
     }
   }
   return NULL;
@@ -202,17 +202,21 @@ json_t json_get_path(json_t parent, const char* path) {
   const char* next_idx  = strchr(path, '[');
   const char* next      = (next_prop && next_idx) ? (next_prop < next_idx ? next_prop : next_idx) : (next_prop ? next_prop : next_idx);
   if (!next) return json_get(parent, path);
-  strncpy(tmp, path, next - path);
-  tmp[next - path] = '\0';
-  json_t value     = json_get(parent, tmp);
+  size_t seg = (size_t) (next - path);
+  if (seg >= sizeof(tmp)) return JSON_INVALID(parent.start); // reject over-long segment instead of overflowing tmp
+  memcpy(tmp, path, seg);
+  tmp[seg]     = '\0';
+  json_t value = json_get(parent, tmp);
   if (value.type == JSON_TYPE_INVALID) return value;
   if (next && strlen(next + 1) > 0) {
     if (*next == '[') {
       const char* end_idx = strchr(next + 1, ']');
       if (!end_idx) return JSON_INVALID(parent.start);
-      strncpy(tmp, next + 1, end_idx - next - 1);
-      tmp[end_idx - next - 1] = '\0';
-      json_t item             = json_at(value, atoi(tmp));
+      size_t idx_len = (size_t) (end_idx - next - 1);
+      if (idx_len >= sizeof(tmp)) return JSON_INVALID(parent.start); // reject over-long index instead of overflowing tmp
+      memcpy(tmp, next + 1, idx_len);
+      tmp[idx_len] = '\0';
+      json_t item  = json_at(value, atoi(tmp));
       if (item.type == JSON_TYPE_INVALID) return item;
       if (end_idx[1] == '.')
         return json_get_path(item, end_idx + 2);
@@ -339,14 +343,24 @@ char* json_as_string(json_t value, buffer_t* buffer) {
   buffer->data.len = 0;
   buffer_grow(buffer, value.len + 1);
   if (value.type == JSON_TYPE_STRING) {
-    buffer_append(buffer, bytes((uint8_t*) value.start + 1, value.len - 2));
-    buffer->data.data[buffer->data.len] = '\0';
-    buffer->data.len++;
+    if (value.len >= 2) // guard against size_t underflow of value.len - 2 for malformed/synthesized short STRING nodes
+      buffer_append(buffer, bytes((uint8_t*) value.start + 1, value.len - 2));
+    if (buffer_grow(buffer, buffer->data.len + 1) > buffer->data.len) { // room for the NULL-Terminator?
+      buffer->data.data[buffer->data.len] = '\0';
+      buffer->data.len++;
+    }
+    else if (buffer->data.len > 0)                             // fixed buffer is full: no room for the terminator,
+      buffer->data.data[buffer->data.len - 1] = '\0';          // so overwrite the last byte to keep the string valid
     json_deescape_string(buffer);
   }
   else {
     buffer_append(buffer, bytes((uint8_t*) value.start, value.len));
-    buffer->data.data[buffer->data.len] = '\0';
+    if (buffer_grow(buffer, buffer->data.len + 1) > buffer->data.len) // room for the NULL-Terminator?
+      buffer->data.data[buffer->data.len] = '\0';                     // then add it
+    else if (buffer->data.len > 0) {                                  // fixed buffer is full: drop the last byte
+      buffer->data.len--;                                            // to make room for the terminator
+      buffer->data.data[buffer->data.len] = '\0';
+    }
   }
   return (char*) buffer->data.data;
 }
@@ -355,11 +369,22 @@ uint64_t json_as_uint64(json_t value) {
   uint8_t  tmp[20] = {0};
   buffer_t buffer  = stack_buffer(tmp);
   if (value.len > 4 && value.start && value.start[1] == '0' && value.start[2] == 'x') {
-    int len = hex_to_bytes(value.start + 1, value.len - 2, bytes(tmp, 20));
-    if (len == -1) return 0;
-    memmove(tmp + 8 - len, tmp, len);
-    memset(tmp, 0, 8 - len);
-    return uint64_from_be(tmp);
+    // Skip opening quote, "0x" prefix, and closing quote: hex digits sit at [start+3 .. start+len-2)
+    const char* hex     = value.start + 3;
+    size_t      hex_len = value.len - 4;
+    // Strip leading zero nibbles so that we compare significant nibbles against the 64-bit limit
+    while (hex_len > 0 && *hex == '0') {
+      hex++;
+      hex_len--;
+    }
+    if (hex_len == 0) return 0;
+    if (hex_len > 16) return 0; // more than 16 significant nibbles cannot fit into 64 bits
+    uint8_t hex_buf[8] = {0};
+    int     len        = hex_to_bytes(hex, (int) hex_len, bytes(hex_buf, 8));
+    if (len < 0) return 0; // invalid hex
+    memmove(hex_buf + 8 - len, hex_buf, len);
+    memset(hex_buf, 0, 8 - len);
+    return uint64_from_be(hex_buf);
   }
   return (uint64_t) strtoull(json_as_string(value, &buffer), NULL, 10);
 }
@@ -378,11 +403,19 @@ bytes_t json_as_bytes(json_t value, buffer_t* buffer) {
     return buffer->data;
   }
   if (value.type != JSON_TYPE_STRING) return NULL_BYTES;
+  if (value.len < 2) return NULL_BYTES; // guard against size_t underflow of value.len - 2 for malformed short STRING nodes
 
-  buffer_grow(buffer, value.len / 2);
-  buffer->data.len = value.len;
+  // Advertise the *real* capacity to hex_to_bytes: buffer_grow returns the
+  // actually available size (the requested size for growable buffers, or the
+  // fixed capacity for stack/fixed buffers where growth is impossible). Using
+  // value.len here would over-state the capacity of a fixed target buffer and
+  // let hex_to_bytes write past its end.
+  buffer->data.len = buffer_grow(buffer, value.len / 2);
   int len          = hex_to_bytes(value.start + 1, value.len - 2, buffer->data);
-  if (len == -1) return NULL_BYTES;
+  if (len == -1) {
+    if (buffer == &tmp) buffer_free(&tmp); // only the locally-owned fallback buffer; a caller-provided buffer is freed by the caller
+    return NULL_BYTES;
+  }
   buffer->data.len = (uint32_t) len;
   return buffer->data;
 }

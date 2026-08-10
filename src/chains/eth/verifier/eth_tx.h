@@ -30,8 +30,16 @@ extern "C" {
 
 #include "verify.h"
 
+// Execution-payload field gindexes. These are computed as `(25 << 5) | <field_idx>`
+// where 25 is the gindex of `executionPayload` inside `BeaconBlockBody` and
+// `<field_idx>` is the SSZ field index inside `ExecutionPayload`. They are
+// fork-stable as long as neither container reorders or grows past the next
+// power-of-two boundary; if a future fork changes the layout, all the
+// constants below must be revisited together.
 #define GINDEX_RECEIPT_ROOT 803
+#define GINDEX_LOGS_BLOOM   804
 #define GINDEX_BLOCKUMBER   806
+#define GINDEX_TIMESTAMP    809
 #define GINDEX_BLOCHASH     812
 #define GINDEX_TXINDEX_G    1704984576L // gindex of the first tx
 
@@ -101,6 +109,11 @@ bool    c4_tx_verify_log_data(verify_ctx_t* ctx, ssz_ob_t log, bytes32_t block_h
 bytes_t c4_eth_create_tx_path(uint32_t tx_index, buffer_t* buf);
 bool    c4_write_tx_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer, bytes_t raw_tx,
                                   bytes32_t tx_hash, bytes32_t block_hash, uint64_t block_number, uint32_t transaction_index, uint64_t base_fee);
+/** Build one ETH_RECEIPT_DATA SSZ from RLP receipt and tx; sets *out_cumulative_gas to receipt cumulativeGasUsed and *out_log_index to the next block-level log index. */
+bool    c4_write_receipt_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer, bytes_t tx_raw, bytes_t receipt_raw,
+                                       bytes32_t block_hash, uint64_t block_number, uint32_t tx_index,
+                                       uint64_t base_fee, uint64_t* out_cumulative_gas,
+                                       uint32_t* out_log_index);
 
 #ifdef __cplusplus
 }

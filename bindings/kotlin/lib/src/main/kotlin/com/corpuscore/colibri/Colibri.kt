@@ -25,10 +25,16 @@ package com.corpuscore.colibri
 
 // Import the SWIG-generated class explicitly
 //import c4
+import kotlin.concurrent.withLock
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.json.JSONObject // Use org.json for JSON parsing
-import org.json.JSONArray // Add JSONArray import
+import org.json.JSONObject
+import org.json.JSONArray
 import java.math.BigInteger
 import io.ktor.client.*
 import io.ktor.client.engine.cio.*
@@ -49,14 +55,59 @@ enum class MethodType(val value: Int) {
     }
 }
 
-// Custom Exception for Colibri errors
-class ColibriException(message: String) : RuntimeException(message)
+/** Pragmatic Adaptive Privacy mode. BASIC sets verify flag for PAP. */
+enum class PrivacyMode {
+    NONE,
+    BASIC
+}
 
-// Interface for storage operations callback
+enum class ProverMode(val value: Int) {
+    LOCAL(0),
+    REMOTE(1),
+    HYBRID(2),
+    PROXY(3),
+    LIGHT_CLIENT(4)
+}
+
+// Custom Exception for Colibri errors
+open class ColibriException(message: String) : RuntimeException(message)
+
+/**
+ * Thrown when an `eth_call` (or similar EVM execution) ran to completion but
+ * reverted. The verifier has fully verified the revert -- this is a legitimate
+ * EVM outcome, not a transport or proof error.
+ *
+ * Maps to the Geth-style RPC error `{ "code": 3, "message": "execution reverted",
+ * "data": "0x..." }`, which is also the EIP-1193 representation used by ethers
+ * to decode `OffchainLookup` (EIP-3668 / CCIP-Read) and custom Solidity errors.
+ *
+ * @param data Raw EVM revert return-data as `0x`-prefixed hex string
+ *   (`"0x"` when empty). Callers typically ABI-decode this with the
+ *   contract's error definitions.
+ */
+class ColibriRevertException(val data: String) : ColibriException("execution reverted") {
+    /** EIP-1193 / Geth RPC error code for `execution reverted`. */
+    val code: Int = 3
+}
+
+// Interface for storage operations callback.
+// Implementations MUST be thread-safe when used with coroutines on Dispatchers.IO.
 interface ColibriStorage {
-    fun get(key: String): ByteArray? // Return nullable ByteArray
+    fun get(key: String): ByteArray?
     fun set(key: String, value: ByteArray)
-    fun delete(key: String) // Changed 'del' to 'delete' for Kotlin convention
+    fun delete(key: String)
+}
+
+/**
+ * Thread-safe wrapper around any [ColibriStorage] implementation.
+ * Serializes all operations with a [ReentrantLock] so the underlying
+ * delegate does not need to be thread-safe itself.
+ */
+class ThreadSafeStorage(private val delegate: ColibriStorage) : ColibriStorage {
+    private val lock = java.util.concurrent.locks.ReentrantLock()
+    override fun get(key: String): ByteArray? = lock.withLock { delegate.get(key) }
+    override fun set(key: String, value: ByteArray) = lock.withLock { delegate.set(key, value) }
+    override fun delete(key: String) = lock.withLock { delegate.delete(key) }
 }
 
 // Singleton object to hold the user-provided storage implementation
@@ -69,12 +120,45 @@ typealias RequestHandler = (requestDetails: Map<String, Any?>) -> ByteArray?
 
 class Colibri(
     var chainId: BigInteger = BigInteger.ONE, // Default value
-    var provers: Array<String> = arrayOf("https://c4.incubed.net"), // Default value
-    var ethRpcs: Array<String> = arrayOf("https://rpc.ankr.com/eth"), // Default value
-    var beaconApis: Array<String> = arrayOf("https://lodestar-mainnet.chainsafe.io"), // Default value
-    var checkpointz: Array<String> = arrayOf("https://sync-mainnet.beaconcha.in", "https://beaconstate.info", "https://sync.invis.tools", "https://beaconstate.ethstaker.cc"), // Default checkpointz servers
+    // Endpoint arrays default to empty; when empty at request time, per-chain fallbacks
+    // from defaultProvers/defaultEthRpcs/defaultBeaconApis/defaultCheckpointz are used.
+    var provers: Array<String> = emptyArray(),
+    var ethRpcs: Array<String> = emptyArray(),
+    var beaconApis: Array<String> = emptyArray(),
+    var checkpointz: Array<String> = emptyArray(),
+    var obliviousNodes: Array<String> = emptyArray(), // TEE RPC endpoints for eth_getProof
     var trustedCheckpoint: String? = null, // Optional trusted checkpoint
     var includeCode: Boolean = false, // Default value
+    /** Prefer eth_createAccessList (default true). Set false for legacy debug_traceCall. */
+    var useAccesslist: Boolean = true,
+    var zkProof: Boolean = false,
+    var privacyMode: PrivacyMode = PrivacyMode.NONE, // PAP mode; BASIC sets verify flag
+    var proverMode: ProverMode? = null, // null = auto-detect (REMOTE if provers configured, else LOCAL)
+    var checkpointWitnessKeys: String? = null,
+    /**
+     * If true, the verifier skips the Weak Subjectivity Period check
+     * (`VERIFY_FLAG_SKIP_WSP_CHECK`, bit `1 shl 7`). SECURITY: only safe when another
+     * trust anchor (witness signatures, hard-coded checkpoint, signed package) is in
+     * place; disabling raises the risk of long-range attacks across periods older than
+     * the WSP. Default: false.
+     */
+    var skipWspCheck: Boolean = false,
+    /**
+     * If true, `eth_getLogs` produces and requires a completeness proof over the requested
+     * block range (prover flag `1 shl 12`, verify flag `1 shl 9`), guaranteeing that no
+     * matching log was omitted. Default: false.
+     */
+    var logsCompleteness: Boolean = false,
+    /**
+     * Maximum age (in seconds) accepted for a proof whose request uses the
+     * `"latest"` block tag. The verifier compares `block.timestamp` from the
+     * proof against `System.currentTimeMillis() / 1000 - maxLatestAgeSeconds`;
+     * older proofs are rejected with `"proof for latest too old"`. Set to `0`
+     * to disable the check (e.g. when working with proof formats that lack a
+     * block context). Currently active for `eth_call`, `eth_estimateGas`, and
+     * `colibri_simulateTransaction`. Default: 60 (~5 Ethereum slots).
+     */
+    var maxLatestAgeSeconds: Long = 60,
     var requestHandler: RequestHandler? = null // Add optional request handler for mocking
 ) {
     companion object {
@@ -99,6 +183,97 @@ class Colibri(
 //            println("ColibriStorage implementation registered.")
             // Optionally, trigger C-side re-configuration if needed, but likely handled at init.
         }
+
+        /** Default prover URLs for supported chains. */
+        fun defaultProvers(chainId: BigInteger): Array<String> = when (chainId) {
+            BigInteger.ONE -> arrayOf(
+                "https://mainnet.colibri-proof.tech",
+                "https://mainnet-prover.incubed.net",
+                "https://mainnet.colimind.com",
+            )
+            BigInteger.valueOf(11155111) -> arrayOf(
+                "https://sepolia.colibri-proof.tech",
+                "https://sepolia-prover.incubed.net",
+                "https://sepolia.colimind.com",
+            )
+            BigInteger.valueOf(100) -> arrayOf(
+                "https://gnosis.colibri-proof.tech",
+                "https://gnosis-prover.incubed.net",
+                "https://gnosis.colimind.com",
+            )
+            BigInteger.valueOf(10200) -> arrayOf("https://chiado.colibri-proof.tech")
+            else -> arrayOf("https://c4.incubed.net")
+        }
+
+        /** Default Ethereum RPC URLs for supported chains (fallback order: colibri-proof.tech first, public as fallback). */
+        fun defaultEthRpcs(chainId: BigInteger): Array<String> = when (chainId) {
+            BigInteger.ONE -> arrayOf(
+                "https://mainnet.colibri-proof.tech/execution",
+                "https://eth.drpc.org",
+                "https://ethereum-rpc.publicnode.com",
+                "https://singapore.rpc.blxrbdn.com",
+            )
+            BigInteger.valueOf(11155111) -> arrayOf(
+                "https://sepolia.colibri-proof.tech/execution",
+                "https://sepolia.drpc.org",
+                "https://ethereum-sepolia-rpc.publicnode.com",
+                "https://sepolia.gateway.tenderly.co",
+            )
+            BigInteger.valueOf(100) -> arrayOf(
+                "https://gnosis.colibri-proof.tech/execution",
+                "https://rpc.gnosischain.com",
+                "https://rpc.gnosis.gateway.fm",
+                "https://gnosis-rpc.publicnode.com",
+            )
+            BigInteger.valueOf(10200) -> arrayOf(
+                "https://rpc.chiado.gnosis.gateway.fm",
+                "https://rpc.chiadochain.net",
+                "https://gnosis-chiado-rpc.publicnode.com",
+            )
+            else -> emptyArray()
+        }
+
+        /** Default beacon API URLs for supported chains (fallback order: colibri-proof.tech first, public as fallback). */
+        fun defaultBeaconApis(chainId: BigInteger): Array<String> = when (chainId) {
+            BigInteger.ONE -> arrayOf(
+                "https://mainnet.colibri-proof.tech/consensus",
+                "https://gateway.tenderly.co/public/mainnet",
+                "https://ethereum-beacon-api.publicnode.com",
+            )
+            BigInteger.valueOf(11155111) -> arrayOf(
+                "https://sepolia.colibri-proof.tech/consensus",
+                "https://ethereum-sepolia-beacon-api.publicnode.com",
+            )
+            BigInteger.valueOf(100) -> arrayOf(
+                "https://gnosis.colibri-proof.tech/consensus",
+                "https://rpc-gbc.gnosischain.com",
+                "https://gnosis-beacon-api.publicnode.com",
+            )
+            BigInteger.valueOf(10200) -> arrayOf(
+                "https://rpc-gbc.chiadochain.net",
+            )
+            else -> emptyArray()
+        }
+
+        /** Default checkpointz URLs for supported chains. */
+        fun defaultCheckpointz(chainId: BigInteger): Array<String> = when (chainId) {
+            BigInteger.ONE -> arrayOf(
+                "https://sync-mainnet.beaconcha.in",
+                "https://mainnet.checkpoint.sigp.io",
+                "https://mainnet-checkpoint-sync.attestant.io",
+                "https://beaconstate-mainnet.chainsafe.io",
+                "https://mainnet-checkpoint-sync.stakely.io",
+                "https://checkpointz.pietjepuk.net",
+                "https://beaconstate.ethstaker.cc",
+            )
+            BigInteger.valueOf(11155111) -> arrayOf(
+                "https://checkpoint-sync.sepolia.ethpandaops.io",
+                "https://beaconstate-sepolia.chainsafe.io",
+            )
+            BigInteger.valueOf(100) -> arrayOf("https://checkpoint.gnosischain.com")
+            BigInteger.valueOf(10200) -> arrayOf("https://checkpoint.chiadochain.net")
+            else -> emptyArray()
+        }
     }
     private val client = HttpClient(CIO) {
         engine {
@@ -106,20 +281,76 @@ class Colibri(
         }
     }
 
+    private val lightClientScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var lightClientJob: Job? = null
+
+    /** Returns verify flags (e.g. VERIFY_FLAG_PAP, VERIFY_FLAG_OBLIVIOUS, VERIFY_FLAG_SKIP_WSP_CHECK).
+     *  PAP is enabled when BASIC or obliviousNodes is set. */
+    private fun getVerifyFlags(): Long {
+        val pap = privacyMode == PrivacyMode.BASIC || obliviousNodes.isNotEmpty()
+        return (if (pap) 2L else 0L) or
+                (if (obliviousNodes.isNotEmpty()) (1L shl 6) else 0L) or
+                (if (skipWspCheck) (1L shl 7) else 0L) or
+                (if (logsCompleteness) (1L shl 9) else 0L)
+    }
+
+    /**
+     * Computes the lower bound for `block.timestamp` accepted on `"latest"`
+     * proofs as `now - maxLatestAgeSeconds`. Returns `0` when the host
+     * disables the check (`maxLatestAgeSeconds <= 0`). The wallclock is
+     * read here in the binding so the C/JNI core stays clock-free.
+     */
+    private fun getMinLatestBlockTs(): java.math.BigInteger {
+        if (maxLatestAgeSeconds <= 0L) return java.math.BigInteger.ZERO
+        val now = System.currentTimeMillis() / 1000L
+        val lower = now - maxLatestAgeSeconds
+        return java.math.BigInteger.valueOf(if (lower > 0L) lower else 0L)
+    }
+
+    private fun effectiveProvers(): Array<String> = if (provers.isEmpty()) defaultProvers(chainId) else provers
+    private fun effectiveEthRpcs(): Array<String> = if (ethRpcs.isEmpty()) defaultEthRpcs(chainId) else ethRpcs
+    private fun effectiveBeaconApis(): Array<String> = if (beaconApis.isEmpty()) defaultBeaconApis(chainId) else beaconApis
+    private fun effectiveCheckpointz(): Array<String> = if (checkpointz.isEmpty()) defaultCheckpointz(chainId) else checkpointz
+
+    private fun serversForRequest(request: JSONObject, useProverFallback: Boolean = false): Array<String> {
+        val type = request.optString("type", "eth_rpc")
+        return when (type) {
+            "checkpointz" -> effectiveCheckpointz() + effectiveBeaconApis()
+            "beacon_api" -> {
+                val effProvers = effectiveProvers()
+                if (useProverFallback && effProvers.isNotEmpty()) effProvers else effectiveBeaconApis()
+            }
+            "prover" -> effectiveProvers()
+            else -> {
+                if (request.optJSONObject("payload")?.optString("method") == "eth_getProof" && obliviousNodes.isNotEmpty())
+                    obliviousNodes
+                else
+                    effectiveEthRpcs()
+            }
+        }
+    }
+
     // Example method to demonstrate usage
     fun printConfig() {
         println("Chain ID: $chainId")
-        println("ETH RPCs: ${ethRpcs.joinToString(", ")}")
-        println("Beacon APIs: ${beaconApis.joinToString(", ")}")
+        println("ETH RPCs: ${effectiveEthRpcs().joinToString(", ")}")
+        println("Beacon APIs: ${effectiveBeaconApis().joinToString(", ")}")
         println("Trusted Checkpoint: ${trustedCheckpoint ?: "none"}")
         println("Include Code: $includeCode")
     }
 
-    // Add getMethodSupport function
-    suspend fun getMethodSupport(method: String): MethodType {
+    /**
+     * Check what type of support a method has.
+     *
+     * In PAP mode the result may depend on cached data for the given params
+     * (e.g. `eth_call` can become LOCAL when storage values are cached).
+     *
+     * @param method RPC method name
+     * @param params Optional method parameters as JSON array string
+     */
+    suspend fun getMethodSupport(method: String, params: String? = null): MethodType {
          return withContext(Dispatchers.IO) {
-             // Use the correct function name generated by SWIG
-             val typeInt = com.corpuscore.colibri.c4.c4_get_method_support(chainId, method)
+             val typeInt = com.corpuscore.colibri.c4.c4_get_method_support(chainId, method, params ?: "", getVerifyFlags())
              MethodType.fromInt(typeInt)
          }
     }
@@ -130,6 +361,13 @@ class Colibri(
         // Get req_ptr - now clean numeric JSON value after bprintf fix
         val reqPtr = request.getLong("req_ptr")
 //        println("fetchRequest:  for req_ptr $reqPtr)")
+
+        // Honor a requested delay before (re-)executing (e.g. oblivious-node retry backoff).
+        val delayMs = request.optLong("delay", 0L)
+        if (delayMs > 0L) delay(delayMs)
+
+        // Cache freshness bound in seconds, forwarded below as `Cache-Control: max-age`.
+        val ttl = request.optLong("ttl", 0L)
 
         var index = 0
         var lastError = ""
@@ -175,6 +413,11 @@ class Colibri(
                     if (payload != null && !payload.isEmpty()) {
                         contentType(ContentType.Application.Json)
                         setBody(payload.toString())
+                    }
+
+                    // Forward the cache freshness bound to shared caches/CDNs.
+                    if (ttl > 0L) {
+                        header("Cache-Control", "max-age=$ttl")
                     }
                 }
 
@@ -239,7 +482,8 @@ class Colibri(
         return withContext(Dispatchers.IO) {
             val jsonArgs = formatArgsArray(args) // Use helper
             // Create the prover context with properly formatted JSON args
-            val ctx = com.corpuscore.colibri.c4.c4_create_prover_ctx(method, jsonArgs, chainId, if (includeCode) 1 else 0)
+            val proverFlags = (if (includeCode) 1L else 0L) or (if (useAccesslist) 0L else (1L shl 6)) or (if (logsCompleteness) (1L shl 12) else 0L)
+            val ctx = com.corpuscore.colibri.c4.c4_create_prover_ctx(method, jsonArgs, chainId, proverFlags)
                 ?: throw ColibriException("Failed to create prover context for method $method")
 
             // Add iteration limit to prevent infinite loops
@@ -287,14 +531,8 @@ class Colibri(
                             for (i in 0 until requests.length()) {
                                 val request = requests.getJSONObject(i)
                                  // Ensure type field exists before accessing
-                                 val type = request.optString("type", "eth_rpc") // Default or handle missing type
-                                val servers = when (type) {
-                                    "checkpointz" -> checkpointz
-                                    "beacon_api" -> beaconApis
-                                    else -> ethRpcs
-                                }
                                  try {
-                                     fetchRequest(servers, request)
+                                     fetchRequest(serversForRequest(request), request)
                                  } catch (e: Exception) {
                                      // Log error during fetchRequest and potentially set error on C side if possible/needed
                                      println("Error handling pending request $i: ${e.message}")
@@ -334,6 +572,9 @@ class Colibri(
              // For simplicity, let's assume it's correct or handle specific cases if needed
              // Alternatively, could try parsing as JSONObject if that's possible for params
              throw ColibriException("Invalid params JSON provided to fetchRpc: $paramsJson")
+         }
+         if (asProof) {
+             jsonRpcPayload.put("version", com.corpuscore.colibri.c4.c4_get_current_version_number())
          }
          val requestBody = jsonRpcPayload.toString()
 
@@ -396,9 +637,10 @@ class Colibri(
             val jsonArgs = formatArgsArray(args) // Use helper
             val trustedCheckpointStr = trustedCheckpoint ?: ""
 
-            // Assuming c4_verify_create_ctx takes JSON strings for args and trusted checkpoint
-            val ctx = com.corpuscore.colibri.c4.c4_verify_create_ctx(proof, method, jsonArgs, chainId, trustedCheckpointStr)
+            val ctx = com.corpuscore.colibri.c4.c4_verify_create_ctx(proof, method, jsonArgs, chainId, trustedCheckpointStr, getVerifyFlags())
                  ?: throw ColibriException("Failed to create verifier context for method $method")
+
+            com.corpuscore.colibri.c4.c4_verify_set_min_latest_block_ts(ctx, getMinLatestBlockTs())
 
             // Add iteration limit to prevent infinite loops
             val maxIterations = 50
@@ -441,6 +683,12 @@ class Colibri(
                                 return@withContext null
                              }
                         }
+                        "revert" -> {
+                            // EVM ran to completion but reverted -- a fully verified
+                            // outcome. Expose the raw revert data so callers can decode
+                            // OffchainLookup (EIP-3668) / custom Solidity errors.
+                            throw ColibriRevertException(state.optString("data", "0x"))
+                        }
                         "error" -> {
                              throw ColibriException("Verifier error for method $method: ${state.optString("error", "Unknown error")}")
                         }
@@ -449,15 +697,8 @@ class Colibri(
                             val requests = state.optJSONArray("requests") ?: JSONArray() // Handle missing requests array
                             for (i in 0 until requests.length()) {
                                 val request = requests.getJSONObject(i)
-                                 val type = request.optString("type", "eth_rpc")
-                                // Prioritize provers if not empty and type is beacon_api
-                                val servers = when (type) {
-                                    "checkpointz" -> checkpointz
-                                    "beacon_api" -> if (provers.isNotEmpty()) provers else beaconApis
-                                    else -> ethRpcs
-                                }
                                  try {
-                                     fetchRequest(servers, request)
+                                     fetchRequest(serversForRequest(request, useProverFallback = true), request)
                                  } catch (e: Exception) {
                                      println("Error handling pending request $i: ${e.message}")
                                      // Consider setting error on C side via c4_req_set_error
@@ -478,80 +719,124 @@ class Colibri(
         }
     }
 
-     // Add rpc method implementation
-     suspend fun rpc(method: String, args: Array<Any?>): Any? { // Allow nullable args, return Any?
-         val methodType = getMethodSupport(method)
-         var proof: ByteArray = byteArrayOf() // Initialize empty proof
+    // Unified RPC execution via the C core state machine.
+    suspend fun rpc(method: String, args: Array<Any?>): Any? {
+        return withContext(Dispatchers.IO) {
+            val jsonArgs = formatArgsArray(args)
+            val proverFlags = (if (includeCode) 1L else 0L) or (if (useAccesslist) 0L else (1L shl 6)) or (if (zkProof) (1L shl 7) else 0L) or (if (logsCompleteness) (1L shl 12) else 0L)
+            // Base prover-mode auto-detection on the user-configured `provers` array,
+            // NOT on `effectiveProvers()`. Consumers passing `emptyArray()` explicitly
+            // signal "no remote prover" -- if we consulted the per-chain fallback here,
+            // any construction with default settings would silently switch to REMOTE
+            // and set `VERIFY_FLAG_REMOTE_PROVER`, breaking flows that depend on the
+            // local-only path (e.g. PAP pending-tx lookups returning null from cache
+            // without any network round-trip).
+            val resolvedMode = proverMode ?: if (provers.isEmpty()) ProverMode.LOCAL else ProverMode.REMOTE
+            val nativeMode = if (resolvedMode == ProverMode.LIGHT_CLIENT) ProverMode.HYBRID.value else resolvedMode.value
 
-//         println("rpc: Method $method, Type: $methodType, Args: ${formatArgsArray(args)}")
+            val ctx = com.corpuscore.colibri.c4.c4_create_rpc_ctx(method, jsonArgs, chainId, proverFlags, getVerifyFlags(), nativeMode)
+                ?: throw ColibriException("Failed to create RPC context for method $method")
 
-         when (methodType) {
-             MethodType.PROOFABLE -> {
-                 // TODO: Implement optional verify hook if needed
-                 if (provers.isNotEmpty()) {
-                  //   println("rpc: Fetching proof for $method from prover...")
-                     proof = try {
-                          fetchRpc(provers, method, formatArgsArray(args), true)
-                     } catch (e: Exception) {
-                          println("rpc: Failed to fetch proof from prover, falling back to local creation. Error: ${e.message}")
-                          println("rpc: Creating proof locally for $method...")
-                          getProof(method, args) // Create proof locally if fetch fails
-                     }
+            if (resolvedMode == ProverMode.PROXY) {
+                com.corpuscore.colibri.c4.c4_rpc_set_proxy_urls(ctx, effectiveEthRpcs().joinToString(","), effectiveBeaconApis().joinToString(","))
+            }
 
-                 } else {
-//                     println("rpc: Creating proof locally for $method...")
-                     proof = getProof(method, args)
-                 }
-//                 println("rpc: Obtained proof (${proof.size} bytes) for $method.")
-                 // Verification happens below
-             }
-             MethodType.UNPROOFABLE -> {
-//                 println("rpc: Method $method is UNPROOFABLE, fetching directly...")
-                 val responseData = fetchRpc(ethRpcs, method, formatArgsArray(args), false)
-//                 println("rpc: Fetched direct response (${responseData.size} bytes) for $method.")
-                 // Parse JSON response
-                 return try {
-                      val jsonString = responseData.toString(Charsets.UTF_8)
-                      if (jsonString.isBlank()) { // Handle empty response (e.g., 204 No Content)
-                            null
-                      } else {
-                          val jsonResponse = JSONObject(jsonString)
-                          if (jsonResponse.has("error") && jsonResponse.get("error") != JSONObject.NULL) {
-                              val errorObj = jsonResponse.getJSONObject("error")
-                              throw ColibriException("RPC Error for $method: ${errorObj.optString("message", "Unknown error")}")
-                          }
-                          if (jsonResponse.has("result")) {
-                              val result = jsonResponse.get("result")
-                              if (result == JSONObject.NULL) null else result // Return null if JSON result is null
-                          } else {
-                               // Neither error nor result - treat as success with null result?
-                               null
-                          }
-                      }
+            val checkpointStr = trustedCheckpoint
+            if (!checkpointStr.isNullOrEmpty()) {
+                com.corpuscore.colibri.c4.c4_set_checkpoint(chainId, checkpointStr)
+            }
+            val witnessKeys = checkpointWitnessKeys
+            if (!witnessKeys.isNullOrEmpty()) {
+                com.corpuscore.colibri.c4.c4_rpc_set_witness_keys(ctx, witnessKeys)
+            }
+            com.corpuscore.colibri.c4.c4_rpc_set_min_latest_block_ts(ctx, getMinLatestBlockTs())
 
-                 } catch (e: Exception) {
-                      throw ColibriException("Failed to parse direct RPC response for $method: ${e.message}")
-                 }
-             }
-             MethodType.NOT_SUPPORTED -> {
-                 println("rpc: Method $method is NOT_SUPPORTED.")
-                 throw ColibriException("Method $method is not supported")
-             }
-             MethodType.LOCAL -> {
-//                 println("rpc: Method $method is LOCAL, proceeding with verification (empty proof).")
-                 proof = byteArrayOf() // Ensure proof is empty for local verification
-                 // Verification happens below
-             }
-             MethodType.UNKNOWN -> {
-                 println("rpc: Method $method has UNKNOWN type.")
-                 throw ColibriException("Method $method has unknown support type")
-             }
-         }
+            val maxIterations = 50
+            var iteration = 0
 
-         // Verify the proof (either created/fetched for PROOFABLE, or empty for LOCAL)
-//         println("rpc: Verifying proof for $method...")
-         return verifyProof(proof, method, args)
-     }
+            try {
+                while (iteration < maxIterations) {
+                    iteration++
+                    val statusJsonPtr = com.corpuscore.colibri.c4.c4_rpc_execute_json_status(ctx)
+                        ?: throw ColibriException("RPC execution returned null status for method $method")
+                    val stateString = statusJsonPtr.toString()
+
+                    val state = try {
+                        JSONObject(stateString)
+                    } catch (e: Exception) {
+                        throw ColibriException("Failed to parse RPC status JSON: ${e.message}")
+                    }
+
+                    when (state.getString("status")) {
+                        "success" -> {
+                            if (state.has("result")) {
+                                val result = state.get("result")
+                                return@withContext if (result == JSONObject.NULL) null else convertJsonToJava(result)
+                            }
+                            return@withContext null
+                        }
+                        "revert" -> {
+                            // EVM ran to completion but reverted -- a fully verified
+                            // outcome. Expose the raw revert data so callers can decode
+                            // OffchainLookup (EIP-3668) / custom Solidity errors.
+                            throw ColibriRevertException(state.optString("data", "0x"))
+                        }
+                        "error" -> {
+                            throw ColibriException("RPC error for method $method: ${state.optString("error", "Unknown error")}")
+                        }
+                        "pending" -> {
+                            val requests = state.optJSONArray("requests") ?: JSONArray()
+                            for (i in 0 until requests.length()) {
+                                val request = requests.getJSONObject(i)
+                                try {
+                                    fetchRequest(serversForRequest(request, useProverFallback = true), request)
+                                } catch (e: Exception) {
+                                    println("Error handling pending request $i: ${e.message}")
+                                }
+                            }
+                        }
+                        else -> throw ColibriException("Unknown RPC status: ${state.getString("status")}")
+                    }
+                }
+                throw ColibriException("rpc exceeded max iterations ($maxIterations) for method $method")
+            } finally {
+                com.corpuscore.colibri.c4.c4_free_rpc_ctx(ctx)
+            }
+        }
+    }
+
+    /**
+     * Starts background polling to keep the block header cache warm.
+     * Useful for [ProverMode.LIGHT_CLIENT].
+     *
+     * By default polls `eth_getBlockHeader("latest")` which fetches only the
+     * compact header proof. Set [fullBlock] to `true` to poll
+     * `eth_getBlockByNumber("latest")` instead -- useful when many
+     * `eth_getTransactionByHash` / `eth_getTransactionReceipt` calls follow,
+     * since those need the full block data.
+     *
+     * @param intervalMs polling interval in milliseconds (default: 12000 = one Ethereum slot)
+     * @param fullBlock if true, fetch the full block instead of just the header (default: false)
+     */
+    fun startLightClient(intervalMs: Long = 12_000, fullBlock: Boolean = false) {
+        stopLightClient()
+        val method = if (fullBlock) "eth_getBlockByNumber" else "eth_getBlockHeader"
+        val params: Array<Any?> = if (fullBlock) arrayOf("latest", false) else arrayOf("latest")
+        lightClientJob = lightClientScope.launch {
+            while (true) {
+                try {
+                    rpc(method, params)
+                } catch (_: Exception) { }
+                delay(intervalMs)
+            }
+        }
+    }
+
+    /** Stops background light client polling started by [startLightClient]. */
+    fun stopLightClient() {
+        lightClientJob?.cancel()
+        lightClientJob = null
+    }
 }
 
 // Helper function to convert org.json types to standard Java/Kotlin types

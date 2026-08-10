@@ -5,6 +5,7 @@ use crate::{
     processing::process_preconf_with_correct_format,
     types::{BlockDeduplicator, BlockBitmaskTracker, KonaBridgeStats},
 };
+use tokio::sync::broadcast;
 use discv5::{ConfigBuilder, enr::CombinedKey};
 use kona_p2p::{LocalNode, Network};
 use kona_registry::ROLLUP_CONFIGS;
@@ -30,6 +31,7 @@ pub async fn run_gossip_network(
     running: Arc<Mutex<bool>>,
     deduplicator: Option<Arc<Mutex<BlockDeduplicator>>>,
     bitmask_tracker: Option<Arc<Mutex<BlockBitmaskTracker>>>,
+    sse_tx: Option<broadcast::Sender<u64>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     
     let gossip = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), gossip_port);
@@ -181,6 +183,9 @@ pub async fn run_gossip_network(
                     ).await {
                         Ok(()) => {
                             latest_block_number = number;
+                            if let Some(ref tx) = sse_tx {
+                                let _ = tx.send(number);
+                            }
                             let mut stats_guard = stats.lock().unwrap();
                             stats_guard.processed_preconfs += 1;
                             stats_guard.gossip_processed += 1;

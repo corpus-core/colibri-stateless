@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025 corpus.core
+ * Copyright (c) 2025,2026 corpus.core
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
  * this software and associated documentation files (the "Software"), to deal in
@@ -1003,6 +1003,12 @@ void c4_req_set_error(void* req_ptr, char* error, uint16_t node_index);
  * @param chain_id The blockchain chain ID (must match proof)
  * @param trusted_checkpoint Optional trusted checkpoint as hex string (0x-prefixed, 66 chars),
  *                           or NULL/empty string to use the default checkpoint for this chain
+ * @param flags Verify flags bitmask. Common values: `2` = `VERIFY_FLAG_PAP`,
+ *              `64` = `VERIFY_FLAG_OBLIVIOUS`, `128` = `VERIFY_FLAG_SKIP_WSP_CHECK`.
+ *              `VERIFY_FLAG_SKIP_WSP_CHECK` disables the Weak Subjectivity Period anchor
+ *              against `checkpointz` for prover-supplied or self-fetched sync committee
+ *              data. SECURITY: only safe when another trust anchor (witness signatures,
+ *              hard-coded checkpoint, signed package) is in place. Use `0` for default.
  * @return A new verification context pointer, or NULL if creation failed
  *
  * **Trusted Checkpoints**:
@@ -1024,7 +1030,8 @@ void c4_req_set_error(void* req_ptr, char* error, uint16_t node_index);
  *     "eth_getBalance",
  *     "[\"0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045\", \"latest\"]",
  *     1, // Ethereum Mainnet
- *     "0x1234567890abcdef..." // Trusted checkpoint (66 chars)
+ *     "0x1234567890abcdef...", // Trusted checkpoint (66 chars)
+ *     0  // Flags (e.g. VERIFY_FLAG_PAP for PAP mode)
  * );
  *
  * if (!ctx) {
@@ -1033,7 +1040,8 @@ void c4_req_set_error(void* req_ptr, char* error, uint16_t node_index);
  * }
  * ```
  */
-void* c4_verify_create_ctx(bytes_t proof, char* method, char* args, uint64_t chain_id, char* trusted_checkpoint);
+void* c4_verify_create_ctx(bytes_t proof, char* method, char* args, uint64_t chain_id, char* trusted_checkpoint, uint32_t flags);
+
 
 /**
  * Executes one step of the proof verification state machine.
@@ -1130,6 +1138,21 @@ char* c4_verify_execute_json_status(void* ctx);
 void c4_verify_free_ctx(void* ctx);
 
 /**
+ * Sets the lower bound for `block.timestamp` on `"latest"` requests.
+ *
+ * The verifier rejects proofs whose block timestamp is older than `ts` for
+ * `eth_call`, `eth_estimateGas`, and `colibri_simulateTransaction` when the
+ * request uses the `"latest"` block tag. Pass `0` to disable the check.
+ * The host typically computes `ts = now - max_age_seconds` from the platform
+ * wallclock; the C library never reads the wallclock itself so the check
+ * works the same way on native, WASM, and embedded targets.
+ *
+ * @param ctx The verification context created by `c4_verify_create_ctx()`
+ * @param ts Lower bound as Unix timestamp in seconds (`0` disables the check)
+ */
+void c4_verify_set_min_latest_block_ts(void* ctx, uint64_t ts);
+
+/**
  * Queries whether a specific RPC method is supported and how it should be handled.
  *
  * Not all Ethereum RPC methods can be cryptographically proven. This function returns
@@ -1138,6 +1161,10 @@ void c4_verify_free_ctx(void* ctx);
  *
  * @param chain_id The blockchain chain ID to check
  * @param method The Ethereum RPC method name (e.g., "eth_getBalance")
+ * @param params The method parameters as a JSON array string (e.g., `[{"to":"0x...","data":"0x..."}, "latest"]`),
+ *               or NULL if not available. Used in PAP mode to check cached data availability.
+ * @param flags Verify flags bitmask. Common values: `2` = `VERIFY_FLAG_PAP`,
+ *              `64` = `VERIFY_FLAG_OBLIVIOUS`, `128` = `VERIFY_FLAG_SKIP_WSP_CHECK`. Use `0` for default.
  * @return Method support type (see table below)
  *
  * **Return Values**:
@@ -1168,7 +1195,8 @@ void c4_verify_free_ctx(void* ctx);
  *
  * **Example**:
  * ```c
- * int support = c4_get_method_support(1, "eth_getBalance");
+ * int support = c4_get_method_support(1, "eth_getBalance",
+ *     "[\"0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045\", \"latest\"]", 0);
  *
  * switch (support) {
  *     case 1: // PROOFABLE
@@ -1189,4 +1217,165 @@ void c4_verify_free_ctx(void* ctx);
  * }
  * ```
  */
-int c4_get_method_support(uint64_t chain_id, char* method);
+int c4_get_method_support(uint64_t chain_id, char* method, char* params, uint32_t flags);
+
+/**
+ * Returns the current version number of the Colibri library.
+ *
+ * @return The current version number
+ */
+uint32_t c4_get_current_version_number(void);
+
+// :: Unified RPC API
+//
+// The unified RPC API combines method type detection, proof generation (local or remote),
+// and verification into a single context. This eliminates the need for bindings to implement
+// the orchestration logic (method type check, prover/verifier decision, proof flow).
+//
+// The host system only needs to:
+// 1. Create an RPC context with `c4_create_rpc_ctx()`
+// 2. Call `c4_rpc_execute_json_status()` in a loop
+// 3. Handle pending data requests (same as with prover/verifier APIs)
+// 4. Free the context with `c4_free_rpc_ctx()`
+//
+// The existing `c4_create_prover_ctx()` and `c4_verify_create_ctx()` APIs remain
+// available for use cases that need separate proof generation and verification
+// (e.g. proof transport via Bluetooth to embedded devices).
+//
+
+/**
+ * Creates a unified RPC context that handles method type detection, proof generation, and verification.
+ *
+ * This is a convenience API that wraps the separate prover and verifier APIs. It automatically
+ * determines whether a method is proofable, local, or unproofable, and drives the appropriate
+ * flow internally.
+ *
+ * @param method The Ethereum RPC method (e.g., "eth_getBalance")
+ * @param params The method parameters as a JSON array string
+ * @param chain_id The blockchain chain ID
+ * @param prover_flags Flags for proof generation (see prover flag types)
+ * @param verify_flags Flags for verification bitmask. Common values: `2` = `VERIFY_FLAG_PAP`,
+ *                     `64` = `VERIFY_FLAG_OBLIVIOUS`, `128` = `VERIFY_FLAG_SKIP_WSP_CHECK`
+ *                     (SECURITY: disables the Weak Subjectivity Period anchor; only safe with an
+ *                     alternative trust anchor such as witness signatures or a hard-coded checkpoint).
+ * @param prover_mode proof generation mode: 0 = local, 1 = remote, 2 = hybrid (header proof from server, execution data from RPC provider)
+ * @return A new RPC context pointer, or NULL if creation failed
+ *
+ * **Example**:
+ * ```c
+ * void* ctx = c4_create_rpc_ctx(
+ *     "eth_getBalance",
+ *     "[\"0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045\", \"latest\"]",
+ *     1,    // Ethereum Mainnet
+ *     0,    // No special prover flags
+ *     0,    // No special verify flags
+ *     2     // Use hybrid prover mode
+ * );
+ * ```
+ */
+void* c4_create_rpc_ctx(char* method, char* params, uint64_t chain_id, uint32_t prover_flags, uint32_t verify_flags, int prover_mode);
+
+/**
+ * Sets a trusted checkpoint for a chain (context-independent).
+ *
+ * Parses a hex checkpoint string and stores it globally for the given chain.
+ * Call this once before any verification if the host has a known checkpoint.
+ * The checkpoint persists across all prover/verifier/RPC contexts for the chain.
+ *
+ * @param chain_id target chain ID
+ * @param trusted_checkpoint hex string with "0x" prefix (66 chars total), or NULL (no-op)
+ */
+void c4_set_checkpoint(uint64_t chain_id, const char* trusted_checkpoint);
+
+/**
+ * Sets witness/signer keys on an RPC context (hex-encoded).
+ *
+ * Used for sync committee weak subjectivity signing during proof generation
+ * (sent to remote prover as `"signers"`) and verification.
+ *
+ * @param ctx The RPC context created by `c4_create_rpc_ctx()`
+ * @param witness_keys hex string with "0x" prefix (e.g. "0xabcd..."), or NULL to clear
+ */
+void c4_rpc_set_witness_keys(void* ctx, const char* witness_keys);
+
+/**
+ * Sets comma-separated RPC and Beacon API URLs for proxy mode.
+ *
+ * When the prover mode is `C4_PROVER_MODE_PROXY` (3), the client supplies its own
+ * RPC and Beacon API endpoints. Call this after `c4_create_rpc_ctx()` and before the
+ * first `c4_rpc_execute_json_status()`.
+ *
+ * @param ctx The RPC context created by `c4_create_rpc_ctx()`
+ * @param rpc_urls comma-separated HTTPS RPC endpoint URLs, or NULL
+ * @param beacon_urls comma-separated Beacon API base URLs, or NULL
+ */
+void c4_rpc_set_proxy_urls(void* ctx, const char* rpc_urls, const char* beacon_urls);
+
+/**
+ * Sets the lower bound for `block.timestamp` on `"latest"` requests.
+ *
+ * The verifier rejects proofs whose block timestamp is older than `ts` for
+ * `eth_call`, `eth_estimateGas`, and `colibri_simulateTransaction` when the
+ * request uses the `"latest"` block tag. Pass `0` to disable the check.
+ * The host typically computes `ts = now - max_age_seconds` from the platform
+ * wallclock; the C library never reads the wallclock itself so the check
+ * works the same way on native, WASM, and embedded targets.
+ *
+ * @param ctx The RPC context created by `c4_create_rpc_ctx()`
+ * @param ts Lower bound as Unix timestamp in seconds (`0` disables the check)
+ */
+void c4_rpc_set_min_latest_block_ts(void* ctx, uint64_t ts);
+
+/**
+ * Executes one step of the unified RPC state machine.
+ *
+ * This function drives the full RPC lifecycle: method type detection, proof generation
+ * (or remote proof fetching), and verification. Call it repeatedly until it returns
+ * `"success"` or `"error"`.
+ *
+ * The returned JSON format is identical to `c4_verify_execute_json_status()`:
+ * - `"success"` with a `"result"` field containing the verified RPC result
+ * - `"error"` with an `"error"` field
+ * - `"pending"` with a `"requests"` array of data requests to fulfill
+ *
+ * For `"pending"` responses, the `"requests"` array may contain requests of type `"prover"`
+ * (when using a remote prover) or `"eth_rpc"` (for unproofable methods), in addition to
+ * the usual `"beacon_api"` and `"eth_rpc"` requests from the prover/verifier.
+ *
+ * **Memory Management**: The returned JSON string must be freed by the caller using `free()`.
+ *
+ * @param ctx The RPC context created by `c4_create_rpc_ctx()`
+ * @return A JSON string describing the current status
+ *
+ * **Example**:
+ * ```c
+ * void* ctx = c4_create_rpc_ctx("eth_getBalance", "[\"0xabc...\", \"latest\"]", 1, 0, 0, 0);
+ *
+ * while (1) {
+ *     char* status_json = c4_rpc_execute_json_status(ctx);
+ *     json_t status = parse_json(status_json);
+ *     free(status_json);
+ *
+ *     if (strcmp(status.status, "success") == 0) {
+ *         printf("Result: %s\n", json_stringify(status.result));
+ *         break;
+ *     } else if (strcmp(status.status, "error") == 0) {
+ *         fprintf(stderr, "Error: %s\n", status.error);
+ *         break;
+ *     } else if (strcmp(status.status, "pending") == 0) {
+ *         for (int i = 0; i < status.requests_count; i++)
+ *             handle_request(&status.requests[i]);
+ *     }
+ * }
+ *
+ * c4_free_rpc_ctx(ctx);
+ * ```
+ */
+char* c4_rpc_execute_json_status(void* ctx);
+
+/**
+ * Frees all resources associated with an RPC context.
+ *
+ * @param ctx The RPC context to free (may be NULL, in which case this is a no-op)
+ */
+void c4_free_rpc_ctx(void* ctx);

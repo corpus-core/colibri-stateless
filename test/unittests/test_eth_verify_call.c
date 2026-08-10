@@ -40,17 +40,31 @@ void test_call() {
   char* dir             = "eth_call1";
   char* expected_result = "\"0x0000000000000000000000000000000000000000000000000011c04f6834033e\"";
 
-  verify_count(dir, method, args, C4_CHAIN_MAINNET, 1, C4_PROVER_FLAG_INCLUDE_CODE, expected_result);
+  // Fixture recorded with debug_traceCall; opt into the legacy path.
+  verify_count(dir, method, args, C4_CHAIN_MAINNET, 1, C4_PROVER_FLAG_INCLUDE_CODE | C4_PROVER_FLAG_USE_DEBUG_TRACE, 0,expected_result, false);
 }
 
 void test_electra() {
-  run_rpc_test("eth_call_electra", C4_PROVER_FLAG_NO_CACHE);
-  //  run_rpc_test("eth_call3", C4_PROVER_FLAG_INCLUDE_CODE);
+  run_rpc_test("eth_call_electra", C4_PROVER_FLAG_NO_CACHE | C4_PROVER_FLAG_USE_DEBUG_TRACE,0);
+  //  run_rpc_test("eth_call3", C4_PROVER_FLAG_INCLUDE_CODE | C4_PROVER_FLAG_USE_DEBUG_TRACE);
+}
+void test_7702() {
+  run_rpc_test("eth_call_7702", C4_PROVER_FLAG_INCLUDE_CODE,0);
+}
+
+void test_7702_authorization_list() {
+  run_rpc_test("eth_call_authorization_list", C4_PROVER_FLAG_INCLUDE_CODE,0);
+}
+void test_pap_cached() {
+  run_rpc_test("eth_call_pap_cached", C4_PROVER_FLAG_INCLUDE_CODE, VERIFY_FLAG_PAP);
 }
 
 int main(void) {
   UNITY_BEGIN();
+  RUN_TEST(test_pap_cached);
   RUN_TEST(test_call);
   RUN_TEST(test_electra);
+  RUN_TEST(test_7702);
+  RUN_TEST(test_7702_authorization_list);
   return UNITY_END();
 }

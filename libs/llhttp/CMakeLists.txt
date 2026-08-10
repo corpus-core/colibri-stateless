@@ -28,16 +28,16 @@ if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.24.0")
   cmake_policy(SET CMP0135 NEW)
 endif()
 
-# Use the tarball URL as recommended instead of git repo
+# Use the tarball URL (EXCLUDE_FROM_ALL suppresses llhttp's own install rules)
 if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.24.0")
-  # CMake 3.24+: Use DOWNLOAD_EXTRACT_TIMESTAMP
   FetchContent_Declare(llhttp
     URL "https://github.com/nodejs/llhttp/archive/refs/tags/release/v9.2.1.tar.gz"
-    DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    EXCLUDE_FROM_ALL)
 else()
-  # CMake < 3.24: Don't use DOWNLOAD_EXTRACT_TIMESTAMP
   FetchContent_Declare(llhttp
-    URL "https://github.com/nodejs/llhttp/archive/refs/tags/release/v9.2.1.tar.gz")
+    URL "https://github.com/nodejs/llhttp/archive/refs/tags/release/v9.2.1.tar.gz"
+    EXCLUDE_FROM_ALL)
 endif()
 
 # Set cache variables for static library build

@@ -35,6 +35,14 @@
 // G1 point: 128 bytes (X[64] || Y[64])
 // G2 point: 256 bytes (X.c0[64] || X.c1[64] || Y.c0[64] || Y.c1[64])
 
+// BLS12-381 base field modulus p (48-byte big-endian).
+// Mirrors precompiles_kzg.c: BLS_MODULUS_BE (Fr) with Fp width.
+// p = 0x1a0111ea397fe69a4b1ba7b6434bacd764774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab
+static const uint8_t BLS_FP_MODULUS_BE[48] = {
+    0x1a, 0x01, 0x11, 0xea, 0x39, 0x7f, 0xe6, 0x9a, 0x4b, 0x1b, 0xa7, 0xb6, 0x43, 0x4b, 0xac, 0xd7,
+    0x64, 0x77, 0x4b, 0x84, 0xf3, 0x85, 0x12, 0xbf, 0x67, 0x30, 0xd2, 0xa0, 0xf6, 0xb0, 0xf6, 0x24,
+    0x1e, 0xab, 0xff, 0xfe, 0xb1, 0x53, 0xff, 0xff, 0xb9, 0xfe, 0xff, 0xff, 0xff, 0xff, 0xaa, 0xab};
+
 static inline bool is_all_zero(const uint8_t* p, size_t n) {
   for (size_t i = 0; i < n; i++) {
     if (p[i] != 0) return false;
@@ -42,9 +50,22 @@ static inline bool is_all_zero(const uint8_t* p, size_t n) {
   return true;
 }
 
-static inline void blst_fp_from_be64(blst_fp* out, const uint8_t in[64]) {
-  // Take the last 48 bytes as the canonical big-endian encoding
+// Return true iff be < BLS_FP_MODULUS_BE (big-endian compare).
+static inline bool be48_is_canonical_fp(const uint8_t be[48]) {
+  for (int i = 0; i < 48; i++) {
+    if (be[i] < BLS_FP_MODULUS_BE[i]) return true;
+    if (be[i] > BLS_FP_MODULUS_BE[i]) return false;
+  }
+  return false; // equal to modulus is non-canonical
+}
+
+// Decode an EIP-2537 Fp encoding: top 16 bytes must be zero padding and the
+// remaining 48 bytes must encode a value strictly less than p.
+static inline bool blst_fp_from_be64(blst_fp* out, const uint8_t in[64]) {
+  if (!is_all_zero(in, 16)) return false;
+  if (!be48_is_canonical_fp(in + 16)) return false;
   blst_fp_from_bendian(out, in + 16);
+  return true;
 }
 
 static inline void be64_from_blst_fp(uint8_t out[64], const blst_fp* in) {
@@ -52,17 +73,17 @@ static inline void be64_from_blst_fp(uint8_t out[64], const blst_fp* in) {
   blst_bendian_from_fp(out + 16, in);
 }
 
-static inline bool read_g1_affine(const uint8_t in[128], blst_p1_affine* out, bool* is_inf) {
+static inline bool read_g1_affine(const uint8_t in[128], blst_p1_affine* out, bool* is_inf, bool check_subgroup) {
   *is_inf = is_all_zero(in, 128);
   if (*is_inf) {
     // Represent infinity by zero output in our encoding; BLST affine infinity representation
     // isn't constructed directly, so we handle it at call sites.
     return true;
   }
-  blst_fp_from_be64(&out->x, in);
-  blst_fp_from_be64(&out->y, in + 64);
-  // Validate
-  if (!blst_p1_affine_on_curve(out) || !blst_p1_affine_in_g1(out)) return false;
+  if (!blst_fp_from_be64(&out->x, in)) return false;
+  if (!blst_fp_from_be64(&out->y, in + 64)) return false;
+  if (!blst_p1_affine_on_curve(out)) return false;
+  if (check_subgroup && !blst_p1_affine_in_g1(out)) return false;
   return true;
 }
 
@@ -75,15 +96,16 @@ static inline void write_g1_affine(const blst_p1_affine* in, uint8_t out[128], b
   be64_from_blst_fp(out + 64, &in->y);
 }
 
-static inline bool read_g2_affine(const uint8_t in[256], blst_p2_affine* out, bool* is_inf) {
+static inline bool read_g2_affine(const uint8_t in[256], blst_p2_affine* out, bool* is_inf, bool check_subgroup) {
   *is_inf = is_all_zero(in, 256);
   if (*is_inf) return true;
   // X = (c0, c1), Y = (c0, c1)
-  blst_fp_from_be64(&out->x.fp[0], in + 0);
-  blst_fp_from_be64(&out->x.fp[1], in + 64);
-  blst_fp_from_be64(&out->y.fp[0], in + 128);
-  blst_fp_from_be64(&out->y.fp[1], in + 192);
-  if (!blst_p2_affine_on_curve(out) || !blst_p2_affine_in_g2(out)) return false;
+  if (!blst_fp_from_be64(&out->x.fp[0], in + 0)) return false;
+  if (!blst_fp_from_be64(&out->x.fp[1], in + 64)) return false;
+  if (!blst_fp_from_be64(&out->y.fp[0], in + 128)) return false;
+  if (!blst_fp_from_be64(&out->y.fp[1], in + 192)) return false;
+  if (!blst_p2_affine_on_curve(out)) return false;
+  if (check_subgroup && !blst_p2_affine_in_g2(out)) return false;
   return true;
 }
 
@@ -105,8 +127,9 @@ static pre_result_t pre_bls12_g1add(bytes_t input, buffer_t* output, uint64_t* g
 
   blst_p1_affine p1 = {0}, p2 = {0};
   bool           inf1 = false, inf2 = false;
-  if (!read_g1_affine(input.data, &p1, &inf1)) return PRE_INVALID_INPUT;
-  if (!read_g1_affine(input.data + 128, &p2, &inf2)) return PRE_INVALID_INPUT;
+  // EIP-2537 requires on-curve validation but no subgroup check for G1ADD.
+  if (!read_g1_affine(input.data, &p1, &inf1, false)) return PRE_INVALID_INPUT;
+  if (!read_g1_affine(input.data + 128, &p2, &inf2, false)) return PRE_INVALID_INPUT;
 
   blst_p1        r     = {0};
   blst_p1_affine r_aff = {0};
@@ -123,7 +146,7 @@ static pre_result_t pre_bls12_g1add(bytes_t input, buffer_t* output, uint64_t* g
   }
   else {
     blst_p1_from_affine(&r, &p1);
-    blst_p1_add_affine(&r, &r, &p2);
+    blst_p1_add_or_double_affine(&r, &r, &p2);
   }
 
   if (!inf1 || !inf2) {
@@ -149,8 +172,9 @@ static pre_result_t pre_bls12_g2add(bytes_t input, buffer_t* output, uint64_t* g
 
   blst_p2_affine q1 = {0}, q2 = {0};
   bool           inf1 = false, inf2 = false;
-  if (!read_g2_affine(input.data, &q1, &inf1)) return PRE_INVALID_INPUT;
-  if (!read_g2_affine(input.data + 256, &q2, &inf2)) return PRE_INVALID_INPUT;
+  // EIP-2537 requires on-curve validation but no subgroup check for G2ADD.
+  if (!read_g2_affine(input.data, &q1, &inf1, false)) return PRE_INVALID_INPUT;
+  if (!read_g2_affine(input.data + 256, &q2, &inf2, false)) return PRE_INVALID_INPUT;
 
   blst_p2        r     = {0};
   blst_p2_affine r_aff = {0};
@@ -167,7 +191,7 @@ static pre_result_t pre_bls12_g2add(bytes_t input, buffer_t* output, uint64_t* g
   }
   else {
     blst_p2_from_affine(&r, &q1);
-    blst_p2_add_affine(&r, &r, &q2);
+    blst_p2_add_or_double_affine(&r, &r, &q2);
   }
 
   if (!inf1 || !inf2) {
@@ -235,7 +259,7 @@ static pre_result_t pre_bls12_g1msm(bytes_t input, buffer_t* output, uint64_t* g
     // read scalar (big-endian 32 bytes)
     memcpy(scalars_store + 32 * i, base, 32);
     bool inf = false;
-    if (!read_g1_affine(base + 32, &points_store[i], &inf)) {
+    if (!read_g1_affine(base + 32, &points_store[i], &inf, true)) {
       safe_free(points);
       safe_free(points_store);
       safe_free(scalars);
@@ -301,7 +325,7 @@ static pre_result_t pre_bls12_g2msm(bytes_t input, buffer_t* output, uint64_t* g
     const uint8_t* base = input.data + i * LEN_PER_PAIR;
     memcpy(scalars_store + 32 * i, base, 32);
     bool inf = false;
-    if (!read_g2_affine(base + 32, &points_store[i], &inf)) {
+    if (!read_g2_affine(base + 32, &points_store[i], &inf, true)) {
       safe_free(points_store);
       safe_free(scalars_store);
       safe_free(points);
@@ -371,14 +395,14 @@ static pre_result_t pre_bls12_pairing_check(bytes_t input, buffer_t* output, uin
   for (uint32_t i = 0; i < k; i++) {
     const uint8_t* base = input.data + i * LEN_PER_PAIR;
     bool           pinf = false, qinf = false;
-    if (!read_g1_affine(base, &Ps_store[i], &pinf)) {
+    if (!read_g1_affine(base, &Ps_store[i], &pinf, true)) {
       safe_free(Ps);
       safe_free(Qs);
       safe_free(Ps_store);
       safe_free(Qs_store);
       return PRE_INVALID_INPUT;
     }
-    if (!read_g2_affine(base + 128, &Qs_store[i], &qinf)) {
+    if (!read_g2_affine(base + 128, &Qs_store[i], &qinf, true)) {
       safe_free(Ps);
       safe_free(Qs);
       safe_free(Ps_store);
@@ -417,7 +441,7 @@ static pre_result_t pre_bls12_map_fp_to_g1(bytes_t input, buffer_t* output, uint
   *gas_used = 5500;
   if (input.len != 64) return PRE_INVALID_INPUT;
   blst_fp u;
-  blst_fp_from_be64(&u, input.data);
+  if (!blst_fp_from_be64(&u, input.data)) return PRE_INVALID_INPUT;
   blst_p1 P;
   blst_map_to_g1(&P, &u, NULL);
   blst_p1_affine Pa;
@@ -435,8 +459,8 @@ static pre_result_t pre_bls12_map_fp2_to_g2(bytes_t input, buffer_t* output, uin
   *gas_used = 23800;
   if (input.len != 128) return PRE_INVALID_INPUT;
   blst_fp2 u;
-  blst_fp_from_be64(&u.fp[0], input.data);
-  blst_fp_from_be64(&u.fp[1], input.data + 64);
+  if (!blst_fp_from_be64(&u.fp[0], input.data)) return PRE_INVALID_INPUT;
+  if (!blst_fp_from_be64(&u.fp[1], input.data + 64)) return PRE_INVALID_INPUT;
   blst_p2 Q;
   blst_map_to_g2(&Q, &u, NULL);
   blst_p2_affine Qa;

@@ -158,14 +158,15 @@ void req_set_error_wrapper(uintptr_t req_ptr, const std::string& error, uint16_t
   c4_req_set_error(reinterpret_cast<void*>(req_ptr), const_cast<char*>(error.c_str()), node_index);
 }
 
-void* verify_create_ctx_wrapper(py::bytes proof, const std::string& method, const std::string& args, uint64_t chain_id, const std::string& trusted_checkpoint) {
+void* verify_create_ctx_wrapper(py::bytes proof, const std::string& method, const std::string& args, uint64_t chain_id, const std::string& trusted_checkpoint, uint32_t flags) {
   bytes_t proof_data = python_to_bytes_t(proof);
   return c4_verify_create_ctx(
       proof_data,
       const_cast<char*>(method.c_str()),
       const_cast<char*>(args.c_str()),
       chain_id,
-      const_cast<char*>(trusted_checkpoint.c_str()));
+      const_cast<char*>(trusted_checkpoint.c_str()),
+      flags);
 }
 
 prover_t* create_prover_ctx_wrapper(const std::string& method, const std::string& params, uint64_t chain_id, uint32_t flags) {
@@ -176,8 +177,46 @@ prover_t* create_prover_ctx_wrapper(const std::string& method, const std::string
       flags);
 }
 
-int get_method_support_wrapper(uint64_t chain_id, const std::string& method) {
-  return c4_get_method_support(chain_id, const_cast<char*>(method.c_str()));
+int get_method_support_wrapper(uint64_t chain_id, const std::string& method, const std::string& params, uint32_t flags) {
+  return c4_get_method_support(chain_id, const_cast<char*>(method.c_str()),
+      params.empty() ? nullptr : const_cast<char*>(params.c_str()), flags);
+}
+
+void* create_rpc_ctx_wrapper(const std::string& method, const std::string& params, uint64_t chain_id,
+                             uint32_t prover_flags, uint32_t verify_flags, int use_remote_prover) {
+  return c4_create_rpc_ctx(
+      const_cast<char*>(method.c_str()),
+      const_cast<char*>(params.c_str()),
+      chain_id, prover_flags, verify_flags, use_remote_prover);
+}
+
+std::string rpc_execute_json_status_wrapper(void* ctx) {
+  char* result = c4_rpc_execute_json_status(ctx);
+  if (!result) return "";
+  std::string str(result);
+  free(result);
+  return str;
+}
+
+void set_checkpoint_wrapper(uint64_t chain_id, const std::string& checkpoint) {
+  c4_set_checkpoint(chain_id, checkpoint.empty() ? nullptr : checkpoint.c_str());
+}
+
+void rpc_set_witness_keys_wrapper(void* ctx, const std::string& keys) {
+  c4_rpc_set_witness_keys(ctx, keys.empty() ? nullptr : keys.c_str());
+}
+
+void rpc_set_proxy_urls_wrapper(void* ctx, const std::string& rpc_urls, const std::string& beacon_urls) {
+  c4_rpc_set_proxy_urls(ctx, rpc_urls.empty() ? nullptr : rpc_urls.c_str(),
+                        beacon_urls.empty() ? nullptr : beacon_urls.c_str());
+}
+
+void rpc_set_min_latest_block_ts_wrapper(void* ctx, uint64_t ts) {
+  c4_rpc_set_min_latest_block_ts(ctx, ts);
+}
+
+void verify_set_min_latest_block_ts_wrapper(void* ctx, uint64_t ts) {
+  c4_verify_set_min_latest_block_ts(ctx, ts);
 }
 
 // Storage registration function
@@ -245,7 +284,7 @@ PYBIND11_MODULE(_native, m) {
   // Verifier functions
   m.def("create_verify_ctx", &verify_create_ctx_wrapper,
         "Create a new verification context",
-        py::arg("proof"), py::arg("method"), py::arg("args"), py::arg("chain_id"), py::arg("trusted_checkpoint"),
+        py::arg("proof"), py::arg("method"), py::arg("args"), py::arg("chain_id"), py::arg("trusted_checkpoint"), py::arg("flags") = 0,
         py::return_value_policy::take_ownership);
 
   m.def("verify_execute_json_status", &verify_execute_json_status_wrapper,
@@ -268,5 +307,43 @@ PYBIND11_MODULE(_native, m) {
   // Utility functions
   m.def("get_method_support", &get_method_support_wrapper,
         "Check method support type",
-        py::arg("chain_id"), py::arg("method"));
+        py::arg("chain_id"), py::arg("method"), py::arg("params") = "", py::arg("flags") = 0);
+
+  m.def("get_current_version_number", &c4_get_current_version_number,
+        "Return the current Colibri library version number (uint32 as int).");
+
+  // Unified RPC API
+  m.def("create_rpc_ctx", &create_rpc_ctx_wrapper,
+        "Create a unified RPC context",
+        py::arg("method"), py::arg("params"), py::arg("chain_id"),
+        py::arg("prover_flags"), py::arg("verify_flags"), py::arg("use_remote_prover"),
+        py::return_value_policy::take_ownership);
+
+  m.def("rpc_execute_json_status", &rpc_execute_json_status_wrapper,
+        "Execute the unified RPC state machine and return JSON status",
+        py::arg("ctx"));
+
+  m.def("free_rpc_ctx", &c4_free_rpc_ctx,
+        "Free the unified RPC context",
+        py::arg("ctx"));
+
+  m.def("set_checkpoint", &set_checkpoint_wrapper,
+        "Set a trusted checkpoint for a chain",
+        py::arg("chain_id"), py::arg("checkpoint"));
+
+  m.def("rpc_set_witness_keys", &rpc_set_witness_keys_wrapper,
+        "Set witness/signer keys on an RPC context",
+        py::arg("ctx"), py::arg("keys"));
+
+  m.def("rpc_set_proxy_urls", &rpc_set_proxy_urls_wrapper,
+        "Set proxy RPC and Beacon API URLs on an RPC context",
+        py::arg("ctx"), py::arg("rpc_urls"), py::arg("beacon_urls"));
+
+  m.def("rpc_set_min_latest_block_ts", &rpc_set_min_latest_block_ts_wrapper,
+        "Set the lower bound for block.timestamp on \"latest\" requests (Unix seconds; 0 disables)",
+        py::arg("ctx"), py::arg("ts"));
+
+  m.def("verify_set_min_latest_block_ts", &verify_set_min_latest_block_ts_wrapper,
+        "Set the lower bound for block.timestamp on \"latest\" requests (Unix seconds; 0 disables)",
+        py::arg("ctx"), py::arg("ts"));
 }

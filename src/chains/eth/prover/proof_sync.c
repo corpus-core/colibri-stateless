@@ -22,6 +22,7 @@
  */
 
 #include "beacon_types.h"
+#include "eth_compute_units.h"
 #include "eth_tools.h"
 #include "eth_verify.h"
 #include "prover.h"
@@ -39,6 +40,10 @@ static uint64_t next_sync_committee_gindex(chain_id_t chain_id, uint64_t slot) {
 }
 
 static c4_status_t req_client_update(prover_ctx_t* ctx, uint32_t period, uint32_t count, chain_id_t chain_id, bytes_t* data) {
+  // This helper enqueues a Beacon-API SSZ request directly on `ctx->state`
+  // instead of going through `c4_send_beacon_ssz`, so we have to add the CU
+  // ourselves to keep accounting consistent with the rest of the code.
+  eth_cu_add(ctx, CU_BEACON_SSZ);
   buffer_t tmp = {0};
   bprintf(&tmp, "eth/v1/beacon/light_client/updates?start_period=%d&count=%d", period, count);
 
@@ -73,22 +78,28 @@ typedef struct {
   bytes_t  proposer_index;
 } period_data_t;
 
-static c4_status_t extract_sync_data(prover_ctx_t* ctx, bytes_t data, period_data_t* period) {
+static ssz_ob_t unwrap_lcu_response(prover_ctx_t* ctx, bytes_t data) {
+  ssz_ob_t result = {.bytes = NULL_BYTES, .def = NULL};
+  if (data.len < 12) return result;
+  uint64_t payload_len = uint64_from_le(data.data);
+  if (payload_len < 4 || 8 + payload_len > data.len) return result;
+  result.bytes         = bytes(data.data + 12, payload_len - 4);
+  fork_id_t        fork = c4_eth_get_fork_for_lcu(ctx->chain_id, result.bytes);
+  const ssz_def_t* def  = eth_get_light_client_update(fork);
+  result.def = def;
+  return result;
+}
+
+static c4_status_t extract_sync_data(prover_ctx_t* ctx, bytes_t old_data, bytes_t new_data, period_data_t* period) {
   bytes32_t domain    = {0};
   bytes32_t aggregate = {0};
-  if (data.len < 12) THROW_ERROR("invalid client_update");
-  ssz_ob_t old_update = {.bytes = bytes(data.data + 12, uint64_from_le(data.data) - 4), .def = NULL};
-  if (old_update.bytes.len + 24 > data.len) THROW_ERROR("invalid client_update");
-  fork_id_t        fork       = c4_eth_get_fork_for_lcu(ctx->chain_id, old_update.bytes);
-  const ssz_def_t* update_def = eth_get_light_client_update(fork);
-  old_update.def              = update_def;
-  if (!old_update.def) THROW_ERROR("invalid client_update");
-  ssz_ob_t new_update = {.bytes = bytes(data.data + 24 + old_update.bytes.len, uint64_from_le(data.data + 12 + old_update.bytes.len) - 4), .def = NULL};
-  if (new_update.bytes.len + 24 + old_update.bytes.len > data.len) THROW_ERROR("invalid client_update");
-  fork           = c4_eth_get_fork_for_lcu(ctx->chain_id, new_update.bytes);
-  update_def     = eth_get_light_client_update(fork);
-  new_update.def = update_def;
-  if (!new_update.def) THROW_ERROR("invalid client_update");
+
+  ssz_ob_t old_update = unwrap_lcu_response(ctx, old_data);
+  if (!old_update.def) THROW_ERROR("invalid old client_update");
+  ssz_ob_t new_update = unwrap_lcu_response(ctx, new_data);
+  if (!new_update.def) THROW_ERROR("invalid new client_update");
+
+  fork_id_t fork = c4_eth_get_fork_for_lcu(ctx->chain_id, new_update.bytes);
 
   ssz_ob_t old_sync_keys  = ssz_get(&old_update, "nextSyncCommittee");
   ssz_ob_t new_sync_keys  = ssz_get(&new_update, "nextSyncCommittee");
@@ -119,8 +130,9 @@ static c4_status_t extract_sync_data(prover_ctx_t* ctx, bytes_t data, period_dat
   ssz_add_bytes(&signgin_data_builder, "BeaconBlockHeader", header.bytes);
   ssz_add_bytes(&signgin_data_builder, "domain", bytes(domain, 32));
   ssz_ob_t signing_data = ssz_builder_to_bytes(&signgin_data_builder);
-  gindex_t state_gidx   = ssz_gindex(signing_data.def, 2, "BeaconBlockHeader", "stateRoot");
-  bytes_t  header_proof = ssz_create_proof(signing_data, domain, state_gidx);
+  gindex_t state_gidx = ssz_gindex(signing_data.def, 2, "BeaconBlockHeader", "stateRoot");
+  eth_cu_add_proof(ctx);
+  bytes_t header_proof = ssz_create_proof(signing_data, domain, state_gidx);
   bytes_t  full_proof   = bytes(malloc(header_proof.len + state_proof.len + 32), header_proof.len + state_proof.len + 32);
   memcpy(full_proof.data, aggregate, 32);                                              // 1
   memcpy(full_proof.data + 32, state_proof.data, state_proof.len);                     // 5 for deneb
@@ -154,13 +166,17 @@ static c4_status_t create_proof(prover_ctx_t* ctx, period_data_t* period) {
 }
 
 c4_status_t c4_proof_sync(prover_ctx_t* ctx) {
-  bytes_t       data          = NULL_BYTES;
+  bytes_t       old_data      = NULL_BYTES;
+  bytes_t       new_data      = NULL_BYTES;
   period_data_t period_values = {0};
   json_t        period_data   = json_at(ctx->params, 0);
   uint32_t      period        = json_as_uint32(period_data);
+  c4_status_t   status        = C4_SUCCESS;
 
   if (period == 0) THROW_ERROR_WITH("Invalid period: %j", period_data);
-  TRY_ASYNC(req_client_update(ctx, period - 2, 2, ctx->chain_id, &data));
-  TRY_ASYNC(extract_sync_data(ctx, data, &period_values));
+  TRY_ADD_ASYNC(status, req_client_update(ctx, period - 2, 1, ctx->chain_id, &old_data));
+  TRY_ADD_ASYNC(status, req_client_update(ctx, period - 1, 1, ctx->chain_id, &new_data));
+  TRY_ASYNC(status);  
+  TRY_ASYNC(extract_sync_data(ctx, old_data, new_data, &period_values));
   return create_proof(ctx, &period_values);
 }

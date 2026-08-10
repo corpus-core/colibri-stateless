@@ -29,9 +29,31 @@ extern "C" {
 #endif
 
 #include "beacon.h"
+#include "beacon_types.h"
 #include "prover.h"
 #include "ssz.h"
 #include "sync_committee.h"
+#include "version.h"
+
+// First client version that consumes SP1 v6 ("Hypercube") proofs. Clients below this
+// version keep receiving the legacy v5 `zk_proof.ssz` (`ZKSyncData`, 260-byte proof);
+// from this version on the prover serves the `zk_proof_v6.ssz` (`ZKSyncDataV6`,
+// 356-byte proof). Keep the numeric gate and the string in sync (gate vs. message text).
+#define C4_ZK_FIRST_V6_VERSION     c4_version_number(2, 0, 0)
+#define C4_ZK_FIRST_V6_VERSION_STR "2.0.0"
+
+/**
+ * The `eth_ssz_verification_type` selector for the ZK sync data variant matching the
+ * given client version: `ETH_SSZ_VERIFY_ZK_SYNCDATA_V6` (356-byte proof) for clients
+ * `>= 2.0.0`, the legacy `ETH_SSZ_VERIFY_ZK_SYNCDATA` (260-byte proof) otherwise. A
+ * version of `0` (unknown / pre-versioning) counts as legacy.
+ *
+ * @param version The client version as returned by `c4_version_number`.
+ * @return The `eth_ssz_type_t` selector for the matching union variant.
+ */
+static inline eth_ssz_type_t c4_zk_syncdata_type(uint32_t version) {
+  return version >= C4_ZK_FIRST_V6_VERSION ? ETH_SSZ_VERIFY_ZK_SYNCDATA_V6 : ETH_SSZ_VERIFY_ZK_SYNCDATA;
+}
 
 typedef enum {
   HISTORIC_PROOF_NONE   = 0,
@@ -45,6 +67,8 @@ typedef struct {
   uint64_t             required_period;   // latest_period  required
   uint64_t             oldest_period;     // current period used by the the verifier
   uint64_t             newest_period;     // current period used by the the verifier
+  uint64_t             block_period;      // the period of the target block
+  uint64_t             post_sync_period;  // the period of the target block after the sync period
   c4_state_sync_type_t status;            // the status of the
 
 } syncdata_state_t;
@@ -86,6 +110,7 @@ c4_status_t c4_get_syncdata_proof(prover_ctx_t* ctx, syncdata_state_t* sync_data
 void        ssz_add_header_proof(ssz_builder_t* builder, beacon_block_t* block_data, blockroot_proof_t block_proof);
 void        c4_free_block_proof(blockroot_proof_t* block_proof);
 c4_status_t c4_fetch_zk_proof_data(prover_ctx_t* ctx, zk_proof_data_t* zk_proof, uint64_t period);
+
 #ifdef __cplusplus
 }
 #endif

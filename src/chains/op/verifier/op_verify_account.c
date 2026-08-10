@@ -61,11 +61,10 @@ bool op_verify_account_proof(verify_ctx_t* ctx) {
   if (!eth_verify_account_proof_exec(ctx, &ctx->proof, state_root, field == ETH_ACCOUNT_PROOF ? ETH_ACCOUNT_STORAGE_HASH : field, values)) RETURN_VERIFY_ERROR(ctx, "invalid account proof!");
   if (field && !eth_account_verify_data(ctx, verified_address.data, field, values)) RETURN_VERIFY_ERROR(ctx, "invalid account data!");
 
-  ssz_ob_t* execution_payload = op_extract_verified_execution_payload(ctx, block_proof, &block_number, NULL);
-  if (!execution_payload) return false;
-  bool match = memcmp(state_root, ssz_get(execution_payload, "stateRoot").bytes.data, 32) == 0;
-  safe_free(execution_payload);
-  if (!match) RETURN_VERIFY_ERROR(ctx, "State root mismatch");
+  ssz_ob_t execution_payload = op_extract_verified_execution_payload(ctx, block_proof, &block_number, NULL);
+  if (!execution_payload.def) return false;
+  if (memcmp(state_root, ssz_get(&execution_payload, "stateRoot").bytes.data, 32) != 0)
+    RETURN_VERIFY_ERROR(ctx, "State root mismatch");
 
   ctx->success = true;
   return true;

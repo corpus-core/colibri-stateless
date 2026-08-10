@@ -326,6 +326,7 @@ static server_list_t checkpointz_servers = {0};
 
 static void cache_response(single_request_t* r);
 static void trigger_uncached_curl_request(void* data, char* value, size_t value_len);
+static void trigger_cached_curl_requests(request_t* req);
 
 // Helper function to extract RPC method name from request payload
 static char* extract_rpc_method(data_request_t* req) {
@@ -480,12 +481,19 @@ static void pending_remove(single_request_t* req) {
   }
 }
 static void call_callback_if_done(request_t* req) {
-  for (size_t i = 0; i < req->request_count; i++) {
+  // Only check requests that have been dispatched so far
+  for (size_t i = 0; i < req->batch_started; i++) {
     if (c4_state_is_pending(req->requests[i].req)) return;                    // we are not done yet if one is still pending
     if (!req->requests[i].end_time) req->requests[i].end_time = current_ms(); // set the end time if it's not set yet
   }
 
-  // now handle metrics
+  // Current batch is complete but more requests are waiting -- dispatch next batch
+  if (req->batch_started < req->request_count) {
+    trigger_cached_curl_requests(req);
+    return;
+  }
+
+  // All requests are done -- handle metrics
   uint8_t  tmp[1024];
   buffer_t buffer = stack_buffer(tmp);
 
@@ -550,13 +558,14 @@ static void handle_curl_events() {
     }
 #endif
 
-    server_list_t* servers           = c4_get_server_list(r->req->type);
+    server_list_t* servers           = c4_get_effective_server_list(r->req->type, r->parent);
     r->end_time                      = current_ms();
     uint64_t           response_time = r->end_time - r->start_time;
     c4_response_type_t response_type = c4_classify_response(http_code,
                                                             r->url ? r->url : r->req->url,
                                                             r->buffer.data,
-                                                            r->req); // Classify the response type
+                                                            r->req,
+                                                            servers);
 
     // Collect libcurl-level metrics
     {
@@ -591,10 +600,14 @@ static void handle_curl_events() {
                            response_type == C4_RESPONSE_ERROR_METHOD_NOT_SUPPORTED);
     // Update via unified end hook (also adjusts AIMD and method stats)
     {
-      char* rpc_method = extract_rpc_method(r->req);
+      char*       rpc_method = extract_rpc_method(r->req);
+      bool        is_null = (http_code >= 200 && http_code < 300
+                         && rpc_method && r->buffer.data.data && r->buffer.data.len > 0
+                         && strstr((const char*) r->buffer.data.data, "\"result\":null"));
+      const char* ctx    = is_null ? "null_result" : NULL;
       c4_on_request_end(servers, r->req->response_node_index, response_time,
                         health_success, response_type, http_code,
-                        rpc_method, NULL);
+                        rpc_method, ctx);
       if (rpc_method) safe_free(rpc_method);
     }
 
@@ -891,6 +904,16 @@ server_list_t* c4_get_server_list(data_request_type_t type) {
   }
 }
 
+server_list_t* c4_get_effective_server_list(data_request_type_t type, request_t* req) {
+  if (req) {
+    if (type == C4_DATA_TYPE_ETH_RPC && req->proxy_rpc_servers && req->proxy_rpc_servers->count > 0)
+      return req->proxy_rpc_servers;
+    if (type == C4_DATA_TYPE_BEACON_API && req->proxy_beacon_servers && req->proxy_beacon_servers->count > 0)
+      return req->proxy_beacon_servers;
+  }
+  return c4_get_server_list(type);
+}
+
 static size_t curl_append(void* contents, size_t size, size_t nmemb, void* buf) {
   buffer_t* buffer = (buffer_t*) buf;
   buffer_grow(buffer, buffer->data.len + size * nmemb + 1);
@@ -1043,7 +1066,7 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
   }
   else {
     // Cache miss - proceed with normal request handling
-    server_list_t* servers = c4_get_server_list(r->req->type);
+    server_list_t* servers = c4_get_effective_server_list(r->req->type, r->parent);
 
     int selected_index = -1;
 
@@ -1135,6 +1158,13 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
     r->headers = curl_slist_append(r->headers, c4_request_fix_encoding(r->req->encoding, r, servers ? servers->client_types[selected_index] : 0) == C4_DATA_ENCODING_JSON ? "Accept: application/json" : "Accept: application/octet-stream");
     r->headers = curl_slist_append(r->headers, "charsets: utf-8");
     r->headers = curl_slist_append(r->headers, "User-Agent: c4 curl ");
+    // Forward the cache freshness bound so a shared cache/CDN never returns a
+    // response older than `ttl` seconds (e.g. short bound for `latest` block proofs).
+    if (r->req->ttl) {
+      char     ttl_tmp[64];
+      buffer_t ttl_buf = stack_buffer(ttl_tmp);
+      r->headers       = curl_slist_append(r->headers, bprintf(&ttl_buf, "Cache-Control: max-age=%d", (uint32_t) r->req->ttl));
+    }
     // Inject b3 tracing headers
     if (r->attempt_span) {
       tracing_inject_b3_headers(r->attempt_span, &r->headers);
@@ -1178,8 +1208,19 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
 }
 
 static void trigger_cached_curl_requests(request_t* req) {
-  uint64_t start_time = current_ms();
-  for (size_t i = 0; i < req->request_count; i++) {
+  uint64_t start_time  = current_ms();
+  size_t   max_batch   = http_server.max_parallel_requests > 0
+                             ? (size_t) http_server.max_parallel_requests
+                             : req->request_count;
+  size_t   batch_start = req->batch_started;
+  size_t   batch_end   = batch_start + max_batch;
+  if (batch_end > req->request_count) batch_end = req->request_count;
+
+  // Advance batch_started before dispatching so that synchronous completions
+  // (e.g. cache hits calling call_callback_if_done) see the correct range.
+  req->batch_started = batch_end;
+
+  for (size_t i = batch_start; i < batch_end; i++) {
     single_request_t* r       = req->requests + i;
     data_request_t*   pending = r->req;
     r->start_time             = start_time;
@@ -1229,6 +1270,7 @@ void c4_add_request(client_t* client, data_request_t* req, void* data, http_requ
   r->requests          = (single_request_t*) safe_calloc(1, sizeof(single_request_t));
   r->requests->req     = req;
   r->request_count     = 1;
+  r->batch_started     = 0;
   r->ctx               = res;
   res->cb              = cb;
   res->data            = data;
@@ -1254,6 +1296,7 @@ void c4_start_curl_requests(request_t* req, c4_state_t* state) {
 
   req->requests      = (single_request_t*) safe_calloc(len, sizeof(single_request_t));
   req->request_count = len;
+  req->batch_started = 0;
 
   for (data_request_t* r = state->requests; r; r = r->next) {
     if (c4_state_is_pending(r)) req->requests[i++].req = r;
@@ -1279,7 +1322,7 @@ bool c4_check_retry_request(request_t* req) {
   for (size_t i = 0; i < req->request_count; i++) {
     single_request_t* r       = req->requests + i;
     data_request_t*   pending = r->req;
-    server_list_t*    servers = c4_get_server_list(pending->type);
+    server_list_t*    servers = c4_get_effective_server_list(pending->type, req);
 
     if (pending->error && servers) {
       // Check if too many servers are unhealthy (might indicate user error)
@@ -1341,6 +1384,7 @@ bool c4_check_retry_request(request_t* req) {
     for (int i = 0; i < req->request_count; i++) free_single_request(req->requests + i);
     req->requests      = pendings;
     req->request_count = retry_requests;
+    req->batch_started = 0;
 
     trigger_cached_curl_requests(req);
 
@@ -1396,11 +1440,13 @@ void c4_init_curl(uv_timer_t* timer) {
   // Auto-detect client types for servers without explicit configuration
   c4_detect_server_client_types(&eth_rpc_servers, C4_DATA_TYPE_ETH_RPC);
   c4_detect_server_client_types(&beacon_api_servers, C4_DATA_TYPE_BEACON_API);
+  // Detect which RPC servers have pruned transaction history
+  c4_detect_archive_status(&eth_rpc_servers);
   // Start RPC head polling (optional, based on ENV)
   c4_start_rpc_head_poller(&eth_rpc_servers);
 }
 
-static void free_server_list(server_list_t* list) {
+void c4_free_server_list(server_list_t* list) {
   if (!list) return;
   if (list->health_stats) {
     for (size_t i = 0; i < list->count; i++)
@@ -1435,8 +1481,8 @@ void c4_cleanup_curl() {
     memcache_free(&memcache_client);
   }
 
-  free_server_list(&eth_rpc_servers);
-  free_server_list(&beacon_api_servers);
-  free_server_list(&prover_servers);
-  free_server_list(&checkpointz_servers);
+  c4_free_server_list(&eth_rpc_servers);
+  c4_free_server_list(&beacon_api_servers);
+  c4_free_server_list(&prover_servers);
+  c4_free_server_list(&checkpointz_servers);
 }

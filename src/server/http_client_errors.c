@@ -10,6 +10,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef _MSC_VER
+#include <intrin.h>
+#endif
 
 // Helper function for safe substring search in bytes_t
 static bool bytes_contains_string(bytes_t data, const char* needle) {
@@ -112,6 +115,14 @@ static c4_response_type_t classify_jsonrpc_error_by_code(int error_code, json_t 
       json_t message = json_get(error, "message");
       if (message.type == JSON_TYPE_STRING) {
         bytes_t msg_bytes = bytes(message.start, message.len);
+        // Some clients respond with a generic "Invalid params" when they don't support extended parameters
+        // (e.g., stateOverrides) for certain methods. In that case, treat it as method-not-supported so the
+        // caller can fall back to another upstream client.
+        if (req && (req_is_method(req, "eth_createAccessList") || req_is_method(req, "eth_call")) &&
+            (bytes_contains_string(msg_bytes, "Invalid params") || bytes_contains_string(msg_bytes, "invalid params"))) {
+          set_jsonrpc_error_message(req, error, error_code, "JSON-RPC method does not support provided parameters");
+          return C4_RESPONSE_ERROR_METHOD_NOT_SUPPORTED;
+        }
         // Missing 0x prefix or block range limits are user errors
         if (bytes_contains_string(msg_bytes, "missing 0x prefix") ||
             bytes_contains_string(msg_bytes, "Block range limit exceeded") ||
@@ -307,26 +318,84 @@ static bool c4_is_beacon_api_sync_lag(long http_code, const char* url, bytes_t r
 }
 
 // Main function to classify response based on HTTP code and content
-c4_response_type_t c4_classify_response(long http_code, const char* url, bytes_t response_body, data_request_t* req) {
+c4_response_type_t c4_classify_response(long http_code, const char* url, bytes_t response_body, data_request_t* req,
+                                        server_list_t* servers_opt) {
 
   // Check for success first
   if (http_code >= 200 && http_code < 300) {
     // For JSON-RPC, we need to check for error field even with 200 status
     if (req && req->type == C4_DATA_TYPE_ETH_RPC && response_body.data && response_body.len > 0) {
-      // Treat result:null as retryable for certain methods where null indicates unavailability
-      // rather than a valid absence. This avoids false positives when a lagging node returns null.
+      server_list_t* servers = servers_opt ? servers_opt : c4_get_server_list(req->type);
+      // For methods that can legitimately return null (e.g. unknown tx, pending tx, unknown block),
+      // only treat null as retryable if the responding node demonstrably lags behind other nodes.
+      // This avoids penalising healthy nodes for correct null responses while still retrying
+      // when sync lag is the likely cause.
       bool has_null_result = bytes_contains_string(response_body, "\"result\":null");
       if (has_null_result) {
-        bool null_retry =
+        bool nullable_method =
             req_is_method(req, "eth_getBlockReceipts") ||
             req_is_method(req, "eth_getBlockByHash") ||
             req_is_method(req, "eth_getTransactionByHash") ||
             req_is_method(req, "eth_getTransactionReceipt") ||
             req_is_method(req, "eth_getBlockByNumber");
-        if (null_retry) {
-          if (!req->error) req->error = strdup("JSON-RPC result is null");
-          log_warn("   [json ] Treating result=null as retryable for this method");
-          return C4_RESPONSE_ERROR_RETRY;
+        if (nullable_method) {
+          if (servers && servers->count > 1 && req->response_node_index < servers->count) {
+            uint64_t this_head = servers->health_stats[req->response_node_index].latest_block;
+            uint64_t max_head  = 0;
+            for (size_t i = 0; i < servers->count; i++) {
+              if (servers->health_stats[i].latest_block > max_head)
+                max_head = servers->health_stats[i].latest_block;
+            }
+            if (this_head > 0 && max_head > this_head) {
+              if (!req->error) req->error = strdup("JSON-RPC result is null");
+              log_warn("   [json ] result=null, node head=%lu best=%lu - retrying", (unsigned long) this_head, (unsigned long) max_head);
+              return C4_RESPONSE_ERROR_RETRY;
+            }
+
+            // For methods affected by transaction history pruning, retry unless
+            // the responding node is a verified archive (low null-result rate).
+            {
+              static const char* prunable_methods[] = {
+                  "eth_getTransactionByHash", "eth_getTransactionReceipt", "eth_getBlockReceipts", NULL};
+              const char* method = NULL;
+              for (const char** m = prunable_methods; *m; m++) {
+                if (req_is_method(req, *m)) { method = *m; break; }
+              }
+              if (method) {
+                server_health_t* h = &servers->health_stats[req->response_node_index];
+                if (h->pruned) {
+                  for (size_t i = 0; i < servers->count; i++) {
+                    if (i == req->response_node_index || (req->node_exclude_mask & (1 << i))) continue;
+                    if (!servers->health_stats[i].pruned) {
+                      if (!req->error) req->error = strdup("JSON-RPC result is null (pruned node)");
+                      log_warn("   [json ] result=null from pruned node - retrying with non-pruned");
+                      return C4_RESPONSE_ERROR_RETRY;
+                    }
+                  }
+                }
+                else if (!c4_is_verified_archive(h, method)) {
+                  bool has_archive_alt = false;
+                  for (size_t i = 0; i < servers->count; i++) {
+                    if (i == req->response_node_index || (req->node_exclude_mask & (1 << i))) continue;
+                    if (c4_is_verified_archive(&servers->health_stats[i], method)) {
+                      has_archive_alt = true;
+                      break;
+                    }
+                  }
+#ifdef _MSC_VER
+                  int tried = (int) __popcnt(req->node_exclude_mask);
+#else
+                  int tried = __builtin_popcount(req->node_exclude_mask);
+#endif
+                  if (has_archive_alt || tried == 0) {
+                    if (!req->error) req->error = strdup("JSON-RPC result is null");
+                    log_warn("   [json ] result=null, node not verified as archive (tried=%d) - retrying", tried);
+                    return C4_RESPONSE_ERROR_RETRY;
+                  }
+                }
+              }
+            }
+          }
         }
       }
       // Quick check: only parse JSON if "error" appears in first 100 bytes

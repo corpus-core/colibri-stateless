@@ -50,13 +50,25 @@ typedef enum {
 /**
  * @brief Executes an Ethereum precompile contract.
  * 
- * @param address The address of the precompile (20 bytes). Usually only the last byte is checked (e.g. 0x01, 0x08).
+ * @param address The address of the precompile (20 bytes). Standard precompiles use only the last byte (`0x01`–`0x11`) with the leading bytes zero; EIP-7951 `P256VERIFY` uses `0x0000…0100` (bytes `address[18]==0x01`, `address[19]==0x00`).
  * @param input The input data for the precompile call.
  * @param output Pointer to a buffer where the output will be written. The buffer data will be allocated/resized.
  * @param gas_used Pointer to a uint64_t where the consumed gas cost will be written.
  * @return PRE_SUCCESS on success, or an error code indicating the failure reason.
  */
 pre_result_t eth_execute_precompile(const uint8_t* address, const bytes_t input, buffer_t* output, uint64_t* gas_used);
+
+/**
+ * @brief Tests whether `address` (20 bytes) is recognised as an Ethereum precompile address.
+ *
+ * Mirrors the address-range checks performed by `eth_execute_precompile`:
+ *   - classic 1-byte precompiles with `address[0..18] == 0` and `address[19]` in `0x01..0x14`;
+ *   - EIP-7951 `P256VERIFY` at `0x0000…0100` (`address[18]==0x01`, `address[19]==0x00`).
+ *
+ * Returns `true` even for entries whose implementation may be compiled out (e.g. KZG/BN128);
+ * in that case `eth_execute_precompile` will return `PRE_NOT_SUPPORTED` rather than dispatching.
+ */
+bool eth_is_precompile_address(const uint8_t* address);
 
 /**
  * Inject the trusted-setup G2^tau point (compressed, 96 bytes) for the KZG precompile.

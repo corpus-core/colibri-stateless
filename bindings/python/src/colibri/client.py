@@ -4,6 +4,7 @@ Main Colibri client implementation
 
 import asyncio
 import json
+import time
 from typing import Any, Dict, List, Optional, Union
 
 import aiohttp
@@ -14,7 +15,10 @@ from .types import (
     DataRequest,
     HTTPError,
     MethodType,
+    PrivacyMode,
     ProofError,
+    ProverMode,
+    RevertError,
     RPCError,
     VerificationError,
 )
@@ -48,8 +52,17 @@ class Colibri:
         eth_rpcs: List[str] = None,
         beacon_apis: List[str] = None,
         checkpointz: List[str] = None,
+        oblivious_nodes: Optional[List[str]] = None,
         trusted_checkpoint: Optional[str] = None,
         include_code: bool = False,
+        use_accesslist: bool = True,
+        zk_proof: bool = False,
+        privacy_mode: Optional[PrivacyMode] = None,
+        prover_mode: Optional['ProverMode'] = None,
+        checkpoint_witness_keys: Optional[str] = None,
+        skip_wsp_check: bool = False,
+        logs_completeness: bool = False,
+        max_latest_age_seconds: int = 60,
         storage: Optional[ColibriStorage] = None,
         request_handler: Optional[Any] = None,  # For testing
     ):
@@ -62,8 +75,29 @@ class Colibri:
             eth_rpcs: List of Ethereum RPC URLs
             beacon_apis: List of beacon chain API URLs
             checkpointz: List of checkpointz server URLs
+            oblivious_nodes: TEE RPC endpoints for eth_getProof (privacy-preserving storage reads)
             trusted_checkpoint: Optional trusted checkpoint as hex string (0x-prefixed, 66 chars)
             include_code: Whether to include code in proofs
+            use_accesslist: Whether to use eth_createAccessList (default True). Set False
+                to opt into the legacy debug_traceCall path (C4_PROVER_FLAG_USE_DEBUG_TRACE).
+            zk_proof: Whether to request ZK sync proofs from remote provers
+            privacy_mode: PAP mode (PrivacyMode.NONE or PrivacyMode.BASIC). Default NONE.
+            checkpoint_witness_keys: Optional hex-encoded witness signer keys (0x-prefixed)
+            skip_wsp_check: If True, set VERIFY_FLAG_SKIP_WSP_CHECK (bit 1<<7) and skip the
+                Weak Subjectivity Period check. SECURITY: only safe with an alternative trust
+                anchor (witness signatures, hard-coded checkpoint, signed package); disabling
+                raises the risk of long-range attacks across periods older than the WSP.
+                Default: False.
+            logs_completeness: If True, eth_getLogs produces and requires a completeness proof
+                over the requested block range (prover flag 1<<12, verify flag 1<<9), guaranteeing
+                that no matching log was omitted. Default: False.
+            max_latest_age_seconds: Maximum age (in seconds) accepted for a proof whose
+                request uses the ``"latest"`` block tag. The verifier rejects proofs whose
+                ``block.timestamp`` is older than ``time.time() - max_latest_age_seconds``
+                with ``"proof for latest too old"``. Set to ``0`` to disable the check
+                (e.g. when working with proof formats that lack a block context). Currently
+                active for ``eth_call``, ``eth_estimateGas``, and
+                ``colibri_simulateTransaction``. Default: 60 (~5 Ethereum slots).
             storage: Storage implementation (defaults to DefaultStorage)
             request_handler: Optional request handler for testing
         """
@@ -73,9 +107,19 @@ class Colibri:
         self.eth_rpcs = eth_rpcs if eth_rpcs is not None else self._get_default_eth_rpcs(chain_id)
         self.beacon_apis = beacon_apis if beacon_apis is not None else self._get_default_beacon_apis(chain_id)
         self.checkpointz = checkpointz if checkpointz is not None else self._get_default_checkpointz(chain_id)
+        self.oblivious_nodes = oblivious_nodes if oblivious_nodes is not None else []
         self.trusted_checkpoint = trusted_checkpoint
         self.include_code = include_code
+        self.use_accesslist = use_accesslist
+        self.zk_proof = zk_proof
+        self.privacy_mode = privacy_mode if privacy_mode is not None else PrivacyMode.NONE
+        self.prover_mode = prover_mode
+        self.checkpoint_witness_keys = checkpoint_witness_keys
+        self.skip_wsp_check = skip_wsp_check
+        self.logs_completeness = logs_completeness
+        self.max_latest_age_seconds = max_latest_age_seconds
         self.request_handler = request_handler
+        self._light_client_task: Optional[asyncio.Task] = None
 
         # Initialize storage - registration is global in C
         # The first instance determines the global storage type for C operations
@@ -98,60 +142,143 @@ class Colibri:
     def _get_default_provers(chain_id: int) -> List[str]:
         """Get default prover URLs for chain"""
         defaults = {
-            1: ["https://mainnet1.colibri-proof.tech"],
-            11155111: ["https://sepolia.colibri-proof.tech"],
-            100: ["https://gnosis.colibri-proof.tech"],
+            1: [
+                "https://mainnet.colibri-proof.tech",
+                "https://mainnet-prover.incubed.net",
+                "https://mainnet.colimind.com",
+            ],
+            11155111: [
+                "https://sepolia.colibri-proof.tech",
+                "https://sepolia-prover.incubed.net",
+                "https://sepolia.colimind.com",
+            ],
+            100: [
+                "https://gnosis.colibri-proof.tech",
+                "https://gnosis-prover.incubed.net",
+                "https://gnosis.colimind.com",
+            ],
             10200: ["https://chiado.colibri-proof.tech"],
         }
         return defaults.get(chain_id, ["https://c4.incubed.net"])
 
     @staticmethod
     def _get_default_eth_rpcs(chain_id: int) -> List[str]:
-        """Get default Ethereum RPC URLs for chain"""
+        """Get default Ethereum RPC URLs for chain (fallback order: colibri-proof.tech first, public as fallback)"""
         defaults = {
-            1: ["https://rpc.ankr.com/eth"],
-            11155111: ["https://ethereum-sepolia-rpc.publicnode.com"],
-            100: ["https://rpc.ankr.com/gnosis"],
-            10200: ["https://gnosis-chiado-rpc.publicnode.com"],
+            1: [
+                "https://mainnet.colibri-proof.tech/execution",
+                "https://eth.drpc.org",
+                "https://ethereum-rpc.publicnode.com",
+                "https://singapore.rpc.blxrbdn.com",
+            ],
+            11155111: [
+                "https://sepolia.colibri-proof.tech/execution",
+                "https://sepolia.drpc.org",
+                "https://ethereum-sepolia-rpc.publicnode.com",
+                "https://sepolia.gateway.tenderly.co",
+            ],
+            100: [
+                "https://gnosis.colibri-proof.tech/execution",
+                "https://rpc.gnosischain.com",
+                "https://rpc.gnosis.gateway.fm",
+                "https://gnosis-rpc.publicnode.com",
+            ],
+            10200: [
+                "https://rpc.chiado.gnosis.gateway.fm",
+                "https://rpc.chiadochain.net",
+                "https://gnosis-chiado-rpc.publicnode.com",
+            ],
         }
-        return defaults.get(chain_id, ["https://rpc.ankr.com/eth"])
+        return defaults.get(chain_id, [])
 
     @staticmethod
     def _get_default_beacon_apis(chain_id: int) -> List[str]:
-        """Get default beacon API URLs for chain"""
+        """Get default beacon API URLs for chain (fallback order: colibri-proof.tech first, public as fallback)"""
         defaults = {
-            1: ["https://lodestar-mainnet.chainsafe.io"],
-            11155111: ["https://ethereum-sepolia-beacon-api.publicnode.com"],
-            100: ["https://gnosis.colibri-proof.tech"],
-            10200: ["https://gnosis-chiado-beacon-api.publicnode.com"],
+            1: [
+                "https://mainnet.colibri-proof.tech/consensus",
+                "https://gateway.tenderly.co/public/mainnet",
+                "https://ethereum-beacon-api.publicnode.com",
+            ],
+            11155111: [
+                "https://sepolia.colibri-proof.tech/consensus",
+                "https://ethereum-sepolia-beacon-api.publicnode.com",
+            ],
+            100: [
+                "https://gnosis.colibri-proof.tech/consensus",
+                "https://rpc-gbc.gnosischain.com",
+                "https://gnosis-beacon-api.publicnode.com",
+            ],
+            10200: [
+                "https://rpc-gbc.chiadochain.net",
+            ],
         }
-        return defaults.get(chain_id, ["https://lodestar-mainnet.chainsafe.io"])
+        return defaults.get(chain_id, [])
 
     @staticmethod
     def _get_default_checkpointz(chain_id: int) -> List[str]:
         """Get default checkpointz URLs for chain"""
         defaults = {
-            1: ["https://sync-mainnet.beaconcha.in", "https://beaconstate.info", "https://sync.invis.tools", "https://beaconstate.ethstaker.cc"],
-            11155111: [],  # No public checkpointz for Sepolia yet
-            100: [],  # TODO: Add Gnosis checkpointz servers
-            10200: [],  # No public checkpointz for Chiado yet
+            1: [
+                "https://sync-mainnet.beaconcha.in",
+                "https://mainnet.checkpoint.sigp.io",
+                "https://mainnet-checkpoint-sync.attestant.io",
+                "https://beaconstate-mainnet.chainsafe.io",
+                "https://mainnet-checkpoint-sync.stakely.io",
+                "https://checkpointz.pietjepuk.net",
+                "https://beaconstate.ethstaker.cc",
+            ],
+            11155111: [
+                "https://checkpoint-sync.sepolia.ethpandaops.io",
+                "https://beaconstate-sepolia.chainsafe.io",
+            ],
+            100: ["https://checkpoint.gnosischain.com"],
+            10200: ["https://checkpoint.chiadochain.net"],
         }
         return defaults.get(chain_id, [])
 
-    def get_method_support(self, method: str) -> MethodType:
+    def _get_verify_flags(self) -> int:
+        """Return verify flags for C API (e.g. VERIFY_FLAG_PAP = 2, VERIFY_FLAG_OBLIVIOUS = 64, VERIFY_FLAG_SKIP_WSP_CHECK = 128)."""
+        pap = self.privacy_mode == PrivacyMode.BASIC or bool(self.oblivious_nodes)
+        flags = 2 if pap else 0
+        if self.oblivious_nodes:
+            flags |= 1 << 6
+        if self.skip_wsp_check:
+            flags |= 1 << 7
+        if self.logs_completeness:
+            flags |= 1 << 9
+        return flags
+
+    def _get_min_latest_block_ts(self) -> int:
+        """Compute the lower bound for block.timestamp accepted on "latest" proofs.
+
+        Returns ``now - max_latest_age_seconds`` in Unix seconds, or ``0`` when
+        the host disables the check (``max_latest_age_seconds <= 0``). The
+        wallclock is read here in the binding so the C/WASM core stays
+        clock-free.
         """
-        Check what type of support a method has
-        
-        Args:
-            method: RPC method name
-            
-        Returns:
-            MethodType indicating the support level
+        if self.max_latest_age_seconds <= 0:
+            return 0
+        now = int(time.time())
+        return max(0, now - self.max_latest_age_seconds)
+
+    def get_method_support(self, method: str, params: Optional[List[Any]] = None) -> MethodType:
+        """
+        Check what type of support a method has.
+
+        In PAP mode the result may depend on cached data for the given params
+        (e.g. `eth_call` can become LOCAL when storage values are cached).
+
+        @param method RPC method name
+        @param params Optional method parameters (used in PAP mode for cache lookup)
+        @return MethodType indicating the support level
         """
         native = _get_native()
         if native and hasattr(native, 'get_method_support'):
             try:
-                type_int = native.get_method_support(self.chain_id, method)
+                import json
+                params_str = json.dumps(params) if params else ""
+                type_int = native.get_method_support(self.chain_id, method, params_str, self._get_verify_flags())
                 return MethodType(type_int)
             except (ValueError, TypeError):
                 return MethodType.UNDEFINED
@@ -196,11 +323,12 @@ class Colibri:
         try:
             # Create prover context
             params_json = json.dumps(params)
+            prover_flags = (1 if self.include_code else 0) | ((1 << 6) if not self.use_accesslist else 0) | ((1 << 12) if self.logs_completeness else 0)
             ctx = native.create_prover_ctx(
                 method, 
                 params_json, 
                 self.chain_id, 
-                1 if self.include_code else 0
+                prover_flags
             )
             
             if not ctx:
@@ -264,15 +392,19 @@ class Colibri:
             trusted_checkpoint_str = self.trusted_checkpoint if self.trusted_checkpoint else ""
             
             ctx = native.create_verify_ctx(
-                proof, 
-                method, 
-                params_json, 
-                self.chain_id, 
-                trusted_checkpoint_str
+                proof,
+                method,
+                params_json,
+                self.chain_id,
+                trusted_checkpoint_str,
+                self._get_verify_flags()
             )
             
             if not ctx:
                 raise VerificationError(f"Failed to create verification context for {method}")
+
+            if hasattr(native, 'verify_set_min_latest_block_ts'):
+                native.verify_set_min_latest_block_ts(ctx, self._get_min_latest_block_ts())
 
             try:
                 # Execute verification with request handling
@@ -290,6 +422,8 @@ class Colibri:
                     
                     if status["status"] == "success":
                         return status.get("result")
+                    elif status["status"] == "revert":
+                        raise RevertError(status.get("data", "0x"))
                     elif status["status"] == "error":
                         raise VerificationError(status.get("error", "Unknown verification error"))
                     elif status["status"] == "pending":
@@ -300,54 +434,110 @@ class Colibri:
             finally:
                 native.verify_free_ctx(ctx)
                 
+        # Propagate VerificationError and RevertError as-is. RevertError is a
+        # fully verified outcome (the EVM ran to completion but reverted) --
+        # callers need it intact to decode the data for EIP-3668 / CCIP-Read or
+        # custom Solidity errors.
+        except (VerificationError, RevertError):
+            raise
         except json.JSONDecodeError as e:
             raise VerificationError(f"Invalid JSON in verification response: {e}") from e
         except Exception as e:
-            if isinstance(e, VerificationError):
-                raise
             raise VerificationError(f"Proof verification failed: {e}") from e
 
     async def rpc(self, method: str, params: List[Any]) -> Any:
         """
-        Execute an RPC call with automatic proof handling
+        Execute an RPC call via the unified C core state machine.
         
         Args:
             method: RPC method name
             params: Method parameters
             
         Returns:
-            RPC result
+            Verified RPC result
             
         Raises:
             ColibriError: If the RPC call fails
         """
-        method_type = self.get_method_support(method)
-        
-        if method_type == MethodType.PROOFABLE:
-            # Try to fetch proof from prover first
-            if self.provers:
+        native = _get_native()
+        if not native:
+            raise ColibriError("Native module not available")
+
+        params_json = json.dumps(params)
+        prover_flags = (1 if self.include_code else 0) | ((1 << 6) if not self.use_accesslist else 0) | ((1 << 7) if self.zk_proof else 0) | ((1 << 12) if self.logs_completeness else 0)
+        resolved_mode = self.prover_mode if self.prover_mode is not None else (ProverMode.REMOTE if self.provers else ProverMode.LOCAL)
+        native_mode = int(ProverMode.HYBRID) if resolved_mode == ProverMode.LIGHT_CLIENT else int(resolved_mode)
+
+        ctx = native.create_rpc_ctx(method, params_json, self.chain_id,
+                                    prover_flags, self._get_verify_flags(), native_mode)
+        if not ctx:
+            raise ColibriError(f"Failed to create RPC context for {method}")
+
+        if resolved_mode == ProverMode.PROXY:
+            native.rpc_set_proxy_urls(ctx, ",".join(self.eth_rpcs), ",".join(self.beacon_apis))
+
+        if self.trusted_checkpoint:
+            native.set_checkpoint(self.chain_id, self.trusted_checkpoint)
+        if self.checkpoint_witness_keys:
+            native.rpc_set_witness_keys(ctx, self.checkpoint_witness_keys)
+        if hasattr(native, 'rpc_set_min_latest_block_ts'):
+            native.rpc_set_min_latest_block_ts(ctx, self._get_min_latest_block_ts())
+
+        try:
+            while True:
+                status_json = native.rpc_execute_json_status(ctx)
+                if not status_json:
+                    raise ColibriError("RPC execution returned null")
+
+                status = json.loads(status_json)
+
+                if status["status"] == "success":
+                    return status.get("result")
+                elif status["status"] == "revert":
+                    raise RevertError(status.get("data", "0x"))
+                elif status["status"] == "error":
+                    raise ColibriError(status.get("error", "Unknown RPC error"))
+                elif status["status"] == "pending":
+                    await self._handle_requests(status.get("requests", []), use_prover_fallback=True)
+                else:
+                    raise ColibriError(f"Unknown status: {status['status']}")
+        finally:
+            native.free_rpc_ctx(ctx)
+
+    async def start_light_client(self, interval: float = 12.0, full_block: bool = False) -> None:
+        """
+        Start background polling to keep the block header cache warm.
+        Useful for ``ProverMode.LIGHT_CLIENT``.
+
+        By default polls ``eth_getBlockHeader("latest")`` which fetches only the
+        compact header proof. Set *full_block* to ``True`` to poll
+        ``eth_getBlockByNumber("latest")`` instead -- useful when many
+        ``eth_getTransactionByHash`` / ``eth_getTransactionReceipt`` calls follow,
+        since those need the full block data.
+
+        Args:
+            interval: polling interval in seconds (default: 12 = one Ethereum slot)
+            full_block: if True, fetch the full block instead of just the header
+        """
+        self.stop_light_client()
+        method = "eth_getBlockByNumber" if full_block else "eth_getBlockHeader"
+        params = ["latest", False] if full_block else ["latest"]
+
+        async def _poll():
+            while True:
                 try:
-                    proof = await self._fetch_rpc(self.provers, method, params, as_proof=True)
+                    await self.rpc(method, params)
                 except Exception:
-                    # Fallback to local proof creation
-                    proof = await self.create_proof(method, params)
-            else:
-                proof = await self.create_proof(method, params)
-            
-            return await self.verify_proof(proof, method, params)
-            
-        elif method_type == MethodType.UNPROOFABLE:
-            return await self._fetch_rpc(self.eth_rpcs, method, params, as_proof=False)
-            
-        elif method_type == MethodType.LOCAL:
-            # Local methods use empty proof
-            return await self.verify_proof(b"", method, params)
-            
-        elif method_type == MethodType.NOT_SUPPORTED or method_type == MethodType.UNDEFINED:
-            raise ColibriError(f"Method {method} is not supported")
-            
-        else:
-            raise ColibriError(f"Unknown method type for {method}")
+                    pass
+                await asyncio.sleep(interval)
+
+        self._light_client_task = asyncio.create_task(_poll())
+
+    def stop_light_client(self) -> None:
+        """Stop background light client polling."""
+        if self._light_client_task is not None:
+            self._light_client_task.cancel()
+            self._light_client_task = None
 
     async def _handle_requests(
         self, 
@@ -364,7 +554,11 @@ class Colibri:
         async def handle_single_request(request_dict: Dict[str, Any]) -> None:
             try:
                 request = DataRequest.from_dict(request_dict)
-                
+
+                # Honor a requested delay before (re-)executing (e.g. oblivious-node retry backoff).
+                if getattr(request, "delay", 0):
+                    await asyncio.sleep(request.delay / 1000.0)
+
                 # Mock request handling for testing
                 if self.request_handler:
                     try:
@@ -381,12 +575,21 @@ class Colibri:
 
                 # Determine server list
                 if request.request_type == "checkpointz":
-                    servers = self.checkpointz
+                    servers = list(self.checkpointz) + list(self.beacon_apis)
+                elif request.request_type == "prover":
+                    servers = self.provers
                 elif request.request_type == "beacon_api":
                     if use_prover_fallback and self.provers:
                         servers = self.provers
                     else:
                         servers = self.beacon_apis
+                elif (
+                    request.request_type == "eth_rpc"
+                    and request.payload
+                    and request.payload.get("method") == "eth_getProof"
+                    and self.oblivious_nodes
+                ):
+                    servers = self.oblivious_nodes
                 else:
                     servers = self.eth_rpcs
 
@@ -451,6 +654,10 @@ class Colibri:
                 headers = {
                     "Accept": "application/octet-stream" if request.encoding == "ssz" else "application/json"
                 }
+                # Forward the cache freshness bound so a shared cache/CDN never returns a
+                # response older than `ttl` seconds (e.g. short bound for `latest` blocks).
+                if getattr(request, "ttl", 0):
+                    headers["Cache-Control"] = f"max-age={request.ttl}"
                 
                 try:
                     async with session.request(
@@ -500,7 +707,11 @@ class Colibri:
             "method": method,
             "params": params
         }
-        
+        if as_proof:
+            native = _get_native()
+            if native is not None and hasattr(native, "get_current_version_number"):
+                payload["version"] = native.get_current_version_number()
+
         headers = {
             "Content-Type": "application/json",
             "Accept": "application/octet-stream" if as_proof else "application/json"

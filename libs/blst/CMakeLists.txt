@@ -144,38 +144,21 @@ else()
             VERBATIM
         )
     elseif(SWIFT AND CMAKE_SYSTEM_NAME STREQUAL "iOS")
-        # iOS build configuration (only when explicitly building for iOS)
-        if(CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64")
-            add_custom_command(
-                OUTPUT ${BLST_LIB}
-                COMMAND ${CMAKE_COMMAND} -E env 
-                    CC=${CMAKE_C_COMPILER}
-                    AR=${CMAKE_AR}
-                    RANLIB=${CMAKE_RANLIB}
-                    CROSS_COMPILE=x86_64-apple-ios-simulator
-                    "CFLAGS=-target x86_64-apple-ios-simulator -isysroot ${CMAKE_OSX_SYSROOT} -D__BLST_PORTABLE__"
-                    bash ${blst_SOURCE_DIR}/build.sh
-                COMMAND ${CMAKE_COMMAND} -E rename ${blst_SOURCE_DIR}/libblst.a ${BLST_LIB}
-                WORKING_DIRECTORY ${blst_SOURCE_DIR}
-                COMMENT "Building blst for iOS Simulator (x86_64)"
-                VERBATIM
-            )
-        else()
-            add_custom_command(
-                OUTPUT ${BLST_LIB}
-                COMMAND ${CMAKE_COMMAND} -E env 
-                    CC=${CMAKE_C_COMPILER}
-                    AR=${CMAKE_AR}
-                    RANLIB=${CMAKE_RANLIB}
-                    CROSS_COMPILE=arm64-apple-ios
-                    "CFLAGS=-target arm64-apple-ios -isysroot ${CMAKE_OSX_SYSROOT} -D__BLST_PORTABLE__"
-                    bash ${blst_SOURCE_DIR}/build.sh
-                COMMAND ${CMAKE_COMMAND} -E rename ${blst_SOURCE_DIR}/libblst.a ${BLST_LIB}
-                WORKING_DIRECTORY ${blst_SOURCE_DIR}
-                COMMENT "Building blst for iOS Device (arm64)"
-                VERBATIM
-            )
-        endif()
+        # iOS build: use TARGET_TRIPLE from root CMakeLists.txt for correct device/simulator targeting
+        add_custom_command(
+            OUTPUT ${BLST_LIB}
+            COMMAND ${CMAKE_COMMAND} -E env 
+                CC=${CMAKE_C_COMPILER}
+                AR=${CMAKE_AR}
+                RANLIB=${CMAKE_RANLIB}
+                CROSS_COMPILE=${TARGET_TRIPLE}
+                "CFLAGS=-target ${TARGET_TRIPLE} -isysroot ${CMAKE_OSX_SYSROOT} -D__BLST_PORTABLE__"
+                bash ${blst_SOURCE_DIR}/build.sh
+            COMMAND ${CMAKE_COMMAND} -E rename ${blst_SOURCE_DIR}/libblst.a ${BLST_LIB}
+            WORKING_DIRECTORY ${blst_SOURCE_DIR}
+            COMMENT "Building blst for iOS (${TARGET_TRIPLE})"
+            VERBATIM
+        )
     else()
         # Standard build for native platforms
         if(APPLE)
@@ -185,16 +168,23 @@ else()
                 OUTPUT_VARIABLE MACOS_SDK_PATH
                 OUTPUT_STRIP_TRAILING_WHITESPACE
             )
-            set(BLST_CFLAGS "-isysroot ${MACOS_SDK_PATH} ${EXTRA_C_FLAGS}")
-
-            # Handle cross-compilation via CMAKE_OSX_ARCHITECTURES
-            if(CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64")
-                set(BLST_CFLAGS "${BLST_CFLAGS} -arch x86_64 -target x86_64-apple-macos10.15")
-                message(STATUS "BLST: Cross-compiling for x86_64 on macOS")
-            elseif(CMAKE_OSX_ARCHITECTURES STREQUAL "arm64")
-                set(BLST_CFLAGS "${BLST_CFLAGS} -arch arm64 -target arm64-apple-macos11.0")
-                message(STATUS "BLST: Cross-compiling for arm64 on macOS")
+            # blst's build.sh compiles for the host architecture unless the target
+            # arch is passed explicitly. When cross-building a macOS slice
+            # (CMAKE_OSX_ARCHITECTURES, e.g. x86_64 on an arm64 host) blst would
+            # otherwise emit a host-arch libblst.a and the final link fails with
+            # "symbol(s) not found for architecture ...". Forward every requested
+            # arch and deployment target so the static lib matches the rest of the
+            # build. Flags stay empty when CMake has no explicit values, preserving
+            # prior behavior for plain native builds.
+            set(BLST_ARCH_FLAGS "")
+            foreach(_blst_arch ${CMAKE_OSX_ARCHITECTURES})
+                set(BLST_ARCH_FLAGS "${BLST_ARCH_FLAGS}-arch ${_blst_arch} ")
+            endforeach()
+            set(BLST_DEPLOYMENT_TARGET_FLAGS "")
+            if(CMAKE_OSX_DEPLOYMENT_TARGET)
+                set(BLST_DEPLOYMENT_TARGET_FLAGS "-mmacosx-version-min=${CMAKE_OSX_DEPLOYMENT_TARGET} ")
             endif()
+            set(BLST_CFLAGS "-isysroot ${MACOS_SDK_PATH} ${BLST_ARCH_FLAGS}${BLST_DEPLOYMENT_TARGET_FLAGS}${EXTRA_C_FLAGS}")
         else()
             set(BLST_CFLAGS "${EXTRA_C_FLAGS}-ffunction-sections -fdata-sections")
         endif()

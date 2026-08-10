@@ -34,10 +34,23 @@
 #include <direct.h>
 #define MKDIR(path) _mkdir(path)
 #include "../../src/util/win_compat.h"
+#include <windows.h>
 #else
 #include <unistd.h>
 #define MKDIR(path) mkdir(path, 0755)
 #endif
+
+// Blocks the current thread for the given number of milliseconds. Used to honor
+// a data_request_t.delay (e.g. waiting between oblivious-node retries). The CLI
+// host is single-threaded, so a blocking sleep is acceptable here.
+static void curl_sleep_ms(uint32_t ms) {
+  if (!ms) return;
+#ifdef _WIN32
+  Sleep(ms);
+#else
+  usleep((useconds_t) ms * 1000);
+#endif
+}
 
 typedef struct {
   json_t config;
@@ -64,6 +77,7 @@ static void init_config() {
   curl_nodes.eth_rpc     = json_dup(json_get(config, "eth_rpc"));
   curl_nodes.beacon_api  = json_dup(json_get(config, "beacon_api"));
   curl_nodes.checkpointz = json_dup(json_get(config, "checkpointz"));
+  curl_nodes.oblivious   = json_dup(json_get(config, "oblivious"));
   curl_nodes.prover      = json_dup(json_get(config, "prover"));
 
   char*   config_file = getenv("C4_CONFIG");
@@ -81,6 +95,11 @@ static void replace_config(json_t* old_config, json_t new_config) {
   *old_config = json_dup(new_config);
 }
 
+bool curl_has_oblivious_nodes(void) {
+  init_config();
+  return curl_nodes.oblivious.type == JSON_TYPE_ARRAY && json_len(curl_nodes.oblivious) > 0;
+}
+
 void curl_set_config(json_t config) {
   init_config();
   json_t nodes = {0};
@@ -88,6 +107,7 @@ void curl_set_config(json_t config) {
   if ((nodes = json_get(config, "eth_rpc")).type == JSON_TYPE_ARRAY) replace_config(&curl_nodes.eth_rpc, nodes);
   if ((nodes = json_get(config, "beacon_api")).type == JSON_TYPE_ARRAY) replace_config(&curl_nodes.beacon_api, nodes);
   if ((nodes = json_get(config, "checkpointz")).type == JSON_TYPE_ARRAY) replace_config(&curl_nodes.checkpointz, nodes);
+  if ((nodes = json_get(config, "oblivious")).type == JSON_TYPE_ARRAY) replace_config(&curl_nodes.oblivious, nodes);
   if ((nodes = json_get(config, "prover")).type == JSON_TYPE_ARRAY) replace_config(&curl_nodes.prover, nodes);
   if ((nodes = json_get(config, "chain_store")).type == JSON_TYPE_ARRAY) replace_config(&curl_nodes.chain_store, nodes);
   if ((nodes = json_get(config, "trace_config")).type == JSON_TYPE_OBJECT) replace_config(&curl_nodes.trace_config, nodes);
@@ -103,15 +123,32 @@ static void add_nodes(buffer_t* buffer, json_t nodes) {
   }
 }
 
-static json_t get_nodes(data_request_type_t type) {
+static bool req_payload_is_eth_get_proof(data_request_t* req) {
+  if (!req || req->type != C4_DATA_TYPE_ETH_RPC || !req->payload.data || req->payload.len == 0) return false;
+  json_t payload = json_parse((char*) req->payload.data);
+  if (payload.type != JSON_TYPE_OBJECT) return false;
+  json_t method_json = json_get(payload, "method");
+  if (method_json.type != JSON_TYPE_STRING) return false;
+  char* method = json_as_string(method_json, NULL);
+  if (!method) return false;
+  bool is_proof = strcmp(method, "eth_getProof") == 0;
+  safe_free(method);
+  return is_proof;
+}
+
+static json_t get_nodes(data_request_t* req) {
   init_config();
   buffer_t buffer = {0};
 
-  switch (type) {
+  switch (req->type) {
     case C4_DATA_TYPE_ETH_RPC:
-      add_nodes(&buffer, curl_nodes.eth_rpc);
-      if (buffer.data.len == 0 && curl_nodes.prover.type == JSON_TYPE_ARRAY && curl_nodes.prover.len > 2)
-        bprintf(&buffer, "[\"%junverified_rpc\"", json_at(curl_nodes.prover, 0));
+      if (req_payload_is_eth_get_proof(req) && curl_nodes.oblivious.type == JSON_TYPE_ARRAY && curl_nodes.oblivious.len > 2)
+        add_nodes(&buffer, curl_nodes.oblivious);
+      else {
+        add_nodes(&buffer, curl_nodes.eth_rpc);
+        if (buffer.data.len == 0 && curl_nodes.prover.type == JSON_TYPE_ARRAY && curl_nodes.prover.len > 2)
+          bprintf(&buffer, "[\"%junverified_rpc\"", json_at(curl_nodes.prover, 0));
+      }
       break;
     case C4_DATA_TYPE_BEACON_API:
       add_nodes(&buffer, curl_nodes.beacon_api);
@@ -209,7 +246,7 @@ static bool configure_request(curl_request_t* creq) {
   if (cache_dir && check_cache(req)) return false;
 
 #endif
-  json_t servers = get_nodes(req->type);
+  json_t servers = get_nodes(req);
 
   if (req->type != C4_DATA_TYPE_REST_API && servers.type != JSON_TYPE_ARRAY) {
     safe_free(servers.start);
@@ -271,6 +308,14 @@ static bool configure_curl(curl_request_t* creq) {
     headers = curl_slist_append(headers, req->encoding == C4_DATA_ENCODING_JSON ? "Content-Type: application/json" : "Content-Type: application/octet-stream");
   headers = curl_slist_append(headers, "charsets: utf-8");
   headers = curl_slist_append(headers, "User-Agent: c4 curl ");
+
+  // Forward the cache freshness bound so a shared cache/CDN never returns a
+  // response older than `ttl` seconds (e.g. short bound for `latest` block proofs).
+  if (req->ttl) {
+    char     ttl_tmp[64];
+    buffer_t ttl_buf = stack_buffer(ttl_tmp);
+    headers          = curl_slist_append(headers, bprintf(&ttl_buf, "Cache-Control: max-age=%d", (uint32_t) req->ttl));
+  }
 
   if (req->type == C4_DATA_TYPE_PROVER && curl_nodes.trace_config.type == JSON_TYPE_OBJECT) {
     char     tmp[256];
@@ -354,15 +399,36 @@ static void log_request(curl_request_t* creq, bool success, bytes_t data, char* 
     bprintf(&buf, "(%d bytes, %l ms)", data.len, duration_ms);
   else
     bprintf(&buf, "-> %r ", data);
+  char* server = strdup(creq->url ? creq->url : "");
+  char* host = strncmp(server, "http://", 7) == 0 ? server + 7 : strncmp(server, "https://", 8) == 0 ? server + 8 : server;
+  char* end =strchr(host, '/');
+  if (end) *end = '\0';
+  if (creq->request->type != C4_DATA_TYPE_ETH_RPC) host = creq->url;
   if (creq->request->payload.len && creq->request->payload.data)
-    log_info("[%s]: %s : %r -> %s", success ? "SUCCESS" : "ERROR  ", creq->url, creq->request->payload, buffer_as_string(buf));
+    log_info("[%s]: %s : %r -> %s", success ? "SUCCESS" : "ERROR  ", host, creq->request->payload, buffer_as_string(buf));
   else
-    log_info("[%s]: %s -> %s", success ? "SUCCESS" : "ERROR  ", creq->url, buffer_as_string(buf));
+    log_info("[%s]: %s -> %s", success ? "SUCCESS" : "ERROR  ", host, buffer_as_string(buf));
   buffer_free(&buf);
+  safe_free(server);
 }
 
 void curl_fetch_all(c4_state_t* state) {
   bool retry = true;
+
+  // Honor any requested delay (e.g. oblivious-node retry backoff) before issuing
+  // the pending requests. Sleep once for the longest requested delay, then clear
+  // it so we don't wait again on internal node-rotation retries.
+  uint32_t max_delay = 0;
+  for (data_request_t* req = state->requests; req; req = req->next) {
+    if (!req->response.data && req->delay > max_delay) max_delay = req->delay;
+  }
+  if (max_delay) {
+    log_info("Sleeping for %d ms", max_delay);
+    curl_sleep_ms(max_delay);
+    for (data_request_t* req = state->requests; req; req = req->next) {
+      if (!req->response.data) req->delay = 0;
+    }
+  }
 
   while (retry) {
     retry               = false;
@@ -459,7 +525,7 @@ void curl_fetch_all(c4_state_t* state) {
 
               // Check if we need to keep retrying with different nodes
               if (creq->request->type != C4_DATA_TYPE_REST_API) {
-                json_t servers = get_nodes(creq->request->type);
+                json_t servers = get_nodes(creq->request);
 
                 // Calculate if we have more nodes to try
                 int node_count = 0;

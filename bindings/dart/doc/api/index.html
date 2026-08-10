@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, height=device-height, initial-scale=1, user-scalable=no">
+  <meta name="description" content="colibri_stateless API docs, for the Dart programming language.">
+  <title>colibri_stateless - Dart API docs</title>
+
+
+  
+  <link rel="preconnect" href="https://fonts.gstatic.com">
+  <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:ital,wght@0,300;0,400;0,500;0,700;1,400&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0" rel="stylesheet">
+  
+  <link rel="stylesheet" href="static-assets/github.css?v1">
+  <link rel="stylesheet" href="static-assets/styles.css?v1">
+  <link rel="icon" href="static-assets/favicon.png?v1">
+  
+</head>
+
+<body data-base-href="" data-using-base-href="false" class="light-theme">
+<div id="overlay-under-drawer"></div>
+<header id="title">
+  <span id="sidenav-left-toggle" class="material-symbols-outlined" role="button" tabindex="0">menu</span>
+  <ol class="breadcrumbs gt-separated dark hidden-xs">
+    <li><a href="https://corpus-core.gitbook.io/specification-colibri-stateless">colibri_stateless package</a></li>
+  </ol>
+  <div class="self-name">colibri_stateless</div>
+  <form class="search navbar-right" role="search">
+    <input type="text" id="search-box" autocomplete="off" disabled class="form-control typeahead" placeholder="Loading search...">
+  </form>
+  <button class="toggle" id="theme-button" title="Toggle between light and dark mode" aria-label="Light and dark mode toggle">
+    <span id="dark-theme-button" class="material-symbols-outlined" aria-hidden="true">
+      dark_mode
+    </span>
+    <span id="light-theme-button" class="material-symbols-outlined" aria-hidden="true">
+      light_mode
+    </span>
+  </button>
+</header>
+<main>
+  <div id="dartdoc-main-content" class="main-content">
+      
+<section class="desc markdown">
+  <img src="https://github.com/corpus-core/colibri-stateless/raw/dev/c4_logo.png" alt="C4 Logo" width="300">
+<h1 id="colibri-dart-bindings">Colibri Dart Bindings</h1>
+<p>Dart FFI bindings for Colibri Stateless (proof generation + verification).</p>
+<h2 id="quick-start">Quick Start</h2>
+<h3 id="build-the-native-library">Build the native library</h3>
+<pre class="language-bash"><code class="language-bash">./build.sh
+</code></pre>
+<p>This produces a shared library in <code>native/</code>:</p>
+<ul>
+<li>macOS: <code>native/libcolibri.dylib</code></li>
+<li>Linux: <code>native/libcolibri.so</code></li>
+<li>Windows: <code>native/colibri.dll</code></li>
+</ul>
+<h3 id="use-in-dart">Use in Dart</h3>
+<pre class="language-dart"><code class="language-dart">import 'package:colibri_stateless/colibri.dart';
+
+Future&lt;void&gt; main() async {
+final colibri = Colibri(
+  chainId: 1,
+  libraryPath: 'native/libcolibri.dylib', // adjust for your OS
+);
+
+  final blockNumber = await colibri.rpc('eth_blockNumber', []);
+  print('Block number: $blockNumber');
+
+  colibri.close();
+}
+</code></pre>
+<h2 id="features">Features</h2>
+<ul>
+<li>Proof generation + verification through the C core</li>
+<li>Async request handling with <code>dart:async</code></li>
+<li>Multi-chain configuration with sensible defaults</li>
+</ul>
+<p>You can also set the library path via <code>COLIBRI_DART_LIBRARY</code>.</p>
+<h3 id="flutter-with-bundled-binaries">Flutter (with bundled binaries)</h3>
+<p>For Flutter apps, use the <strong>colibri_flutter</strong> package on pub.dev — it includes Android and iOS binaries, so no separate build is required:</p>
+<pre class="language-yaml"><code class="language-yaml">dependencies:
+  colibri_flutter: ^0.1.0
+</code></pre>
+<pre class="language-dart"><code class="language-dart">import 'package:colibri_flutter/colibri_flutter.dart';
+final colibri = Colibri(chainId: 1);
+</code></pre>
+<p>See <a href="flutter/colibri_flutter/README.md">flutter/colibri_flutter/README.md</a>.</p>
+<h3 id="ios-building-yourself">iOS (building yourself)</h3>
+<p>iOS does not allow dynamic <code>dlopen</code> of external libraries. When building yourself, place the XCFramework at <code>bindings/dart/flutter/colibri_flutter/ios/Frameworks/c4_swift.xcframework</code>, or use <strong>colibri_flutter</strong> from pub.dev (see above).</p>
+<h2 id="build-debug">Build (Debug)</h2>
+<pre class="language-bash"><code class="language-bash">./build_debug.sh
+</code></pre>
+<h2 id="flutter--mobile-binaries">Flutter / Mobile Binaries</h2>
+<p>From the <strong>repository root</strong>, one command builds platform-specific binaries for Flutter:</p>
+<pre class="language-bash"><code class="language-bash">./scripts/build_flutter_binaries.sh
+</code></pre>
+<p>This produces:</p>
+<ul>
+<li>Android: <code>bindings/dart/flutter/colibri_flutter/android/src/main/jniLibs/&lt;abi&gt;/libcolibri.so</code></li>
+<li>iOS: <code>bindings/dart/flutter/colibri_flutter/ios/Frameworks/c4_swift.xcframework</code> (macOS only)</li>
+<li>Windows: <code>bindings/dart/native/windows/colibri.dll</code> (Windows host only)</li>
+</ul>
+<p>Requirements:</p>
+<ul>
+<li>Android: <code>ANDROID_NDK_HOME</code> (or <code>ANDROID_NDK</code>) set</li>
+<li>iOS: macOS + Xcode (uses <code>bindings/swift/build_ios.sh</code>)</li>
+<li>Windows: build on a Windows host</li>
+</ul>
+<p>Per-platform:</p>
+<pre class="language-bash"><code class="language-bash">./scripts/build_flutter_binaries.sh --android
+./scripts/build_flutter_binaries.sh --ios
+./scripts/build_flutter_binaries.sh --windows
+</code></pre>
+<h2 id="examples">Examples</h2>
+<ul>
+<li><code>example/basic_usage.dart</code> — minimal verified RPC call</li>
+<li><code>example/proof_verify.dart</code> — create + verify a proof manually</li>
+<li><code>example/custom_storage.dart</code> — custom storage integration</li>
+<li><code>example/unproofable_rpc.dart</code> — unproofable method routed to direct RPC</li>
+<li><code>example/read_block.dart</code>, <code>example/read_logs.dart</code>, <code>example/contract_call.dart</code>, <code>example/transaction_receipt.dart</code> — more RPC examples</li>
+</ul>
+<p>See <a href="example/README.md">example/README.md</a> for run commands and optional <code>.env</code> configuration.</p>
+<h2 id="testing">Testing</h2>
+<pre class="language-bash"><code class="language-bash">dart test
+</code></pre>
+<p>If the native library lives elsewhere, set <code>COLIBRI_DART_LIBRARY</code>.</p>
+<h3 id="coverage">Coverage</h3>
+<pre class="language-bash"><code class="language-bash">./test/run_coverage.sh
+</code></pre>
+<p>Coverage output is written to <code>test/coverage/</code> (LCOV file: <code>test/coverage/lcov.info</code>).</p>
+<h3 id="compare-c-vs-dart-results">Compare C vs Dart results</h3>
+<p>From the <strong>repository root</strong> (requires C build):</p>
+<pre class="language-bash"><code class="language-bash">export C4_BUILD_DIR=/path/to/cmake/build
+./scripts/compare_c_dart_tests.sh
+</code></pre>
+<h2 id="publishing-pubdev">Publishing (pub.dev)</h2>
+<p>Package version is synced with the repository root. The canonical version is in the repo root file <strong><code>VERSION</code></strong> (same as used for releases). To update the Dart/Flutter package versions from it:</p>
+<pre class="language-bash"><code class="language-bash">./scripts/sync_version.sh
+</code></pre>
+<p>Then publish <strong>colibri_stateless</strong> (from a copy that excludes the Flutter plugin, so the package stays small):</p>
+<pre class="language-bash"><code class="language-bash">./scripts/publish_colibri_stateless.sh --dry-run   # check
+./scripts/publish_colibri_stateless.sh             # publish
+</code></pre>
+<p>To publish <strong>colibri_flutter</strong> (from its own directory; includes Android/iOS binaries):</p>
+<pre class="language-bash"><code class="language-bash">cd flutter/colibri_flutter
+dart pub publish --dry-run
+dart pub publish
+</code></pre>
+<p>You will be prompted to log in with a Google account (first time: create publisher or link account at <a href="https://pub.dev">pub.dev</a>).</p>
+<p>Recommended: publish from a clean git state and after running <code>dart test</code>.</p>
+<h2 id="documentation">Documentation</h2>
+<ul>
+<li>Core docs: <a href="https://corpus-core.gitbook.io/specification-colibri-stateless">https://corpus-core.gitbook.io/specification-colibri-stateless</a></li>
+<li>Bindings overview: <a href="https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/bindings">https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/bindings</a></li>
+</ul>
+</section>
+
+
+      <section class="summary">
+          <h2>Libraries</h2>
+        <dl>
+          <dt id="colibri_stateless">
+  <span class="name"><a href="colibri_stateless/">colibri_stateless</a></span> 
+
+</dt>
+<dd>Public entry point for Colibri Stateless Dart bindings.
+</dd>
+
+        </dl>
+      </section>
+  </div> <!-- /.main-content -->
+  <div id="dartdoc-sidebar-left" class="sidebar sidebar-offcanvas-left">
+    <!-- The search input and breadcrumbs below are only responsively visible at low resolutions. -->
+<header id="header-search-sidebar" class="hidden-l">
+  <form class="search-sidebar" role="search">
+    <input type="text" id="search-sidebar" autocomplete="off" disabled class="form-control typeahead" placeholder="Loading search...">
+  </form>
+</header>
+<ol class="breadcrumbs gt-separated dark hidden-l" id="sidebar-nav">
+    <li><a href="https://corpus-core.gitbook.io/specification-colibri-stateless">colibri_stateless package</a></li>
+</ol>
+
+    <h5 class="hidden-xs"><span class="package-name">colibri_stateless</span> <span class="package-kind">package</span></h5>
+    <ol>
+      <li class="section-title">Libraries</li>
+      <li><a href="colibri_stateless/">colibri_stateless</a></li>
+</ol>
+
+  </div>
+  <div id="dartdoc-sidebar-right" class="sidebar sidebar-offcanvas-right">
+  </div>
+</main>
+<footer>
+  <span class="no-break">
+    colibri_stateless
+      0.1.1
+  </span>
+  
+</footer>
+
+
+<script src="static-assets/highlight.pack.js?v1"></script>
+<script src="static-assets/docs.dart.js"></script>
+
+</body>
+</html>
+

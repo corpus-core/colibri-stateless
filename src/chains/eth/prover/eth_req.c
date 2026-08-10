@@ -24,6 +24,8 @@
 #include "eth_req.h"
 #include "beacon.h"
 #include "beacon_types.h"
+#include "eth_compute_units.h"
+#include "eth_verify.h"
 #include "json.h"
 #include "logger.h"
 #include "rlp.h"
@@ -37,15 +39,23 @@
 #define JSON_RECEIPTS_FIELDS    "{type:hexuint,status:hexuint,cumulativeGasUsed:hexuint,logs:[" JSON_LOG_FIELDS "],logsBloom:bytes,transactionHash:bytes32,transactionIndex:hexuint,blockHash:bytes32,gasUsed:hexuint,effectiveGasPrice:hexuint,from:address,to?:address,contractAddress?:address}"
 #define JSON_ETH_PROOF_FIELDS   "{accountProof:[bytes],storageProof:[{key:hex32,value:hex32,proof:[bytes]}],balance:hexuint,codeHash:bytes32,nonce:hexuint,storageHash:bytes32}"
 #define JSON_TRACE_FIELDS       "{*:{balance?:hexuint,code?:bytes,nonce?:uint,storage?:{*:bytes32}}}"
-#define JSON_ACCESS_LIST_FIELDS "{accessList:[{address:address,storageKeys:[hex32]}],error?:string,gasUsed:hexuint}"
+#define JSON_ACCESS_LIST_FIELDS "{accessList:[{address:address,storageKeys?:[hex32]}],error?:string,gasUsed:hexuint}"
+
+static bool is_nullable_method(char* method) {
+  return method && (strcmp(method, "eth_getTransactionByHash") == 0 || strcmp(method, "eth_getTransactionByBlockHashAndIndex") == 0 || strcmp(method, "eth_getTransactionByBlockNumberAndIndex") == 0 || strcmp(method, "eth_getTransactionReceipt") == 0);
+}
 
 c4_status_t get_eth_tx(prover_ctx_t* ctx, json_t txhash, json_t* tx_data) {
   uint8_t         tmp[200];
   buffer_t        buf = stack_buffer(tmp);
   data_request_t* req = NULL;
-  TRY_ASYNC(c4_send_eth_rpc(ctx, "eth_getTransactionByHash", bprintf(&buf, "[%J]", txhash), DEFAULT_TTL, tx_data, &req));
+  TRY_ASYNC(c4_send_eth_rpc(ctx, "eth_getTransactionByHash", bprintf(&buf, "[%J]", txhash), 12, tx_data, &req));
   if (req && !req->validated) {
-    CHECK_JSON(*tx_data, JSON_TX_FIELDS, "Invalid results for Tx: ");
+    if (tx_data->type == JSON_TYPE_OBJECT && (json_get(*tx_data, "transactionIndex").type != JSON_TYPE_STRING || json_get(*tx_data, "transactionIndex").len < 5))
+      // this tx is not mined yet, we treat it as not found
+      tx_data->type = JSON_TYPE_NULL;
+    else if (tx_data->type != JSON_TYPE_NULL)
+      CHECK_JSON(*tx_data, JSON_TX_FIELDS, "Invalid results for Tx: ");
     req->validated = true;
   }
   return C4_SUCCESS;
@@ -75,10 +85,11 @@ c4_status_t eth_getBlockReceipts(prover_ctx_t* ctx, json_t block, json_t* receip
 }
 
 c4_status_t eth_get_logs(prover_ctx_t* ctx, json_t params, json_t* logs) {
-  uint8_t         tmp[1000];
-  buffer_t        buf = stack_buffer(tmp);
+  // Use a growable heap buffer: eth_getLogs params can be large (many addresses/topics)
+  // and would be silently truncated by a fixed stack buffer, producing an invalid request.
+  buffer_t        buf = {0};
   data_request_t* req = NULL;
-  TRY_ASYNC(c4_send_eth_rpc(ctx, "eth_getLogs", json_as_string(params, &buf), 12, logs, &req));
+  TRY_ASYNC_FINAL(c4_send_eth_rpc(ctx, "eth_getLogs", json_as_string(params, &buf), 12, logs, &req), buffer_free(&buf));
   if (req && !req->validated) {
     CHECK_JSON(*logs, "[" JSON_LOG_FIELDS "]", "Invalid results for Logs: ");
     req->validated = true;
@@ -112,7 +123,7 @@ c4_status_t eth_get_code(prover_ctx_t* ctx, json_t address, json_t* code, uint64
   char            tmp[120];
   buffer_t        buf = stack_buffer(tmp);
   data_request_t* req = NULL;
-  TRY_ASYNC(c4_send_eth_rpc(ctx, "eth_getCode", bprintf(&buf, "[%J,\"lastest\"]", address), DEFAULT_TTL, code, &req));
+  TRY_ASYNC(c4_send_eth_rpc(ctx, "eth_getCode", bprintf(&buf, "[%J,\"latest\"]", address), 12, code, &req));
   if (req && !req->validated) {
     CHECK_JSON(*code, "bytes", "Invalid results for Code: ");
     req->validated = true;
@@ -131,13 +142,21 @@ c4_status_t eth_debug_trace_call(prover_ctx_t* ctx, json_t tx, json_t* trace, ui
   return C4_SUCCESS;
 }
 
-c4_status_t eth_create_access_list(prover_ctx_t* ctx, json_t tx, json_t* trace, uint64_t block_number) {
+c4_status_t eth_create_access_list(prover_ctx_t* ctx, json_t tx, json_t* trace, uint64_t block_number, json_t state_overrides) {
   buffer_t        buf = {0};
   data_request_t* req = NULL;
+  // The tx object is validated upstream (CHECK_JSON in c4_proof_call), but guard
+  // defensively: never decrement an unsigned length without confirming tx is a
+  // non-empty object, otherwise tx.len would wrap and %J would emit an
+  // out-of-bounds slice into the outbound request.
+  if (tx.type != JSON_TYPE_OBJECT || tx.len < 2) THROW_ERROR("invalid tx object for access list");
   tx.len--; // removing the closing '}', so we can add arguments
             //  TRY_ASYNC_FINAL(c4_send_eth_rpc(ctx, "eth_createAccessList", bprintf(&buf, "[%J,\"maxFeePerGas\":\"0x1\",\"maxPriorityFeePerGas\":\"0x1\"},\"0x%lx\"]", tx, block_number), 12, trace), buffer_free(&buf));
-  TRY_ASYNC_FINAL(c4_send_eth_rpc(ctx, "eth_createAccessList", bprintf(&buf, "[%J},\"0x%lx\"]", tx, block_number), 12, trace, &req), buffer_free(&buf));
-  log_info("access list: %j", trace);
+  if (state_overrides.type == JSON_TYPE_OBJECT)
+    TRY_ASYNC_FINAL(c4_send_eth_rpc(ctx, "eth_createAccessList", bprintf(&buf, "[%J},\"0x%lx\",%J]", tx, block_number, state_overrides), 12, trace, &req), buffer_free(&buf));
+  else
+    TRY_ASYNC_FINAL(c4_send_eth_rpc(ctx, "eth_createAccessList", bprintf(&buf, "[%J},\"0x%lx\"]", tx, block_number), 12, trace, &req), buffer_free(&buf));
+  log_debug("access list: %j", trace);
   if (req && !req->validated) {
     CHECK_JSON(*trace, JSON_ACCESS_LIST_FIELDS, "Invalid results for access list: ");
     req->validated = true;
@@ -215,6 +234,10 @@ bytes_t c4_serialize_receipt(json_t r, buffer_t* buf) {
 
 // sends a request to the eth rpc and returns the result or returns with status C4_PENDING
 c4_status_t c4_send_eth_rpc(prover_ctx_t* ctx, char* method, char* params, uint32_t ttl, json_t* result, data_request_t** req) {
+  // Account for compute units. Counted on every call (cache-hit or not) so that
+  // the value reported by `eth_prover_execute` reflects the work the server had
+  // to coordinate for this request, regardless of caching state.
+  eth_cu_add(ctx, cu_for_eth_rpc_method(method));
   bytes32_t id     = {0};
   buffer_t  buffer = {0};
   bprintf(&buffer, "{\"jsonrpc\":\"2.0\",\"method\":\"%s\",\"params\":%s,\"id\":1}", method, params);
@@ -236,6 +259,18 @@ c4_status_t c4_send_eth_rpc(prover_ctx_t* ctx, char* method, char* params, uint3
         json_t code = json_get(error, "code");
         if (code.len == 6 && strncmp(code.start, "-32602", 6) == 0)
           RETRY_REQUEST(data_request);
+#ifdef ETH_OBLIVIOUS
+        else if (strcmp(method, "eth_getProof") == 0 && eth_is_oblivious_unavailable(response)) {
+          // Oblivious node reported the requested state as not yet available.
+          // Retry the SAME node after a short delay (bounded), instead of
+          // failing the whole proof. Covers the locally generated
+          // colibri_proofCall in hybrid mode whose eth_getProof requests are
+          // routed to the oblivious node by the host.
+          if (c4_state_retry_after(data_request, eth_oblivious_retry_delay(ctx->chain_id, data_request->retry_count), ETH_OBLIVIOUS_MAX_RETRIES))
+            return C4_PENDING;
+          THROW_ERROR_WITH("oblivious node did not provide the proof within the retry budget for %s (params: %s) : %j", method, params, json_get(error, "message"));
+        }
+#endif
         else
           THROW_ERROR_WITH("Error when calling eth-rpc for %s (params: %s) : %j", method, params, json_get(error, "message"));
       }
@@ -248,7 +283,22 @@ c4_status_t c4_send_eth_rpc(prover_ctx_t* ctx, char* method, char* params, uint3
         RETRY_REQUEST(data_request);
       //      THROW_ERROR_WITH("Error when calling eth-rpc for %s (params: %s): Invalid JSON response (no result)", method, params);
 
+#ifdef ETH_OBLIVIOUS
+      // Feed the adaptive oblivious-retry learner. Only when at least one
+      // delayed retry was needed do we *know* this request went through the
+      // oblivious code path -- a plain `eth_getProof` against a regular node
+      // would also reach here with retry_count == 0 and must not pollute the
+      // learner. The R == 0 downward probe is handled by the verifier path
+      // in call_ctx.c, which has the explicit VERIFY_FLAG_OBLIVIOUS signal.
+      if (strcmp(method, "eth_getProof") == 0 && data_request->retry_count > 0)
+        eth_oblivious_retry_observe(ctx->chain_id, data_request->retry_count);
+#endif
+
       *result = res;
+      return C4_SUCCESS;
+    }
+    else if (data_request->error && strcmp(data_request->error, "JSON-RPC result is null") == 0 && is_nullable_method(method)) { // classify layer retried on a lagging node but all retries returned null - accept as valid
+      *result = json_parse("null");
       return C4_SUCCESS;
     }
     else

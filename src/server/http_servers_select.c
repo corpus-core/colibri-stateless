@@ -11,6 +11,7 @@
 #include "server_handlers.h"
 #include "util/chain_props.h"
 #include "util/json.h"
+#include "util/compat.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,8 +23,9 @@
 #define HEALTH_CHECK_PENALTY       0.5   // Weight penalty for unhealthy servers
 #define MIN_WEIGHT                 0.1   // Minimum weight to avoid division by zero
 #define USER_ERROR_RESET_THRESHOLD 0.8   // If 80%+ servers are unhealthy, assume user error
-#define RECOVERY_TIMEOUT_MS        60000 // 60 seconds before allowing recovery attempts
-#define RECOVERY_SUCCESS_THRESHOLD 5     // Number of successful requests from other servers before allowing recovery
+#define RECOVERY_TIMEOUT_MS        60000  // 60 seconds before allowing recovery attempts
+#define RECOVERY_SUCCESS_THRESHOLD 5      // Number of successful requests from other servers before allowing recovery
+#define ARCHIVE_PROBE_BLOCK_AGE    201600 // ~4 weeks of blocks at 12s block time
 
 // Recovery polling cadence (ms) from request-end path
 #define RECOVERY_POLL_MS 5000
@@ -664,10 +666,11 @@ void c4_parse_server_config(server_list_t* list, char* servers) {
   // Count servers first
   char* servers_copy = strdup(servers);
   int   count        = 0;
-  char* token        = strtok(servers_copy, ",");
+  char* save_count   = NULL;
+  char* token        = c4_strtok_r(servers_copy, ",", &save_count);
   while (token) {
     count++;
-    token = strtok(NULL, ",");
+    token = c4_strtok_r(NULL, ",", &save_count);
   }
 
   // Reset for actual parsing
@@ -683,42 +686,51 @@ void c4_parse_server_config(server_list_t* list, char* servers) {
   // Get known client type suffixes for manual configuration
   const char** known_types = c4_get_known_config_names();
 
-  count = 0;
-  token = strtok(servers_copy, ",");
+  count           = 0;
+  char* save_parse = NULL;
+  token            = c4_strtok_r(servers_copy, ",", &save_parse);
 
   while (token) {
-    // Parse optional client type suffix: "https://server.com:NIMBUS"
     char*                url_part    = token;
     beacon_client_type_t client_type = BEACON_CLIENT_UNKNOWN;
 
-    // Find client type separator (look for :TYPE pattern after URL)
+    // Strip :PRUNED suffix first (before client type detection) so both
+    // "url:GETH:PRUNED" and "url:PRUNED:GETH" orderings work.
+    bool        is_pruned  = false;
+    const char* pruned_tag = ":PRUNED";
+    size_t      pruned_len = strlen(pruned_tag);
+    {
+      char* found = strstr(url_part, pruned_tag);
+      if (found && found[pruned_len] == '\0') {
+        *found    = '\0';
+        is_pruned = true;
+      }
+    }
+
+    // Parse optional client type suffix: "https://server.com:NIMBUS"
     char* type_separator = NULL;
     char* type_str       = NULL;
-
-    // Strategy: Look for known client type names after a colon
     for (int i = 0; known_types[i] != NULL && !type_separator; i++) {
-      char search_pattern[64]; // Stack allocation instead of malloc
+      char search_pattern[64];
       snprintf(search_pattern, sizeof(search_pattern), ":%s", known_types[i]);
-      char* found = strstr(token, search_pattern);
-      if (found && (found + strlen(search_pattern) == token + strlen(token))) {
-        // Found known type at end of string
+      char* found = strstr(url_part, search_pattern);
+      if (found && (found + strlen(search_pattern) == url_part + strlen(url_part))) {
         type_separator = found;
         type_str       = found + 1;
       }
     }
 
     if (type_separator && type_str) {
-      // Split URL and type
       *type_separator = '\0';
-
-      // Parse client type string using mapping
-      client_type = c4_parse_config_name(type_str, &http_server);
-      if (client_type == BEACON_CLIENT_UNKNOWN) {
+      client_type     = c4_parse_config_name(type_str, &http_server);
+      if (client_type == BEACON_CLIENT_UNKNOWN)
         log_warn("   [config] Unknown client type '%s' for server %s", type_str, url_part);
-      }
     }
+
     if (client_type != BEACON_CLIENT_UNKNOWN)
-      log_info("   [config] Server %d: %s (Type: %s)", count, url_part, c4_client_type_to_name(client_type, &http_server));
+      log_info("   [config] Server %d: %s (Type: %s%s)", count, url_part, c4_client_type_to_name(client_type, &http_server), is_pruned ? ", pruned" : "");
+    else if (is_pruned)
+      log_info("   [config] Server %d: %s (pruned history)", count, url_part);
 
     list->urls[count]                             = strdup(url_part);
     list->health_stats[count].is_healthy          = true;
@@ -737,10 +749,11 @@ void c4_parse_server_config(server_list_t* list, char* servers) {
     list->health_stats[count].latest_block        = 0;
     list->health_stats[count].head_last_seen_ms   = 0;
     list->health_stats[count].method_stats        = NULL;
+    list->health_stats[count].pruned              = is_pruned;
     list->client_types[count]                     = client_type;
 
     count++;
-    token = strtok(NULL, ",");
+    token = c4_strtok_r(NULL, ",", &save_parse);
   }
 
   safe_free(servers_copy);
@@ -770,6 +783,144 @@ static size_t detection_write_callback(void* contents, size_t size, size_t nmemb
   buffer->data.len += realsize;
   buffer->data.data[buffer->data.len] = '\0'; // NULL terminate
   return realsize;
+}
+
+// ---- Blocking RPC probe helpers (startup only, outside event loop) ----
+
+typedef struct {
+  size_t   server_index;
+  long     http_code;
+  buffer_t response;
+} rpc_probe_result_t;
+
+static void rpc_probe_results_free(rpc_probe_result_t* results, size_t count) {
+  if (!results) return;
+  for (size_t i = 0; i < count; i++)
+    buffer_free(&results[i].response);
+  safe_free(results);
+}
+
+/**
+ * Send the same JSON-RPC payload to multiple servers in parallel (blocking).
+ *
+ * @param servers   server list to probe
+ * @param payload   JSON-RPC body (POST)
+ * @param skip_mask bitmask of server indices to skip (bit i = skip index i)
+ * @param out_count receives the number of active results
+ * @return heap-allocated array of results (caller must call `rpc_probe_results_free`)
+ */
+static rpc_probe_result_t* rpc_call_servers(server_list_t* servers, const char* payload,
+                                            uint32_t skip_mask, size_t* out_count) {
+  *out_count = 0;
+  if (!servers || servers->count == 0 || !payload) return NULL;
+
+  CURLM* multi = curl_multi_init();
+  if (!multi) return NULL;
+
+  size_t               max_n    = servers->count;
+  detection_request_t* reqs     = (detection_request_t*) safe_calloc(max_n, sizeof(detection_request_t));
+  size_t               active   = 0;
+  size_t               payload_len = strlen(payload);
+
+  for (size_t i = 0; i < servers->count; i++) {
+    if (skip_mask & (1u << i)) continue;
+    detection_request_t* r = &reqs[active];
+    r->server_index    = i;
+    r->response_buffer = (buffer_t) {0};
+    r->headers         = NULL;
+    r->detection_url   = strdup(servers->urls[i]);
+    r->easy_handle     = curl_easy_init();
+    if (!r->easy_handle) { safe_free(r->detection_url); continue; }
+
+    curl_easy_setopt(r->easy_handle, CURLOPT_URL, r->detection_url);
+    curl_easy_setopt(r->easy_handle, CURLOPT_WRITEFUNCTION, detection_write_callback);
+    curl_easy_setopt(r->easy_handle, CURLOPT_WRITEDATA, &r->response_buffer);
+    curl_easy_setopt(r->easy_handle, CURLOPT_TIMEOUT, 10L);
+    curl_easy_setopt(r->easy_handle, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(r->easy_handle, CURLOPT_SSL_VERIFYPEER, 0L);
+    curl_easy_setopt(r->easy_handle, CURLOPT_SSL_VERIFYHOST, 0L);
+    r->headers = curl_slist_append(r->headers, "Content-Type: application/json");
+    curl_easy_setopt(r->easy_handle, CURLOPT_HTTPHEADER, r->headers);
+    curl_easy_setopt(r->easy_handle, CURLOPT_POSTFIELDS, payload);
+    curl_easy_setopt(r->easy_handle, CURLOPT_POSTFIELDSIZE, (long) payload_len);
+    curl_multi_add_handle(multi, r->easy_handle);
+    active++;
+  }
+
+  if (active == 0) { safe_free(reqs); curl_multi_cleanup(multi); return NULL; }
+
+  // Run all requests to completion
+  int running;
+  curl_multi_perform(multi, &running);
+  while (running > 0) {
+    int numfds = 0;
+    if (curl_multi_wait(multi, NULL, 0, 5000, &numfds) != CURLM_OK) break;
+    if (curl_multi_perform(multi, &running) != CURLM_OK) break;
+  }
+
+  // Collect results
+  rpc_probe_result_t* results = (rpc_probe_result_t*) safe_calloc(active, sizeof(rpc_probe_result_t));
+  CURLMsg*            msg;
+  int                 msgs_left;
+  while ((msg = curl_multi_info_read(multi, &msgs_left))) {
+    if (msg->msg != CURLMSG_DONE) continue;
+    for (size_t j = 0; j < active; j++) {
+      if (reqs[j].easy_handle != msg->easy_handle) continue;
+      long code = 0;
+      curl_easy_getinfo(msg->easy_handle, CURLINFO_RESPONSE_CODE, &code);
+      results[j].server_index = reqs[j].server_index;
+      results[j].http_code    = (msg->data.result == CURLE_OK) ? code : 0;
+      results[j].response     = reqs[j].response_buffer;
+      reqs[j].response_buffer = (buffer_t) {0}; // ownership transferred
+      break;
+    }
+  }
+
+  // Cleanup curl resources (response buffers already transferred)
+  for (size_t j = 0; j < active; j++) {
+    if (reqs[j].easy_handle) { curl_multi_remove_handle(multi, reqs[j].easy_handle); curl_easy_cleanup(reqs[j].easy_handle); }
+    if (reqs[j].headers) curl_slist_free_all(reqs[j].headers);
+    if (reqs[j].detection_url) safe_free(reqs[j].detection_url);
+    buffer_free(&reqs[j].response_buffer);
+  }
+  safe_free(reqs);
+  curl_multi_cleanup(multi);
+
+  *out_count = active;
+  return results;
+}
+
+/**
+ * Send a JSON-RPC payload to a single URL (blocking).
+ *
+ * @param url     target URL
+ * @param payload JSON-RPC body (POST)
+ * @return response buffer (caller must `buffer_free`). Empty on failure.
+ */
+static buffer_t rpc_call_single(const char* url, const char* payload) {
+  buffer_t buf = {0};
+  if (!url || !payload) return buf;
+
+  CURL* handle = curl_easy_init();
+  if (!handle) return buf;
+
+  struct curl_slist* hdrs = curl_slist_append(NULL, "Content-Type: application/json");
+  curl_easy_setopt(handle, CURLOPT_URL, url);
+  curl_easy_setopt(handle, CURLOPT_WRITEFUNCTION, detection_write_callback);
+  curl_easy_setopt(handle, CURLOPT_WRITEDATA, &buf);
+  curl_easy_setopt(handle, CURLOPT_TIMEOUT, 10L);
+  curl_easy_setopt(handle, CURLOPT_FOLLOWLOCATION, 1L);
+  curl_easy_setopt(handle, CURLOPT_SSL_VERIFYPEER, 0L);
+  curl_easy_setopt(handle, CURLOPT_SSL_VERIFYHOST, 0L);
+  curl_easy_setopt(handle, CURLOPT_HTTPHEADER, hdrs);
+  curl_easy_setopt(handle, CURLOPT_POSTFIELDS, payload);
+  curl_easy_setopt(handle, CURLOPT_POSTFIELDSIZE, (long) strlen(payload));
+
+  curl_easy_perform(handle);
+
+  curl_easy_cleanup(handle);
+  if (hdrs) curl_slist_free_all(hdrs);
+  return buf;
 }
 
 // Auto-detect client types for all servers in a list using parallel requests
@@ -945,6 +1096,145 @@ void c4_detect_server_client_types(server_list_t* servers, data_request_type_t t
   log_info(":: Client type detection completed");
 }
 
+// ---- Archive status detection (startup probe) ----
+
+static method_stats_t* c4_get_or_create_method_stats(server_health_t* health, const char* method);
+
+// Detect which RPC servers have pruned transaction history by probing
+// with a transaction from an old block (~4 weeks ago).
+// Servers that return null are marked as pruned.
+void c4_detect_archive_status(server_list_t* servers) {
+  if (!servers || servers->count < 2) return;
+
+#ifdef TEST
+  if (c4_test_url_rewriter) {
+    log_info(":: Skipping archive detection in TEST mode");
+    return;
+  }
+#endif
+
+  log_info(":: Detecting archive status for RPC servers...");
+
+  // Build skip mask for already-pruned servers
+  uint32_t pruned_mask = 0;
+  for (size_t i = 0; i < servers->count && i < 32; i++) {
+    if (servers->health_stats[i].pruned) pruned_mask |= (1u << i);
+  }
+
+  // Phase 1: Get latest block number from all non-pruned servers
+  size_t               phase1_n = 0;
+  rpc_probe_result_t*  phase1   = rpc_call_servers(servers,
+      "{\"jsonrpc\":\"2.0\",\"method\":\"eth_blockNumber\",\"params\":[],\"id\":1}",
+      pruned_mask, &phase1_n);
+  if (!phase1) return;
+
+  uint64_t max_block      = 0;
+  size_t   max_block_node = 0;
+  for (size_t i = 0; i < phase1_n; i++) {
+    if (phase1[i].http_code != 200 || phase1[i].response.data.len == 0) continue;
+    json_t resp   = json_parse((char*) phase1[i].response.data.data);
+    json_t result = json_get(resp, "result");
+    if (result.type == JSON_TYPE_STRING && result.len > 3) {
+      uint64_t block = strtoull(result.start + 1, NULL, 16);
+      if (block > max_block) {
+        max_block      = block;
+        max_block_node = phase1[i].server_index;
+      }
+    }
+  }
+  rpc_probe_results_free(phase1, phase1_n);
+
+  if (max_block < ARCHIVE_PROBE_BLOCK_AGE + 100) {
+    log_info("   [archive] Chain too young for archive probe (head=%lu), skipping", (unsigned long) max_block);
+    return;
+  }
+
+  uint64_t target_block = max_block - ARCHIVE_PROBE_BLOCK_AGE;
+  log_info("   [archive] head=%lu, probing block %lu (~4 weeks ago)", (unsigned long) max_block, (unsigned long) target_block);
+
+  // Phase 2: Get an old block from the best node to find a tx hash
+  char block_payload[256];
+  snprintf(block_payload, sizeof(block_payload),
+           "{\"jsonrpc\":\"2.0\",\"method\":\"eth_getBlockByNumber\",\"params\":[\"0x%lx\",false],\"id\":1}",
+           (unsigned long) target_block);
+
+  buffer_t block_buf = rpc_call_single(servers->urls[max_block_node], block_payload);
+
+  char tx_hash[68] = {0};
+  if (block_buf.data.len > 0) {
+    json_t resp   = json_parse((char*) block_buf.data.data);
+    json_t result = json_get(resp, "result");
+    if (result.type == JSON_TYPE_OBJECT) {
+      json_t txs = json_get(result, "transactions");
+      if (txs.type == JSON_TYPE_ARRAY) {
+        json_t first_tx = json_at(txs, 0);
+        if (first_tx.type == JSON_TYPE_STRING && first_tx.len >= 68) {
+          memcpy(tx_hash, first_tx.start + 1, 66);
+          tx_hash[66] = '\0';
+        }
+      }
+    }
+  }
+  buffer_free(&block_buf);
+
+  if (tx_hash[0] == '\0') {
+    log_warn("   [archive] Could not find a transaction in block %lu, skipping", (unsigned long) target_block);
+    return;
+  }
+
+  log_info("   [archive] Probing servers with tx %s from block %lu", tx_hash, (unsigned long) target_block);
+
+  // Phase 3: Probe all non-pruned servers with eth_getTransactionByHash
+  char tx_payload[256];
+  snprintf(tx_payload, sizeof(tx_payload),
+           "{\"jsonrpc\":\"2.0\",\"method\":\"eth_getTransactionByHash\",\"params\":[\"%s\"],\"id\":1}",
+           tx_hash);
+
+  size_t              phase3_n = 0;
+  rpc_probe_result_t* phase3   = rpc_call_servers(servers, tx_payload, pruned_mask, &phase3_n);
+  if (!phase3) return;
+
+  for (size_t i = 0; i < phase3_n; i++) {
+    size_t idx = phase3[i].server_index;
+    if (phase3[i].http_code == 200 && phase3[i].response.data.len > 0) {
+      bool is_null = (phase3[i].response.data.data &&
+                      strstr((char*) phase3[i].response.data.data, "\"result\":null") != NULL);
+      if (is_null) {
+        servers->health_stats[idx].pruned = true;
+        log_info("   [archive] Server %l (%s): pruned (null for old tx)", (uint64_t) idx, servers->urls[idx]);
+      }
+      else {
+        log_info("   [archive] Server %l (%s): full history", (uint64_t) idx, servers->urls[idx]);
+        method_stats_t* ms = c4_get_or_create_method_stats(&servers->health_stats[idx], "eth_getTransactionByHash");
+        if (ms) ms->null_result_ewma = 0.0;
+      }
+    }
+    else {
+      log_warn("   [archive] Server %l (%s): probe failed (HTTP %ld)", (uint64_t) idx, servers->urls[idx], phase3[i].http_code);
+    }
+  }
+  rpc_probe_results_free(phase3, phase3_n);
+
+  log_info(":: Archive status detection completed");
+}
+
+// ---- Archive status helpers ----
+
+method_stats_t* c4_find_method_stats(server_health_t* h, const char* method) {
+  if (!h || !method) return NULL;
+  for (method_stats_t* ms = h->method_stats; ms; ms = ms->next) {
+    if (strcmp(ms->name, method) == 0) return ms;
+  }
+  return NULL;
+}
+
+bool c4_is_verified_archive(server_health_t* h, const char* method) {
+  if (!h || h->pruned) return false;
+  method_stats_t* ms = c4_find_method_stats(h, method);
+  if (!ms) return false;
+  return ms->null_result_ewma >= 0.0 && ms->null_result_ewma < 0.05;
+}
+
 // (Head-Poller ausgelagert nach src/server/http_head_poller.c)
 
 // Update server health statistics
@@ -990,6 +1280,7 @@ static method_stats_t* c4_get_or_create_method_stats(server_health_t* health, co
   m->ewma_latency_ms     = 0.0;
   m->success_ewma        = 0.0;
   m->not_found_ewma      = 0.0;
+  m->null_result_ewma    = -1.0;
   m->rate_limited_recent = false;
   m->last_update_ms      = current_ms();
   m->next                = health->method_stats;
@@ -1036,8 +1327,13 @@ void c4_on_request_end(server_list_t* servers, int idx, uint64_t resp_time_ms,
   if (method) {
 
     // Handle method not supported errors
-    if (cls == C4_RESPONSE_ERROR_METHOD_NOT_SUPPORTED)
+    if (cls == C4_RESPONSE_ERROR_METHOD_NOT_SUPPORTED) {
+      // TODO: Make method support tracking param-shape aware.
+      // Some RPC methods are supported only for certain parameter variants. Example:
+      // - eth_createAccessList with 2 params may work on a node, but with a 3rd param (state overrides) it may return -32602.
+      // Currently we mark the whole method as unsupported per server, which can over-exclude nodes for the plain 2-param case.
       c4_mark_method_unsupported(servers, idx, method);
+    }
     else {
       method_stats_t* ms = c4_get_or_create_method_stats(h, method);
       if (ms) {
@@ -1051,7 +1347,12 @@ void c4_on_request_end(server_list_t* servers, int idx, uint64_t resp_time_ms,
         ms->success_ewma     = (ms->success_ewma == 0.0 ? success_val : (alpha * success_val + (1.0 - alpha) * ms->success_ewma));
         double not_found_val = (cls == C4_RESPONSE_ERROR_RETRY || cls == C4_RESPONSE_ERROR_USER) && http_code == 404 ? 1.0 : 0.0;
         ms->not_found_ewma   = (ms->not_found_ewma == 0.0 ? not_found_val : (alpha * not_found_val + (1.0 - alpha) * ms->not_found_ewma));
-        ms->last_update_ms   = current_ms();
+        double null_val      = (method_context && strcmp(method_context, "null_result") == 0) ? 1.0 : 0.0;
+        if (ms->null_result_ewma < 0.0)
+          ms->null_result_ewma = null_val;
+        else
+          ms->null_result_ewma = alpha * null_val + (1.0 - alpha) * ms->null_result_ewma;
+        ms->last_update_ms = current_ms();
       }
     }
   }
@@ -1113,13 +1414,12 @@ static bytes_t convert_lighthouse_to_ssz(data_request_t* req, json_t result, uin
   uint64_t            slots_per_epoch = slot_for_period(1, chain);
   c4_state_t          state           = {0};
   buffer_t            response        = {0};
-
   int found = 0;
   json_for_each_value(result, entry) {
     json_t   data = json_get(entry, "data");
     uint64_t slot = json_get_uint64(json_get(json_get(data, "attested_header"), "beacon"), "slot");
     if (slot >= slot_start + found * slots_per_epoch && slot < slot_start + (found + 1) * slots_per_epoch && found < count) {
-      const ssz_def_t* client_update_def = eth_get_light_client_update(c4_chain_fork_id(chain->chain_id, slot));
+      const ssz_def_t* client_update_def = eth_get_light_client_update(c4_chain_fork_id(chain->chain_id, epoch_for_slot(slot, chain)));
       if (!client_update_def) continue;
       ssz_ob_t ob = ssz_from_json(data, client_update_def, &state);
       if (state.error) {

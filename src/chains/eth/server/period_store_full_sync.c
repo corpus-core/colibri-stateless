@@ -66,7 +66,11 @@ static void free_sync_files(sync_file_t* files, uint32_t count) {
 }
 
 static bool c4_ps_period_is_complete(uint64_t period) {
-  return c4_ps_file_exists(period, "blocks_root.bin") && c4_ps_file_exists(period, "zk_proof_g16.bin");
+  // A period counts as complete once it has a Groth16 proof of either variant
+  // (legacy v5 `zk_proof_g16.bin` or new v6 `zk_proof_g16_v6.bin`); otherwise a
+  // v6-only period would never be marked complete and slaves would re-sync forever.
+  return c4_ps_file_exists(period, "blocks_root.bin") &&
+         (c4_ps_file_exists(period, "zk_proof_g16.bin") || c4_ps_file_exists(period, "zk_proof_g16_v6.bin"));
 }
 
 static void c4_ps_full_sync_unmark_complete_period(full_sync_ctx_t* ctx, uint64_t period) {

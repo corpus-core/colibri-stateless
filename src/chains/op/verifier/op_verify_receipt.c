@@ -57,13 +57,13 @@ bool op_verify_receipt_proof(verify_ctx_t* ctx) {
   uint32_t  tx_index          = ssz_get_uint32(&ctx->proof, "transactionIndex");
   ssz_ob_t  receipt_proof     = ssz_get(&ctx->proof, "receipt_proof");
   ssz_ob_t  block_proof       = ssz_get(&ctx->proof, "block_proof");
-  ssz_ob_t* execution_payload = op_extract_verified_execution_payload(ctx, block_proof, NULL, NULL);
-  if (!execution_payload) return false;
+  ssz_ob_t execution_payload = op_extract_verified_execution_payload(ctx, block_proof, NULL, NULL);
+  if (!execution_payload.def) return false;
 
-  ssz_ob_t  raw_tx                  = ssz_at(ssz_get(execution_payload, "transactions"), tx_index);
-  ssz_ob_t  block_hash              = ssz_get(execution_payload, "blockHash");
-  ssz_ob_t  block_number            = ssz_get(execution_payload, "blockNumber");
-  ssz_ob_t  receipts_root_expected  = ssz_get(execution_payload, "receiptsRoot");
+  ssz_ob_t  raw_tx                  = ssz_at(ssz_get(&execution_payload, "transactions"), tx_index);
+  ssz_ob_t  block_hash              = ssz_get(&execution_payload, "blockHash");
+  ssz_ob_t  block_number            = ssz_get(&execution_payload, "blockNumber");
+  ssz_ob_t  receipts_root_expected  = ssz_get(&execution_payload, "receiptsRoot");
   uint64_t  block_number_val        = ssz_uint64(block_number);
   bytes32_t receipt_root_calculated = {0};
   bytes_t   raw_receipt             = {0};
@@ -78,6 +78,5 @@ bool op_verify_receipt_proof(verify_ctx_t* ctx) {
     c4_state_add_error(&ctx->state, "invalid tx data!");
   else
     ctx->success = true;
-  safe_free(execution_payload);
   return ctx->success;
 }

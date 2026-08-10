@@ -28,6 +28,7 @@ export type AcceptKind = 'json' | 'octet';
 function joinPath(base: string, path?: string): string {
   if (!path) return base;
   if (!path.length) return base;
+  if (base.endsWith('/')) return base + path;
   return base + (path.startsWith('/') ? path : '/' + path);
 }
 
@@ -46,23 +47,34 @@ export async function fetch_from_servers(
   method: 'GET' | 'POST',
   payload?: any,
   accept: AcceptKind = 'json',
-  excludeMask = 0
+  excludeMask = 0,
+  fetchFn: typeof globalThis.fetch = globalThis.fetch,
+  maxAge?: number
 ): Promise<{ data: Uint8Array, nodeIndex: number }> {
   let lastError = 'All nodes failed';
   let nodeIndex = 0;
+  // Normalize the method: the C layer emits lowercase ("get"/"post"); fetch expects an
+  // uppercase token for standard methods.
+  const httpMethod = String(method).toUpperCase();
+  const headers: Record<string, string> = {
+    'Accept': accept === 'json' ? 'application/json' : 'application/octet-stream',
+  };
+  // Content-Type only describes the request body, so it is only relevant when we actually send a
+  // payload (POST). Cache-friendly GET requests (e.g. hybrid block proofs) carry no body.
+  if (payload) headers['Content-Type'] = 'application/json';
+  // Freshness bound for shared caches/CDNs: never accept a response older than `maxAge` seconds
+  // (used for `latest` block proofs so a CDN cannot serve a stale head).
+  if (maxAge && maxAge > 0) headers['Cache-Control'] = `max-age=${Math.floor(maxAge)}`;
   for (const server of servers) {
     if (excludeMask & (1 << nodeIndex)) {
       nodeIndex++;
       continue;
     }
     try {
-      const response = await fetch(joinPath(server, path), {
-        method,
+      const response = await fetchFn(joinPath(server, path), {
+        method: httpMethod,
         body: payload ? JSON.stringify(payload) : undefined,
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': accept === 'json' ? 'application/json' : 'application/octet-stream',
-        },
+        headers,
       });
       if (!response.ok) {
         lastError = `HTTP error! Status: ${response.status}, Details: ${await response.text()}`;
@@ -72,7 +84,7 @@ export async function fetch_from_servers(
       const bytes = await response.blob().then(b => b.arrayBuffer());
       return { data: new Uint8Array(bytes), nodeIndex };
     } catch (e) {
-      lastError = (e instanceof Error) ? e.message : String(e);
+      lastError = 'Request to ' + joinPath(server, path) + (payload ? ' with payload ' + JSON.stringify(payload) : '') + ' failed: ' + (  (e instanceof Error) ? e.message : String(e));
     }
     nodeIndex++;
   }
@@ -93,30 +105,63 @@ function log(msg: string) {
  * @param as_proof Expect octet-stream (true) or JSON result (false)
  * @return result value for JSON or raw bytes for proofs
  */
-export async function fetch_rpc(urls: string[], payload: any, as_proof: boolean = false): Promise<any> {
+// Branded error type for JSON-RPC responses that carry revert data
+// (EIP-3668 / CCIP-Read style). The brand lets the catch block distinguish
+// deterministic node responses from transport-layer errors (Node `fetch`
+// throws TypeErrors whose `code` is a string like 'ENOTFOUND') so failover
+// continues for transient issues but not for verified reverts.
+class JsonRpcRevertError extends Error {
+  readonly code?: number;
+  readonly data: unknown;
+  constructor(message: string, code: number | undefined, data: unknown) {
+    super(message);
+    this.name = 'JsonRpcRevertError';
+    if (typeof code === 'number') this.code = code;
+    this.data = data;
+  }
+}
+
+export async function fetch_rpc(urls: string[], payload: any, as_proof: boolean = false, fetchFn: typeof globalThis.fetch = globalThis.fetch): Promise<any> {
   let last_error = 'All nodes failed';
   for (const url of urls) {
-    const response = await fetch(url, {
-      method: 'POST',
-      body: JSON.stringify({ id: 1, jsonrpc: '2.0', ...payload }),
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': as_proof ? 'application/octet-stream' : 'application/json',
-      },
-    });
-    if (response.ok) {
-      if (!as_proof) {
-        const res = await response.json();
-        if (res.error) {
-          last_error = res.error?.message || res.error;
-          continue;
+    try {
+      const response = await fetchFn(url, {
+        method: 'POST',
+        body: JSON.stringify({ id: 1, jsonrpc: '2.0', ...payload }),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': as_proof ? 'application/octet-stream' : 'application/json',
+        },
+      });
+      if (response.ok) {
+        if (!as_proof) {
+          const res = await response.json();
+          if (res.error) {
+            // Preserve `error.data` for JSON-RPC errors that carry revert
+            // bytes (e.g. eth_call revert with code 3 + ABI-encoded
+            // OffchainLookup payload). These are deterministic per-block
+            // responses; failover would just produce the same answer. All
+            // other errors (rate limits, invalid params, node-internal)
+            // remain transient and fall through to the next URL.
+            if (res.error.data !== undefined)
+              throw new JsonRpcRevertError(res.error.message || 'execution reverted', res.error.code, res.error.data);
+            last_error = res.error?.message || res.error;
+            continue;
+          }
+          return res.result;
         }
-        return res.result;
+        const bytes = await response.blob().then(blob => blob.arrayBuffer());
+        return new Uint8Array(bytes);
+      } else {
+        last_error = `HTTP error! Status: ${response.status}, Details: ${await response.text()}`;
       }
-      const bytes = await response.blob().then(blob => blob.arrayBuffer());
-      return new Uint8Array(bytes);
-    } else {
-      last_error = `HTTP error! Status: ${response.status}, Details: ${await response.text()}`;
+    } catch (e) {
+      // Only short-circuit on revert errors we built ourselves above.
+      // Node's `fetch` (undici) throws TypeErrors whose `code` is a string
+      // (e.g. 'ENOTFOUND', 'UND_ERR_HEADERS_TIMEOUT') -- those must still
+      // fall through to the next URL so multi-RPC failover keeps working.
+      if (e instanceof JsonRpcRevertError) throw e;
+      last_error = 'Request to ' + url + ' failed: ' + ((e instanceof Error) ? e.message : String(e));
     }
   }
   throw new Error(last_error);
@@ -130,8 +175,12 @@ export async function fetch_rpc(urls: string[], payload: any, as_proof: boolean 
  */
 export async function handle_request(req: DataRequest, conf: C4Config) {
   const free_buffers: number[] = [];
+  // Honor a requested delay before (re-)executing (e.g. oblivious-node retry backoff).
+  if (req.delay && req.delay > 0) await new Promise(resolve => setTimeout(resolve, req.delay));
   let servers: string[] = [];
-  switch (req.type) {
+  if (req.type === 'eth_rpc' && req.payload?.method === 'eth_getProof' && conf.oblivious_nodes?.length) {
+    servers = [...conf.oblivious_nodes];
+  } else switch (req.type) {
     case 'checkpointz':
       servers = [...(conf.checkpointz || []), ...(conf.beacon_apis || []), ...(conf.prover || [])];
       break;
@@ -152,17 +201,20 @@ export async function handle_request(req: DataRequest, conf: C4Config) {
 
   let cacheable = conf.cache && conf.cache.cacheable(req);
   if (cacheable && conf.cache) {
-    const data = conf.cache.get(req);
+    const data = await conf.cache.get(req);
     if (data) {
       if (conf.debug) log(`::: ${path} (len=${data.length} bytes) CACHED`);
       c4w._c4w_req_set_response(req.req_ptr, copy_to_c(data, c4w), data.length, 0);
+      if (conf.onTransfer) conf.onTransfer(data.length, req);
       return;
     }
   }
   try {
     const accept = req.encoding == 'json' ? 'json' : 'octet';
-    const { data, nodeIndex } = await fetch_from_servers(servers, req.url || '', req.method as any, req.payload, accept as any, req.exclude_mask);
+    const fetchFn = conf.fetch || globalThis.fetch;
+    const { data, nodeIndex } = await fetch_from_servers(servers, req.url || '', req.method as any, req.payload, accept as any, req.exclude_mask, fetchFn, req.ttl);
     c4w._c4w_req_set_response(req.req_ptr, copy_to_c(data, c4w), data.length, nodeIndex);
+    if (conf.onTransfer) conf.onTransfer(data.length, req);
     if (conf.debug) log(`::: ${path} (len=${data.length} bytes) FETCHED`);
     if (conf.cache && cacheable) conf.cache.set(req, data);
   } catch (e) {

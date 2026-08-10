@@ -5,21 +5,6 @@
 Verifying RPC results introduces computational overhead, but in practice the cost is often significantly lower than expected.  
 Proof verification typically requires only a few hash computations and a single BLS signature check, which is negligible compared to the cost of executing or syncing full node data.
 
-## Payload Size
-
-The size of a payload depend on the method.  Here are some examples comparing the payload of **colibri.stateless** (using ssz) to a direct json-response from a RPC-provider:
-
-| method | colibri proof incl. data (SSZ) | RPC-Data (JSON) |
-| ---------------- | -------------------------- | --------------------- |
-| eth_getBlockByNumer  | 108 kB | 403 kB |
-| eth_getTransactionByHash (Deploy)| 24 kB | 47 kB |
-| eth_getTransactionByHash (Transfer)| 1.5 kB | 0.9 kB |
-| eth_getTransactionReceipt | 1.5 kB | 1.6 kB |
-| eth_getLogs | 53 kB | 15 kB |
-| eth_call ( ERC20.balanceOf) | 17 kB | 0.1 kB |
-
-So, while a complete block is often smaller than the corresponding JSON-RPC data (because **colibri.stateless** uses the binary **SSZ**-encoded execution payload from the beacon chain and extracts it directly), other methods such as `eth_call` require additional Merkle proofs for every accessed storage value before the EVM execution can be verified.
-
 ## Verification overhead
 
 Verification usualy is not a huge overhead. The most time consuming part is checking the BLS-Signature.
@@ -37,6 +22,8 @@ These benchmarks were obtained from tests performed on an **Apple M3 Max** syste
 | eth_getTransactionReceipt | 45 ms (43+2) | 68 ms (33+35) |
 | eth_getLogs | 19 ms (17+2) | 47 ms (12+35) |
 | eth_call ( ERC20.balanceOf) | 12 ms (10+2) | 51 ms (11+40) |
+
+#include ../bindings/emscripten/benchmark-results.md
 
 ## Code size
 

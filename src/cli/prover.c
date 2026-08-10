@@ -28,6 +28,7 @@
 #include "../util/bytes.h"
 #include "../util/crypto.h"
 #include "../util/json.h"
+#include "../util/plugin.h"
 #include "../util/ssz.h"
 #include "../util/state.h"
 #include "../util/version.h"
@@ -39,17 +40,17 @@
 
 // :: CLI
 //
-// **colibri.stateless** includes a native command-line interface.  
+// **colibri.stateless** includes a native command-line interface.
 // It can generate proofs and verify them, enabling use in shell scripts, cron jobs, tests, and development workflows.
 //
 // ## Configuration
 //
-// Arguments can be passed directly to the prover or verifier.  
-// Backend API settings can also be provided through a config file.  
+// Arguments can be passed directly to the prover or verifier.
+// Backend API settings can also be provided through a config file.
 // colibri tools search for configuration in the following order:
 //
-// 1. use the path set in the `C4_CONFIG` environment variable  
-// 2. search the current directory for `c4_config.json`  
+// 1. use the path set in the `C4_CONFIG` environment variable
+// 2. search the current directory for `c4_config.json`
 // 3. fall back to built-in defaults
 //
 // This file is a JSON file in the form:
@@ -79,6 +80,7 @@
 // | `-o`           | `<outputfile>`  | SSZ file with the proof                                                     | `stdout`     |
 // | `-d`           | `<chain_store>` | Use `chain_data` from the `chain_store` found within the path               |              |
 // | `-i`           |                 | Include code in the proof                                                   |              |
+// | `-G`           |                 | Generate an `eth_getLogs` completeness proof over the requested block range (proves no matching log was omitted; sets `C4_PROVER_FLAG_LOGS_COMPLETENESS`) |              |
 // | `<method>`     |                 | The method to execute                                                       |              |
 // | `<params>`     |                 | Parameters for the method                                                   |              |
 
@@ -97,6 +99,13 @@ int main(int argc, char* argv[]) {
     exit(EXIT_SUCCESS);
   }
 
+#ifdef FILE_STORAGE
+  /* Prefer file storage so sync committee state is persisted across runs. */
+  storage_plugin_t file_plugin = {0};
+  c4_get_file_storage_plugin(&file_plugin);
+  c4_set_storage_config(&file_plugin);
+#endif
+
   // Display help if no arguments provided or help flag is used
   if (argc < 2 || strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0) {
     fprintf(stderr, "Usage: %s [options] <method> <params> > proof.ssz\n"
@@ -107,6 +116,7 @@ int main(int argc, char* argv[]) {
                     "  -o <outputfile>  : ssz file with the proof ( default to stdout )\n"
                     "  -d <chain_store> : use chain_data from the chain_store found within the path\n"
                     "  -i               : include code in the proof\n"
+                    "  -G               : generate an eth_getLogs completeness proof over the requested block range (proves no matching log was omitted)\n"
                     "  --version, -v    : display version information\n"
                     "\n",
             argv[0]);
@@ -114,13 +124,13 @@ int main(int argc, char* argv[]) {
   }
 
   // Initialize variables for argument parsing
-  char*      method     = NULL;  // RPC method name (e.g., "eth_getBlockByNumber")
-  buffer_t   buffer     = {0};   // Buffer for building JSON parameter array
-  char*      outputfile = NULL;   // Output file path (NULL = stdout)
-  uint32_t   flags      = 0;      // Prover flags (e.g., C4_PROVER_FLAG_INCLUDE_CODE)
-  chain_id_t chain_id   = C4_CHAIN_MAINNET; // Default to Ethereum mainnet
-  buffer_add_chars(&buffer, "["); // Start building JSON array for parameters
-  bytes_t client_state = {0};     // Client state data (loaded from chain_store if -d is used)
+  char*      method     = NULL;                                                        // RPC method name (e.g., "eth_getBlockByNumber")
+  buffer_t   buffer     = {0};                                                         // Buffer for building JSON parameter array
+  char*      outputfile = NULL;                                                        // Output file path (NULL = stdout)
+  uint32_t   flags      = C4_PROVER_FLAG_INCLUDE_CODE; // Prover flags (access list is the default; e.g. C4_PROVER_FLAG_INCLUDE_CODE)
+  chain_id_t chain_id   = C4_CHAIN_MAINNET;                                            // Default to Ethereum mainnet
+  buffer_add_chars(&buffer, "[");                                                      // Start building JSON array for parameters
+  bytes_t client_state = {0};                                                          // Client state data (loaded from chain_store if -d is used)
 
   // Parse command-line arguments
   // Options start with '-' and can be combined (e.g., "-co" = "-c -o")
@@ -151,6 +161,10 @@ int main(int argc, char* argv[]) {
           case 'i':
             // Include contract code in the proof (for call proofs)
             flags |= C4_PROVER_FLAG_INCLUDE_CODE;
+            break;
+          case 'G':
+            // Generate an eth_getLogs completeness proof over the requested block range
+            flags |= C4_PROVER_FLAG_LOGS_COMPLETENESS;
             break;
 #ifdef TEST
 #ifdef USE_CURL

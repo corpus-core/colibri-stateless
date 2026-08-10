@@ -76,6 +76,7 @@ int intx_from_string(intx_uint256_t* value, const char* str, int base) {
 
 // Conversion functions
 void intx_to_string(const intx_uint256_t* value, char* output, int output_len, int base) {
+  if (!output || output_len <= 0) return;
   intx::uint256 cpp_value = to_cpp(value);
   std::string   str       = intx::to_string(cpp_value, base);
 

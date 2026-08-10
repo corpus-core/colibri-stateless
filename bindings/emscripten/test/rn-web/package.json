@@ -1,0 +1,25 @@
+{
+  "name": "colibri-rn-web-test",
+  "private": true,
+  "version": "0.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "expo start",
+    "test": "NODE_PATH=./node_modules NODE_OPTIONS=\"--experimental-vm-modules --preserve-symlinks\" jest --runInBand",
+    "build:web": "expo export --platform web --output-dir dist"
+  },
+  "dependencies": {
+    "@babel/runtime": "^7.26.0",
+    "@expo/metro-runtime": "~4.0.1",
+    "expo": "^52.0.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-native": "0.76.6",
+    "react-native-web": "^0.20.0"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "jest-expo": "^52.0.0"
+  }
+}
+

@@ -22,7 +22,23 @@ function create_cache(dir) {
         },
         get(req) {
             let name = ''
-            if (req.url) name = req.url
+            if (req.url) {
+                // Mirror `c4_req_mockname` in src/util/state.c: cache-friendly proof URLs of the
+                // form `proof/<method>/<block>/<version>/<zk|std>/<c4>` are compressed to
+                // `proof/<method>/<block>` so fixtures survive client-version bumps, zk toggles
+                // and client-state changes.
+                if (req.url.startsWith('proof/')) {
+                    const rest = req.url.slice(6)
+                    const firstSlash = rest.indexOf('/')
+                    const secondSlash = firstSlash >= 0 ? rest.indexOf('/', firstSlash + 1) : -1
+                    if (firstSlash >= 0 && secondSlash >= 0)
+                        name = 'proof/' + rest.slice(0, secondSlash)
+                    else
+                        name = req.url
+                } else {
+                    name = req.url
+                }
+            }
             else if (req.payload)
                 name = req.payload.method + req.payload.params.map(p => '_' + ((typeof p == 'string' ? p : JSON.stringify(p)))).join('')
 
@@ -81,7 +97,14 @@ test('RPC-Proof Test Suite', async (t) => {
             Colibri.register_storage({
                 get: (key) => {
                     try {
-                        return cache[key] ?? fs.readFileSync(`${testdir}/${test}/${key}`);
+                        let data = cache[key] ?? fs.readFileSync(`${testdir}/${test}/${key}`);
+                        if (data && key.startsWith('tx_pending_')) {
+                            data = Buffer.from(data);
+                            const now = BigInt(Math.floor(Date.now() / 1000));
+                            for (let i = 0; i + 40 <= data.length; i += 40)
+                                data.writeBigUInt64LE(now, i + 32);
+                        }
+                        return data;
                     } catch (e) {
                         return null;
                     }
@@ -96,14 +119,31 @@ test('RPC-Proof Test Suite', async (t) => {
 
             let test_conf = JSON.parse(fs.readFileSync(`${testdir}/${test}/test.json`, 'utf8'));
             if (test_conf.requires_chain_store) return;
-            let conf = { chain: test_conf.chain, cache: create_cache(`${testdir}/${test}`) }
-            if (test_conf.trusted_blockhash) {
+            // The fixtures under test/data are static recordings whose `latest`
+            // blocks are inevitably stale, so disable the freshness check here
+            // (otherwise `eth_call`/simulate proofs fail with "proof for latest
+            // too old"). The check itself is covered by test_verify_call_freshness.
+            let conf = { chainId: test_conf.chain_id, cache: create_cache(`${testdir}/${test}`), max_latest_age_seconds: 0 }
+            if (test_conf.trusted_blockhash)
                 conf.trusted_checkpoint = test_conf.trusted_blockhash
-                //                return;
-            }
-            //            console.log(`### ${test} ######`)
+            if (test_conf.include_code)
+                conf.include_code = true
+            if ('use_accesslist' in test_conf)
+                conf.use_accesslist = test_conf.use_accesslist
+            if (test_conf.pap)
+                conf.privacy_mode = "basic";
+            if (test_conf.remote_prover)
+                conf.prover = ["http://mock-prover"];
+            else
+                conf.prover = [];
 
             const c4 = new Colibri(conf);
+
+            if (conf.privacy_mode == "basic") {
+                const result = await c4.rpc(test_conf.method, test_conf.params);
+                assert.deepStrictEqual(result, test_conf.expected_result, 'Proof should be valid');
+                return;
+            }
 
             // Benchmark für createProof
             const createProofStart = performance.now();

@@ -26,7 +26,10 @@
 #include "json.h"
 #include "op_types.h"
 #include "ssz.h"
+#include "state.h"
+#include "sync_committee.h"
 #include "verify.h"
+#include <stdlib.h>
 #include <string.h>
 
 // : OP-Stack
@@ -90,7 +93,9 @@ static const char* not_verifieable_yet_methods[] = {
     RPC_METHOD("eth_sendRawTransaction", Void, Void),
 };
 
-method_type_t c4_op_get_method_type(chain_id_t chain_id, char* method) {
+method_type_t c4_op_get_method_type(chain_id_t chain_id, char* method, json_t params, verify_flags_t flags) {
+  (void) params;
+  (void) flags;
   if (c4_chain_type(chain_id) != C4_CHAIN_TYPE_OP) return METHOD_UNDEFINED;
   for (int i = 0; i < sizeof(proofable_methods) / sizeof(proofable_methods[0]); i++) {
     if (strcmp(method, proofable_methods[i]) == 0) return METHOD_PROOFABLE;
@@ -109,6 +114,29 @@ const ssz_def_t* c4_op_get_request_type(chain_type_t chain_type) {
 }
 extern bool verify_eth_local(verify_ctx_t* ctx);
 
+void op_init_rpc_ctx(c4_init_ctx_t* ctx) {
+  if (!ctx || c4_chain_type(ctx->chain_id) != C4_CHAIN_TYPE_OP) return;
+
+#ifdef ETH_BLOCK
+  // Identify the snapshot via the blockhash recorded in `client_state`.
+  c4_chain_state_t cs = c4_state_deserialize(ctx->client_state);
+  if (cs.status != C4_STATE_SYNC_EXECUTION_PAYLOAD) return;
+
+  bytes_t cached = op_load_cached_payload(ctx->chain_id);
+  if (!cached.data || !cached.len) return;
+
+  data_request_t* snap = safe_calloc(1, sizeof(data_request_t));
+  snap->type           = C4_DATA_TYPE_CACHE;
+  snap->chain_id       = ctx->chain_id;
+  snap->response       = cached; // ownership transferred
+  snap->validated      = true;
+  memcpy(snap->id, cs.data.block.blockhash, 32);
+
+  snap->next     = ctx->snapshots;
+  ctx->snapshots = snap;
+#endif
+}
+
 bool c4_op_verify(verify_ctx_t* ctx) {
   if (c4_chain_type(ctx->chain_id) != C4_CHAIN_TYPE_OP) return false;
 
@@ -121,15 +149,11 @@ bool c4_op_verify(verify_ctx_t* ctx) {
     op_verify_receipt_proof(ctx);
   else if (ssz_is_type(&ctx->proof, op_ssz_verification_type(OP_SSZ_VERIFY_LOGS_PROOF)))
     op_verify_logs_proof(ctx);
-  else if (ssz_is_type(&ctx->proof, op_ssz_verification_type(OP_SSZ_VERIFY_CALL_PROOF))) {
-    if (strcmp(ctx->method, "colibri_simulateTransaction") == 0)
-      op_verify_simulate_proof(ctx);
-    else
-      op_verify_call_proof(ctx);
-  }
+  else if (ssz_is_type(&ctx->proof, op_ssz_verification_type(OP_SSZ_VERIFY_CALL_PROOF)))
+    op_verify_call_proof(ctx);
   else if (ssz_is_type(&ctx->proof, op_ssz_verification_type(OP_SSZ_VERIFY_ACCOUNT_PROOF)))
     op_verify_account_proof(ctx);
-  else if (c4_op_get_method_type(ctx->chain_id, ctx->method) == METHOD_LOCAL)
+  else if (c4_op_get_method_type(ctx->chain_id, ctx->method, ctx->args, ctx->flags) == METHOD_LOCAL)
     verify_eth_local(ctx);
   else if (ctx->method == NULL && ctx->proof.def->type == SSZ_TYPE_NONE && ctx->sync_data.def->type != SSZ_TYPE_NONE && ctx->data.def->type == SSZ_TYPE_NONE)
     ctx->success = true; // if you only verify the sync data, this is ok

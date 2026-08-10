@@ -41,6 +41,7 @@ typedef struct {
   json_t checkpointz;
   json_t beacon_api;
   json_t eth_rpc;
+  json_t oblivious;
   json_t prover;
   json_t chain_store;
   json_t trace_config;
@@ -49,6 +50,8 @@ typedef struct {
 void curl_fetch(data_request_t* req);
 void curl_fetch_all(c4_state_t* state);
 void curl_set_config(json_t config);
+/** @return true if the loaded config has at least one oblivious node URL */
+bool curl_has_oblivious_nodes(void);
 #ifdef TEST
 char* curl_set_test_dir(const char* dir);
 void  curl_set_cache_dir(const char* dir);

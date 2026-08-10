@@ -6,7 +6,7 @@ Python bindings for the Colibri stateless Ethereum proof library.
 
 import atexit
 from .storage import ColibriStorage, DefaultStorage, MemoryStorage  
-from .types import MethodType, ColibriError, RPCError
+from .types import MethodType, ColibriError, RPCError, RevertError
 from .testing import MockStorage, MockRequestHandler, MockProofData, TestHelper
 
 # Try to import native module
@@ -79,6 +79,7 @@ __all__ = [
     "MethodType",
     "ColibriError",
     "RPCError",
+    "RevertError",
     "MockStorage",
     "MockRequestHandler",
     "MockProofData",

@@ -2,6 +2,22 @@ name: Emscripten CI
 
 on:
   workflow_call:
+    inputs:
+      push_image:
+        description: 'Whether to push the playground image to GHCR'
+        required: false
+        type: boolean
+        default: false
+      ref_name:
+        description: 'Reference name (branch or tag)'
+        required: false
+        type: string
+        default: ''
+      ref_type:
+        description: 'Reference type (branch or tag)'
+        required: false
+        type: string
+        default: ''
     secrets:
       NPM_TOKEN:
         required: false
@@ -11,6 +27,7 @@ permissions:
   checks: write
   pull-requests: write
   actions: read
+  packages: write # Required for pushing the playground Docker image to GHCR
 
 jobs:
 
@@ -19,22 +36,73 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Full history + tags so `git describe` can resolve the real version
+          # for the proof-gate logic in "Determine version".
+          fetch-depth: 0
 
       - name: Setup Emscripten
         uses: mymindstorm/setup-emsdk@v14
         with:
           version: 4.0.3
 
+      - name: Determine version
+        id: version
+        run: |
+          # The WASM build bakes this version in and colibri reports it to the
+          # remote prover, which gates the zk-proof format (<2.0 -> v5/SP1 turbo,
+          # >=2.0 -> v6/SP1 hypercube). The unit/integration tests below already
+          # expect v6, but on dev `git describe` still resolves to the latest 1.x
+          # tag, so the prover would serve the v5 proof -> tests fail.
+          #
+          # Force 2.0.0 *only* while git describe reports a 1.x (or untagged)
+          # version; once v2.0.0+ is tagged the real version is used again, so
+          # this needs no manual cleanup after the release. (Mirrors the same
+          # logic in the docker-playground job.)
+          VERSION="$(git describe --tags --always --dirty)"
+          MAJOR="$(printf '%s' "$VERSION" | sed -E 's/^v//; s/[^0-9].*$//')"
+          if [ -z "$MAJOR" ] || [ "$MAJOR" -lt 2 ]; then
+            echo "git describe gave '$VERSION' (major='$MAJOR'); forcing C4_VERSION=2.0.0 for the v6 proof gate"
+            VERSION="2.0.0"
+          fi
+          echo "Using C4_VERSION=$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
       - name: Build with Emscripten (Split WASM for npm)
         run: |
           emcmake cmake -B build -DWASM=true -DWASM_EMBED=OFF -DCLI=false -DTEST=false -DCURL=false -DCMAKE_BUILD_TYPE=MINSIZREL -S .
           cmake --build build
+        env:
+          C4_VERSION: ${{ steps.version.outputs.version }}
 
-      - name: Run tests
+      - name: Run unit tests (node) + webpack build
         run: |
           cd bindings/emscripten
           npm test
           cd ../../
+
+#      - name: Run integration tests (real infrastructure)
+#        run: |
+#          cd bindings/emscripten
+#          npm run test:integration
+#          cd ../../
+
+#      - name: Run CCIP tests (real infrastructure)
+#        run: |
+#          cd bindings/emscripten
+#          npm run test:ccip
+#          cd ../../
+  
+      - name: RN-web smoke (Expo) tests
+        run: |
+          cd bindings/emscripten/test/rn-web
+          npm install
+          npm test
+          npm run build:web
+        env:
+          EXPO_NO_TELEMETRY: "1"
+          NODE_OPTIONS: "--experimental-vm-modules --preserve-symlinks"
+          NODE_PATH: "./node_modules"
 
       - name: Create WASM Package
         run: |
@@ -64,3 +132,156 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         working-directory: build/emscripten
+
+  colibri-tor:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build colibri-tor
+        run: |
+          npm install
+          npx tsc
+        working-directory: bindings/emscripten/packages/tor
+
+      - name: Test colibri-tor
+        run: npm test
+        working-directory: bindings/emscripten/packages/tor
+
+      - name: Set colibri-tor version from tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          TAG_VERSION=${GITHUB_REF#refs/tags/v}
+          echo "Setting colibri-tor version to $TAG_VERSION"
+          npm version $TAG_VERSION --no-git-tag-version
+        working-directory: bindings/emscripten/packages/tor
+
+      - name: Publish colibri-tor to npm
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" > ~/.npmrc
+          npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        working-directory: bindings/emscripten/packages/tor
+
+  colibri-explainer:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build colibri-explainer
+        run: |
+          npm install
+          npx tsc
+        working-directory: bindings/emscripten/packages/explainer
+
+      - name: Test colibri-explainer
+        run: npm test
+        working-directory: bindings/emscripten/packages/explainer
+
+      - name: Set colibri-explainer version from tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          TAG_VERSION=${GITHUB_REF#refs/tags/v}
+          echo "Setting colibri-explainer version to $TAG_VERSION"
+          npm version $TAG_VERSION --no-git-tag-version
+        working-directory: bindings/emscripten/packages/explainer
+
+      - name: Publish colibri-explainer to npm
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          echo "//registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}" > ~/.npmrc
+          npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        working-directory: bindings/emscripten/packages/explainer
+
+  docker-playground:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Full history + tags so `git describe` can derive the version that is
+          # passed into the image build (the build context itself has no .git).
+          fetch-depth: 0
+
+      - name: Determine version
+        id: version
+        run: |
+          # colibri sends its build version to the remote prover, which gates the
+          # zk-proof format: clients <2.0 receive the v5 (SP1 turbo) proof, clients
+          # >=2.0 the v6 (SP1 hypercube) proof. We intentionally keep the playground
+          # pinned to the dev-branch image (i.e. pre-release) to test the upcoming
+          # release early. On dev, `git describe` still resolves to the latest 1.x
+          # tag, so the prover would serve the v5 proof while this build already
+          # expects v6 -> verification fails.
+          #
+          # Fix: force 2.0.0 *only* while git describe reports a 1.x (or untagged)
+          # version. As soon as v2.0.0+ is tagged the real version is used again,
+          # so this needs no manual cleanup after the release.
+          VERSION="$(git describe --tags --always --dirty)"
+          # Strip a leading "v" and keep the leading major component (empty if no
+          # tag resolved, e.g. a bare commit hash).
+          MAJOR="$(printf '%s' "$VERSION" | sed -E 's/^v//; s/[^0-9].*$//')"
+          if [ -z "$MAJOR" ] || [ "$MAJOR" -lt 2 ]; then
+            echo "git describe gave '$VERSION' (major='$MAJOR'); forcing C4_VERSION=2.0.0 for the v6 proof gate"
+            VERSION="2.0.0"
+          fi
+          echo "Using C4_VERSION=$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        if: ${{ inputs.push_image }}
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/corpus-core/colibri-explainer-playground
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest,enable=${{ inputs.ref_type == 'tag' && startsWith(inputs.ref_name, 'v') }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: bindings/docker/Dockerfile.playground
+          build-args: |
+            C4_VERSION=${{ steps.version.outputs.version }}
+          # Single-arch is enough: the image is just nginx serving static files,
+          # so the content is architecture-independent (unlike the prover).
+          platforms: linux/amd64
+          push: ${{ inputs.push_image }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=playground
+          cache-to: type=gha,mode=max,scope=playground
+          # Disable provenance/attestation to avoid GHCR upload issues
+          provenance: false
+          sbom: false

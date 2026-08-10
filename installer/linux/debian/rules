@@ -37,6 +37,12 @@ override_dh_auto_install:
 	# Install systemd service
 	install -D -m 0644 installer/scripts/systemd/colibri-server.service \
 		debian/colibri-server/lib/systemd/system/colibri-server.service
+	
+	# Install zsh completions
+	install -D -m 0644 scripts/completion/_colibri debian/colibri-server/usr/share/zsh/vendor-completions/_colibri
+	install -D -m 0644 scripts/completion/_colibri-prover debian/colibri-server/usr/share/zsh/vendor-completions/_colibri-prover
+	install -D -m 0644 scripts/completion/_colibri-ssz debian/colibri-server/usr/share/zsh/vendor-completions/_colibri-ssz
+	install -D -m 0644 scripts/completion/_colibri-server debian/colibri-server/usr/share/zsh/vendor-completions/_colibri-server
 
 override_dh_auto_clean:
 	rm -rf build

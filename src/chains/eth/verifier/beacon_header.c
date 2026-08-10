@@ -26,6 +26,7 @@
 #include "../util/ssz.h"
 #include "beacon_types.h"
 #include "eth_verify.h"
+#include "logger.h"
 #include "sync_committee.h"
 #include <stdbool.h>
 #include <stdint.h>
@@ -164,17 +165,19 @@ c4_status_t c4_verify_blockroot_signature(verify_ctx_t* ctx, ssz_ob_t* header, s
   valid = is_already_validated(root);
 #endif
 
+  log_debug("get validatore for period %d", period);
   // get the validators and make sure we have the right ones for the requested period
   TRY_ASYNC(c4_get_validators(ctx, period, &sync_state, pubkey_hash));
-
   // verify the signature
+  log_debug("verify bls signature");
   valid = valid || blst_verify(root, sync_committee_signature->bytes.data, sync_state.validators.data, 512, sync_committee_bits->bytes, sync_state.deserialized);
-
+  log_debug("bls signature verified: %d", valid);
   // Edge case: Period transition without immediate finality
   // If the signature is invalid, try with the previous period's validators
   // This can happen when finality is delayed at the start of a new period
   // and the old sync committee keys are still valid
   if (!valid && period > 0) {
+    log_debug("try to get validators from previous period %d", period - 1);
 #ifndef C4_STATIC_MEMORY
     safe_free(sync_state.validators.data);
 #endif

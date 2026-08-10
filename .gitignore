@@ -1,9 +1,13 @@
 /build
+/build/ios
+/build_ios_*
 .vscode
+.DS_Store
 bindings/swift/src/include
 bindings/swift/.build
 bindings/kotlin/.cxx
 bindings/emscripten/node_modules
+bindings/emscripten/test/rn-web/node_modules
 bindings/kotlin/build
 bindings/kotlin/example/build
 bindings/kotlin/example/.gradle
@@ -12,8 +16,8 @@ bindings/kotlin/.gradle
 test/embedded/sdcard.img
 test/embedded/memory_map.txt
 /.memcached
-bindings/emscripten/webpack/dist
-bindings/emscripten/webpack/node_modules
+bindings/emscripten/test/webpack/dist
+bindings/emscripten/test/webpack/node_modules
 bindings/emscripten/test/s*
 bindings/kotlin/*.log
 /build_x86
@@ -23,11 +27,13 @@ bindings/kotlin/*.log
 *.log
 *.exitcode
 sync_1*
+!test/data/**/sync_1*
 .cache
 **/.cache
 # Generated config files
 bindings/emscripten/test/test_config.js
-bindings/emscripten/webpack/webpack_build_config.mjs
+bindings/emscripten/test/webpack/webpack_build_config.mjs
+bindings/emscripten/test/rn-web/rn_web_test_build_config.cjs
 bindings/swift/Sources/TestConfig/
 bindings/swift/Tests/GeneratedIntegrationTests.swift
 bindings/swift/.swiftpm
@@ -59,3 +65,15 @@ valgrind_results
 .zk_proofs
 # UV util test artifacts
 /test/data/uv_util_write/missing_*
+# Dart tooling
+.dart_tool/
+bindings/dart/.env
+bindings/dart/**/assets/.env
+
+# Flutter plugin pre-built native binaries (built in CI / locally before publish)
+bindings/dart/flutter/colibri_flutter/android/src/main/jniLibs/
+bindings/dart/flutter/colibri_flutter/ios/colibri_flutter/Frameworks/c4_swift.xcframework/
+
+
+audit-workspace/
+.colibri-audit*/

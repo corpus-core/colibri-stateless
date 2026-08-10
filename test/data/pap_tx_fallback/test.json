@@ -1,0 +1,37 @@
+{
+  "method":"eth_getTransactionByHash",
+  "params":["0x6496580693f661ad403f15f203d1ebfd0cb414a477bf89d1408d3c0869015752"],
+  "chain_id": 1,
+  "pap": true,
+  "remote_prover": true,
+  "expected_result": {
+  "blockHash":"0x8e7ff6b313ccca125fe73c40ce52de1c90ba81e4640ef2750edf36415f53351d",
+  "blockNumber":"0x17840f4",
+  "hash":"0x6496580693f661ad403f15f203d1ebfd0cb414a477bf89d1408d3c0869015752",
+  "transactionIndex":"0x0",
+  "type":"0x2",
+  "nonce":"0xe961",
+  "input":"0x83800a8e00000000000000000000000018aaa7115705e8be94bffebde57af9bfc265b998000000000000000000000000000000000000000000002480b9e5e5d499964c990000000000000000000000000000000000000000000000001a7b6d24036bdb5108800000000000003b6d0340c730ef0f4973da9cc0ab8ab291890d3e77f58f79fb39cfb5",
+  "r":"0x3fc28d6556308650200ecb1115b26c0230e8a916167d51518dc500195192014c",
+  "s":"0x709f483e113a64234d0061219682efc3cdf76d2f758cc2efd40024bd86664bb1",
+  "chainId":"0x1",
+  "v":"0x0",
+  "gas":"0x1e2b2",
+  "from":"0xfdff0b569f14af593d446e51b3e42f502124ac85",
+  "to":"0x111111125421ca6dc452d289314280a0f8842a65",
+  "value":"0x0",
+  "gasPrice":"0xd0ff640",
+  "maxFeePerGas":"0x1411a260",
+  "maxPriorityFeePerGas":"0xb00c5c0",
+  "accessList":[
+
+  ],
+  "authorizationList":[
+
+  ],
+  "blobVersionedHashes":[
+
+  ],
+  "yParity":"0x0"
+}
+}

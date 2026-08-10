@@ -42,6 +42,10 @@ jobs:
 
   emscripten:
     uses: ./.github/workflows/bindings-emscripten.yml
+    with:
+      push_image: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/tags/v')) }}
+      ref_name: ${{ github.ref_name }}
+      ref_type: ${{ github.ref_type }}
     secrets:
       NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -49,6 +53,9 @@ jobs:
     uses: ./.github/workflows/bindings-python.yml
     secrets:
       PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
+
+  dart:
+    uses: ./.github/workflows/bindings-dart.yml
 
   docker-prover:
     uses: ./.github/workflows/bindings-docker.yml

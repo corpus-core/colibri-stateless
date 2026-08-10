@@ -66,8 +66,289 @@ void test_json() {
   TEST_ASSERT_NOT_NULL(err);
   safe_free((char*) err);
 
+  // regression: json_as_string must not overflow a fixed/too-small stack buffer.
+  // Previously the NULL-terminator was written one byte past the end of a full
+  // fixed buffer, which corrupted the stack (SIGABRT under stack protector).
+  {
+    // array value (else-branch of json_as_string)
+    uint8_t  small_arr[8];
+    buffer_t small_arr_buf = stack_buffer(small_arr);
+    char*    arr_out       = json_as_string(json_parse("[\"0x0102030405060708\"]"), &small_arr_buf);
+    TEST_ASSERT_TRUE(strlen(arr_out) < sizeof(small_arr)); // truncated but valid, no overflow
+
+    // string value (string-branch of json_as_string)
+    uint8_t  small_str[8];
+    buffer_t small_str_buf = stack_buffer(small_str);
+    char*    str_out       = json_as_string(json_parse("\"0123456789abcdef\""), &small_str_buf);
+    TEST_ASSERT_TRUE(strlen(str_out) < sizeof(small_str)); // truncated but valid, no overflow
+  }
+
+  // regression: a large value must be serialized completely into a growable heap
+  // buffer (this is the eth_getLogs case that used to be silently truncated).
+  {
+    char   big_json[4096];
+    size_t pos     = 0;
+    big_json[pos++] = '[';
+    for (int i = 0; i < 48; i++) {
+      if (i) big_json[pos++] = ',';
+      memcpy(big_json + pos, "\"0x0e401e3924394a743231f3b96ced8a1b1ec849b2\"", 44);
+      pos += 44;
+    }
+    big_json[pos++] = ']';
+    big_json[pos]   = '\0';
+
+    buffer_t big_buf = {0};
+    char*    big_out = json_as_string(json_parse(big_json), &big_buf);
+    TEST_ASSERT_EQUAL_INT((int) pos, (int) strlen(big_out)); // nothing truncated
+    TEST_ASSERT_EQUAL_STRING(big_json, big_out);
+    buffer_free(&big_buf);
+  }
+
+  // edge cases for json_as_string boundaries.
+  {
+    // empty string value "" (string-branch, inner length 0)
+    buffer_t empty_str_buf = {0};
+    TEST_ASSERT_EQUAL_STRING("", json_as_string(json_parse("\"\""), &empty_str_buf));
+    buffer_free(&empty_str_buf);
+
+    // empty array value [] (else-branch, no truncation)
+    buffer_t empty_arr_buf = {0};
+    TEST_ASSERT_EQUAL_STRING("[]", json_as_string(json_parse("[]"), &empty_arr_buf));
+    buffer_free(&empty_arr_buf);
+
+    // fixed buffer with capacity exactly equal to needed length (content + terminator):
+    // must NOT truncate. "[]" needs 2 bytes + 1 terminator = 3.
+    uint8_t  exact_arr[3];
+    buffer_t exact_arr_buf = stack_buffer(exact_arr);
+    TEST_ASSERT_EQUAL_STRING("[]", json_as_string(json_parse("[]"), &exact_arr_buf));
+
+    // same for the string-branch: "ab" needs 2 bytes + 1 terminator = 3.
+    uint8_t  exact_str[3];
+    buffer_t exact_str_buf = stack_buffer(exact_str);
+    TEST_ASSERT_EQUAL_STRING("ab", json_as_string(json_parse("\"ab\""), &exact_str_buf));
+  }
+
+  // regression: escaped-string deescaping combined with a too-small fixed buffer.
+  // The raw (still-escaped) bytes are truncated to fit, then json_deescape_string
+  // runs over the truncated content -- this must stay in bounds even when the
+  // truncation leaves a dangling backslash at the end.
+  {
+    uint8_t  esc_buf_mem[8];
+    buffer_t esc_buf = stack_buffer(esc_buf_mem);
+    char*    esc_out = json_as_string(json_parse("\"\\n\\n\\n\\n\\n\\n\""), &esc_buf);
+    TEST_ASSERT_NOT_NULL(esc_out);
+    TEST_ASSERT_TRUE(strlen(esc_out) < sizeof(esc_buf_mem)); // no overflow, valid C string
+  }
+
+  // regression: json_as_uint64 must not perform an out-of-bounds write when a hex
+  // quantity decodes to more than 8 bytes. Previously "8 - len" underflowed the
+  // pointer and the size_t passed to memset became ~SIZE_MAX (remote memory
+  // corruption reachable from any attacker-controlled hex quantity in an RPC
+  // response). Oversized values must fail closed (return 0) instead.
+  {
+    // valid values that fit into 64 bits are unaffected
+    TEST_ASSERT_EQUAL_HEX64(0x1234, json_as_uint64(json_parse("\"0x1234\"")));
+    TEST_ASSERT_EQUAL_HEX64(UINT64_MAX, json_as_uint64(json_parse("\"0xffffffffffffffff\""))); // exactly 8 bytes, upper valid edge
+
+    // 9 decoded bytes (18 hex digits): "8 - len" used to underflow and crash; caught by the len > 8 guard
+    TEST_ASSERT_EQUAL_HEX64(0, json_as_uint64(json_parse("\"0x010203040506070809\"")));
+
+    // full 256-bit quantity (32 bytes) exceeds the 20-byte scratch buffer -> hex_to_bytes returns -1 (len < 0 guard)
+    TEST_ASSERT_EQUAL_HEX64(0, json_as_uint64(json_parse("\"0x0102030405060708091011121314151617181920212223242526272829303132\"")));
+
+    // invalid hex nibble that still fits the buffer -> hex_to_bytes returns -1 (len < 0 guard)
+    TEST_ASSERT_EQUAL_HEX64(0, json_as_uint64(json_parse("\"0x12zz\"")));
+
+    // decimal (non-0x) path goes through strtoull
+    TEST_ASSERT_EQUAL_HEX64(255, json_as_uint64(json_parse("255")));
+
+    // leading zero nibbles must be stripped: significant portion fits into 64 bits
+    TEST_ASSERT_EQUAL_HEX64(2, json_as_uint64(json_parse("\"0x0000000000000000000000000000000000000000000000000000000000000000000002\"")));
+    // 32-byte quantity padded with leading zeros, non-zero part is 8 bytes
+    TEST_ASSERT_EQUAL_HEX64(0xdeadbeefcafebabeULL, json_as_uint64(json_parse("\"0x000000000000000000000000000000000000000000000000deadbeefcafebabe\"")));
+    // all-zero hex quantity
+    TEST_ASSERT_EQUAL_HEX64(0, json_as_uint64(json_parse("\"0x00000000000000000000000000000000000000000000000000000000\"")));
+    // 17 significant nibbles -> does not fit into 64 bits even after stripping leading zeros
+    TEST_ASSERT_EQUAL_HEX64(0, json_as_uint64(json_parse("\"0x0010000000000000000\"")));
+  }
+
+  // regression (F-ED20B2): json_to_bytes / json_as_bytes must not overflow a fixed
+  // target buffer when the hex string decodes to more bytes than the target holds.
+  // Previously json_as_bytes advertised value.len (the hex string length) as capacity
+  // to hex_to_bytes, defeating its bounds check on fixed (non-growable) buffers.
+  {
+    struct {
+      uint8_t target[32];
+      uint8_t canary[16];
+    } g;
+    memset(&g, 0xAA, sizeof(g));
+
+    // oversized (38-byte) hex value into a 32-byte target -> must fail closed (0 written), no overflow
+    uint32_t n = json_to_bytes(json_parse("\"0x0102030405060708091011121314151617181920212223242526272829303132333435363738\""), bytes(g.target, 32));
+    TEST_ASSERT_EQUAL_UINT32(0, n);
+    for (int i = 0; i < 16; i++) TEST_ASSERT_EQUAL_HEX8(0xAA, g.canary[i]); // canary intact -> no overflow
+
+    // exact 32-byte value still decodes correctly into the fixed target
+    uint32_t m = json_to_bytes(json_parse("\"0x0102030405060708091011121314151617181920212223242526272829303132\""), bytes(g.target, 32));
+    TEST_ASSERT_EQUAL_UINT32(32, m);
+    TEST_ASSERT_EQUAL_HEX8(0x01, g.target[0]);
+    TEST_ASSERT_EQUAL_HEX8(0x32, g.target[31]);
+    for (int i = 0; i < 16; i++) TEST_ASSERT_EQUAL_HEX8(0xAA, g.canary[i]);
+
+    // regression: on invalid hex, json_as_bytes must not leak the locally-owned
+    // fallback buffer it allocates when called with a NULL buffer (checked by valgrind).
+    buffer_t* null_buf = NULL;
+    bytes_t   inv      = json_as_bytes(json_parse("\"0xzz\""), null_buf);
+    TEST_ASSERT_NULL(inv.data);
+
+    // caller-provided buffer on invalid hex: returns NULL_BYTES, caller still owns/frees it
+    buffer_t owned = {0};
+    bytes_t  inv2  = json_as_bytes(json_parse("\"0xzz\""), &owned);
+    TEST_ASSERT_NULL(inv2.data);
+    buffer_free(&owned);
+  }
+
+  // regression (F-07C606): json_get_path must not overflow its 256-byte scratch
+  // buffer when a path segment is >= 256 bytes. A well-formed lookup still works.
+  {
+    char longpath[300];
+    memset(longpath, 'a', 298);
+    longpath[298] = '.'; // segment of 298 chars followed by a separator triggers the old strncpy overflow
+    longpath[299] = '\0';
+    json_t r = json_get_path(json_parse("{\"a\":1}"), longpath);
+    TEST_ASSERT_TRUE(r.type == JSON_TYPE_INVALID || r.type == JSON_TYPE_NOT_FOUND); // rejected, no crash
+
+    // second overflow site: an over-long array-index segment "a[999...9]" must also be rejected
+    char idxpath[320];
+    idxpath[0] = 'a';
+    idxpath[1] = '[';
+    memset(idxpath + 2, '9', 300);
+    idxpath[302] = ']';
+    idxpath[303] = '\0';
+    json_t r2    = json_get_path(json_parse("{\"a\":[1,2,3]}"), idxpath);
+    TEST_ASSERT_TRUE(r2.type == JSON_TYPE_INVALID || r2.type == JSON_TYPE_NOT_FOUND); // rejected, no crash
+
+    // sanity: normal path lookups keep working (property and array index)
+    json_t ok = json_get_path(json_parse("{\"a\":{\"b\":42}}"), "a.b");
+    TEST_ASSERT_EQUAL_INT(42, json_as_uint32(ok));
+    json_t ok_idx = json_get_path(json_parse("{\"a\":[7,8,9]}"), "a[1]");
+    TEST_ASSERT_EQUAL_INT(8, json_as_uint32(ok_idx));
+  }
+
+  // regression (F-16D6F1): json_as_string must not underflow value.len - 2 for a
+  // malformed/synthesized STRING node with len < 2 (not producible by json_parse,
+  // but reachable via hand-built json_t). Must yield a valid (empty) C string.
+  {
+    json_t   short_str = {.type = JSON_TYPE_STRING, .start = "\"", .len = 1};
+    buffer_t sbuf      = {0};
+    char*    out       = json_as_string(short_str, &sbuf);
+    TEST_ASSERT_NOT_NULL(out);
+    TEST_ASSERT_EQUAL_STRING("", out);
+    buffer_free(&sbuf);
+  }
+
   // cleanup
   buffer_free(&buffer);
+}
+
+void test_json_validate_or() {
+  const char* err = json_validate(json_parse("\"0x1\""), "address|hexuint", "");
+  TEST_ASSERT_NULL_MESSAGE(err, err);
+
+  err = json_validate(json_parse("true"), "address|hexuint", "");
+  TEST_ASSERT_NOT_NULL_MESSAGE(err, "true");
+  safe_free((char*) err);
+
+}
+
+void test_json_validate_or_in_object() {
+  // An alternation (`|`) field is no longer required to be the last object field:
+  // json_validate must keep validating fields that follow it.
+  const char* schema = "{a?:address|[address],b?:bytes32,c?:block}";
+
+  const char* ok[] = {
+      "{}",
+      "{\"a\":\"0x1111111111111111111111111111111111111111\",\"b\":\"0x3333333333333333333333333333333333333333333333333333333333333333\",\"c\":\"latest\"}",
+      "{\"a\":[\"0x1111111111111111111111111111111111111111\"],\"c\":\"0x5\"}",
+  };
+  for (size_t i = 0; i < sizeof(ok) / sizeof(ok[0]); i++) {
+    const char* err = json_validate(json_parse(ok[i]), schema, "");
+    TEST_ASSERT_NULL_MESSAGE(err, ok[i]);
+  }
+
+  // Regression: a bad field AFTER the alternation field must still be rejected
+  // (previously object parsing terminated right after the `|` field).
+  const char* bad[] = {
+      "{\"a\":\"0x1111111111111111111111111111111111111111\",\"b\":\"0xzz\"}", // bad bytes32 after OR field
+      "{\"a\":\"0x1111111111111111111111111111111111111111\",\"c\":\"head\"}", // bad block after OR field
+      "{\"a\":\"0xzz\",\"b\":\"0x3333333333333333333333333333333333333333333333333333333333333333\"}", // bad OR field itself
+  };
+  for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+    const char* err = json_validate(json_parse(bad[i]), schema, "");
+    TEST_ASSERT_NOT_NULL_MESSAGE(err, bad[i]);
+    safe_free((char*) err);
+  }
+}
+
+void test_json_validate_null() {
+  // The standalone `null` type only accepts JSON null (needed for topics wildcards).
+  const char* err = json_validate(json_parse("null"), "null", "");
+  TEST_ASSERT_NULL_MESSAGE(err, err);
+
+  err = json_validate(json_parse("\"0x1\""), "null", "");
+  TEST_ASSERT_NOT_NULL_MESSAGE(err, "string is not null");
+  safe_free((char*) err);
+}
+
+void test_json_validate_getlogs_filter() {
+  // Mirrors JSON_GET_LOGS_FILTER_FIELDS: `address` (top-level '|') must be last, `topics` uses
+  // '|' only inside brackets and may contain null wildcard positions.
+  const char* schema =
+      "{fromBlock?:block,toBlock?:block,blockHash?:bytes32,topics?:[bytes32|[bytes32|null]|null],bloomFilter?:[bytes],address?:address|[address]}";
+
+  const char* ok[] = {
+      "{}",
+      "{\"fromBlock\":\"0x1\",\"toBlock\":\"latest\"}",
+      "{\"address\":\"0x1111111111111111111111111111111111111111\"}",
+      "{\"address\":[\"0x1111111111111111111111111111111111111111\",\"0x2222222222222222222222222222222222222222\"]}",
+      "{\"topics\":[\"0x1111111111111111111111111111111111111111111111111111111111111111\",null,[\"0x2222222222222222222222222222222222222222222222222222222222222222\",null]]}",
+      "{\"blockHash\":\"0x3333333333333333333333333333333333333333333333333333333333333333\"}",
+  };
+  for (size_t i = 0; i < sizeof(ok) / sizeof(ok[0]); i++) {
+    const char* err = json_validate(json_parse(ok[i]), schema, "");
+    TEST_ASSERT_NULL_MESSAGE(err, ok[i]);
+  }
+
+  const char* bad[] = {
+      "5",                                                          // not an object
+      "{\"address\":\"0xzz\"}",                                     // invalid hex
+      "{\"address\":\"0x11\"}",                                     // wrong length
+      "{\"address\":[\"0x11\"]}",                                   // wrong length inside array
+      "{\"fromBlock\":\"head\"}",                                   // invalid block tag
+      "{\"topics\":[5]}",                                           // topic neither hex, array nor null
+  };
+  for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+    const char* err = json_validate(json_parse(bad[i]), schema, "");
+    TEST_ASSERT_NOT_NULL_MESSAGE(err, bad[i]);
+    safe_free((char*) err);
+  }
+}
+
+void test_json_validate_block() {
+  // All standard block tags must be accepted by the "block" type.
+  const char* tags[] = {"\"latest\"", "\"safe\"", "\"finalized\"", "\"earliest\"", "\"pending\"", "\"0x1b4\"", "\"0x0\""};
+  for (size_t i = 0; i < sizeof(tags) / sizeof(tags[0]); i++) {
+    const char* err = json_validate(json_parse(tags[i]), "block", "");
+    TEST_ASSERT_NULL_MESSAGE(err, tags[i]);
+  }
+
+  // Non-block strings and non-hex tags must be rejected.
+  const char* invalid[] = {"\"head\"", "\"0xzz\"", "\"foobar\"", "5"};
+  for (size_t i = 0; i < sizeof(invalid) / sizeof(invalid[0]); i++) {
+    const char* err = json_validate(json_parse(invalid[i]), "block", "");
+    TEST_ASSERT_NOT_NULL_MESSAGE(err, invalid[i]);
+    safe_free((char*) err);
+  }
 }
 
 void test_buffer() {
@@ -770,6 +1051,11 @@ void test_edge_cases() {
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_json);
+  RUN_TEST(test_json_validate_block);
+  RUN_TEST(test_json_validate_or);
+  RUN_TEST(test_json_validate_or_in_object);
+  RUN_TEST(test_json_validate_null);
+  RUN_TEST(test_json_validate_getlogs_filter);
   RUN_TEST(test_bprintf);
   RUN_TEST(test_bprintf_extended);
   RUN_TEST(test_bprintf_json_ssz);

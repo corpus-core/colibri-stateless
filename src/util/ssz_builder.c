@@ -50,8 +50,9 @@ static const ssz_def_t* find_def(const ssz_def_t* def, const char* name) {
 void ssz_add_dynamic_list_bytes(ssz_builder_t* buffer, int num_elements, bytes_t data) {
   const ssz_def_t* child_def = buffer->def->def.vector.type;
   if (ssz_is_dynamic(child_def)) {
-    // For dynamic elements: add offset to fixed portion, data to dynamic portion
-    uint32_t offset = SSZ_OFFSET_SIZE * num_elements + buffer->dynamic.data.len;
+    // If num_elements is the real count: store final offset (no fix_list_offsets needed).
+    // If num_elements is 0: store position in dynamic section; caller must use ssz_builder_fix_list_offsets afterwards.
+    uint32_t offset = (uint32_t) (SSZ_OFFSET_SIZE * num_elements + buffer->dynamic.data.len);
     ssz_add_uint32(buffer, offset);
     buffer_append(&buffer->dynamic, data);
   }
@@ -317,10 +318,13 @@ ssz_ob_t ssz_from_json(json_t json, const ssz_def_t* def, c4_state_t* state) {
         return (ssz_ob_t) {.def = def, .bytes = buf.fixed.data};
       }
       else {
-        for (int i = 0; i < def->def.vector.len; i++) {
-          ssz_ob_t ob = ssz_from_json(json_at(json, i), def->def.vector.type, state);
+        int i = 0;
+        json_for_each_value(json, value) {
+          if (i >= def->def.vector.len) break;
+          ssz_ob_t ob = ssz_from_json(value, def->def.vector.type, state);
           buffer_append(&buf.fixed, ob.bytes);
           safe_free(ob.bytes.data);
+          i++;
         }
         return (ssz_ob_t) {.def = def, .bytes = buf.fixed.data};
       }
@@ -329,18 +333,21 @@ ssz_ob_t ssz_from_json(json_t json, const ssz_def_t* def, c4_state_t* state) {
       // List: convert JSON array to variable-length SSZ list
       if (def->def.vector.type->type == SSZ_TYPE_UINT && def->def.vector.type->def.uint.len == 1)
         return (ssz_ob_t) {.def = def, .bytes = json_as_bytes(json, &buf.fixed)};
-      uint32_t len = json_len(json);
-      if (ssz_is_dynamic(def->def.vector.type))
-        for (uint32_t i = 0; i < len; i++) {
-          ssz_ob_t ob = ssz_from_json(json_at(json, i), def->def.vector.type, state);
-          ssz_add_uint32(&buf, 4 * len + buf.dynamic.data.len);
+      if (ssz_is_dynamic(def->def.vector.type)) {
+        // Single pass: write running offset (position in dynamic), then fix up by adding len*4
+        uint32_t len = 0;
+        json_for_each_value(json, value) {
+          ssz_add_uint32(&buf, buf.dynamic.data.len);
+          ssz_ob_t ob = ssz_from_json(value, def->def.vector.type, state);
           buffer_append(&buf.dynamic, ob.bytes);
           safe_free(ob.bytes.data);
+          len++;
         }
+        ssz_builder_fix_list_offsets(&buf, len);
+      }
       else {
-        buffer_grow(&buf.fixed, len * ssz_fixed_length(def->def.vector.type));
-        for (int i = 0; i < len; i++) {
-          ssz_ob_t ob = ssz_from_json(json_at(json, i), def->def.vector.type, state);
+        json_for_each_value(json, value) {
+          ssz_ob_t ob = ssz_from_json(value, def->def.vector.type, state);
           buffer_append(&buf.fixed, ob.bytes);
           safe_free(ob.bytes.data);
         }
@@ -359,5 +366,14 @@ ssz_ob_t ssz_from_json(json_t json, const ssz_def_t* def, c4_state_t* state) {
       return (ssz_ob_t) {.def = def, .bytes = json_as_bytes(json, &buf.fixed)};
     default:
       return (ssz_ob_t) {.def = def, .bytes = {0}};
+  }
+}
+
+void ssz_builder_fix_list_offsets(ssz_builder_t* builder, uint32_t num_elements) {
+  if (!builder->fixed.data.data || num_elements == 0) return;
+  uint32_t table_size = num_elements * 4;
+  for (uint32_t i = 0; i < num_elements; i++) {
+    uint8_t* p = builder->fixed.data.data + i * 4;
+    uint32_to_le(p, uint32_from_le(p) + table_size);
   }
 }

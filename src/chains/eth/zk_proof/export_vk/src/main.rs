@@ -4,7 +4,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, Write, Read};
 use std::path::PathBuf;
 use regex::Regex;
-use sp1_sdk::{HashableKey, ProverClient, Prover, SP1VerifyingKey};
+use sp1_sdk::{Elf, HashableKey, ProverClient, Prover, ProvingKey};
 use serde::Deserialize;
 
 #[derive(Parser, Debug)]
@@ -22,6 +22,13 @@ struct Args {
     #[clap(long)]
     vk_path: Option<PathBuf>,
 
+    /// VK merkle root (32-byte hex, big-endian) for the targeted SP1 circuit version.
+    /// This is `sp1_verifier::VK_ROOT_BYTES` and is a per-circuit-version constant. It is one of
+    /// the five Groth16 public inputs in SP1 v6 and must match what the prover embeds in the proof.
+    /// Default is the value for SP1 circuit `v6.1.0` (sp1-sdk 6.3.0).
+    #[clap(long, default_value = "0x002f850ee998974d6cc00e50cd0814b098c05bfade466d28573240d057f25352")]
+    vk_root: String,
+
     /// Output header file path
     #[clap(long, default_value = "zk_verifier_constants.h")]
     output_path: PathBuf,
@@ -31,7 +38,8 @@ struct Args {
     output_c_path: Option<PathBuf>,
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let args = Args::parse();
 
     // 1. Compute Program Hash
@@ -43,9 +51,10 @@ fn main() {
     } else if let Some(elf_path) = &args.elf_path {
         eprintln!("Computing VK Hash from ELF: {:?}", elf_path);
         let elf_bytes = std::fs::read(elf_path).expect("Failed to read ELF file");
-        let client = ProverClient::builder().cpu().build();
-        let (_, vk) = client.setup(&elf_bytes);
-        vk
+        let client = ProverClient::builder().cpu().build().await;
+        let elf: Elf = elf_bytes.into();
+        let pk = client.setup(elf).await.expect("Failed to setup proving key");
+        pk.verifying_key().clone()
     } else {
         panic!("Either --elf-path or --vk-path must be provided");
     };
@@ -62,6 +71,10 @@ fn main() {
         // Try parsing as decimal if it's just numbers (fallback)
         BigUint::parse_bytes(vk_hash_debug.as_bytes(), 10).expect("Invalid format for hash")
     };
+
+    // Parse the VK merkle root (SP1 v6 public input #4).
+    let vk_root = BigUint::parse_bytes(args.vk_root.trim_start_matches("0x").as_bytes(), 16)
+        .expect("Invalid hex in --vk-root");
 
     // 2. Parse Solidity Constants
     let sol_file = File::open(&args.solidity_path).expect("Failed to open Solidity file");
@@ -131,6 +144,10 @@ fn main() {
     writeln!(out, "// VK_PROGRAM_HASH (Digest of the Guest Program)").unwrap();
     write_bytes(&mut out, "VK_PROGRAM_HASH", &vk_hash);
 
+    // Write VK merkle root (SP1 v6 Groth16 public input #4, per-circuit-version constant).
+    writeln!(out, "// VK_ROOT (SP1 recursion VK merkle root, big-endian bn254 Fr)").unwrap();
+    write_bytes(&mut out, "VK_ROOT", &vk_root);
+
     // Write Alpha
     write_point_g1(&mut out, "VK_ALPHA", "ALPHA_X", "ALPHA_Y");
     
@@ -158,6 +175,23 @@ fn main() {
     writeln!(out, "// VK_IC[2] (Public Values Digest Base)").unwrap();
     write_bytes(&mut out, "VK_IC2_X", &get("PUB_1_X"));
     write_bytes(&mut out, "VK_IC2_Y", &get("PUB_1_Y"));
+
+    // SP1 v6 adds three more public inputs (exit_code, vk_root, proof_nonce), so the Groth16
+    // verifying key carries six IC points (CONSTANT + PUB_0..PUB_4) instead of three.
+    // IC[3] = PUB_2 (exit_code base)
+    writeln!(out, "// VK_IC[3] (Exit Code Base)").unwrap();
+    write_bytes(&mut out, "VK_IC3_X", &get("PUB_2_X"));
+    write_bytes(&mut out, "VK_IC3_Y", &get("PUB_2_Y"));
+
+    // IC[4] = PUB_3 (vk_root base)
+    writeln!(out, "// VK_IC[4] (VK Root Base)").unwrap();
+    write_bytes(&mut out, "VK_IC4_X", &get("PUB_3_X"));
+    write_bytes(&mut out, "VK_IC4_Y", &get("PUB_3_Y"));
+
+    // IC[5] = PUB_4 (proof_nonce base)
+    writeln!(out, "// VK_IC[5] (Proof Nonce Base)").unwrap();
+    write_bytes(&mut out, "VK_IC5_X", &get("PUB_4_X"));
+    write_bytes(&mut out, "VK_IC5_Y", &get("PUB_4_Y"));
 
     writeln!(out, "").unwrap();
     writeln!(out, "#endif // ZK_VERIFIER_CONSTANTS_H").unwrap();
@@ -232,9 +266,9 @@ fn main() {
         write_load_g2(&mut out, "gamma_neg", &get("GAMMA_NEG_X_0"), &get("GAMMA_NEG_X_1"), &get("GAMMA_NEG_Y_0"), &get("GAMMA_NEG_Y_1"));
         write_load_g2(&mut out, "delta_neg", &get("DELTA_NEG_X_0"), &get("DELTA_NEG_X_1"), &get("DELTA_NEG_Y_0"), &get("DELTA_NEG_Y_1"));
         
-        // IC
-        writeln!(out, "    vk.ic_count = 3;").unwrap();
-        writeln!(out, "    bn254_g1_t ics[3];").unwrap();
+        // IC (SP1 v6: CONSTANT + PUB_0..PUB_4 = 6 points)
+        writeln!(out, "    vk.ic_count = 6;").unwrap();
+        writeln!(out, "    bn254_g1_t ics[6];").unwrap();
         
         write_load_g1(&mut out, "ic[0]", &get("CONSTANT_X"), &get("CONSTANT_Y")); // Wait, I can't assign to vk.ic[0] directly if vk.ic is pointer
         // Oh, I need to load into local array `ics` then assign pointer
@@ -253,6 +287,9 @@ fn main() {
         write_load_g1_arr(&mut out, 0, &get("CONSTANT_X"), &get("CONSTANT_Y"));
         write_load_g1_arr(&mut out, 1, &get("PUB_0_X"), &get("PUB_0_Y"));
         write_load_g1_arr(&mut out, 2, &get("PUB_1_X"), &get("PUB_1_Y"));
+        write_load_g1_arr(&mut out, 3, &get("PUB_2_X"), &get("PUB_2_Y"));
+        write_load_g1_arr(&mut out, 4, &get("PUB_3_X"), &get("PUB_3_Y"));
+        write_load_g1_arr(&mut out, 5, &get("PUB_4_X"), &get("PUB_4_Y"));
         
         writeln!(out, "    vk.ic = ics;").unwrap();
         writeln!(out, "    c4_zk_register_vk(&vk);").unwrap();

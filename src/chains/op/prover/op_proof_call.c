@@ -46,11 +46,11 @@ typedef struct {
 
 } op_call_proof_t;
 
-static c4_status_t create_eth_call_proof(prover_ctx_t* ctx, op_call_proof_t* proof) {
+static c4_status_t create_eth_call_proof(prover_ctx_t* ctx, json_t block_number, op_call_proof_t* proof) {
 
   ssz_builder_t eth_call_proof = ssz_builder_for_op_type(OP_SSZ_VERIFY_CALL_PROOF);
   ssz_add_builders(&eth_call_proof, "accounts", proof->accounts);
-  ssz_add_builders(&eth_call_proof, "block_proof", proof->block_proof);
+  c4_op_add_block_proof(ctx, block_number, &eth_call_proof, "block_proof", &proof->block_proof);
 
   proof->accounts    = (ssz_builder_t) {0};
   proof->block_proof = (ssz_builder_t) {0};
@@ -83,9 +83,9 @@ c4_status_t c4_op_proof_call(prover_ctx_t* ctx) {
 
   TRY_ASYNC_CATCH(eth_debug_trace_call(ctx, tx, &proof.trace, proof.target_block), free_proof(&proof));
   // TRY_ASYNC_CATCH(eth_debug_trace_call(ctx, tx, &proof.trace, proof.target_block), free_proof(&proof));
-  TRY_ASYNC_CATCH(c4_get_eth_proofs(ctx, tx, proof.trace, proof.target_block, &proof.accounts, proof.miner.data), free_proof(&proof));
+  TRY_ASYNC_CATCH(c4_get_eth_proofs(ctx, proof.trace, proof.target_block, &proof.accounts, proof.miner.data, NULL), free_proof(&proof));
 
-  status = create_eth_call_proof(ctx, &proof);
+  status = create_eth_call_proof(ctx, block_number, &proof);
   free_proof(&proof);
   return status;
 }

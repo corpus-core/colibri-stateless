@@ -21,7 +21,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-import { ColibriClient, RequestArguments, Config, FetchRpc, MethodType } from './types.js';
+import { ColibriClient, RequestArguments, Config, FetchRpc, MethodType, ProviderRpcError } from './types.js';
 
 function argsToArray(args: any): any[] {
     return Array.isArray(args) ? args : (args ? [args] : []);
@@ -57,7 +57,7 @@ function fetch_unverified_rpc(config: Config, req: RequestArguments, fetch_rpc: 
     if (!rpcs || !Array.isArray(rpcs) || rpcs.length === 0)
         throw new Error("No RPC- Endpoint configured");
 
-    return fetch_rpc(rpcs, req, false);
+    return fetch_rpc(rpcs, req, false, config.fetch);
 }
 
 
@@ -67,7 +67,7 @@ function OnlyProofStrategy(client: ColibriClient, req: RequestArguments, config:
 
 
 async function ProofIfPossibleStrategy(client: ColibriClient, req: RequestArguments, config: Config, fetch_rpc: FetchRpc): Promise<any> {
-    const method_type = await client.getMethodSupport(req.method);
+    const method_type = await client.getMethodSupport(req.method, argsToArray(req.params));
     switch (method_type) {
         case MethodType.PROOFABLE:
         case MethodType.LOCAL:
@@ -79,7 +79,7 @@ async function ProofIfPossibleStrategy(client: ColibriClient, req: RequestArgume
 
 
 async function WarningStrategy(client: ColibriClient, req: RequestArguments, config: Config, fetch_rpc: FetchRpc): Promise<any> {
-    const method_type = await client.getMethodSupport(req.method);
+    const method_type = await client.getMethodSupport(req.method, argsToArray(req.params));
     switch (method_type) {
         case MethodType.LOCAL:
             return client.rpc(req.method, argsToArray(req.params), method_type);
@@ -87,19 +87,21 @@ async function WarningStrategy(client: ColibriClient, req: RequestArguments, con
         case MethodType.NOT_SUPPORTED:
             return fetch_unverified_rpc(config, req, fetch_rpc)
         case MethodType.PROOFABLE: {
-            const [verified_result, unverified_result] = await Promise.all([
-                client.rpc(req.method, argsToArray(req.params), MethodType.PROOFABLE)
-                    .catch(async err => {
-                        await config.warningHandler(req, `[Warning] ${req.method} failed to be verfiy: ${err.message}, falling back to Default`);
-                        return undefined;
-                    }),
-                fetch_unverified_rpc(config, req, fetch_rpc)
-            ])
-
-            if (verified_result !== undefined && !deepEqual(verified_result, unverified_result))
-                await config.warningHandler(req, `[Warning] ${req.method} does not match the rpc-result`);
-
-            return unverified_result;
+            return client.rpc(req.method, argsToArray(req.params), method_type).catch(async err => {
+                // An EVM revert is a fully verified outcome, not a verification
+                // failure. Propagate it as-is so callers (e.g. ethers) can decode
+                // OffchainLookup / custom error data instead of silently falling
+                // back to an unverified RPC call. The only producer of code-3
+                // ProviderRpcErrors is `client.rpc`, so an instanceof check is
+                // both sufficient and the strictest predicate.
+                if (err instanceof ProviderRpcError && err.code === 3)
+                    throw err;
+                if (config.warningHandler)
+                    await config.warningHandler(req, `[Warning] ${req.method} with params ${JSON.stringify(req.params)} failed to be verfiy: ${err.message}, falling back to Default`);
+                else
+                    console.warn(`[Warning] ${req.method} with params ${JSON.stringify(req.params)} failed to be verfiy: ${err.message}, falling back to Default`);
+                return fetch_unverified_rpc(config, req, fetch_rpc)
+            });
         }
     }
 }

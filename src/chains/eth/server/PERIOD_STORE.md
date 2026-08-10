@@ -50,6 +50,7 @@ A **period** is a contiguous range of **8192 beacon slots** (≈ 27h on mainnet)
     zk_vk.bin
     zk_vk_raw.bin
     zk_groth16.bin
+    zk_proof.ssz
 ```
 
 ### Files (what they mean)
@@ -84,7 +85,7 @@ A **period** is a contiguous range of **8192 beacon slots** (≈ 27h on mainnet)
   - `zk_proof.bin`: SP1 core proof
   - `zk_proof_g16.bin`: Groth16 proof (used by the verifier)
   - `zk_vk.bin`, `zk_vk_raw.bin`, `zk_groth16.bin`: verification keys / proof artifacts
-  - `zk_proof.ssz`: Packs `zk_proof_g16.bin` into the SSZ container used for sync-data delivery (`ZKSyncData`, see `C4_ETH_REQUEST_SYNCDATA_UNION[2]` in `src/chains/eth/ssz/verify_types.c`). This also includes the next checkpoint and all headers needed to prove the `attestedHeader`.
+  - `zk_proof.ssz`: Packs `zk_proof_g16.bin` into the SSZ container used for sync-data delivery (`ZKSyncData`, see `C4_ETH_REQUEST_SYNCDATA_UNION[2]` in `src/chains/eth/ssz/verify_types.c`). Carries the `header_proof` variant (embedded `checkpoint` is the epoch boundary right after the period's last block, anchored via a chain of headers up to the signed sync committee). The prover replaces this with a freshly-fetched LightClientBootstrap-derived `checkpoint_proof` at request-assembly time when no `witness_keys` are configured -- see `c4_get_syncdata_proof` in `prover/historic_proof.c`. The witness-key path keeps `header_proof` because witness BLS signatures vouch for the signed header directly.
 
 ## Writer model
 

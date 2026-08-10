@@ -23,11 +23,14 @@
 
 #include "beacon.h"
 #include "beacon_types.h"
+#include "eth_compute_units.h"
 #include "eth_req.h"
 #include "json.h"
 #include "logger.h"
+#include "plugin.h"
 #include "prover.h"
 #include "tx_cache.h"
+#include "version.h"
 #include <inttypes.h>
 #include <stdlib.h>
 #include <string.h>
@@ -36,9 +39,9 @@
 static inline void create_cache_block_key(bytes32_t key, json_t block) {
   buffer_t buffer = {.allocated = -32, .data = {.data = key, .len = 0}};
   if (strncmp(block.start, "\"latest\"", 8) == 0)
-    sbprintf(((char*) key) + 1, "%s", "latest");
+    memcpy((char*) key + 1, "latest", 7);
   else if (strncmp(block.start, "\"safe\"", 6) == 0 || strncmp(block.start, "\"finalized\"", 12) == 0) {
-    sbprintf((char*) key, "%s", FINALITY_KEY);
+    memcpy((char*) key, FINALITY_KEY, sizeof(FINALITY_KEY));
     return;
   }
   else if (block.start[1] == '0' && block.start[2] == 'x') {
@@ -53,9 +56,9 @@ static beacon_head_t* c4_beacon_cache_get_slot(prover_ctx_t* ctx, json_t block) 
   bytes32_t key = {0};
   create_cache_block_key(key, block);
   beacon_head_t* cached = (beacon_head_t*) c4_prover_cache_get(ctx, key);
-  if (strncmp(block.start, "\"latest\"", 8) == 0 && !cached) {
-    log_warn("Slatest block not found in cache, but it is requested! This should not happen!");
-  }
+  //  if (strncmp(block.start, "\"latest\"", 8) == 0 && !cached) {
+  //    log_warn("Slatest block not found in cache, but it is requested! This should not happen!");
+  //  }
   if (cached && strncmp(block.start, "\"finalized\"", 12) == 0) return cached + 1;
   return cached;
 }
@@ -90,11 +93,98 @@ c4_status_t c4_set_latest_block(prover_ctx_t* ctx, uint64_t latest_block_number)
   return C4_SUCCESS;
 }
 
+static inline uint32_t merkle_cache_log2_ceil(uint32_t val) {
+  if (val < 2) return 0;
+#if defined(_MSC_VER)
+  unsigned long index;
+  _BitScanReverse(&index, val);
+  uint32_t floor_log2 = index;
+#else
+  uint32_t floor_log2 = 31 - __builtin_clz(val);
+#endif
+  return (val & (val - 1)) == 0 ? floor_log2 : floor_log2 + 1;
+}
+
+static void build_tree_from_leaves(bytes32_t* tree, uint32_t depth) {
+  for (int i = (1 << depth) - 1; i >= 1; i--)
+    sha256_merkle(bytes(tree[i * 2], 32), bytes(tree[i * 2 + 1], 32), tree[i]);
+}
+
+void c4_beacon_compute_merkle_cache(beacon_block_t* block) {
+  beacon_body_merkle_cache_t* cache = &block->merkle_cache;
+  memset(cache, 0, sizeof(*cache));
+
+  ssz_ob_t body = block->body;
+  if (!body.def || body.def->type != SSZ_TYPE_CONTAINER) return;
+
+  cache->body_field_count = body.def->def.container.len;
+  uint32_t body_depth     = merkle_cache_log2_ceil(cache->body_field_count);
+  if (body_depth > 4 || cache->body_field_count == 0) return;
+
+  // find executionPayload index within body
+  bool found_ep         = false;
+  cache->ep_field_index = 0;
+  for (int i = 0; i < cache->body_field_count; i++) {
+    if (strcmp(body.def->def.container.elements[i].name, "executionPayload") == 0) {
+      cache->ep_field_index = i;
+      found_ep              = true;
+      break;
+    }
+  }
+  if (!found_ep) return;
+  cache->ep_body_gindex = (((gindex_t) 1) << body_depth) + cache->ep_field_index;
+
+  ssz_ob_t ep = block->execution;
+  if (!ep.def || ep.def->type != SSZ_TYPE_CONTAINER) return;
+  cache->ep_field_count = ep.def->def.container.len;
+  uint32_t ep_depth     = merkle_cache_log2_ceil(cache->ep_field_count);
+  if (ep_depth > 5 || cache->ep_field_count == 0) return;
+
+  // compute body leaf hashes (hash_tree_root of each body field)
+  uint32_t body_leaf_start = (1 << body_depth);
+  for (int i = 0; i < cache->body_field_count; i++) {
+    ssz_ob_t field = ssz_get(&body, (char*) body.def->def.container.elements[i].name);
+    ssz_hash_tree_root(field, cache->body[body_leaf_start + i]);
+  }
+  for (uint32_t i = cache->body_field_count; i < body_leaf_start; i++)
+    memset(cache->body[body_leaf_start + i], 0, 32);
+
+  build_tree_from_leaves(cache->body, body_depth);
+
+  // compute EP leaf hashes
+  uint32_t ep_leaf_start = (1 << ep_depth);
+  for (int i = 0; i < cache->ep_field_count; i++) {
+    ssz_ob_t field = ssz_get(&ep, (char*) ep.def->def.container.elements[i].name);
+    ssz_hash_tree_root(field, cache->ep[ep_leaf_start + i]);
+  }
+  for (uint32_t i = cache->ep_field_count; i < ep_leaf_start; i++)
+    memset(cache->ep[ep_leaf_start + i], 0, 32);
+
+  build_tree_from_leaves(cache->ep, ep_depth);
+
+  cache->valid = true;
+}
+
+bytes_t ssz_create_multi_proof_from_body_cache(
+    const beacon_body_merkle_cache_t* cache,
+    bytes32_t                         root_hash,
+    const gindex_t*                   gindex,
+    int                               gindex_len) {
+  return ssz_create_multi_proof_from_tree_cache(
+      cache->body, BODY_MERKLE_TREE_SIZE,
+      cache->ep, EP_MERKLE_TREE_SIZE,
+      cache->ep_body_gindex,
+      root_hash, gindex, gindex_len);
+}
+
 void c4_beacon_cache_update_blockdata(prover_ctx_t* ctx, beacon_block_t* beacon_block, uint64_t latest_timestamp, bytes32_t block_root) {
   bytes32_t key = {0};
   *key          = 'B';
   uint64_t ttl  = 1000 * DEFAULT_TTL;
   memcpy(key + 1, block_root + 1, 31);
+
+  // pre-compute merkle tree cache before serializing into the cache allocation
+  c4_beacon_compute_merkle_cache(beacon_block);
 
   // cache the block
   size_t   full_size = sizeof(beacon_block_t) + beacon_block->header.bytes.len + beacon_block->sync_aggregate.bytes.len;
@@ -117,7 +207,7 @@ void c4_beacon_cache_update_blockdata(prover_ctx_t* ctx, beacon_block_t* beacon_
   memset(key, 0, 32);
   *key = 'S';
   if (latest_timestamp) {
-    sbprintf((char*) key, "%s", "Slatest");
+    memcpy((char*) key, "Slatest", 8);
     /*:: [ $COUNT of $ALL ] $service_to_build
     uint64_t now_unix_ms                  = current_unix_ms(); // Use Unix epoch time
     uint64_t block_interval_ms            = 12000;
@@ -350,7 +440,7 @@ static inline c4_status_t eth_get_final_hash(prover_ctx_t* ctx, bool safe, bytes
 
 #ifdef PROVER_CACHE
   bytes32_t key = {0};
-  sbprintf((char*) key, "%s", FINALITY_KEY);
+  memcpy((char*) key, FINALITY_KEY, sizeof(FINALITY_KEY));
   c4_prover_cache_set(ctx, key, bytes_dup(bytes(hashes, sizeof(hashes))).data, sizeof(hashes), 1000 * 60 * 7, free); // 6 min
 #endif
   if (hash) memcpy(hash, hashes[safe ? 0 : 1].root, 32);
@@ -360,13 +450,14 @@ static inline c4_status_t eth_get_final_hash(prover_ctx_t* ctx, bool safe, bytes
 #ifdef PROVER_CACHE
 c4_status_t c4_eth_update_finality(prover_ctx_t* ctx, bytes32_t checkpoint, uint64_t* slot) {
   bytes32_t key = {0};
-  sbprintf((char*) key, "%s", FINALITY_KEY);
+  memcpy((char*) key, FINALITY_KEY, sizeof(FINALITY_KEY));
   c4_prover_cache_invalidate(key);
   return eth_get_final_hash(ctx, true, checkpoint, slot);
 }
 #endif
 
 static inline c4_status_t eth_get_block_roots(prover_ctx_t* ctx, json_t block, bytes32_t sig_root, bytes32_t data_root) {
+  CHECK_JSON(block, block.len == 68 ? "bytes32" : "block", "block identifier");
 #ifdef PROVER_CACHE
   beacon_head_t* cached = c4_beacon_cache_get_slot(ctx, block);
   TRACE_ADD_STR(ctx, "block_tag_cached", cached ? "cached" : "missed");
@@ -392,8 +483,17 @@ static inline c4_status_t eth_get_block_roots(prover_ctx_t* ctx, json_t block, b
   return C4_SUCCESS;
 }
 
-// main beacn_block method
+c4_status_t c4_beacon_get_execution_for_eth(prover_ctx_t* ctx, json_t block, beacon_block_t* beacon_block) {
+  if (ctx->flags & C4_PROVER_FLAG_HYBRID)
+    return c4_hybrid_get_execution_for_eth(ctx, block, beacon_block);
+  return c4_beacon_get_block_for_eth(ctx, block, beacon_block);
+}
+
 c4_status_t c4_beacon_get_block_for_eth(prover_ctx_t* ctx, json_t block, beacon_block_t* beacon_block) {
+
+  if (ctx->flags & C4_PROVER_FLAG_HYBRID)
+    return c4_hybrid_get_block_for_eth(ctx, block, beacon_block);
+
   ssz_ob_t  sig_block = {0}, data_block = {0}, sig_body = {0};
   bytes32_t sig_root  = {0};
   bytes32_t data_root = {0};
@@ -452,6 +552,7 @@ c4_status_t c4_send_beacon_json_with_client_type(prover_ctx_t* ctx, char* path, 
 #ifdef HTTP_SERVER
   client_type |= ctx->client_type;
 #endif
+  eth_cu_add(ctx, CU_BEACON_JSON);
   bytes32_t id     = {0};
   buffer_t  buffer = {0};
   buffer_add_chars(&buffer, path);
@@ -519,11 +620,11 @@ static bool convert_to_ssz(prover_ctx_t* ctx, data_request_t* data_request, ssz_
     return false;
   }
 
-  buffer_t buffer = {0};
-  bprintf(&buffer, "%z", ssz_result);
-  bytes_write(result->bytes, fopen("block_src.json", "wb"), true);
-  bytes_write(buffer.data, fopen("block_ssz.json", "wb"), true);
-  buffer_free(&buffer);
+  //  buffer_t buffer = {0};
+  //  bprintf(&buffer, "%z", ssz_result);
+  //  bytes_write(result->bytes, fopen("block_src.json", "wb"), true);
+  //  bytes_write(buffer.data, fopen("block_ssz.json", "wb"), true);
+  //  buffer_free(&buffer);
 
   safe_free(data_request->response.data);
   data_request->response = ssz_result.bytes;
@@ -537,7 +638,7 @@ c4_status_t c4_send_beacon_ssz_with_client_type(prover_ctx_t* ctx, char* path, c
 #ifdef HTTP_SERVER
   client_type |= ctx->client_type;
 #endif
-
+  eth_cu_add(ctx, CU_BEACON_SSZ);
   bytes32_t id     = {0};
   buffer_t  buffer = {0};
   buffer_add_chars(&buffer, path);
@@ -579,6 +680,7 @@ c4_status_t c4_send_beacon_ssz_with_client_type(prover_ctx_t* ctx, char* path, c
 }
 
 c4_status_t c4_send_internal_request(prover_ctx_t* ctx, char* path, char* query, uint32_t ttl, bytes_t* result) {
+  eth_cu_add(ctx, CU_INTERNAL_REQUEST);
   bytes32_t id     = {0};
   buffer_t  buffer = {0};
   buffer_add_chars(&buffer, path);
@@ -612,3 +714,4 @@ c4_status_t c4_send_internal_request(prover_ctx_t* ctx, char* path, char* query,
 
   return C4_SUCCESS;
 }
+

@@ -51,7 +51,22 @@ class ColibriTest {
 //            println("createMockRequestHandler: url: $url, payload: $payload, encoding: $encoding")
 
             if (url.isNotEmpty()) {
-                name = url
+                // Mirror `c4_req_mockname` in src/util/state.c: cache-friendly proof URLs of the
+                // form `proof/<method>/<block>/<version>/<zk|std>/<c4>` are compressed to
+                // `proof/<method>/<block>` so fixtures stay stable across client-version bumps,
+                // the zk/std flag, and client-state changes.
+                name = if (url.startsWith("proof/")) {
+                    val rest = url.substring(6)
+                    val firstSlash = rest.indexOf('/')
+                    val secondSlash = if (firstSlash >= 0) rest.indexOf('/', firstSlash + 1) else -1
+                    if (firstSlash >= 0 && secondSlash >= 0) {
+                        "proof/" + rest.substring(0, secondSlash)
+                    } else {
+                        url
+                    }
+                } else {
+                    url
+                }
             } else if (payload != null && payload.has("method")) {
                 // Reconstruct name from payload like in JS
                 val methodName = payload.getString("method")
@@ -166,7 +181,11 @@ class ColibriTest {
             if (file.exists() && file.isFile) {
              //    println("InMemoryStorage: Reading '$key' from file ${file.absolutePath}")
                 return try {
-                     file.readBytes()
+                     var data = file.readBytes()
+                     if (key.startsWith("tx_pending_")) {
+                         data = refreshPendingTimestamps(data)
+                     }
+                     data
                  } catch (e: Exception) {
                      println("InMemoryStorage: Error reading file '$key': ${e.message}")
                      null
@@ -187,8 +206,18 @@ class ColibriTest {
             cache.remove(key)
         }
 
-        // No preloading needed with this get logic
-        // fun preloadFromFile(file: File) { ... }
+        private fun refreshPendingTimestamps(data: ByteArray): ByteArray {
+            val buf = data.copyOf()
+            val now = System.currentTimeMillis() / 1000
+            var offset = 0
+            while (offset + 40 <= buf.size) {
+                for (b in 0 until 8) {
+                    buf[offset + 32 + b] = ((now shr (b * 8)) and 0xFF).toByte()
+                }
+                offset += 40
+            }
+            return buf
+        }
     }
 
     @Test
@@ -222,7 +251,7 @@ class ColibriTest {
              return@runBlocking
         }
 
-        val chainId = testConf.optBigInteger("chain", BigInteger.ONE) // Assuming chainId is in test.json
+        val chainId = testConf.optBigInteger("chain_id", BigInteger.ONE)
         val method = testConf.getString("method")
         val trusted_blockhash = testConf.optString("trusted_blockhash", null) // Use optString
         val paramsJson = testConf.getJSONArray("params")
@@ -243,21 +272,36 @@ class ColibriTest {
         Colibri.registerStorage(storage)
         // --- End Storage Setup ---
 
-        // Create Colibri instance with mock request handler
+        // Create Colibri instance with mock request handler.
+        // The fixtures under test/data are static recordings whose `latest`
+        // blocks are inevitably stale, so disable the freshness check here
+        // (otherwise eth_call/simulate proofs fail with "proof for latest too
+        // old"). The check itself is covered by test_verify_call_freshness.
+        val pap = testConf.optBoolean("pap", false)
+        val remoteProver = testConf.optBoolean("remote_prover", false)
         val mockHandler = createMockRequestHandler(testDir)
-        val colibri = Colibri(chainId = chainId, requestHandler = mockHandler)
+        val colibri = Colibri(
+            chainId = chainId,
+            requestHandler = mockHandler,
+            provers = if (remoteProver) arrayOf("http://mock-prover") else emptyArray(),
+            includeCode = testConf.optBoolean("include_code", false),
+            useAccesslist = testConf.optBoolean("use_accesslist", true),
+            privacyMode = if (pap) PrivacyMode.BASIC else PrivacyMode.NONE,
+            maxLatestAgeSeconds = 0L
+        )
 
         if (trusted_blockhash != null) {
             colibri.trustedCheckpoint = trusted_blockhash
         }
 
-        // Run the test logic 
-//        println("Creating proof for ${testDir.name}...")
-        val proof = colibri.getProof(method, params)
-        assertTrue("Proof should not be empty for ${testDir.name}", proof.isNotEmpty())
-//        println("Proof created (size: ${proof.size}). Verifying...")
-
-        val result = colibri.verifyProof(proof, method, params)
+        val result: Any?
+        if (pap) {
+            result = colibri.rpc(method, params)
+        } else {
+            val proof = colibri.getProof(method, params)
+            assertTrue("Proof should not be empty for ${testDir.name}", proof.isNotEmpty())
+            result = colibri.verifyProof(proof, method, params)
+        }
 //        println("Verification result: $result")
 
         // Compare result with expected_result (needs careful comparison of Any? and org.json)

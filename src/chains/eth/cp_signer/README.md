@@ -135,7 +135,7 @@ build/default/bin/colibri-signer \
   --status-file ./signer.status \
   --metrics-file ./signer.prom \
   --chain mainnet \
-  --max-idle 97200 \
+  --max-idle 196608 \
   --once
 ```
 
@@ -190,7 +190,7 @@ services:
         "--key-file", "/run/secrets/cp_key",
         "--beacon-api", "http://beacon:5052",
         "--status-file", "/tmp/colibri-signer.status",
-        "--max-idle", "97200"
+        "--max-idle", "196608"
       ]
     healthcheck:
       test:
@@ -204,7 +204,7 @@ services:
 ```
 
 Notes:
-- `--max-idle` is in seconds. `97200` seconds = 27 hours.
+- `--max-idle` is in seconds and defaults to `196608` (two sync-committee periods, ~54.6 hours). A new signable checkpoint only appears once per period (~27.3 hours), so the idle window must span more than one period; otherwise the alarm fires structurally at the tail of every period even when the signer is healthy.
 - The example considers the signer unhealthy if the status file is older than 70 minutes (4200 seconds).
 
 ---

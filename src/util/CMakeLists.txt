@@ -42,6 +42,7 @@ add_library(util STATIC
   logger.c
   chains.c
   state.c
+  retry_delay.c
   version.c
   witness.c
 )

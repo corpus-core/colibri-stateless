@@ -25,7 +25,8 @@
 #include "bytes.h"
 #include "state.h"
 
-static log_level_t log_level = LOG_WARN;
+static log_level_t       log_level    = LOG_WARN;
+static c4_stacksize_fn_t stacksize_fn = NULL;
 
 char* c4_req_info_short(data_request_type_t type, char* path, bytes_t payload) {
   static uint8_t req_info_buf[1024];
@@ -73,4 +74,12 @@ void c4_set_log_level(log_level_t level) {
 
 log_level_t c4_get_log_level() {
   return log_level;
+}
+
+void c4_set_stacksize_fn(c4_stacksize_fn_t fn) {
+  stacksize_fn = fn;
+}
+
+c4_stacksize_fn_t c4_get_stacksize_fn(void) {
+  return stacksize_fn;
 }

@@ -35,11 +35,11 @@ void tearDown(void) {
 }
 
 void test_nonce() {
-  run_rpc_test("eth_getTransactionCount1", 0);
-  run_rpc_test("eth_getTransactionCount1", C4_PROVER_FLAG_NO_CACHE);
+  run_rpc_test("eth_getTransactionCount1", 0,0);
+  run_rpc_test("eth_getTransactionCount1", C4_PROVER_FLAG_NO_CACHE,0);
 }
 void test_nonce_electra() {
-  run_rpc_test("eth_getTransactionCount_electra", C4_PROVER_FLAG_NO_CACHE);
+  run_rpc_test("eth_getTransactionCount_electra", C4_PROVER_FLAG_NO_CACHE,0);
 }
 
 int main(void) {

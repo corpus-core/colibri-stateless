@@ -41,6 +41,7 @@ const ssz_def_t ssz_secp256k1_signature = SSZ_BYTE_VECTOR("secp256k1_signature",
 const ssz_def_t ssz_bls_pubky           = SSZ_BYTE_VECTOR("bls_pubky", 48);
 const ssz_def_t ssz_bytes_list          = SSZ_BYTES("bytes", 1024 << 8);
 const ssz_def_t ssz_string_def          = SSZ_BYTES("bytes", 1024 << 8);
+const ssz_def_t ssz_json_def            = SSZ_BYTES("bytes", 1024 << 8);
 const ssz_def_t ssz_none                = SSZ_NONE;
 
 /**
@@ -92,7 +93,8 @@ size_t ssz_fixed_length(const ssz_def_t* def) {
  * Prints error message and returns false.
  */
 static bool failure(const char* fnt) {
-  fbprintf(stderr, "Invalid %s\n", fnt);
+  //fbprintf(stderr, "Invalid %s\n", fnt);
+  (void) fnt;
   return false;
 }
 
@@ -111,6 +113,15 @@ static bool failure(const char* fnt) {
     }                                                              \
     return true;                                                   \
   } while (0)
+
+static bool add_error_prefix(c4_state_t* state, const char* prefix) {
+  if (state && state->error) {
+    char* error = bprintf(NULL, *state->error=='.' ? ".%s%s" : ".%s: %s", prefix, state->error);
+    safe_free(state->error);
+    state->error = error;
+  }
+  return false;
+}
 
 bool ssz_is_valid(ssz_ob_t ob, bool recursive, c4_state_t* state) {
   // Global size limit to prevent integer overflows in multiplications
@@ -148,7 +159,7 @@ bool ssz_is_valid(ssz_ob_t ob, bool recursive, c4_state_t* state) {
         uint32_t offset = first_offset;
         for (int i = SSZ_OFFSET_SIZE; i < first_offset; i += SSZ_OFFSET_SIZE) {
           uint32_t next_offset = uint32_from_le(ob.bytes.data + i);
-          if (next_offset >= ob.bytes.len || next_offset < offset) THROW_INVALID("Invalid  offset for list");
+          if (next_offset >= ob.bytes.len || next_offset < offset) THROW_INVALID("Invalid offset(%d for i=%d) for list. Must be between %d and %d", next_offset, i, offset, ob.bytes.len);
           if (recursive && !ssz_is_valid(ssz_ob(*ob.def->def.vector.type, bytes(ob.bytes.data + offset, next_offset - offset)), recursive, state)) return false;
           offset = next_offset;
         }
@@ -191,7 +202,7 @@ bool ssz_is_valid(ssz_ob_t ob, bool recursive, c4_state_t* state) {
               THROW_INVALID("Invalid offset for container");
             if (last_ob.def) {
               last_ob.bytes = bytes(ob.bytes.data + last_offset, offset - last_offset);
-              if (!ssz_is_valid(last_ob, recursive, state)) return false;
+              if (!ssz_is_valid(last_ob, recursive, state)) return add_error_prefix(state, def->name);
             }
             last_ob.def = def;
             last_offset = offset;
@@ -199,13 +210,13 @@ bool ssz_is_valid(ssz_ob_t ob, bool recursive, c4_state_t* state) {
           }
           else {
             uint32_t len = ssz_fixed_length(def);
-            if (!ssz_is_valid(ssz_ob(*def, bytes(ob.bytes.data + pos, len)), recursive, state)) return false;
+            if (!ssz_is_valid(ssz_ob(*def, bytes(ob.bytes.data + pos, len)), recursive, state)) return add_error_prefix(state, def ? def->name : "unknown");
             pos += len;
           }
         }
         if (last_ob.def) {
           last_ob.bytes = bytes(ob.bytes.data + last_offset, ob.bytes.len - last_offset);
-          if (!ssz_is_valid(last_ob, recursive, state)) return false;
+          if (!ssz_is_valid(last_ob, recursive, state)) return add_error_prefix(state, last_ob.def->name);
         }
       }
       return true;
@@ -415,12 +426,16 @@ static void dump(ssz_dump_t* ctx, ssz_ob_t ob, const char* name, int intend) {
       // Lists/vectors: special handling for byte arrays, strings, and complex types
       if (def == &ssz_string_def || def->flags & SSZ_FLAG_STRING)
         bprintf(buf, ctx->no_quotes ? "%J" : "\"%J\"", (json_t) {.type = JSON_TYPE_OBJECT, .start = (char*) ob.bytes.data, .len = ob.bytes.len});
+      else if (def == &ssz_json_def)
+        bprintf(buf, "%r", ob.bytes);
       else if (def->def.vector.type->type == SSZ_TYPE_UINT && def->def.vector.type->def.uint.len == 1) { // byte array
         if (def->flags & SSZ_FLAG_UINT) {
           bytes32_t tmp = {0};
           for (int i = 0; i < ob.bytes.len; i++) tmp[i] = ob.bytes.data[ob.bytes.len - 1 - i];
           bprintf(buf, ctx->no_quotes ? "0x%u" : "\"0x%u\"", bytes(tmp, ob.bytes.len));
         }
+        else if (def->flags & SSZ_FLAG_NULLABLE && ob.bytes.len == 0)
+          buffer_add_chars(buf, "null");
         else // Render as hex bytes
           bprintf(buf, ctx->no_quotes ? "0x%x" : "\"0x%x\"", ob.bytes);
       }
@@ -461,7 +476,7 @@ static void dump(ssz_dump_t* ctx, ssz_ob_t ob, const char* name, int intend) {
 }
 char* ssz_dump_to_str(ssz_ob_t ob, bool include_name, bool write_unit_as_hex) {
   ssz_dump_t ctx = {
-      .buf               = (buffer_t){ .data = (bytes_t){ .data = NULL, .len = 0 }, .allocated = 0 },
+      .buf               = (buffer_t) {.data = (bytes_t) {.data = NULL, .len = 0}, .allocated = 0},
       .write_unit_as_hex = write_unit_as_hex,
   };
   dump(&ctx, ob, include_name ? ob.def->name : NULL, 0);
@@ -470,7 +485,7 @@ char* ssz_dump_to_str(ssz_ob_t ob, bool include_name, bool write_unit_as_hex) {
 
 void ssz_dump_to_file(FILE* f, ssz_ob_t ob, bool include_name, bool write_unit_as_hex) {
   ssz_dump_t ctx = {
-      .buf               = (buffer_t){ .data = (bytes_t){ .data = NULL, .len = 0 }, .allocated = 0 },
+      .buf               = (buffer_t) {.data = (bytes_t) {.data = NULL, .len = 0}, .allocated = 0},
       .write_unit_as_hex = write_unit_as_hex,
 
   };
@@ -480,7 +495,7 @@ void ssz_dump_to_file(FILE* f, ssz_ob_t ob, bool include_name, bool write_unit_a
 }
 void ssz_dump_to_file_no_quotes(FILE* f, ssz_ob_t ob) {
   ssz_dump_t ctx = {
-      .buf               = (buffer_t){ .data = (bytes_t){ .data = NULL, .len = 0 }, .allocated = 0 },
+      .buf               = (buffer_t) {.data = (bytes_t) {.data = NULL, .len = 0}, .allocated = 0},
       .write_unit_as_hex = true,
       .no_quotes         = true,
   };

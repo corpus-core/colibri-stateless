@@ -6,6 +6,7 @@ use crate::{
     types::{BridgeMode, BlockBitmaskTracker, BlockDeduplicator, HttpHealthTracker, KonaBridgeStats},
     utils::{extract_block_number_from_preconf_data, extract_block_hash_from_preconf_data, update_symlinks_lib},
 };
+use tokio::sync::broadcast;
 use reqwest;
 use std::{
     path::PathBuf,
@@ -202,6 +203,7 @@ pub async fn run_http_primary_with_gossip_fallback(
     running: Arc<Mutex<bool>>,
     deduplicator: Arc<Mutex<BlockDeduplicator>>,
     bitmask_tracker: Arc<Mutex<BlockBitmaskTracker>>,
+    sse_tx: Option<broadcast::Sender<u64>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     
     let client = reqwest::Client::new();
@@ -266,6 +268,9 @@ pub async fn run_http_primary_with_gossip_fallback(
                 // Process and save the preconf
                     match process_http_preconf(preconf_data, chain_id, output_dir).await {
                         Ok(block_number) => {
+                            if let Some(ref tx) = sse_tx {
+                                let _ = tx.send(block_number);
+                            }
                             // FIXED: Only check for duplicates in hybrid mode (when gossip is active)
                             let is_duplicate = {
                                 let tracker = health_tracker.lock().unwrap();
@@ -340,8 +345,9 @@ pub async fn run_http_primary_with_gossip_fallback(
                                         let gossip_running = running.clone();
                                         let gossip_sequencer = expected_sequencer.map(|s| s.to_string());
                                         let gossip_deduplicator = deduplicator.clone();
-                                        let gossip_bitmask_tracker = bitmask_tracker.clone(); // Clone for async move
-                                        
+                                        let gossip_bitmask_tracker = bitmask_tracker.clone();
+                                        let gossip_sse_tx = sse_tx.clone();
+
                                         gossip_task = Some(tokio::spawn(async move {
                                             info!("📡 Gossip backup task started");
                                             if let Err(e) = gossip::run_gossip_network(
@@ -354,7 +360,8 @@ pub async fn run_http_primary_with_gossip_fallback(
                                                 gossip_stats,
                                                 gossip_running,
                                                 Some(gossip_deduplicator),
-                                                Some(gossip_bitmask_tracker), // CRITICAL FIX: Pass bitmask_tracker to gossip
+                                                Some(gossip_bitmask_tracker),
+                                                gossip_sse_tx,
                                             ).await {
                                                 warn!("📡 Gossip backup failed: {}", e);
                                             }
@@ -518,8 +525,9 @@ pub async fn run_http_primary_with_gossip_fallback(
                 expected_sequencer,
                 stats,
                 running,
-                Some(deduplicator), // Shared Deduplicator für Fallback
-                Some(bitmask_tracker), // CRITICAL FIX: Pass bitmask_tracker to gossip fallback
+                Some(deduplicator),
+                Some(bitmask_tracker),
+                sse_tx,
             ).await;
         }
     }

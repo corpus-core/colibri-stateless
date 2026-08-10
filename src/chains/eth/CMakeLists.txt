@@ -26,7 +26,12 @@ option(ETH_RECEIPT  "support eth receipt verification. eth_getTransactionReceipt
 option(ETH_LOGS  "support eth logs verification. eth_getLogs" ON)
 option(ETH_CALL  "support eth call verification. eth_call, eth_estimateGas" ON)
 option(ETH_UTIL  "support eth utils like eth_chainId or web3_sha3" ON)
+option(ETH_OBLIVIOUS "support oblivious-node delayed-retry path (TEE/ORAM warm-up). When OFF, the oblivious helpers and call paths are compiled out so the linker drops the adaptive retry-delay learner (saves ~1-2 KB). Disable for embedded targets that never talk to oblivious nodes." ON)
 option(USE_CHECKPOINTZ "enable checkpoint fetching from checkpointz (beacon node) for bootstrap and weak subjectivity validation (requires HTTP access, saves ~2-3 KB if disabled). SECURITY WARNING: Disabling this removes (1) automatic bootstrap checkpoint fetching and (2) weak subjectivity period validation, requiring manual checkpoint configuration and increasing long-range attack risk. Only disable for embedded devices without HTTP access. See: https://github.com/runtimeverification/beacon-chain-verification/blob/master/weak-subjectivity/weak-subjectivity-analysis.pdf" ON)
+
+if(ETH_OBLIVIOUS)
+    add_definitions(-DETH_OBLIVIOUS)
+endif()
 
 if(USE_CHECKPOINTZ)
     add_definitions(-DUSE_CHECKPOINTZ)
@@ -92,6 +97,7 @@ set(VERIFIER_SOURCES
   verifier/eth_verify.c
   verifier/patricia_trie.c
   verifier/patricia.c
+  verifier/prover_cache_url.c
   verifier/rlp.c
   ssz/verify_types.c
   ssz/beacon_types.c
@@ -116,12 +122,12 @@ if(ETH_BLOCK)
 endif()
 
 if(ETH_RECEIPT)
-  set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/verify_receipt_proof.c)
+  set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/verify_receipt_proof.c verifier/verify_block_receipts_proof.c)
   add_definitions(-DETH_RECEIPT)
 endif()
 
 if(ETH_LOGS)
-  set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/verify_logs_proof.c)
+  set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/verify_logs_proof.c verifier/verify_logs_completeness.c verifier/eth_bloom.c)
   add_definitions(-DETH_LOGS)
 endif()
 
@@ -132,19 +138,25 @@ if(PRECOMPILES_BN128 OR ETH_ZKPROOF)
 endif()
 
 if(ETH_CALL)
-  set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/verify_call.c verifier/verify_simulate.c)
+  set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/verify_call.c verifier/verify_simulate.c verifier/verify_simulation_events.c verifier/state_overrides.c verifier/eth_call_account.c verifier/call_ctx.c)
   add_definitions(-DETH_CALL)
 
+  add_subdirectory(precompiles)
+  set(VERIFIER_DEPS ${VERIFIER_DEPS} eth_precompiles)
+
   if(EVMONE)
-    add_subdirectory(precompiles)
     set(VERIFIER_SOURCES ${VERIFIER_SOURCES}  verifier/call_evmone.c)
-    set(VERIFIER_DEPS PUBLIC eth_precompiles evmone_wrapper )
+    set(VERIFIER_DEPS ${VERIFIER_DEPS} evmone_wrapper)
   endif()
-  
+
 endif()
 if(ETH_UTIL)
   set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/verify_local.c)
   add_definitions(-DETH_UTIL)
+endif()
+
+if(PAP)
+  set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/pap_tx_cache.c verifier/pap_req.c verifier/verify_pap_tx.c)
 endif()
 
 # Add ZK Verifier if enabled
@@ -160,6 +172,8 @@ add_verifier(
   GET_REQ_TYPE c4_eth_get_request_type
   VERIFY c4_eth_verify
   METHOD_TYPE c4_eth_get_method_type
+  PROVER_PAYLOAD c4_eth_get_prover_payload
+  PROVER_CACHE_URL c4_eth_get_prover_cache_request
 )
 
 # Register ETH chain properties provider
@@ -173,9 +187,12 @@ add_prover(
     prover/proof_transaction.c
     prover/tx_cache.c
     prover/proof_logs.c
+    prover/proof_logs_completeness.c
     prover/proof_call.c
     prover/beacon.c
+    prover/beacon_header.c
     prover/proof_receipt.c
+    prover/proof_block_receipts.c
     prover/eth_req.c
     prover/logs_cache.c
     prover/eth_tools.c
@@ -184,7 +201,7 @@ add_prover(
     prover/proof_witness.c
     prover/historic_proof.c
     prover/historic_proof_zk.c
-  DEPENDS util eth_verifier
+  DEPENDS util eth_verifier verifier
   PROOF eth_prover_execute
 )
 
@@ -211,6 +228,8 @@ add_server_handler(
     server/period_store_zk_prover.c
     server/period_store_zk_ssz.c
     server/handle_period_static.c
+    server/handle_tx_cache.c
+    server/handle_block_proof_get.c
     server/eth_conf.c
   DEPENDS eth_prover
   INIT_FUNC eth_server_init

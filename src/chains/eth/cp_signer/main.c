@@ -420,7 +420,12 @@ int main(int argc, char** argv) {
   const char* status_file         = NULL;
   const char* metrics_file        = NULL;
   const char* chain               = NULL;
-  uint64_t    max_idle_seconds    = 27ull * 60ull * 60ull; // 27h
+  // A new signable checkpoint appears only once per sync-committee period
+  // (256 epochs * 32 slots * 12 s = 98304 s, ~27.3 h). The previous default of
+  // 27 h (97200 s) was *below* one period, so the idle alarm could fire at the
+  // tail of every period even while the signer was perfectly healthy. Default to
+  // two periods so a single missed/late period never trips the alarm.
+  uint64_t    max_idle_seconds    = 2ull * 98304ull; // 2 sync-committee periods (~54.6h)
   const char* checkpointz_urls[8] = {0};
   int         checkpointz_count   = 0;
   const char* beacon_urls[8]      = {0};
