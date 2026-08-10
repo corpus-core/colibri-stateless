@@ -147,7 +147,7 @@ static void run_freshness_case(
 
 void test_freshness_disabled_passes_on_latest(void) {
   run_freshness_case(ETH_CALL1_DIR, ETH_CALL1_METHOD, ETH_CALL1_ARGS_LATEST,
-                     C4_CHAIN_MAINNET, C4_PROVER_FLAG_INCLUDE_CODE, 0,
+                     C4_CHAIN_MAINNET, C4_PROVER_FLAG_INCLUDE_CODE | C4_PROVER_FLAG_USE_DEBUG_TRACE, 0,
                      false /* local prover */,
                      0 /* check disabled */,
                      EXPECT_SUCCESS);
@@ -160,7 +160,7 @@ void test_freshness_disabled_passes_on_latest(void) {
 
 void test_freshness_fresh_proof_passes(void) {
   run_freshness_case(ETH_CALL1_DIR, ETH_CALL1_METHOD, ETH_CALL1_ARGS_LATEST,
-                     C4_CHAIN_MAINNET, C4_PROVER_FLAG_INCLUDE_CODE, 0,
+                     C4_CHAIN_MAINNET, C4_PROVER_FLAG_INCLUDE_CODE | C4_PROVER_FLAG_USE_DEBUG_TRACE, 0,
                      false /* local prover */,
                      1 /* below any real block timestamp → fresh */,
                      EXPECT_SUCCESS);
@@ -174,7 +174,7 @@ void test_freshness_fresh_proof_passes(void) {
 
 void test_freshness_stale_proof_rejected(void) {
   run_freshness_case(ETH_CALL1_DIR, ETH_CALL1_METHOD, ETH_CALL1_ARGS_LATEST,
-                     C4_CHAIN_MAINNET, C4_PROVER_FLAG_INCLUDE_CODE, 0,
+                     C4_CHAIN_MAINNET, C4_PROVER_FLAG_INCLUDE_CODE | C4_PROVER_FLAG_USE_DEBUG_TRACE, 0,
                      false /* local prover */,
                      UINT64_C(99999999999) /* year ~5138 → stale */,
                      EXPECT_ERROR_TOO_OLD);
@@ -199,7 +199,7 @@ void test_freshness_simulate_stale_rejected(void) {
   run_freshness_case("simulate_simple", "colibri_simulateTransaction",
                      "[{\"to\":\"0x0742d35Cc6634C0532925a3b844Bc9e7595f0bEb\","
                      "\"data\":\"0x06fdde03\"},\"latest\"]",
-                     C4_CHAIN_MAINNET, C4_PROVER_FLAG_INCLUDE_CODE, 0,
+                     C4_CHAIN_MAINNET, C4_PROVER_FLAG_INCLUDE_CODE | C4_PROVER_FLAG_USE_DEBUG_TRACE, 0,
                      false /* local prover */,
                      UINT64_C(99999999999) /* year ~5138 → stale */,
                      EXPECT_ERROR_TOO_OLD);
@@ -233,7 +233,7 @@ void test_freshness_pap_missing_context_rejected(void) {
                      "[{\"to\":\"0xdac17f958d2ee523a2206206994597c13d831ec7\","
                      "\"data\":\"0x70a082310000000000000000000000008825ef664b8b43984bbf32b09e6a690c9b914931\"},\"latest\"]",
                      C4_CHAIN_MAINNET,
-                     C4_PROVER_FLAG_USE_ACCESSLIST | C4_PROVER_FLAG_INCLUDE_CODE,
+                     C4_PROVER_FLAG_INCLUDE_CODE,
                      VERIFY_FLAG_PAP,
                      true /* remote prover for the cached PAP fixture */,
                      1 /* check enabled; fails on missing context regardless of value */,
@@ -251,7 +251,7 @@ void test_freshness_pap_disabled_passes(void) {
                      "[{\"to\":\"0xdac17f958d2ee523a2206206994597c13d831ec7\","
                      "\"data\":\"0x70a082310000000000000000000000008825ef664b8b43984bbf32b09e6a690c9b914931\"},\"latest\"]",
                      C4_CHAIN_MAINNET,
-                     C4_PROVER_FLAG_USE_ACCESSLIST | C4_PROVER_FLAG_INCLUDE_CODE,
+                     C4_PROVER_FLAG_INCLUDE_CODE,
                      VERIFY_FLAG_PAP,
                      true /* remote prover for the cached PAP fixture */,
                      0 /* check disabled */,

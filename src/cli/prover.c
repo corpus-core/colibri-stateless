@@ -127,7 +127,7 @@ int main(int argc, char* argv[]) {
   char*      method     = NULL;                                                        // RPC method name (e.g., "eth_getBlockByNumber")
   buffer_t   buffer     = {0};                                                         // Buffer for building JSON parameter array
   char*      outputfile = NULL;                                                        // Output file path (NULL = stdout)
-  uint32_t   flags      = C4_PROVER_FLAG_USE_ACCESSLIST | C4_PROVER_FLAG_INCLUDE_CODE; // Prover flags (e.g., C4_PROVER_FLAG_INCLUDE_CODE)
+  uint32_t   flags      = C4_PROVER_FLAG_INCLUDE_CODE; // Prover flags (access list is the default; e.g. C4_PROVER_FLAG_INCLUDE_CODE)
   chain_id_t chain_id   = C4_CHAIN_MAINNET;                                            // Default to Ethereum mainnet
   buffer_add_chars(&buffer, "[");                                                      // Start building JSON array for parameters
   bytes_t client_state = {0};                                                          // Client state data (loaded from chain_store if -d is used)

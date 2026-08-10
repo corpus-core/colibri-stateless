@@ -323,7 +323,7 @@
       const c4conf = { chainId: conf.chain_id, cache: createCache(name, fileIndex) };
       if (conf.trusted_blockhash) c4conf.trusted_checkpoint = conf.trusted_blockhash;
       if (conf.include_code) c4conf.include_code = true;
-      if (conf.use_accesslist) c4conf.use_accesslist = true;
+      if ('use_accesslist' in conf) c4conf.use_accesslist = conf.use_accesslist;
       const c4 = new Colibri(c4conf);
 
       let proof;

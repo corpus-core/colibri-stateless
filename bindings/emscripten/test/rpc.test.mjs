@@ -128,8 +128,8 @@ test('RPC-Proof Test Suite', async (t) => {
                 conf.trusted_checkpoint = test_conf.trusted_blockhash
             if (test_conf.include_code)
                 conf.include_code = true
-            if (test_conf.use_accesslist)
-                conf.use_accesslist = true
+            if ('use_accesslist' in test_conf)
+                conf.use_accesslist = test_conf.use_accesslist
             if (test_conf.pap)
                 conf.privacy_mode = "basic";
             if (test_conf.remote_prover)

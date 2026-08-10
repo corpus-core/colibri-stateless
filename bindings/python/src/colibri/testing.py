@@ -552,7 +552,7 @@ def discover_tests(test_data_root=None):
                 'pap': test_config.get('pap', False),
                 'remote_prover': test_config.get('remote_prover', False),
                 'include_code': test_config.get('include_code', False),
-                'use_accesslist': test_config.get('use_accesslist', False),
+                'use_accesslist': test_config.get('use_accesslist', True),
             }
             
             test_cases.append(test_case)
@@ -585,7 +585,7 @@ async def run_test_case(test_case):
     pap = test_case.get('pap', False)
     remote_prover = test_case.get('remote_prover', False)
     include_code = test_case.get('include_code', False)
-    use_accesslist = test_case.get('use_accesslist', False)
+    use_accesslist = test_case.get('use_accesslist', True)
     
     print(f"\nRunning test: {test_name}")
     print(f"   Method: {method}")

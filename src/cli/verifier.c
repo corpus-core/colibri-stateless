@@ -339,7 +339,7 @@ int main(int argc, char* argv[]) {
     exit(EXIT_FAILURE);
   }
 
-  prover_flags_t prover_flags = C4_PROVER_FLAG_USE_ACCESSLIST;
+  prover_flags_t prover_flags = 0; // eth_createAccessList is the prover default
   if (use_zk_proof) prover_flags |= C4_PROVER_FLAG_ZK_PROOF;
   if (logs_completeness) {
     prover_flags |= C4_PROVER_FLAG_LOGS_COMPLETENESS;

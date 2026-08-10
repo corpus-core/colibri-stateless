@@ -129,7 +129,8 @@ class Colibri(
     var obliviousNodes: Array<String> = emptyArray(), // TEE RPC endpoints for eth_getProof
     var trustedCheckpoint: String? = null, // Optional trusted checkpoint
     var includeCode: Boolean = false, // Default value
-    var useAccesslist: Boolean = false,
+    /** Prefer eth_createAccessList (default true). Set false for legacy debug_traceCall. */
+    var useAccesslist: Boolean = true,
     var zkProof: Boolean = false,
     var privacyMode: PrivacyMode = PrivacyMode.NONE, // PAP mode; BASIC sets verify flag
     var proverMode: ProverMode? = null, // null = auto-detect (REMOTE if provers configured, else LOCAL)
@@ -481,7 +482,7 @@ class Colibri(
         return withContext(Dispatchers.IO) {
             val jsonArgs = formatArgsArray(args) // Use helper
             // Create the prover context with properly formatted JSON args
-            val proverFlags = (if (includeCode) 1L else 0L) or (if (useAccesslist) (1L shl 6) else 0L) or (if (logsCompleteness) (1L shl 12) else 0L)
+            val proverFlags = (if (includeCode) 1L else 0L) or (if (useAccesslist) 0L else (1L shl 6)) or (if (logsCompleteness) (1L shl 12) else 0L)
             val ctx = com.corpuscore.colibri.c4.c4_create_prover_ctx(method, jsonArgs, chainId, proverFlags)
                 ?: throw ColibriException("Failed to create prover context for method $method")
 
@@ -722,7 +723,7 @@ class Colibri(
     suspend fun rpc(method: String, args: Array<Any?>): Any? {
         return withContext(Dispatchers.IO) {
             val jsonArgs = formatArgsArray(args)
-            val proverFlags = (if (includeCode) 1L else 0L) or (if (useAccesslist) (1L shl 6) else 0L) or (if (zkProof) (1L shl 7) else 0L) or (if (logsCompleteness) (1L shl 12) else 0L)
+            val proverFlags = (if (includeCode) 1L else 0L) or (if (useAccesslist) 0L else (1L shl 6)) or (if (zkProof) (1L shl 7) else 0L) or (if (logsCompleteness) (1L shl 12) else 0L)
             // Base prover-mode auto-detection on the user-configured `provers` array,
             // NOT on `effectiveProvers()`. Consumers passing `emptyArray()` explicitly
             // signal "no remote prover" -- if we consulted the per-chain fallback here,
