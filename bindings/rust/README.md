@@ -88,7 +88,12 @@ static archive. Where that archive comes from depends on your build:
   `aarch64-apple-darwin`, `x86_64-apple-darwin`,
   `x86_64-pc-windows-msvc`.
 - **Monorepo checkout** -- `build.rs` shells out to CMake and links
-  the just-built archives. Requires CMake ≥ 3.20 and a C compiler.
+  the just-built archives. Requires CMake ≥ 3.20 and a C compiler. The
+  CMake tree is placed in `build-rust/<target>/` at the repository
+  root rather than under `target/`, because the vendored dependencies
+  create paths that exceed Windows' 260-character `MAX_PATH` limit.
+  Override the location with `COLIBRI_CMAKE_BUILD_DIR` if even that is
+  too long for your checkout.
 - **BYO archive** -- set `COLIBRI_LIB_DIR=/path/to/dir/with/libc4.a`.
   Handy for embedded or cross-compilation targets not covered by the
   Release matrix.

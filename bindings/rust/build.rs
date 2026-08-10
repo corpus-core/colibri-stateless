@@ -18,6 +18,7 @@
 //
 // `DOCS_RS=1` and `COLIBRI_SKIP_NATIVE=1` skip everything (used by
 // rustdoc and CI systems that build the native library separately).
+// `COLIBRI_CMAKE_BUILD_DIR` relocates the CMake tree of scenario 2.
 
 use std::env;
 use std::fs;
@@ -26,6 +27,7 @@ use std::process::Command;
 
 fn main() {
     println!("cargo:rerun-if-env-changed=COLIBRI_LIB_DIR");
+    println!("cargo:rerun-if-env-changed=COLIBRI_CMAKE_BUILD_DIR");
     println!("cargo:rerun-if-env-changed=COLIBRI_SKIP_NATIVE");
     println!("cargo:rerun-if-env-changed=DOCS_RS");
     println!("cargo:rerun-if-changed=build.rs");
@@ -51,13 +53,33 @@ fn main() {
 
     for search in &link.search_paths {
         println!("cargo:rustc-link-search=native={}", search.display());
-        println!("cargo:rerun-if-changed={}", search.display());
     }
     for lib in &link.static_libs {
         println!("cargo:rustc-link-lib=static={lib}");
     }
 
     link_system_libs(&target);
+}
+
+/// Re-run the build script when the C sources change.
+///
+/// Deliberately does **not** watch the CMake output directory: that
+/// lives inside the repository, so watching it would make every build
+/// dirty the inputs of the next one and Cargo would rebuild forever.
+fn emit_source_rerun_hints(repo_root: &Path) {
+    for rel in [
+        "CMakeLists.txt",
+        "bindings/colibri.c",
+        "bindings/colibri_common.c",
+        "bindings/colibri.h",
+        "src",
+        "libs/crypto",
+    ] {
+        let path = repo_root.join(rel);
+        if path.exists() {
+            println!("cargo:rerun-if-changed={}", path.display());
+        }
+    }
 }
 
 struct LinkSetup {
@@ -85,7 +107,7 @@ fn resolve_link_setup(manifest_dir: &Path, target: &str) -> LinkSetup {
         .map(Path::to_path_buf);
     if let Some(root) = repo_root.as_ref() {
         if root.join("CMakeLists.txt").exists() && root.join("bindings/colibri.c").exists() {
-            return build_with_cmake(root);
+            return build_with_cmake(root, target);
         }
     }
 
@@ -103,17 +125,39 @@ fn resolve_link_setup(manifest_dir: &Path, target: &str) -> LinkSetup {
     );
 }
 
+/// Directory the CMake tree is configured and built in.
+///
+/// Deliberately **not** derived from `OUT_DIR`: that path contains the
+/// profile plus a Cargo build hash (`.../release/build/colibri-stateless-<hash>/out`)
+/// and pushes the deep `_deps/evmone_external-src/.git/modules/...`
+/// paths of the vendored dependencies past Windows' 260-character
+/// `MAX_PATH` limit, which makes the FetchContent submodule clone fail
+/// with "Filename too long".
+///
+/// Override with `COLIBRI_CMAKE_BUILD_DIR` when the default still ends
+/// up too long (e.g. a deeply nested checkout on Windows).
+fn cmake_build_root(repo_root: &Path, target: &str) -> PathBuf {
+    if let Ok(dir) = env::var("COLIBRI_CMAKE_BUILD_DIR") {
+        return PathBuf::from(dir);
+    }
+    // `/build-*` is git-ignored at the repo root.
+    repo_root.join("build-rust").join(target)
+}
+
 /// Invoke CMake in the repo checkout to produce the archives, then
 /// link against every archive we need.
-fn build_with_cmake(repo_root: &Path) -> LinkSetup {
+fn build_with_cmake(repo_root: &Path, target: &str) -> LinkSetup {
     // We deliberately do NOT use `COMBINED_STATIC_LIB` from the repo's
     // CMakeLists.txt: its dependency walk misses transitive static
     // libraries and produces an archive with only `verify.o` +
     // `prover.o`. Instead we build the top-level targets we need and
     // link every resulting `.a` file individually -- reliable and
     // avoids touching shared CMake logic.
+    emit_source_rerun_hints(repo_root);
+    let out_dir = cmake_build_root(repo_root, target);
     let mut cfg = cmake::Config::new(repo_root);
-    cfg.define("CURL", "OFF")
+    cfg.out_dir(&out_dir)
+        .define("CURL", "OFF")
         .define("CLI", "OFF")
         .define("HTTP_SERVER", "OFF")
         .define("CHAIN_OP", "OFF")
@@ -131,10 +175,15 @@ fn build_with_cmake(repo_root: &Path) -> LinkSetup {
     let extra_targets = ["prover", "eth_verifier", "eth_prover"];
     for tgt in extra_targets {
         // Use raw `cmake --build <dir> --target <t>` so we don't reset
-        // build-system state.
+        // build-system state. `--config` is required for multi-config
+        // generators (Visual Studio, Xcode), which otherwise default to
+        // Debug and would produce archives the rest of the build cannot
+        // find.
         let ok = Command::new("cmake")
             .arg("--build")
             .arg(&build_dir)
+            .arg("--config")
+            .arg("Release")
             .arg("--target")
             .arg(tgt)
             .status()
@@ -158,9 +207,9 @@ fn build_with_cmake(repo_root: &Path) -> LinkSetup {
     // them all -- macOS/BSD `ld` and GNU `ld --start-group` both
     // handle the resulting order-independence for us.
     let mut static_libs: Vec<String> = vec!["colibri_wrapper".into()];
-    let archives = find_static_archives(&build_dir);
+    let archives = find_static_archives(&build_dir, target);
     for archive in archives {
-        let name = archive_lib_name(&archive);
+        let name = archive_lib_name(&archive, target);
         if name == "colibri_wrapper" {
             continue;
         }
@@ -210,45 +259,56 @@ fn compile_wrapper(repo_root: &Path, dst: &Path) -> PathBuf {
     PathBuf::from(env::var("OUT_DIR").unwrap())
 }
 
-fn find_static_archives(root: &Path) -> Vec<PathBuf> {
+fn find_static_archives(root: &Path, target: &str) -> Vec<PathBuf> {
     let mut out = Vec::new();
     if !root.exists() {
         return out;
     }
-    walk_archives(root, &mut out);
+    walk_archives(root, target, &mut out);
     out
 }
 
-fn walk_archives(dir: &Path, out: &mut Vec<PathBuf>) {
+fn walk_archives(dir: &Path, target: &str, out: &mut Vec<PathBuf>) {
     let Ok(entries) = fs::read_dir(dir) else {
         return;
     };
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
-            walk_archives(&path, out);
-        } else if is_static_archive(&path) {
+            walk_archives(&path, target, out);
+        } else if is_static_archive(&path, target) {
             out.push(path);
         }
     }
 }
 
-fn is_static_archive(p: &Path) -> bool {
+/// Note the check is against `TARGET`, not a `cfg!` on the build
+/// script itself -- the build script is compiled for the host, so
+/// `cfg!(target_env = "msvc")` would report the wrong answer when
+/// cross-compiling to or from Windows.
+fn is_static_archive(p: &Path, target: &str) -> bool {
     match p.extension().and_then(|e| e.to_str()) {
         Some("a") => true,
-        Some("lib") => cfg!(target_env = "msvc"),
+        Some("lib") => target.contains("msvc"),
         _ => false,
     }
 }
 
-fn archive_lib_name(p: &Path) -> String {
+fn archive_lib_name(p: &Path, target: &str) -> String {
     let stem = p
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("")
         .to_string();
-    // Unix archives are `lib<name>.a`; MSVC ships `<name>.lib`.
-    stem.strip_prefix("lib").unwrap_or(&stem).to_string()
+    // Unix archives are `lib<name>.a` and the linker wants `<name>`.
+    // MSVC takes the file stem verbatim, so stripping a `lib` prefix
+    // there would turn a genuine `libfoo.lib` into an unresolvable
+    // `foo.lib`.
+    if target.contains("msvc") {
+        stem
+    } else {
+        stem.strip_prefix("lib").unwrap_or(&stem).to_string()
+    }
 }
 
 /// Try to download a prebuilt static-library archive matching the
@@ -291,7 +351,7 @@ fn fetch_prebuilt(target: &str) -> Option<LinkSetup> {
     // them all so the CI archive layout doesn't have to know which
     // symbols downstream crates end up pulling in.
     let lib_dir = extract_dir.join("lib");
-    let archives = find_static_archives(&lib_dir);
+    let archives = find_static_archives(&lib_dir, target);
     if archives.is_empty() {
         eprintln!(
             "cargo:warning=Prebuilt archive contained no static libraries under {}",
@@ -301,7 +361,7 @@ fn fetch_prebuilt(target: &str) -> Option<LinkSetup> {
     }
     let mut static_libs = Vec::new();
     for a in &archives {
-        let name = archive_lib_name(a);
+        let name = archive_lib_name(a, target);
         if !static_libs.contains(&name) {
             static_libs.push(name);
         }
@@ -329,7 +389,11 @@ fn link_system_libs(target: &str) {
         println!("cargo:rustc-link-lib=framework=CoreFoundation");
         println!("cargo:rustc-link-lib=framework=Security");
     } else if target.contains("msvc") {
-        // MSVC statically links its runtime; nothing to add.
+        // The MSVC C++ runtime is pulled in automatically via the
+        // `/DEFAULTLIB` directives that `cl` embeds into the object
+        // files, so there is nothing to declare here. Both CMake (via
+        // the `cmake` crate) and rustc default to the dynamic `/MD`
+        // runtime, so the two halves agree.
     } else if target.contains("android") {
         println!("cargo:rustc-link-lib=c++_shared");
     } else if target.contains("linux") || target.contains("unknown-linux") {

@@ -81,6 +81,23 @@ jobs:
         if: matrix.os == 'windows-latest'
         uses: microsoft/setup-msbuild@v2
 
+      # The vendored CMake dependencies (evmone + its recursive
+      # submodules) create paths well beyond Windows' 260-character
+      # MAX_PATH limit, which makes `git clone` fail with
+      # "Filename too long". build.rs already keeps the CMake tree in a
+      # short, deterministic directory; this removes the remaining
+      # headroom problem for good.
+      - name: Enable Git long paths (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          git config --global core.longpaths true
+          # `--system` needs elevation; runners have it, but don't fail
+          # the job if a future image drops that privilege.
+          git config --system core.longpaths true 2>$null
+          git config --global --get core.longpaths
+          exit 0
+
       - name: Extract version from Git tag
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
@@ -129,10 +146,11 @@ jobs:
           mkdir -p native-out/${{ matrix.target }}/{lib,include}
 
           # Collect every static archive produced by the CMake build.
-          BUILD_DIR=$(find target/${{ matrix.target }}/release/build -type d -name default -path '*/build/default' | head -1)
-          if [ -z "$BUILD_DIR" ]; then
-            echo "CMake build directory not found under target/${{ matrix.target }}/release/build"
-            find target/${{ matrix.target }}/release/build -maxdepth 3 -type d
+          # build.rs builds into <repo>/build-rust/<target>/build.
+          BUILD_DIR="../../build-rust/${{ matrix.target }}/build"
+          if [ ! -d "$BUILD_DIR" ]; then
+            echo "CMake build directory not found at $BUILD_DIR"
+            ls -la ../../ || true
             exit 1
           fi
           echo "Using CMake build dir: $BUILD_DIR"
@@ -162,16 +180,15 @@ jobs:
           New-Item -ItemType Directory -Force -Path "$out/lib"     | Out-Null
           New-Item -ItemType Directory -Force -Path "$out/include" | Out-Null
 
-          $buildDir = Get-ChildItem -Path "target/$target/release/build" -Directory -Recurse `
-                         | Where-Object { $_.FullName -match 'build[/\\]default$' } `
-                         | Select-Object -First 1
-          if (-not $buildDir) {
-            Write-Host "CMake build directory not found"
+          # build.rs builds into <repo>/build-rust/<target>/build.
+          $buildDir = "../../build-rust/$target/build"
+          if (-not (Test-Path $buildDir)) {
+            Write-Host "CMake build directory not found at $buildDir"
             exit 1
           }
-          Write-Host "Using CMake build dir: $($buildDir.FullName)"
+          Write-Host "Using CMake build dir: $buildDir"
 
-          Get-ChildItem -Path $buildDir.FullName -Recurse -Include *.lib,*.a `
+          Get-ChildItem -Path $buildDir -Recurse -Include *.lib,*.a `
             | ForEach-Object { Copy-Item $_.FullName "$out/lib/" }
 
           Copy-Item "../colibri.h"        "$out/include/"
