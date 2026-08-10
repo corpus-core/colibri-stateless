@@ -186,6 +186,13 @@ public class Colibri {
     /// PAP (Pragmatic Adaptive Privacy) mode: .none (default) or .basic
     public var privacyMode: PrivacyMode
 
+    /// Include contract bytecode in local eth_call proofs. Default: false.
+    public var includeCode: Bool
+
+    /// Prefer eth_createAccessList for local eth_call proofs (default true).
+    /// Set false to opt into legacy debug_traceCall (C4_PROVER_FLAG_USE_DEBUG_TRACE).
+    public var useAccesslist: Bool
+
     /// If true, skip the Weak Subjectivity Period check (VERIFY_FLAG_SKIP_WSP_CHECK, bit 1 << 7).
     /// SECURITY: only safe with an alternative trust anchor (witness signatures, hard-coded
     /// checkpoint, signed package); raises the risk of long-range attacks across periods older
@@ -241,6 +248,18 @@ lightClient.startLightClient(fullBlock: true)     // or fetch the full block
 ```
 
 Default: `.remote` when prover URLs are configured, `.local` otherwise.
+
+### eth_call proof options
+
+- `includeCode` (`Bool`, default `false`) -- include contract bytecode when building local `eth_call` proofs.
+- `useAccesslist` (`Bool`, default `true`) -- prefer `eth_createAccessList` to discover touched accounts/storage for local `eth_call` / `eth_estimateGas` / `colibri_simulateTransaction` proofs. Set to `false` only to opt into the legacy `debug_traceCall` prestateTracer path (`C4_PROVER_FLAG_USE_DEBUG_TRACE`). Most RPC providers support `eth_createAccessList`; `debug_traceCall` often does not.
+
+```swift
+let colibri = Colibri()
+colibri.chainId = 1
+colibri.useAccesslist = true   // default
+colibri.includeCode = false
+```
 
 ### Privacy (PAP)
 

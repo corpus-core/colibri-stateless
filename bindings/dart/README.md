@@ -69,6 +69,7 @@ final colibri = Colibri(
 - Async request handling with `dart:async`
 - Multi-chain configuration with sensible defaults
 - Flutter plugin (`colibri_flutter`) with bundled Android/iOS/desktop binaries
+- **Local `eth_call` proofs** – `useAccesslist: true` (default) uses `eth_createAccessList`; set `false` for legacy `debug_traceCall`
 - **Privacy-preserving `eth_call`** – `proverMode: hybrid`, `privacyMode: basic`, `obliviousNodes` (default empty; e.g. `https://rpc.safe-node.com/`, API key for testing). Setting `obliviousNodes` auto-enables PAP. TEE/ORAM: [Oblivious Labs](https://www.obliviouslabs.com/).
 
 You can also set the library path via `COLIBRI_DART_LIBRARY`.

@@ -176,6 +176,8 @@ class Colibri:
         eth_rpcs: Optional[List[str]] = None,
         beacon_apis: Optional[List[str]] = None,
         trusted_checkpoint: Optional[str] = None,
+        include_code: bool = False,
+        use_accesslist: bool = True,
         request_handler: Optional[RequestHandler] = None,
         privacy_mode: Optional[PrivacyMode] = None,
         prover_mode: Optional[ProverMode] = None,
@@ -193,6 +195,9 @@ class Colibri:
             eth_rpcs: Ethereum RPC endpoints for execution layer
             beacon_apis: Beacon chain API endpoints
             trusted_checkpoint: Optional trusted checkpoint block hash for anchoring
+            include_code: Include contract code in local eth_call proofs. Default False.
+            use_accesslist: Prefer eth_createAccessList for local eth_call proofs (default True).
+                Set False to opt into legacy debug_traceCall (C4_PROVER_FLAG_USE_DEBUG_TRACE).
             privacy_mode: PAP mode (PrivacyMode.NONE or PrivacyMode.BASIC). Default NONE.
             prover_mode: Proof generation mode (ProverMode.LOCAL, REMOTE, or HYBRID). Default: REMOTE if provers configured, LOCAL otherwise.
             logs_completeness: If True, eth_getLogs produces and requires a completeness proof over the requested block range (proves no matching log was omitted). Sets the prover flag (1 << 12) and the verify flag (1 << 9). Default: False.
@@ -456,6 +461,10 @@ client = Colibri(
     
     # Optional trusted anchoring point
     trusted_checkpoint="0x4232db57354ddacec40adda0a502f7732ede19ba0687482a1e15ad20e5e7d1e7",
+
+    # Local eth_call proof options (only relevant for local / hybrid proof building)
+    include_code=False,      # embed contract bytecode in the proof
+    use_accesslist=True,     # default: eth_createAccessList (set False for legacy debug_traceCall)
     
     # Privacy: PAP (Pragmatic Adaptive Privacy) mode
     privacy_mode=PrivacyMode.BASIC,  # or PrivacyMode.NONE (default)
@@ -464,6 +473,18 @@ client = Colibri(
     storage=MyCustomStorage(),
     request_handler=MyCustomRequestHandler()
 )
+```
+
+### Access list vs `debug_traceCall`
+
+For local `eth_call` / `eth_estimateGas` / `colibri_simulateTransaction` proofs the prover must discover which accounts and storage slots the call touches:
+
+- `use_accesslist=True` (**default**) -- uses `eth_createAccessList`. Widely supported by RPC providers; contract code is usually fetched/cached separately.
+- `use_accesslist=False` -- opts into the legacy `debug_traceCall` prestateTracer path (`C4_PROVER_FLAG_USE_DEBUG_TRACE`). Prefer this only when you specifically need the old behaviour or your fixture data was recorded with `debug_traceCall`.
+
+```python
+client = Colibri(chain_id=1, use_accesslist=True)   # default
+client = Colibri(chain_id=1, use_accesslist=False)  # legacy debug_traceCall
 ```
 
 ### Prover Mode

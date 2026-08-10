@@ -318,6 +318,11 @@ The constructor of the colibri client accepts a configuration-object, which may 
     ```js
     new Colibri({ include_code:  true})
     ```
+- `use_accesslist` - if `true` (default), local `eth_call` / `eth_estimateGas` / `colibri_simulateTransaction` proofs use `eth_createAccessList` to discover touched accounts and storage. Set to `false` only to opt into the legacy `debug_traceCall` (prestateTracer) path (`C4_PROVER_FLAG_USE_DEBUG_TRACE`); that API is not available on every RPC provider, while contract code is usually cached anyway. Irrelevant when proofs are fetched from a remote prover that already chose its own path.
+    ```js
+    new Colibri({ use_accesslist: true })   // default
+    new Colibri({ use_accesslist: false })  // legacy debug_traceCall
+    ```
 - `logs_completeness` - if true, `eth_getLogs` produces (prover) and requires (verifier) a **completeness proof** over the requested block range `[fromBlock, toBlock]`. It proves that no matching log was omitted, not just that the returned logs are valid. This sets the prover flag (`1 << 12`) and the verifier flag (`1 << 9`) and requires a prover that supports it. The range end (`toBlock`) may be a pinned block hash/number or `"latest"`; `"safe"`/`"finalized"` are not supported yet. (default: false, tracks issue #128)
     ```js
     new Colibri({ logs_completeness: true })

@@ -169,6 +169,19 @@ class MainActivity : AppCompatActivity() {
 
 ## Configuration
 
+### eth_call proof options
+
+- `includeCode` (`Boolean`, default `false`) -- include contract bytecode when building local `eth_call` proofs.
+- `useAccesslist` (`Boolean`, default `true`) -- prefer `eth_createAccessList` to discover touched accounts/storage for local `eth_call` / `eth_estimateGas` / `colibri_simulateTransaction` proofs. Set to `false` only to opt into the legacy `debug_traceCall` prestateTracer path (`C4_PROVER_FLAG_USE_DEBUG_TRACE`). Most RPC providers support `eth_createAccessList`; `debug_traceCall` often does not. Irrelevant when proofs are fetched from a remote prover.
+
+```kotlin
+val colibri = Colibri(
+    chainId = BigInteger.ONE,
+    useAccesslist = true,   // default
+    includeCode = false
+)
+```
+
 ### Prover Mode
 
 Controls how proofs are built and verified. Set via `proverMode` in the constructor:

@@ -64,6 +64,15 @@ colibri.chainId = 137    // Polygon
 colibri.chainId = 42161  // Arbitrum
 ```
 
+### eth_call proof options
+
+Local `eth_call` proofs default to `useAccesslist = true` (`eth_createAccessList`). Set `false` only for the legacy `debug_traceCall` path:
+
+```swift
+colibri.useAccesslist = true   // default
+colibri.includeCode = false
+```
+
 ### Privacy (PAP)
 
 Enable Pragmatic Adaptive Privacy to reduce intent leakage (e.g. use cached storage when available):
