@@ -94,9 +94,9 @@ static archive. Where that archive comes from depends on your build:
   create paths that exceed Windows' 260-character `MAX_PATH` limit.
   Override the location with `COLIBRI_CMAKE_BUILD_DIR` if even that is
   too long for your checkout.
-- **BYO archive** -- set `COLIBRI_LIB_DIR=/path/to/dir/with/libc4.a`.
-  Handy for embedded or cross-compilation targets not covered by the
-  Release matrix.
+- **BYO archives** -- set `COLIBRI_LIB_DIR=/path/to/dir/with/archives`;
+  every static archive in that directory is linked. Handy for embedded
+  or cross-compilation targets not covered by the Release matrix.
 - **docs.rs** -- the native build is skipped (`DOCS_RS` env var);
   only the API docs are produced.
 

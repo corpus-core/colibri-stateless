@@ -65,11 +65,13 @@ downloaded automatically by `build.rs` for the following targets:
 - **macOS** (`aarch64-apple-darwin`, `x86_64-apple-darwin`)
 - **Windows** (`x86_64-pc-windows-msvc`)
 
-For unsupported targets or when you already have a locally-built
-static library, set `COLIBRI_LIB_DIR` before `cargo build`:
+For unsupported targets or when you already have locally-built
+static libraries, set `COLIBRI_LIB_DIR` before `cargo build`. Every
+static archive found in that directory is linked (works both for a
+single combined `libc4.a` and the multi-archive release layout):
 
 ```bash
-export COLIBRI_LIB_DIR=/path/to/dir/containing/libc4.a
+export COLIBRI_LIB_DIR=/path/to/dir/with/static/archives
 cargo build --release
 ```
 

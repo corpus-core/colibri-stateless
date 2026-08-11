@@ -87,6 +87,22 @@ struct LinkSetup {
     static_libs: Vec<String>,
 }
 
+/// Build a `LinkSetup` that links every static archive found (recursively)
+/// under `dir`.
+fn link_setup_from_dir(dir: &Path, target: &str) -> LinkSetup {
+    let mut static_libs = Vec::new();
+    for archive in find_static_archives(dir, target) {
+        let name = archive_lib_name(&archive, target);
+        if !static_libs.contains(&name) {
+            static_libs.push(name);
+        }
+    }
+    LinkSetup {
+        search_paths: vec![dir.to_path_buf()],
+        static_libs,
+    }
+}
+
 fn resolve_link_setup(manifest_dir: &Path, target: &str) -> LinkSetup {
     if let Ok(dir) = env::var("COLIBRI_LIB_DIR") {
         let dir = PathBuf::from(dir);
@@ -95,10 +111,16 @@ fn resolve_link_setup(manifest_dir: &Path, target: &str) -> LinkSetup {
             "COLIBRI_LIB_DIR ({}) does not exist",
             dir.display(),
         );
-        return LinkSetup {
-            static_libs: vec!["c4".into()],
-            search_paths: vec![dir],
-        };
+        // Link every archive found in the directory -- works both for
+        // a single combined `libc4.a` and for the multi-archive layout
+        // shipped in the release assets.
+        let setup = link_setup_from_dir(&dir, target);
+        assert!(
+            !setup.static_libs.is_empty(),
+            "COLIBRI_LIB_DIR ({}) contains no static libraries",
+            dir.display(),
+        );
+        return setup;
     }
 
     let repo_root = manifest_dir
@@ -118,8 +140,8 @@ fn resolve_link_setup(manifest_dir: &Path, target: &str) -> LinkSetup {
     panic!(
         "colibri-stateless: cannot locate the native library.\n\
          \n\
-         Set COLIBRI_LIB_DIR=<path with libc4.a> to point at a pre-built\n\
-         static library, or build from a git checkout so `build.rs` can\n\
+         Set COLIBRI_LIB_DIR=<dir with the static archives> to point at\n\
+         pre-built static libraries, or build from a git checkout so `build.rs` can\n\
          invoke CMake automatically. See bindings/rust/README.md for\n\
          details."
     );
@@ -351,25 +373,15 @@ fn fetch_prebuilt(target: &str) -> Option<LinkSetup> {
     // them all so the CI archive layout doesn't have to know which
     // symbols downstream crates end up pulling in.
     let lib_dir = extract_dir.join("lib");
-    let archives = find_static_archives(&lib_dir, target);
-    if archives.is_empty() {
+    let setup = link_setup_from_dir(&lib_dir, target);
+    if setup.static_libs.is_empty() {
         eprintln!(
             "cargo:warning=Prebuilt archive contained no static libraries under {}",
             lib_dir.display()
         );
         return None;
     }
-    let mut static_libs = Vec::new();
-    for a in &archives {
-        let name = archive_lib_name(a, target);
-        if !static_libs.contains(&name) {
-            static_libs.push(name);
-        }
-    }
-    Some(LinkSetup {
-        search_paths: vec![lib_dir],
-        static_libs,
-    })
+    Some(setup)
 }
 
 fn download(url: &str, dest: &Path) -> bool {
