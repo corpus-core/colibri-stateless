@@ -21,7 +21,7 @@ mod server;
 mod types;
 mod utils;
 
-use alloy::primitives::Address;
+use alloy_primitives::Address;
 use std::{env, fs, path::PathBuf, sync::{Arc, Mutex}};
 use tokio::sync::broadcast;
 use tracing::info;
@@ -37,8 +37,11 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+                // We don't depend on kona-node-service, so no filter for it here.
+                // kona_disc/kona_gossip stay at `warn` (not `off`) so startup / listen /
+                // discovery-error messages still surface without flooding info-level logs.
                 EnvFilter::new(
-                    "warn,kona_bridge=info,libp2p=off,discv5=off,kona_p2p=off,hyper=off",
+                    "warn,kona_bridge=info,libp2p=off,discv5=off,kona_gossip=warn,kona_disc=warn,kona_peers=warn,hyper=off",
                 )
             }),
         )

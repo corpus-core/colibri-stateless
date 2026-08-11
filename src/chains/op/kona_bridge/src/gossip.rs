@@ -1,25 +1,41 @@
-// gossip.rs - P2P-Gossip-Netzwerk für Preconfs
+// gossip.rs - Signature-preserving Optimism gossip loop built on kona-node v1.2.8
 
 use crate::{
     config::ChainConfig,
     processing::process_preconf_with_correct_format,
-    types::{BlockDeduplicator, BlockBitmaskTracker, KonaBridgeStats},
+    types::{BlockBitmaskTracker, BlockDeduplicator, KonaBridgeStats},
 };
-use tokio::sync::broadcast;
-use discv5::{ConfigBuilder, enr::CombinedKey};
-use kona_p2p::{LocalNode, Network};
+use discv5::{ConfigBuilder, ListenConfig, enr::CombinedKey};
+use kona_disc::{Discv5Builder, LocalNode};
+use kona_gossip::GossipDriverBuilder;
+use kona_peers::{BootNode, BootNodes};
 use kona_registry::ROLLUP_CONFIGS;
 use libp2p::{Multiaddr, identity::Keypair};
 use std::{
-    borrow::BorrowMut,
-    net::{IpAddr, Ipv4Addr, SocketAddr},
+    net::{IpAddr, Ipv4Addr},
     path::PathBuf,
     sync::{Arc, Mutex},
     time::Duration,
 };
+use tokio::sync::broadcast;
 use tracing::{error, info, warn};
 
-/// Reine Gossip-Netzwerk Implementierung
+/// Runs the preconf gossip loop until `running` is toggled off or the network shuts down.
+///
+/// The loop drives kona's split `Discv5Driver` and `GossipDriver` directly (skipping
+/// `NetworkActor`/`NetworkDriver` in `kona-node-service`) because:
+///   1. Only `GossipDriver::handle_event` exposes the signed `OpNetworkPayloadEnvelope`;
+///      the actor's `blocks` channel loses the P2P signature via
+///      `OpNetworkPayloadEnvelope -> OpExecutionPayloadEnvelope`, which colibri writes into
+///      the `.raw` preconf files via `process_preconf_with_correct_format`.
+///   2. Depending on `kona-node-service` transitively pulls in `rollup-boost`, whose build
+///      script cannot compile under the current `vergen-git2`/`vergen-lib` version graph.
+///
+/// Processing (`process_preconf_with_correct_format`) is awaited inline on the same task
+/// that drives `gossip.next()`. This mirrors kona's own `NetworkActor` shape and is fine as
+/// long as processing stays cheap (roughly: one `spawn_blocking` zstd + a few async file
+/// writes, i.e. sub-block-time on OP chains). If future work makes processing heavier, move
+/// it onto a dedicated task with a bounded channel to avoid stalling the swarm.
 pub async fn run_gossip_network(
     chain_id: u64,
     disc_port: u16,
@@ -33,210 +49,210 @@ pub async fn run_gossip_network(
     bitmask_tracker: Option<Arc<Mutex<BlockBitmaskTracker>>>,
     sse_tx: Option<broadcast::Sender<u64>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    
-    let gossip = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), gossip_port);
-    let mut gossip_addr = Multiaddr::from(gossip.ip());
-    gossip_addr.push(libp2p::multiaddr::Protocol::Tcp(gossip.port()));
+    let mut gossip_addr = Multiaddr::from(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
+    gossip_addr.push(libp2p::multiaddr::Protocol::Tcp(gossip_port));
 
     let CombinedKey::Secp256k1(k256_key) = CombinedKey::generate_secp256k1() else {
         return Err("Failed to generate secp256k1 key".into());
     };
-    
-    let advertise_ip = IpAddr::V4(Ipv4Addr::UNSPECIFIED);
-    let disc = LocalNode::new(k256_key, advertise_ip, disc_port, disc_port);
-    let disc_listen = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), disc_port);
 
-    let gossip_key = Keypair::generate_secp256k1();
+    let disc_ip = Ipv4Addr::UNSPECIFIED;
+    let discovery_address = LocalNode::new(k256_key, IpAddr::V4(disc_ip), disc_port, disc_port);
+    let discovery_config =
+        ConfigBuilder::new(ListenConfig::Ipv4 { ip: disc_ip, port: disc_port }).build();
+
+    let gossip_keypair = Keypair::generate_secp256k1();
 
     tracing::debug!("🔍 Looking up rollup config for chain {}", chain_config.chain_id);
-    let cfg = ROLLUP_CONFIGS
+    let rollup_config = ROLLUP_CONFIGS
         .get(&chain_config.chain_id)
         .or_else(|| {
-            warn!("⚠️  Rollup config not found for chain {}, using Base as fallback", chain_config.chain_id);
-            ROLLUP_CONFIGS.get(&8453) // Use Base as fallback
+            warn!(
+                "⚠️  Rollup config not found for chain {}, using Base as fallback",
+                chain_config.chain_id
+            );
+            ROLLUP_CONFIGS.get(&8453) // Base fallback
         })
-        .ok_or_else(|| format!("No rollup config found for chain {} or Base fallback", chain_config.chain_id))?
+        .ok_or_else(|| {
+            format!("No rollup config found for chain {} or Base fallback", chain_config.chain_id)
+        })?
         .clone();
-    
     tracing::debug!("✅ Found rollup config for chain {}", chain_config.chain_id);
 
     tracing::debug!("🔍 Discovery: 0.0.0.0:{}", disc_port);
     tracing::debug!("📡 Gossip: 0.0.0.0:{}", gossip_port);
     tracing::debug!("🔐 Expected sequencer: {}", chain_config.unsafe_signer);
 
-    // Thread-optimized P2P: Use first 3 bootnodes for reliable discovery
-    let optimized_bootnodes = if chain_config.bootnodes.len() > 3 {
-        chain_config.bootnodes[0..3].to_vec() // Use first 3 bootnodes
-    } else {
-        chain_config.bootnodes.clone() // Use all available
-    };
-    
-    tracing::debug!("🔧 Thread-optimized P2P: Using {} bootnode(s) for reliable discovery", optimized_bootnodes.len());
-    
-    let mut network = Network::builder()
-        .with_rollup_config(cfg)
-        .with_unsafe_block_signer(chain_config.unsafe_signer)
-        .with_discovery_address(disc)
-        .with_gossip_address(gossip_addr)
-        .with_keypair(gossip_key)
-        .with_discovery_config(
-            ConfigBuilder::new(disc_listen.into())
-                .build() // Minimal discovery config
-        )
-        .build()
-        .map_err(|e| format!("Failed to build P2P network: {}", e))?;
+    // Take the first 3 configured bootnodes to keep the initial DHT bootstrap set small;
+    // kona-disc will still union these with the built-in per-chain bootnodes.
+    let initial_bootnodes: Vec<_> = chain_config
+        .bootnodes
+        .iter()
+        .take(3)
+        .cloned()
+        .map(BootNode::from)
+        .collect();
+    tracing::debug!(
+        "🔧 P2P bootstrap: using {} configured bootnode(s) for initial discovery",
+        initial_bootnodes.len()
+    );
 
-    // Add optimized bootnodes for reliable peer discovery
-    for bootnode in optimized_bootnodes {
-        tracing::debug!("🔗 Adding bootnode: {}", bootnode);
-        network
-            .discovery
-            .borrow_mut()
-            .disc
-            .borrow_mut()
-            .add_enr(bootnode)
-            .map_err(|e| format!("Failed to add bootnode: {}", e))?;
-    }
+    let l2_chain_id = rollup_config.l2_chain_id.id();
 
-    let mut payload_recv = network.unsafe_block_recv();
-    network
+    // Build the gossip driver (produces signed OpNetworkPayloadEnvelopes via handle_event).
+    // The returned `unsafe_block_signer_sender` seeds a `watch::channel` inside the driver
+    // with `chain_config.unsafe_signer` and is retained here on purpose: we do not rotate
+    // the signer at runtime, and `watch` preserves the last value for readers even after
+    // its sender is dropped. Binding it keeps the intent explicit.
+    let (mut gossip, _unsafe_block_signer_sender) = GossipDriverBuilder::new(
+        rollup_config,
+        chain_config.unsafe_signer,
+        gossip_addr,
+        gossip_keypair,
+    )
+    .build()
+    .map_err(|e| format!("Failed to build gossip driver: {}", e))?;
+
+    // Start listening on the gossip multiaddr before wiring up discovery.
+    gossip
         .start()
         .await
-        .map_err(|e| format!("Failed to start P2P network: {}", e))?;
+        .map_err(|e| format!("Failed to start gossip swarm: {}", e))?;
 
-    // Nur beim ersten Start loggen - nicht bei jedem Backup-Start
+    // Build and spawn the discovery driver. `start()` returns a handle plus an ENR
+    // receiver channel that the gossip loop dials into as peers show up. The handle owns
+    // the request-mpsc sender that keeps the internal driver task alive; dropping it early
+    // would cause kona's driver to hot-spin on the closed channel, so we bind it for the
+    // full lifetime of this function.
+    let discovery = Discv5Builder::new(discovery_address, l2_chain_id, discovery_config)
+        .with_bootnodes(BootNodes(initial_bootnodes))
+        .build()
+        .map_err(|e| format!("Failed to build discovery driver: {}", e))?;
+    let (_disc_handler, mut enr_receiver) = discovery.start();
+
     info!("📡 Gossip network started - listening for blocks...");
-
-    // Update stats
-    {
-        let mut stats_guard = stats.lock().unwrap();
-        stats_guard.connected_peers = 1; // Will update with real peer count
-    }
 
     let mut latest_block_number = 0u64;
     let mut last_status_block = 0u64;
-    const STATUS_INTERVAL: u64 = 200; // Status alle 200 Blöcke (ca. 6 Minuten)
+    const STATUS_INTERVAL: u64 = 200; // Status every ~200 blocks (~6 min on OP chains)
 
-    // Memory-optimized event loop with reduced polling frequency
-    while *running.lock().unwrap() {
-        // Memory-optimized: Check every 2 seconds (faster response, less memory buildup)
-        tokio::time::sleep(Duration::from_secs(2)).await;
-        
-        if !*running.lock().unwrap() {
-            break;
-        }
-        
-        // Check for new payloads (every 5 seconds)
-        match payload_recv.try_recv() {
-            Ok(payload_envelope) => {
+    // Poll the shutdown flag on a coarse interval so the select! branches wake up
+    // regularly and can honour a stop request without busy-waiting.
+    let mut shutdown_check = tokio::time::interval(Duration::from_secs(1));
+
+    loop {
+        tokio::select! {
+            _ = shutdown_check.tick() => {
+                if !*running.lock().unwrap() {
+                    break;
+                }
+            }
+            event = gossip.next() => {
+                let Some(event) = event else {
+                    error!("🛑 GOSSIP: swarm stream ended");
+                    break;
+                };
+                let Some(payload_envelope) = gossip.handle_event(event) else {
+                    continue;
+                };
+
                 let hash = payload_envelope.payload.block_hash();
                 let number = payload_envelope.payload.block_number();
-                
-                // Reduziertes Logging: Nur Debug-Level für einzelne Blöcke
                 tracing::debug!("🎉 P2P: PRECONF RECEIVED! Block #{} Hash: {}", number, hash);
 
-                // Update received stats
                 {
                     let mut stats_guard = stats.lock().unwrap();
                     stats_guard.received_preconfs += 1;
                     stats_guard.gossip_received += 1;
                 }
 
-                    // Process preconf (only if newer)
-                    if number > latest_block_number {
-                        // Race-Condition-Schutz: Prüfe Deduplizierung ZUERST
-                        let is_duplicate = if let Some(ref dedup_arc) = deduplicator {
-                            let dedup = dedup_arc.lock().unwrap();
-                            dedup.is_duplicate(number)
-                        } else {
-                            false
-                        };
-                        
-                        if is_duplicate {
-                            tracing::debug!("🛡️  GOSSIP: Block {} already processed by HTTP - skipping", number);
-                            // received_preconfs already incremented, but not processed (due to deduplication)
-                            continue;
-                        }
-                        
-                        // Check for gaps in gossip stream NACH Deduplizierung (nur echte Gaps)
-                        if latest_block_number > 0 {
-                            let gap = number.saturating_sub(latest_block_number);
-                            if gap > 1 {
-                                let missing_blocks = gap - 1;
-                                tracing::debug!("📡 GOSSIP: Real gap detected {} -> {} (missing {} blocks)", 
-                                              latest_block_number, number, missing_blocks);
-                                
-                                // Update gap statistics for Gossip mode (nur Gossip-spezifisch)
-                                {
-                                    let mut stats_guard = stats.lock().unwrap();
-                                    // total_gaps wird nur beim finalen Processing gezählt
-                                    stats_guard.gossip_gaps += missing_blocks as u32;
-                                }
-                            }
-                        }
-                    
-                    match process_preconf_with_correct_format(
-                        &payload_envelope, 
-                        chain_id, 
-                        output_dir, 
-                        expected_sequencer
-                    ).await {
-                        Ok(()) => {
-                            latest_block_number = number;
-                            if let Some(ref tx) = sse_tx {
-                                let _ = tx.send(number);
-                            }
-                            let mut stats_guard = stats.lock().unwrap();
-                            stats_guard.processed_preconfs += 1;
-                            stats_guard.gossip_processed += 1;
-                            
-                            // CRITICAL FIX: Update bitmask tracker with processed block
-                            if let Some(ref bitmask_tracker_arc) = bitmask_tracker {
-                                let mut tracker = bitmask_tracker_arc.lock().unwrap();
-                                tracker.mark_block_processed(number);
-                                tracing::debug!("🎯 GOSSIP: Marked block {} in bitmask tracker", number);
-                            }
-                            
-                            // Mark block as processed in deduplicator
-                            if let Some(ref dedup_arc) = deduplicator {
-                                let mut dedup = dedup_arc.lock().unwrap();
-                                dedup.mark_processed(number);
-                            }
-                            
-                            // Periodische Statusmeldung alle 200 Blöcke
-                            if number >= last_status_block + STATUS_INTERVAL {
-                                let skipped = stats_guard.gossip_received - stats_guard.gossip_processed;
-                                info!("📡 GOSSIP Status: Block #{}, Total processed: {}, HTTP: {}, Gossip: {} (skipped: {})", 
-                                      number, stats_guard.processed_preconfs, 
-                                      stats_guard.http_processed, stats_guard.gossip_processed, skipped);
-                                last_status_block = number;
-                            }
-                            
-                            // Reduziertes Logging: Nur Debug-Level für einzelne Blöcke
-                            tracing::debug!("✅ GOSSIP: Processed (total: {})", stats_guard.processed_preconfs);
-                        }
-                        Err(e) => {
-                            let mut stats_guard = stats.lock().unwrap();
-                            stats_guard.failed_preconfs += 1;
-                            error!("❌ GOSSIP: Failed: {}", e);
-                        }
-                    }
-                } else {
+                if number <= latest_block_number {
                     info!("⏭️  GOSSIP: Skipping old preconf #{}", number);
+                    continue;
+                }
+
+                // Race-condition protection: check the deduplicator first.
+                let is_duplicate = if let Some(ref dedup_arc) = deduplicator {
+                    let dedup = dedup_arc.lock().unwrap();
+                    dedup.is_duplicate(number)
+                } else {
+                    false
+                };
+                if is_duplicate {
+                    tracing::debug!("🛡️  GOSSIP: Block {} already processed by HTTP - skipping", number);
+                    continue;
+                }
+
+                // Gap detection is only meaningful after we've accepted at least one block.
+                if latest_block_number > 0 {
+                    let gap = number.saturating_sub(latest_block_number);
+                    if gap > 1 {
+                        let missing_blocks = gap - 1;
+                        tracing::debug!(
+                            "📡 GOSSIP: Real gap detected {} -> {} (missing {} blocks)",
+                            latest_block_number, number, missing_blocks
+                        );
+                        let mut stats_guard = stats.lock().unwrap();
+                        stats_guard.gossip_gaps += missing_blocks as u32;
+                    }
+                }
+
+                match process_preconf_with_correct_format(
+                    &payload_envelope,
+                    chain_id,
+                    output_dir,
+                    expected_sequencer,
+                ).await {
+                    Ok(()) => {
+                        latest_block_number = number;
+                        if let Some(ref tx) = sse_tx {
+                            let _ = tx.send(number);
+                        }
+                        let mut stats_guard = stats.lock().unwrap();
+                        stats_guard.processed_preconfs += 1;
+                        stats_guard.gossip_processed += 1;
+
+                        if let Some(ref bitmask_tracker_arc) = bitmask_tracker {
+                            let mut tracker = bitmask_tracker_arc.lock().unwrap();
+                            tracker.mark_block_processed(number);
+                            tracing::debug!("🎯 GOSSIP: Marked block {} in bitmask tracker", number);
+                        }
+
+                        if let Some(ref dedup_arc) = deduplicator {
+                            let mut dedup = dedup_arc.lock().unwrap();
+                            dedup.mark_processed(number);
+                        }
+
+                        if number >= last_status_block + STATUS_INTERVAL {
+                            let skipped = stats_guard
+                                .gossip_received
+                                .saturating_sub(stats_guard.gossip_processed);
+                            info!(
+                                "📡 GOSSIP Status: Block #{}, Total processed: {}, HTTP: {}, Gossip: {} (skipped: {})",
+                                number,
+                                stats_guard.processed_preconfs,
+                                stats_guard.http_processed,
+                                stats_guard.gossip_processed,
+                                skipped
+                            );
+                            last_status_block = number;
+                        }
+
+                        tracing::debug!("✅ GOSSIP: Processed (total: {})", stats_guard.processed_preconfs);
+                    }
+                    Err(e) => {
+                        let mut stats_guard = stats.lock().unwrap();
+                        stats_guard.failed_preconfs += 1;
+                        error!("❌ GOSSIP: Failed: {}", e);
+                    }
                 }
             }
-            Err(tokio::sync::broadcast::error::TryRecvError::Empty) => {
-                // GPT-5 Hot-Thread Fix: yield_now() statt busy-waiting
-                tokio::task::yield_now().await;
-                continue;
-            }
-            Err(tokio::sync::broadcast::error::TryRecvError::Closed) => {
-                info!("🛑 GOSSIP: Receiver closed");
-                break;
-            }
-            Err(tokio::sync::broadcast::error::TryRecvError::Lagged(skipped)) => {
-                tracing::debug!("📡 GOSSIP: Receiver lagged - skipped {} messages", skipped);
-                continue;
+            enr = enr_receiver.recv() => {
+                let Some(enr) = enr else {
+                    error!("🛑 GOSSIP: ENR receiver closed");
+                    break;
+                };
+                gossip.dial(enr);
             }
         }
     }

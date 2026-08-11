@@ -1,9 +1,12 @@
 // config.rs - Chain-Konfigurationen für OP-Stack-Chains
 
-use alloy::primitives::{address, Address};
+use alloy_primitives::{address, Address};
 use discv5::Enr;
 
-/// Chain-spezifische Konfiguration
+/// Chain-specific configuration used by the bridge.
+///
+/// `bootnodes` are stored as pre-parsed [`Enr`] instances so callers can lift them
+/// into `kona_peers::BootNodes` cheaply at network setup time.
 #[derive(Clone)]
 pub struct ChainConfig {
     pub unsafe_signer: Address,

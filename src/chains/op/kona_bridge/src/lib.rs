@@ -13,7 +13,7 @@ use http::run_http_primary_with_gossip_fallback;
 use types::{BridgeMode, BlockBitmaskTracker, BlockDeduplicator, HttpHealthTracker, KonaBridgeStats};
 use utils::cleanup_old_files;
 
-use alloy::primitives::Address;
+use alloy_primitives::Address;
 use std::{
     path::PathBuf,
     sync::{Arc, Mutex},
@@ -420,9 +420,12 @@ pub extern "C" fn kona_bridge_init_logging() {
     INIT.call_once(|| {
         eprintln!("🦀 [RUST] Initializing Rust tracing subscriber...");
         
+        // We don't depend on kona-node-service, so no filter entry for it.
+        // kona_disc/kona_gossip stay at `warn` (not `off`) so startup / listen /
+        // discovery-error messages still surface without flooding info-level logs.
         let filter = EnvFilter::try_from_default_env()
             .unwrap_or_else(|_| EnvFilter::new(
-                "warn,libp2p=off,discv5=off,kona_p2p=off,kona_bridge=info,tokio=warn,hyper=warn,reqwest=warn"
+                "warn,libp2p=off,discv5=off,kona_gossip=warn,kona_disc=warn,kona_peers=warn,kona_bridge=info,tokio=warn,hyper=warn,reqwest=warn"
             ));
             
         let result = tracing_subscriber::fmt()

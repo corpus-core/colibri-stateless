@@ -275,8 +275,9 @@ async fn cleanup_expired_files(
     Ok(deleted_count)
 }
 
-/// Konvertiere Alloy-Signatur zu 65-Byte-Array
-pub fn signature_to_bytes(signature: &alloy::signers::Signature) -> [u8; 65] {
+/// Convert alloy signature into the canonical 65-byte layout used by the preconf
+/// file format (r || s || v with `v` in Ethereum-style 27/28).
+pub fn signature_to_bytes(signature: &alloy_primitives::Signature) -> [u8; 65] {
     let mut bytes = [0u8; 65];
     bytes[..32].copy_from_slice(&signature.r().to_be_bytes::<32>());
     bytes[32..64].copy_from_slice(&signature.s().to_be_bytes::<32>());

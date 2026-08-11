@@ -3,16 +3,33 @@ name = "kona_bridge"
 version = "0.2.0"
 edition = "2021"
 
-# TODO: Dependency migration to alloy 1.x + kona d7d4b5d requires kona-p2p → kona-node-service + kona-disc
-# refactoring of gossip.rs. Tracked separately.
+# Pinned to kona tag `kona-node/v1.2.8` (fe6dfcf7).
+# Wires the split crates (kona-disc / kona-gossip / kona-peers / kona-registry) on
+# alloy 1.x + libp2p 0.56 + discv5 0.10.2 directly, without kona-node-service.
+#
+# Rationale for bypassing `kona-node-service`:
+#   * It transitively depends on `rollup-boost` (via `kona-engine` / `kona-rpc`),
+#     whose build script fails under the current `vergen-git2` / `vergen-lib`
+#     version graph.
+#   * Its `NetworkActor` / `NetworkDriver` only expose `OpExecutionPayloadEnvelope`
+#     on the `blocks` channel — the P2P `.signature` bytes are dropped in the
+#     `OpNetworkPayloadEnvelope -> OpExecutionPayloadEnvelope` conversion.
+#     Colibri needs that signature (written into `.raw` preconf files), so we
+#     drive `GossipDriver` / `Discv5Driver` ourselves in `gossip.rs`.
 [dependencies]
-alloy = { version = "=0.15.10" }
-kona-p2p = { git = "https://github.com/op-rs/kona", rev = "b079a57fcfbb444d051e859f1e80f445daf5a2c7" }
-kona-registry = { git = "https://github.com/op-rs/kona", rev = "b079a57fcfbb444d051e859f1e80f445daf5a2c7" }
-op-alloy-rpc-types-engine = "0.15.2"
+# `k256` is retained because `alloy_primitives::Signature` uses the k256 backend
+# for the encoded-v accessor we rely on in `utils.rs::signature_to_bytes`.
+alloy-primitives = { version = "1.4.1", features = ["k256"] }
 
-libp2p = { version = "0.55.0", features = ["macros", "tokio", "tcp", "noise", "gossipsub", "ping"] }
-discv5 = "0.9.1"
+kona-disc = { git = "https://github.com/op-rs/kona", tag = "kona-node/v1.2.8" }
+kona-gossip = { git = "https://github.com/op-rs/kona", tag = "kona-node/v1.2.8" }
+kona-peers = { git = "https://github.com/op-rs/kona", tag = "kona-node/v1.2.8" }
+kona-registry = { git = "https://github.com/op-rs/kona", tag = "kona-node/v1.2.8" }
+
+op-alloy-rpc-types-engine = "0.22.4"
+
+libp2p = { version = "0.56", features = ["macros", "tokio", "tcp", "noise", "gossipsub", "ping"] }
+discv5 = "0.10.2"
 tokio = { version = "1.44.2", features = ["full"] }
 axum = "0.8.3"
 tokio-stream = { version = "0.1", features = ["sync"] }
@@ -21,14 +38,14 @@ futures-util = "0.3"
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
 
-serde = { version = "1.0.219", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
 serde_json = "1.0.85"
 clap = { version = "4.5.4", features = ["derive", "env"] }
 
 zstd = "0.13"
 tempfile = "3.0"
 hex = "0.4"
-reqwest = { version = "0.11", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 md5 = "0.7"
 anyhow = "1"
 
