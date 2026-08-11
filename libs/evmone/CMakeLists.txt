@@ -103,6 +103,7 @@ if(NOT evmone_external_POPULATED)
     # Apply patches using the CMake scripts
     set(SOURCE_DIR ${evmone_external_SOURCE_DIR})
     include(${CMAKE_CURRENT_SOURCE_DIR}/compat/patch_evmc.cmake)
+    include(${CMAKE_CURRENT_SOURCE_DIR}/compat/patch_evmc_c23_enum.cmake)
     include(${CMAKE_CURRENT_SOURCE_DIR}/compat/patch_instructions_calls.cmake)
     include(${CMAKE_CURRENT_SOURCE_DIR}/compat/patch_baseline_analysis.cmake)
     include(${CMAKE_CURRENT_SOURCE_DIR}/compat/patch_consteval.cmake)
