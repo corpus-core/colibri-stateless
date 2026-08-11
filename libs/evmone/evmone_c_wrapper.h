@@ -57,7 +57,8 @@ typedef struct {
  * Do not pass raw `evmc_revision` numeric values from C: EVMC ABI 18 removed
  * explicit enumerator values, so Osaka is no longer safely hard-coded as 14.
  */
-#define EVMONE_REV_OSAKA 0
+/* Non-zero so zero-initialized callers cannot silently select Osaka. */
+#define EVMONE_REV_OSAKA 1
 
 /* Result structure (CREATE address is computed by the VM since EVMC ABI 18). */
 typedef struct evmone_result {
@@ -70,7 +71,11 @@ typedef struct evmone_result {
   void*          release_context;  /* Context for the release callback */
 } evmone_result;
 
-/* Message structure */
+/* Message structure.
+ *
+ * CREATE2 salt is no longer part of EVMC ABI 18 messages; the VM derives the
+ * CREATE/CREATE2 address itself and passes it via `destination`/`recipient`.
+ */
 typedef struct evmone_message {
   enum { EVMONE_CALL,
          EVMONE_DELEGATECALL,

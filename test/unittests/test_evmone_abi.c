@@ -30,6 +30,8 @@
 
 typedef struct {
   uint64_t     nonce;
+  uint32_t     nonce_calls;
+  evmc_address last_nonce_addr;
   evmc_address last_create_dest;
   bool         saw_create;
   evmc_bytes32 blob_hashes[1];
@@ -66,8 +68,10 @@ static evmc_bytes32 host_get_balance(void* context, const evmc_address* addr) {
 }
 
 static uint64_t host_get_nonce(void* context, const evmc_address* addr) {
-  (void) addr;
-  return ((test_host_t*) context)->nonce;
+  test_host_t* host     = (test_host_t*) context;
+  host->nonce_calls++;
+  host->last_nonce_addr = *addr;
+  return host->nonce;
 }
 
 static size_t host_get_code_size(void* context, const evmc_address* addr) {
@@ -215,19 +219,44 @@ void test_evmone_osaka_stop(void) {
   evmone_destroy_executor(executor);
 }
 
+void test_evmone_revision_stays_on_osaka(void) {
+  void*       executor = evmone_create_executor();
+  test_host_t host     = {0};
+  TEST_ASSERT_NOT_NULL(executor);
+
+  // CLZ is active in Osaka, while SLOTNUM is introduced in Amsterdam.
+  const uint8_t osaka_code[]     = {0x60, 0x00, 0x1e, 0x50, 0x00};
+  const uint8_t amsterdam_code[] = {0x4b, 0x50, 0x00};
+  evmone_message msg             = {0};
+  msg.kind                       = EVMONE_CALL;
+  msg.gas                        = 100000;
+
+  evmone_result osaka_result =
+      evmone_execute(executor, &g_host, &host, EVMONE_REV_OSAKA, &msg, osaka_code, sizeof(osaka_code));
+  TEST_ASSERT_EQUAL_INT(0, osaka_result.status_code);
+  evmone_release_result(&osaka_result);
+
+  evmone_result amsterdam_result =
+      evmone_execute(executor, &g_host, &host, EVMONE_REV_OSAKA, &msg, amsterdam_code, sizeof(amsterdam_code));
+  TEST_ASSERT_EQUAL_INT(EVMC_UNDEFINED_INSTRUCTION, amsterdam_result.status_code);
+  evmone_release_result(&amsterdam_result);
+
+  evmone_destroy_executor(executor);
+}
+
 void test_evmone_create_uses_get_nonce(void) {
   // CREATE with empty initcode: value=0, offset=0, size=0
   // PUSH1 0 / PUSH1 0 / PUSH1 0 / CREATE / STOP
   const uint8_t code[] = {0x60, 0x00, 0x60, 0x00, 0x60, 0x00, 0xf0, 0x00};
 
-  // CREATE address for sender=0x00..00 and nonce=0:
-  // keccak256(rlp([sender, 0]))[12:] == 0xbd770416a3345f91e4b34576cb804a576fa48eb1
+  // CREATE address for sender=0x00..00 and nonce=1.
   const uint8_t expected[20] = {
-      0xbd, 0x77, 0x04, 0x16, 0xa3, 0x34, 0x5f, 0x91, 0xe4, 0xb3,
-      0x45, 0x76, 0xcb, 0x80, 0x4a, 0x57, 0x6f, 0xa4, 0x8e, 0xb1};
+      0x5a, 0x44, 0x37, 0x04, 0xdd, 0x4b, 0x59, 0x4b, 0x38, 0x2c,
+      0x22, 0xa0, 0x83, 0xe2, 0xbd, 0x30, 0x90, 0xa6, 0xfe, 0xf3};
+  const uint8_t zero_address[20] = {0};
 
   void*       executor = evmone_create_executor();
-  test_host_t host     = {.nonce = 0};
+  test_host_t host     = {.nonce = 1};
   TEST_ASSERT_NOT_NULL(executor);
 
   evmone_message msg = {0};
@@ -237,6 +266,8 @@ void test_evmone_create_uses_get_nonce(void) {
   evmone_result result = evmone_execute(executor, &g_host, &host, EVMONE_REV_OSAKA, &msg, code, sizeof(code));
   TEST_ASSERT_EQUAL_INT(0, result.status_code);
   TEST_ASSERT_TRUE(host.saw_create);
+  TEST_ASSERT_EQUAL_UINT32(1, host.nonce_calls);
+  TEST_ASSERT_EQUAL_MEMORY(zero_address, host.last_nonce_addr.bytes, sizeof(zero_address));
   TEST_ASSERT_EQUAL_MEMORY(expected, host.last_create_dest.bytes, 20);
 
   evmone_release_result(&result);
@@ -244,13 +275,13 @@ void test_evmone_create_uses_get_nonce(void) {
 }
 
 void test_evmone_tx_context_blob_hashes(void) {
-  void*      executor = evmone_create_executor();
+  void*       executor = evmone_create_executor();
   test_host_t host     = {.nonce = 0};
   memset(host.blob_hashes[0].bytes, 0xab, 32);
   TEST_ASSERT_NOT_NULL(executor);
 
-  // BLOBHASH 0 / POP / STOP  -- under Osaka, returns the blob hash or zero
-  const uint8_t code[] = {0x60, 0x00, 0x49, 0x50, 0x00};
+  // PUSH1 0 / BLOBHASH / PUSH1 0 / MSTORE / PUSH1 32 / PUSH1 0 / RETURN
+  const uint8_t code[] = {0x60, 0x00, 0x49, 0x60, 0x00, 0x52, 0x60, 0x20, 0x60, 0x00, 0xf3};
 
   evmone_message msg = {0};
   msg.kind           = EVMONE_CALL;
@@ -258,8 +289,16 @@ void test_evmone_tx_context_blob_hashes(void) {
 
   evmone_result result = evmone_execute(executor, &g_host, &host, EVMONE_REV_OSAKA, &msg, code, sizeof(code));
   TEST_ASSERT_EQUAL_INT(0, result.status_code);
+  TEST_ASSERT_EQUAL_UINT32(32, (uint32_t) result.output_size);
+  TEST_ASSERT_EQUAL_MEMORY(host.blob_hashes[0].bytes, result.output_data, 32);
 
   evmone_release_result(&result);
+
+  // Unknown Colibri revision IDs must not silently map to Osaka.
+  evmone_result bad = evmone_execute(executor, &g_host, &host, 0, &msg, code, sizeof(code));
+  TEST_ASSERT_EQUAL_INT(EVMC_INTERNAL_ERROR, bad.status_code);
+  evmone_release_result(&bad);
+
   evmone_destroy_executor(executor);
 }
 
@@ -279,6 +318,7 @@ int main(void) {
 #ifdef EVMONE
   RUN_TEST(test_evmone_abi_version_and_executor);
   RUN_TEST(test_evmone_osaka_stop);
+  RUN_TEST(test_evmone_revision_stays_on_osaka);
   RUN_TEST(test_evmone_create_uses_get_nonce);
   RUN_TEST(test_evmone_tx_context_blob_hashes);
 #else

@@ -16,13 +16,14 @@ static_assert(EVMC_ABI_VERSION == 18, "evmone wrapper requires EVMC ABI 18 (evmo
 
 namespace {
 
-evmc_revision map_revision(int revision) noexcept {
+bool map_revision(int revision, evmc_revision* out) noexcept {
   switch (revision) {
   case EVMONE_REV_OSAKA:
-    return EVMC_OSAKA;
+    *out = EVMC_OSAKA;
+    return true;
   default:
-    // Unknown Colibri revision IDs fall back to Osaka until Amsterdam is activated.
-    return EVMC_OSAKA;
+    // Refuse unknown Colibri revision IDs instead of silently selecting a fork.
+    return false;
   }
 }
 
@@ -204,7 +205,7 @@ public:
       int status = m_adapter.c_interface->access_account(
           m_adapter.context,
           reinterpret_cast<const evmc_address*>(&addr));
-      return status ? EVMC_ACCESS_WARM : EVMC_ACCESS_COLD;
+      return status == EVMONE_ACCESS_WARM ? EVMC_ACCESS_WARM : EVMC_ACCESS_COLD;
     }
     return EVMC_ACCESS_COLD;
   }
@@ -215,7 +216,7 @@ public:
           m_adapter.context,
           reinterpret_cast<const evmc_address*>(&addr),
           reinterpret_cast<const evmc_bytes32*>(&key));
-      return status ? EVMC_ACCESS_WARM : EVMC_ACCESS_COLD;
+      return status == EVMONE_ACCESS_WARM ? EVMC_ACCESS_WARM : EVMC_ACCESS_COLD;
     }
     return EVMC_ACCESS_COLD;
   }
@@ -288,6 +289,13 @@ extern "C" evmone_result evmone_execute(
 
   auto* vm = static_cast<struct evmc_vm*>(executor);
 
+  evmc_revision rev = EVMC_OSAKA;
+  if (!map_revision(revision, &rev)) {
+    evmone_result err{};
+    err.status_code = EVMC_INTERNAL_ERROR;
+    return err;
+  }
+
   HostInterfaceAdapter adapter(host_interface, host_context);
   EvmoneHostAdapter    host(adapter);
 
@@ -310,9 +318,7 @@ extern "C" evmone_result evmone_execute(
   cpp_msg.code         = code;
   cpp_msg.code_size    = code_size;
 
-  evmc_result cpp_result = vm->execute(vm, interface, context,
-                                       map_revision(revision),
-                                       &cpp_msg, code, code_size);
+  evmc_result cpp_result = vm->execute(vm, interface, context, rev, &cpp_msg, code, code_size);
 
   evmone_result c_result{};
   c_result.status_code      = cpp_result.status_code;

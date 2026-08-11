@@ -3,7 +3,6 @@
 #include <iterator>
 #include <memory>
 #include <type_traits>
-#include <utility>
 #include <vector>
 
 // C++20 compatibility for platforms with incomplete C++20 support (like Android NDK)
@@ -32,8 +31,6 @@ ForwardIt shift_left(ForwardIt first, ForwardIt last, typename std::iterator_tra
   if (n <= 0) return last;
   const auto dist = std::distance(first, last);
   if (n >= dist) return first;
-  auto new_last = first;
-  std::advance(new_last, dist - n);
   auto mid = first;
   std::advance(mid, n);
   return std::move(mid, last, first);
