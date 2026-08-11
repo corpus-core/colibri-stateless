@@ -12,6 +12,7 @@
     "@babel/runtime": "^7.26.0",
     "@expo/metro-runtime": "~4.0.1",
     "expo": "^52.0.0",
+    "expo-asset": "~11.0.5",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-native": "0.76.6",
@@ -20,6 +21,35 @@
   "devDependencies": {
     "jest": "^29.7.0",
     "jest-expo": "^52.0.0"
+  },
+  "overrides": {
+    "@babel/core": "^7.29.6",
+    "@babel/plugin-transform-modules-systemjs": "^7.29.4",
+    "@tootallnate/once": "^2.0.1",
+    "@xmldom/xmldom": "^0.8.13",
+    "brace-expansion@1": "1.1.18",
+    "brace-expansion@2": "2.1.4",
+    "fast-uri": "^3.1.5",
+    "form-data@3": "3.0.5",
+    "form-data@4": "4.0.6",
+    "js-yaml@3": "3.15.1",
+    "js-yaml@4": "4.3.1",
+    "lodash": "^4.18.1",
+    "minimatch@3": "3.1.4",
+    "minimatch@9": "9.0.9",
+    "nanoid": "^3.3.18",
+    "node-forge": "^1.4.0",
+    "picomatch@2": "2.3.2",
+    "picomatch@3": "3.0.2",
+    "picomatch@4": "4.0.4",
+    "postcss": "^8.5.26",
+    "serialize-javascript": "^7.0.5",
+    "shell-quote": "^1.9.0",
+    "tar": "^7.5.22",
+    "undici": "^6.28.0",
+    "uuid": "^11.1.1",
+    "ws@6": "6.2.4",
+    "ws@7": "7.5.11",
+    "ws@8": "8.21.3"
   }
 }
-

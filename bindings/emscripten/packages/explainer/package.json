@@ -57,7 +57,7 @@
         "access": "public"
     },
     "overrides": {
-        "ws": "^8.20.1",
+        "ws": "^8.21.3",
         "follow-redirects": "^1.16.0",
         "tmp": "^0.2.6"
     }
