@@ -140,6 +140,12 @@ static CURLM* beacon_multi_handle = NULL;
 // Libuv timer for curl_multi_socket_action timeouts
 static uv_timer_t beacon_curl_timer;
 
+// The three timer handles above and in watcher_state are static and live in the
+// default loop for the whole process lifetime. Calling uv_timer_init again on a
+// handle that is still registered in the loop corrupts the loop's handle queue,
+// so they must be initialized exactly once.
+static bool beacon_timers_initialized = false;
+
 // Structure to hold socket context for libuv polling
 typedef struct beacon_curl_context_s {
   uv_poll_t                     poll_handle;
@@ -527,12 +533,17 @@ void c4_watch_beacon_events() {
     return;
   }
 
-  // Initialize timers (inactivity, reconnect, AND curl timer)
-  uv_timer_init(loop, &watcher_state.inactivity_timer);
-  watcher_state.inactivity_timer.data = &watcher_state;
-  uv_timer_init(loop, &watcher_state.reconnect_timer);
-  watcher_state.reconnect_timer.data = &watcher_state;
-  uv_timer_init(loop, &beacon_curl_timer); // Initialize the CURL timer
+  // Initialize timers (inactivity, reconnect, AND curl timer) exactly once:
+  // they are never uv_close'd on stop, so a second uv_timer_init on the same
+  // still-registered handle would corrupt the loop's handle queue.
+  if (!beacon_timers_initialized) {
+    uv_timer_init(loop, &watcher_state.inactivity_timer);
+    watcher_state.inactivity_timer.data = &watcher_state;
+    uv_timer_init(loop, &watcher_state.reconnect_timer);
+    watcher_state.reconnect_timer.data = &watcher_state;
+    uv_timer_init(loop, &beacon_curl_timer); // Initialize the CURL timer
+    beacon_timers_initialized = true;
+  }
 
   // --- Configure CURL Multi Handle for Libuv ---
   curl_multi_setopt(beacon_multi_handle, CURLMOPT_SOCKETFUNCTION, beacon_socket_callback);
