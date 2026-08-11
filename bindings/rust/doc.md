@@ -37,23 +37,15 @@ Dart, Python, Kotlin, Swift and Emscripten bindings. It exposes:
 
 ## Architecture
 
-```
-+---------------------------------------------------------------+
-|                     Rust application                          |
-+---------------------------------------------------------------+
-|                    colibri_stateless::Colibri                 |
-|  * builder + rpc() / create_proof() / verify_proof()          |
-|  * parallel request fetching via reqwest                      |
-|  * Storage / RequestHandler traits                            |
-+---------------------------------------------------------------+
-|              Rust FFI wrappers (src/core/*)                   |
-|  * Prover / Verifier / RpcCtx (Drop-safe RAII handles)        |
-|  * `c4_req_set_response` / `c4_req_set_error` shims           |
-+---------------------------------------------------------------+
-|          Static archive: libc4.a + colibri.c                  |
-|  * Prover, verifier, chain modules, crypto libs               |
-|  * Loaded via build.rs (CMake dev / release asset)            |
-+---------------------------------------------------------------+
+```mermaid
+flowchart TD
+    APP["Rust application"]
+    CLIENT["<b>colibri_stateless::Colibri</b><br/>builder + rpc / create_proof / verify_proof<br/>parallel request fetching via reqwest<br/>Storage and RequestHandler traits"]
+    FFI["<b>Rust FFI wrappers</b> (src/core/*)<br/>Prover / Verifier / RpcCtx as Drop-safe RAII handles<br/>c4_req_set_response / c4_req_set_error shims"]
+    NATIVE["<b>Static archive</b> (libc4.a + colibri.c)<br/>prover, verifier, chain modules, crypto libs<br/>loaded via build.rs (CMake dev build or release asset)"]
+    APP --> CLIENT
+    CLIENT --> FFI
+    FFI --> NATIVE
 ```
 
 ## Installation
