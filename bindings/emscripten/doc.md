@@ -2,7 +2,7 @@
 
 :: JavaScript/TypeScript
 
-The JS-Bindings uses emscripten to create a webassembly which can easily be packed even using webpack or in a nodejs env.
+The JS-Bindings uses emscripten to create a webassembly which can easily be packed even using webpack or in a nodejs env. In Node.js the package additionally ships a **native addon** (N-API) with platform-optimized assembly, which is loaded automatically and makes proof verification an order of magnitude faster than the WASM build (see [Native Addon in Node.js](#native-addon-in-nodejs)).
 
 ## Installation
 
@@ -35,6 +35,64 @@ const { default: Colibri, Strategy, set_wasm_url } = require("@corpus-core/colib
 
 const client = new Colibri();
 ```
+
+## Native Addon in Node.js
+
+The BLS pairing check is by far the most expensive part of proof verification. The generic WASM build cannot use CPU-specific instructions, so in Node.js the package bundles a self-contained **native N-API addon** (`colibri_native.node`) that statically links the C core including [blst](https://github.com/supranational/blst) with platform-optimized assembly — making BLS pairing (and thus proof verification) **~25-30x faster** than WASM.
+
+### How it works
+
+The runtime selection is fully transparent — no code changes and no optional dependencies are required:
+
+1. **Browser / bundlers** always use the WASM build. The native code paths are behind the `node` condition in the package exports, so webpack/vite/etc. never see them.
+2. **Node.js** resolves the `node` conditional export, which looks for a prebuilt addon matching the current platform under `prebuilds/<platform>-<arch>/` inside the package.
+3. If no prebuild exists for the platform (or loading fails), the client **silently falls back to the WASM build** — same API, same results, just slower.
+
+You can check which runtime is active:
+
+```js
+import { getRuntime } from "@corpus-core/colibri-stateless";
+
+const runtime = await getRuntime();
+console.log(runtime.kind); // 'native' or 'wasm'
+```
+
+### Bundled prebuild targets
+
+| Target | Platform |
+|--------|----------|
+| `linux-x64` | Linux (glibc), x86-64 |
+| `linux-arm64` | Linux (glibc), ARM64 |
+| `darwin-arm64` | macOS, Apple Silicon |
+| `darwin-x64` | macOS, Intel |
+| `win32-x64` | Windows, x86-64 |
+
+The addon only uses [N-API version 8](https://nodejs.org/api/n-api.html) symbols resolved from the Node.js host process, so a single prebuild works across Node versions (Node >= 12.22, tested with current LTS releases).
+
+### Environment variables
+
+| Variable | Effect |
+|----------|--------|
+| `C4_NATIVE_ADDON=<path>` | Load the addon from an explicit path (overrides the prebuild lookup) |
+| `C4_FORCE_NATIVE=1` | Fail hard instead of falling back to WASM (useful in CI/benchmarks) |
+| `C4_DISABLE_NATIVE=1` | Skip the native addon entirely and always use WASM |
+| `C4_DEBUG_NATIVE=1` | Log the reason when falling back to WASM |
+
+### Building the addon from source
+
+For platforms without a bundled prebuild, the addon can be built with plain CMake (no node-gyp required; the [node-api-headers](https://github.com/nodejs/node-api-headers) are fetched automatically):
+
+```sh
+cmake -S . -B build/node-addon -DCMAKE_BUILD_TYPE=Release -DNODE_ADDON=1
+cmake --build build/node-addon --target colibri_native
+# -> build/node-addon/node-addon/colibri_native.node
+export C4_NATIVE_ADDON=$PWD/build/node-addon/node-addon/colibri_native.node
+```
+
+### Limitations
+
+- The addon (like the underlying C library) keeps global state and must not be used concurrently from multiple `worker_threads`.
+- Custom storage callbacks (`register_storage`) are invoked synchronously and should not throw; a throwing callback is treated as a cache miss.
 
 ## Using Colibri as RPC Provider
 

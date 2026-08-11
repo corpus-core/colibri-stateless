@@ -10,7 +10,7 @@
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 [![npm](https://img.shields.io/npm/v/@corpus-core/colibri-stateless.svg)](https://www.npmjs.com/package/@corpus-core/colibri-stateless)
 
-Colibri Stateless is a highly efficient prover/verifier for Ethereum (with upcoming support for Layer-2s such as OP-Stack). This package runs the C core as WebAssembly in Node.js and the browser, and implements the [EIP-1193](https://eips.ethereum.org/EIPS/eip-1193) provider interface — so it drops straight into ethers, web3.js, or viem while cryptographically verifying every response.
+Colibri Stateless is a highly efficient prover/verifier for Ethereum (with upcoming support for Layer-2s such as OP-Stack). This package runs the C core as WebAssembly in the browser and as a **native addon in Node.js** (with automatic WASM fallback), and implements the [EIP-1193](https://eips.ethereum.org/EIPS/eip-1193) provider interface — so it drops straight into ethers, web3.js, or viem while cryptographically verifying every response.
 
 [**Website**](https://www.corpuscore.tech/colibri) · [**Docs**](https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/bindings/javascript-typescript) · [**Whitepaper**](https://corpus-core.gitbook.io/whitepaper-colibri-stateless) · [**Privacy (PAP)**](https://corpus-core.gitbook.io/pap-colibri-stateless)
 
@@ -24,6 +24,7 @@ Colibri Stateless is a highly efficient prover/verifier for Ethereum (with upcom
 - **`eth_getLogs` completeness proofs** — cryptographic guarantee that for a requested block range no matching event was omitted (opt-in via `logs_completeness`).
 - **Fully verified local transaction simulation** — simulate a transaction against verified state *before signing*, so users can be shown exactly what a transaction will do.
 - **Tiny & fast** — most requests are barely slower than a plain RPC call — see the [benchmarks](https://corpus-core.gitbook.io/specification-colibri-stateless/specifications/ethereum/benchmark).
+- **Native speed in Node.js** — bundled N-API prebuilds with platform-optimized [blst](https://github.com/supranational/blst) assembly make proof verification ~25-30x faster than WASM; unsupported platforms transparently fall back to WASM.
 - **Privacy-aware** — Pragmatic Adaptive Privacy (PAP) mode. See the [Privacy Whitepaper](https://corpus-core.gitbook.io/pap-colibri-stateless).
 
 ## Installation
@@ -57,6 +58,19 @@ const { default: Colibri, Strategy, set_wasm_url } = require("@corpus-core/colib
 
 const client = new Colibri();
 ```
+
+## Native Addon in Node.js
+
+In Node.js the package automatically loads a prebuilt native addon (N-API) instead of the WASM build. It statically links the C core with platform-optimized [blst](https://github.com/supranational/blst) assembly, making BLS pairing — the dominant cost of proof verification — **~25-30x faster**. No code changes or optional dependencies are needed; browser bundles are unaffected.
+
+Prebuilds are bundled for `linux-x64`, `linux-arm64`, `darwin-arm64`, `darwin-x64` and `win32-x64`. On any other platform (or if loading fails) the client transparently falls back to WASM.
+
+```js
+import { getRuntime } from "@corpus-core/colibri-stateless";
+console.log((await getRuntime()).kind); // 'native' or 'wasm'
+```
+
+Overrides: `C4_DISABLE_NATIVE=1` (always WASM), `C4_FORCE_NATIVE=1` (fail instead of falling back), `C4_NATIVE_ADDON=<path>` (explicit addon path). See the [docs](https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/bindings/javascript-typescript) for details and build-from-source instructions.
 
 ## Using Colibri as RPC Provider
 
