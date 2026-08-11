@@ -54,6 +54,11 @@ jobs:
     secrets:
       PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
 
+  rust:
+    uses: ./.github/workflows/bindings-rust.yml
+    secrets:
+      CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
   dart:
     uses: ./.github/workflows/bindings-dart.yml
 

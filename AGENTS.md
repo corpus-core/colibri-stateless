@@ -70,32 +70,42 @@ Colibri Stateless is a high-performance prover/verifier for Ethereum and Layer-2
 
 <!-- AUTO:DIRECTORY_MAP:START -->
 - `bindings/` (6 .c, 11 .h) -- Language Bindings
-  - `bindings/dart/` (1 .c, 8 .h) -- Colibri Dart Bindings
+  - `bindings/dart/` (1 .c, 8 .h) -- Colibri Stateless — Dart / Flutter
     - `bindings/dart/audit/`
     - `bindings/dart/doc/`
     - `bindings/dart/example/` -- Dart Examples
     - `bindings/dart/flutter/` (1 .c, 8 .h)
     - `bindings/dart/lib/`
+    - `bindings/dart/native/`
     - `bindings/dart/scripts/`
     - `bindings/dart/test/`
     - `bindings/dart/tool/`
   - `bindings/docker/` -- Colibri Prover - Docker Image
-  - `bindings/emscripten/` (1 .c) -- Colibri-stateless
+  - `bindings/emscripten/` (1 .c) -- Colibri Stateless — JavaScript / TypeScript
     - `bindings/emscripten/cjs/`
     - `bindings/emscripten/packages/`
+    - `bindings/emscripten/rn-web-test/`
     - `bindings/emscripten/scripts/`
     - `bindings/emscripten/src/`
     - `bindings/emscripten/test/`
-  - `bindings/kotlin/` (1 .c) -- Kotlin/Java Bindings for Colibri
+    - `bindings/emscripten/webpack/`
+  - `bindings/kotlin/` (1 .c) -- Colibri Stateless — Kotlin / Java
     - `bindings/kotlin/example/` -- Colibri Android Example App
+    - `bindings/kotlin/generated/`
     - `bindings/kotlin/gradle/`
     - `bindings/kotlin/lib/`
-  - `bindings/python/` -- Colibri Python Bindings (corpus core colibri client)
+    - `bindings/kotlin/native-libs/`
+  - `bindings/python/` -- Colibri Stateless — Python
     - `bindings/python/examples/`
     - `bindings/python/scripts/`
     - `bindings/python/src/`
     - `bindings/python/tests/`
-  - `bindings/swift/` (1 .c, 1 .h) -- Colibri Swift Bindings
+  - `bindings/rust/` -- colibri-stateless
+    - `bindings/rust/examples/`
+    - `bindings/rust/src/`
+    - `bindings/rust/target/`
+    - `bindings/rust/tests/`
+  - `bindings/swift/` (1 .c, 1 .h) -- Colibri Stateless — Swift
     - `bindings/swift/Sources/` (1 .c, 1 .h)
     - `bindings/swift/Tests/`
     - `bindings/swift/test_ios_app/` -- Colibri iOS Test App
@@ -130,19 +140,21 @@ Colibri Stateless is a high-performance prover/verifier for Ethereum and Layer-2
   - `libs/zstd/`
 - `scripts/`
   - `scripts/completion/`
+  - `scripts/dev/`
+    - `scripts/dev/lb/`
   - `scripts/doc/`
-- `src/` (144 .c, 65 .h) -- Core C Library
-  - `src/chains/` (105 .c, 43 .h)
-    - `src/chains/eth/` (82 .c, 32 .h) -- Ethereum Chain Module
+- `src/` (149 .c, 69 .h) -- Core C Library
+  - `src/chains/` (109 .c, 46 .h)
+    - `src/chains/eth/` (86 .c, 35 .h) -- Ethereum Chain Module
     - `src/chains/op/` (23 .c, 11 .h) -- OP-Stack Chain Module
   - `src/cli/` (3 .c, 1 .h)
   - `src/prover/` (1 .c, 1 .h) -- Prover
   - `src/server/` (21 .c, 5 .h) -- HTTP Prover Server
     - `src/server/io/` (2 .c, 2 .h)
     - `src/server/web_ui/` -- Colibri Server Web Configuration UI
-  - `src/util/` (13 .c, 14 .h) -- Utility Modules
+  - `src/util/` (14 .c, 15 .h) -- Utility Modules
   - `src/verifier/` (1 .c, 1 .h)
-- `test/` (47 .c, 5 .h) -- Test Suite
+- `test/` (58 .c, 5 .h) -- Test Suite
   - `test/data/`
     - `test/data/eth_blockNumber_electra/`
     - `test/data/eth_call1/`
@@ -193,7 +205,7 @@ Colibri Stateless is a high-performance prover/verifier for Ethereum and Layer-2
   - `test/embedded/` (6 .c, 1 .h) -- Build the Docker image
   - `test/eth/`
     - `test/eth/TrieTests/`
-  - `test/unittests/` (41 .c, 4 .h)
+  - `test/unittests/` (52 .c, 4 .h)
   - `test/valgrind/` -- Valgrind Suppressions
 - `valgrind_results/`
 <!-- AUTO:DIRECTORY_MAP:END -->
@@ -261,7 +273,7 @@ ctest --test-dir build/default  # Run tests
 |--------|---------|-------------|--------|
 | `BLOCK_HASH_CACHE` | ON | Cache block hashes for faster verification within the same block | CMakeLists.txt |
 | `BLS_DESERIALIZE` | ON | Store BLS keys deserialized. It is faster but uses 25k more memory in cache per period. | CMakeLists.txt |
-| `BUILD_KONA_BRIDGE` | ON | Build Kona-P2P bridge for native OP-Stack compatibility | src/chains/op/kona_bridge/CMakeLists.txt |
+| `BUILD_KONA_BRIDGE` | OFF | Build Kona-P2P bridge as static C-FFI library (legacy mode | src/chains/op/kona_bridge/CMakeLists.txt |
 | `C4_PYTHON` | OFF | Build Python bindings | CMakeLists.txt |
 | `CHAIN_ETH` | ON | includes the ETH verification support | CMakeLists.txt |
 | `CHAIN_OP` | OFF | includes the OP-Stack verification support | CMakeLists.txt |
@@ -276,6 +288,7 @@ ctest --test-dir build/default  # Run tests
 | `ETH_BLOCK` | ON | support eth block verification. eth_getBlockByHash, eth_getBlockByNumber, eth_getBlockTransactionCountByHash, eth_getBlockTransactionCountByNumber, eth_getUncleCountByBlockHash, eth_getUncleCountByBlockNumber | src/chains/eth/CMakeLists.txt |
 | `ETH_CALL` | ON | support eth call verification. eth_call, eth_estimateGas | src/chains/eth/CMakeLists.txt |
 | `ETH_LOGS` | ON | support eth logs verification. eth_getLogs | src/chains/eth/CMakeLists.txt |
+| `ETH_OBLIVIOUS` | OFF | support oblivious-node delayed-retry path (TEE/ORAM warm-up | src/chains/eth/CMakeLists.txt |
 | `ETH_PRECOMPILE_EMBED` | ON | Embed KZG trusted setup G2^tau as a generated header | src/chains/eth/precompiles/CMakeLists.txt |
 | `ETH_RECEIPT` | ON | support eth receipt verification. eth_getTransactionReceipt | src/chains/eth/CMakeLists.txt |
 | `ETH_TX` | ON | support eth Transaction verification. eth_getTransactionByHash, eth_getTransactionByBlockHashAndIndex, eth_getTransactionByBlockNumberAndIndex | src/chains/eth/CMakeLists.txt |
