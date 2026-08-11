@@ -30,6 +30,9 @@ void setUp(void) {
 // Unity teardown - called after each test
 void tearDown(void) {
   c4_test_stop_beacon_watcher();
+  // Reset the stream flag so the next setUp does not auto-start the watcher
+  // from the server thread with the previous test's URL.
+  eth_config.stream_beacon_events = 0;
   c4_test_server_teardown();
 }
 
@@ -46,13 +49,15 @@ void test_beacon_watcher_head_event(void) {
   fprintf(stderr, "[TEST] Starting watcher (head_event)\n");
   // Enable watcher start for this test
   eth_config.stream_beacon_events = 1;
-  // Start watcher
-  c4_watch_beacon_events();
+  // Start watcher on the loop thread (never touch the loop from this thread)
+  c4_test_start_beacon_watcher();
 
-  // Sehr kurze Eventloop-Phase: brich ab, sobald 2 Events verarbeitet wurden (head + finalized)
-  for (int i = 0; i < 5; i++) {
-    if (http_server.stats.beacon_events_total >= 2) break;
-    c4_server_run_once(&server_instance);
+  // Wait until head AND finalized events were processed. The recorded SSE
+  // stream contains many head events before the single finalized_checkpoint,
+  // so waiting for beacon_events_total alone would race with the assertions.
+  // The server thread drives the loop; this thread must only poll and sleep.
+  for (int i = 0; i < 50; i++) {
+    if (http_server.stats.beacon_events_head >= 1 && http_server.stats.beacon_events_finalized >= 1) break;
     usleep(20000);
   }
 
@@ -79,12 +84,11 @@ void test_beacon_watcher_event_parsing(void) {
   uint64_t start_time = http_server.stats.last_sync_event;
 
   eth_config.stream_beacon_events = 1;
-  c4_watch_beacon_events();
+  c4_test_start_beacon_watcher();
 
-  // Sehr kurze Eventloop-Phase
-  for (int i = 0; i < 3; i++) {
+  // Wait until a head event was processed (server thread drives the loop)
+  for (int i = 0; i < 50; i++) {
     if (http_server.stats.beacon_events_head >= 1) break;
-    c4_server_run_once(&server_instance);
     usleep(20000);
   }
 
@@ -102,12 +106,12 @@ void test_beacon_watcher_stops_after_eof(void) {
   c4_test_set_beacon_watcher_no_reconnect(true);
 
   eth_config.stream_beacon_events = 1;
-  c4_watch_beacon_events();
+  c4_test_start_beacon_watcher();
 
-  // File-EOF sollte den watcher stoppen (Reconnect disabled)
-  for (int i = 0; i < 5; i++) {
+  // File-EOF should stop the watcher (reconnect disabled);
+  // the server thread drives the loop, this thread only polls.
+  for (int i = 0; i < 50; i++) {
     if (!c4_beacon_watcher_is_running()) break;
-    c4_server_run_once(&server_instance);
     usleep(20000);
   }
 

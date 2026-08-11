@@ -36,6 +36,7 @@
 #endif
 
 void c4_stop_beacon_watcher(void);
+void c4_watch_beacon_events(void);
 
 // Test configuration
 #define TEST_PORT 28545
@@ -59,7 +60,8 @@ static volatile bool server_should_stop = false;
 static const char*   current_test_name  = NULL;
 
 typedef struct {
-  uv_async_t async;
+  uv_async_t async;       // dispatches c4_stop_beacon_watcher() to the loop thread
+  uv_async_t start_async; // dispatches c4_watch_beacon_events() to the loop thread
   uv_sem_t   sem;
   bool       initialized;
 } test_beacon_stop_dispatcher_t;
@@ -69,6 +71,12 @@ static test_beacon_stop_dispatcher_t beacon_stop_dispatcher = {0};
 static void c4_test_beacon_stop_async_cb(uv_async_t* handle) {
   (void) handle;
   c4_stop_beacon_watcher();
+  uv_sem_post(&beacon_stop_dispatcher.sem);
+}
+
+static void c4_test_beacon_start_async_cb(uv_async_t* handle) {
+  (void) handle;
+  c4_watch_beacon_events();
   uv_sem_post(&beacon_stop_dispatcher.sem);
 }
 
@@ -88,6 +96,14 @@ static void c4_test_init_beacon_stop_dispatcher(void) {
     return;
   }
 
+  rc = uv_async_init(server_instance.loop, &beacon_stop_dispatcher.start_async, c4_test_beacon_start_async_cb);
+  if (rc != 0) {
+    log_error("[TEST] uv_async_init failed for beacon start helper: %s", uv_strerror(rc));
+    uv_close((uv_handle_t*) &beacon_stop_dispatcher.async, NULL);
+    uv_sem_destroy(&beacon_stop_dispatcher.sem);
+    return;
+  }
+
   beacon_stop_dispatcher.initialized = true;
 }
 
@@ -95,6 +111,9 @@ static void c4_test_close_beacon_stop_dispatcher(void) {
   if (!beacon_stop_dispatcher.initialized) return;
   if (!uv_is_closing((uv_handle_t*) &beacon_stop_dispatcher.async)) {
     uv_close((uv_handle_t*) &beacon_stop_dispatcher.async, NULL);
+  }
+  if (!uv_is_closing((uv_handle_t*) &beacon_stop_dispatcher.start_async)) {
+    uv_close((uv_handle_t*) &beacon_stop_dispatcher.start_async, NULL);
   }
 }
 
@@ -111,6 +130,19 @@ static void c4_test_stop_beacon_watcher(void) {
   }
 
   uv_async_send(&beacon_stop_dispatcher.async);
+  uv_sem_wait(&beacon_stop_dispatcher.sem);
+}
+
+// Starts the beacon watcher on the loop thread. c4_watch_beacon_events()
+// registers libuv handles, which must never happen from a foreign thread
+// while the server thread is running the loop.
+static void c4_test_start_beacon_watcher(void) {
+  if (!beacon_stop_dispatcher.initialized || !server_instance.is_running) {
+    c4_watch_beacon_events();
+    return;
+  }
+
+  uv_async_send(&beacon_stop_dispatcher.start_async);
   uv_sem_wait(&beacon_stop_dispatcher.sem);
 }
 
@@ -259,8 +291,6 @@ static void c4_test_server_setup(http_server_t* config) {
 
 // Teardown function - call from Unity tearDown()
 static void c4_test_server_teardown(void) {
-  c4_test_close_beacon_stop_dispatcher();
-
   // Signal server to stop
   server_should_stop = true;
 
@@ -270,6 +300,11 @@ static void c4_test_server_teardown(void) {
 
   // Join thread (should be quick now that it's stopping)
   pthread_join(server_thread, NULL);
+
+  // Close dispatcher handles only after the server thread stopped:
+  // uv_close from a foreign thread while the loop is running is unsafe.
+  // The close callbacks are processed by the uv_run calls in c4_server_stop.
+  c4_test_close_beacon_stop_dispatcher();
 
   // Stop server and cleanup resources
   c4_server_stop(&server_instance);
