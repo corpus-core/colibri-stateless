@@ -56,7 +56,7 @@ static void debug_print_bytes32(const char* prefix, const evmc_bytes32* data) {
 #define debug_print_bytes32(prefix, data) (void) 0
 #endif
 
-#define EVMC_REV_OSAKA 14
+/* Execution uses EVMONE_REV_OSAKA from evmone_c_wrapper.h (mapped to EVMC_OSAKA). */
 
 static const char* evmone_status_message(int code) {
   static const char* positive_msgs[] = {
@@ -236,6 +236,19 @@ static evmc_bytes32 host_get_balance(void* context, const evmc_address* addr) {
 
   debug_print_bytes32("get_balance result", &result);
   return result;
+}
+
+static uint64_t host_get_nonce(void* context, const evmc_address* addr) {
+  evmone_context_t* ctx = (evmone_context_t*) context;
+  debug_print_address("get_nonce for", addr);
+
+  call_account_t* acc = call_account_find(ctx, addr->bytes);
+  if (acc && (acc->flags & ACCOUNT_HAS_NONCE)) {
+    EVM_LOG("get_nonce result: %l", (size_t) acc->nonce);
+    return acc->nonce;
+  }
+  EVM_LOG("get_nonce result: 0 (missing)");
+  return 0;
 }
 
 static size_t host_get_code_size(void* context, const evmc_address* addr) {
@@ -421,7 +434,7 @@ static void host_call(void* context, const struct evmone_message* msg, const uin
       ctx->executor,
       &host_interface,
       &child,
-      EVMC_REV_OSAKA,
+      EVMONE_REV_OSAKA,
       msg,
       execution_code,
       execution_code_size);
@@ -465,9 +478,13 @@ static void host_get_tx_context(void* context, evmone_tx_context* result) {
   memcpy(result->block_prev_randao.bytes, root->block_prev_randao, 32);
   memcpy(result->block_base_fee.bytes, root->block_base_fee, 32);
   memcpy(result->blob_base_fee.bytes, root->blob_base_fee, 32);
-  result->block_number    = (int64_t) root->block_number;
-  result->block_timestamp = (int64_t) root->timestamp;
-  result->block_gas_limit = (int64_t) root->block_gas_limit;
+  result->block_number      = (int64_t) root->block_number;
+  result->block_timestamp   = (int64_t) root->timestamp;
+  result->block_gas_limit   = (int64_t) root->block_gas_limit;
+  result->blob_hashes       = NULL;
+  result->blob_hashes_count = 0;
+  // SLOTNUM (EIP-7843) stays zero until Amsterdam is activated explicitly.
+  result->block_slot_number = 0;
   // gas_price as big-endian uint256
   uint64_t gp = root->gas_price;
   for (int i = 31; i >= 0 && gp; i--) {
@@ -612,6 +629,7 @@ static const struct evmone_host_interface host_interface = {
     .get_storage           = host_get_storage,
     .set_storage           = host_set_storage,
     .get_balance           = host_get_balance,
+    .get_nonce             = host_get_nonce,
     .get_code_size         = host_get_code_size,
     .get_code_hash         = host_get_code_hash,
     .copy_code             = host_copy_code,
@@ -804,7 +822,7 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
       executor,
       &host_interface,
       &context,
-      EVMC_REV_OSAKA,
+      EVMONE_REV_OSAKA,
       &message,
       code.data,
       code.len);

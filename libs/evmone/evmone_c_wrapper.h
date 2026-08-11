@@ -51,16 +51,23 @@ typedef struct {
 #include <evmc/evmc.h>
 #endif
 
-/* Result structure */
+/**
+ * Stable Colibri revision IDs mapped to EVMC revisions inside the C++ wrapper.
+ *
+ * Do not pass raw `evmc_revision` numeric values from C: EVMC ABI 18 removed
+ * explicit enumerator values, so Osaka is no longer safely hard-coded as 14.
+ */
+#define EVMONE_REV_OSAKA 0
+
+/* Result structure (CREATE address is computed by the VM since EVMC ABI 18). */
 typedef struct evmone_result {
-  int                 status_code;
-  uint64_t            gas_left;
-  uint64_t            gas_refund;
-  const uint8_t*      output_data;
-  size_t              output_size;
-  void*               release_callback; /* Function pointer to release resources */
-  void*               release_context;  /* Context for the release callback */
-  const evmc_address* create_address;
+  int            status_code;
+  uint64_t       gas_left;
+  uint64_t       gas_refund;
+  const uint8_t* output_data;
+  size_t         output_size;
+  void*          release_callback; /* Function pointer to release resources */
+  void*          release_context;  /* Context for the release callback */
 } evmone_result;
 
 /* Message structure */
@@ -71,6 +78,7 @@ typedef struct evmone_message {
          EVMONE_CREATE,
          EVMONE_CREATE2 } kind;
   bool           is_static;
+  bool           is_delegated; /* EIP-7702 delegated call flag (EVMC_DELEGATED) */
   int32_t        depth;
   int64_t        gas;
   evmc_address   destination;
@@ -78,7 +86,6 @@ typedef struct evmone_message {
   const uint8_t* input_data;
   size_t         input_size;
   evmc_bytes32   value;
-  evmc_bytes32   create_salt;
   evmc_address   code_address; /* Address of the code to execute (for DELEGATECALL) */
 } evmone_message;
 
@@ -97,16 +104,19 @@ typedef enum {
 
 /* Transaction context passed from host to EVM for opcodes like ORIGIN, NUMBER, TIMESTAMP, etc. */
 typedef struct evmone_tx_context {
-  evmc_bytes32 tx_gas_price;
-  evmc_address tx_origin;
-  evmc_address block_coinbase;
-  int64_t      block_number;
-  int64_t      block_timestamp;
-  int64_t      block_gas_limit;
-  evmc_bytes32 block_prev_randao;
-  evmc_bytes32 chain_id;
-  evmc_bytes32 block_base_fee;
-  evmc_bytes32 blob_base_fee;
+  evmc_bytes32        tx_gas_price;
+  evmc_address        tx_origin;
+  evmc_address        block_coinbase;
+  int64_t             block_number;
+  int64_t             block_timestamp;
+  int64_t             block_gas_limit;
+  evmc_bytes32        block_prev_randao;
+  evmc_bytes32        chain_id;
+  evmc_bytes32        block_base_fee;
+  evmc_bytes32        blob_base_fee;
+  const evmc_bytes32* blob_hashes;       /* EIP-4844; pointers must outlive execute() */
+  size_t              blob_hashes_count; /* EIP-4844 */
+  uint64_t            block_slot_number; /* EIP-7843; unused until Amsterdam activation */
 } evmone_tx_context;
 
 /* Access status returned by access_account / access_storage (EIP-2929) */
@@ -118,6 +128,7 @@ typedef bool (*evmone_account_exists_fn)(void* context, const evmc_address* addr
 typedef evmc_bytes32 (*evmone_get_storage_fn)(void* context, const evmc_address* addr, const evmc_bytes32* key);
 typedef evmone_storage_status (*evmone_set_storage_fn)(void* context, const evmc_address* addr, const evmc_bytes32* key, const evmc_bytes32* value);
 typedef evmc_bytes32 (*evmone_get_balance_fn)(void* context, const evmc_address* addr);
+typedef uint64_t (*evmone_get_nonce_fn)(void* context, const evmc_address* addr);
 typedef size_t (*evmone_get_code_size_fn)(void* context, const evmc_address* addr);
 typedef evmc_bytes32 (*evmone_get_code_hash_fn)(void* context, const evmc_address* addr);
 typedef size_t (*evmone_copy_code_fn)(void* context, const evmc_address* addr, size_t code_offset, uint8_t* buffer_data, size_t buffer_size);
@@ -133,22 +144,23 @@ typedef void (*evmone_set_transient_storage_fn)(void* context, const evmc_addres
 
 /* Host interface */
 typedef struct evmone_host_interface {
-  evmone_account_exists_fn          account_exists;
-  evmone_get_storage_fn             get_storage;
-  evmone_set_storage_fn             set_storage;
-  evmone_get_balance_fn             get_balance;
-  evmone_get_code_size_fn           get_code_size;
-  evmone_get_code_hash_fn           get_code_hash;
-  evmone_copy_code_fn               copy_code;
-  evmone_selfdestruct_fn            selfdestruct;
-  evmone_call_fn                    call;
-  evmone_get_tx_context_fn          get_tx_context;
-  evmone_get_block_hash_fn          get_block_hash;
-  evmone_emit_log_fn                emit_log;
-  evmone_access_account_fn          access_account;
-  evmone_access_storage_fn          access_storage;
-  evmone_get_transient_storage_fn   get_transient_storage;
-  evmone_set_transient_storage_fn   set_transient_storage;
+  evmone_account_exists_fn        account_exists;
+  evmone_get_storage_fn           get_storage;
+  evmone_set_storage_fn           set_storage;
+  evmone_get_balance_fn           get_balance;
+  evmone_get_nonce_fn             get_nonce;
+  evmone_get_code_size_fn         get_code_size;
+  evmone_get_code_hash_fn         get_code_hash;
+  evmone_copy_code_fn             copy_code;
+  evmone_selfdestruct_fn          selfdestruct;
+  evmone_call_fn                  call;
+  evmone_get_tx_context_fn        get_tx_context;
+  evmone_get_block_hash_fn        get_block_hash;
+  evmone_emit_log_fn              emit_log;
+  evmone_access_account_fn        access_account;
+  evmone_access_storage_fn        access_storage;
+  evmone_get_transient_storage_fn get_transient_storage;
+  evmone_set_transient_storage_fn set_transient_storage;
 } evmone_host_interface;
 
 /* Create EVM executor instance */
