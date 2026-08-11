@@ -74,3 +74,12 @@ export const get_prover_config_hex = api.get_prover_config_hex;
 export const set_trusted_checkpoint = api.set_trusted_checkpoint;
 export const decode_proof = api.decode_proof;
 
+/**
+ * Returns the directory of the compiled module. Used in Node to locate
+ * packaged assets (e.g. native addon prebuilds) relative to the package root.
+ * @return Absolute directory path of this module
+ */
+export async function module_dir(): Promise<string> {
+    return __dirname;
+}
+

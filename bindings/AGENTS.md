@@ -39,6 +39,7 @@ The JSON status protocol (returned by `*_execute_json_status()`) uses this forma
 | Binding | Directory | Language | Build System | Package |
 |---------|-----------|----------|-------------|---------|
 | Emscripten | `emscripten/` | TypeScript/JS | CMake + Emscripten + Webpack | `@corpus-core/colibri-stateless` (npm) |
+| Node addon | `node-addon/` | C (N-API) | CMake (`NODE_ADDON=ON`) | bundled as prebuilds inside the npm package |
 | Python | `python/` | Python | CMake + setuptools | `colibri-stateless` (PyPI) |
 | Kotlin | `kotlin/` | Kotlin/Java | CMake + Gradle | `com.corpuscore:colibri-jar` / `colibri-aar` |
 | Swift | `swift/` | Swift | CMake + SwiftPM | Swift Package |
@@ -58,6 +59,20 @@ The JSON status protocol (returned by `*_execute_json_status()`) uses this forma
 - `src/transactionVerifier.ts` -- Transaction verification utilities
 
 **Build**: WASM binary built via Emscripten CMake toolchain, wrapped by TypeScript.
+
+**Runtime selection**: `src/runtime.ts` defines a value-level runtime abstraction (`C4Runtime`).
+The browser/default entry (`index.js`) uses the WASM runtime (`runtime_wasm.ts`); the Node
+entry (`index.node.js`, selected via conditional exports) prefers the native N-API addon
+(`runtime_node.ts` + `bindings/node-addon/`) and falls back to WASM if no prebuild matches.
+
+## Node.js Native Addon
+
+**Key files:**
+- `node-addon/src/addon.c` -- N-API wrapper mirroring `emscripten/ems.c` (JS-friendly types, `req_ptr` as string for 64-bit safety)
+- `node-addon/CMakeLists.txt` -- builds the self-contained `colibri_native.node` (static link, `NODE_ADDON=ON`)
+
+**Build**: `cmake -B build/node-addon -DNODE_ADDON=1 && cmake --build build/node-addon --target colibri_native`.
+CI builds prebuilds per platform and bundles them into the npm package (`prebuilds/<platform>-<arch>/`).
 
 ## Python
 
