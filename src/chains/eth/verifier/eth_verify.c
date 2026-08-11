@@ -36,7 +36,7 @@
 #include "retry_delay.h"
 #endif
 
-// :: Freshness gate for `"latest"` proofs (shared by all block-tag methods)
+// Freshness gate for `"latest"` proofs (shared by all block-tag methods)
 
 bool eth_json_is_latest(json_t block_tag) {
   static const size_t LATEST_LITERAL_LEN = sizeof("\"latest\"") - 1;
