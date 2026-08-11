@@ -64,6 +64,9 @@
     "devDependencies": {
         "ethers": "^6.16.0"
     },
+    "overrides": {
+        "ws": "^8.21.3"
+    },
     "publishConfig": {
         "access": "public"
     }
