@@ -42,6 +42,7 @@ The JSON status protocol (returned by `*_execute_json_status()`) uses this forma
 | Python | `python/` | Python | CMake + setuptools | `colibri-stateless` (PyPI) |
 | Kotlin | `kotlin/` | Kotlin/Java | CMake + Gradle | `com.corpuscore:colibri-jar` / `colibri-aar` |
 | Swift | `swift/` | Swift | CMake + SwiftPM | Swift Package |
+| Rust | `rust/` | Rust | Cargo (calls CMake in dev, downloads prebuilt archives on crates.io) | `colibri-stateless` (crates.io) |
 | Docker | `docker/` | -- | Docker | `ghcr.io/corpus-core/colibri-prover` |
 
 ## Emscripten (JavaScript/TypeScript)
@@ -84,6 +85,33 @@ The JSON status protocol (returned by `*_execute_json_status()`) uses this forma
 
 **Build**: CMake builds static library, Swift Package Manager wraps it.
 
+## Rust
+
+**Key files:**
+- `src/lib.rs` -- Crate entry point, re-exports the public API.
+- `src/core/client.rs` -- `Colibri` builder + high-level `rpc`,
+  `create_proof`, `verify_proof` on top of the Unified RPC API
+  (`c4_create_rpc_ctx` / `c4_rpc_execute_json_status`).
+- `src/core/{prover,verifier,rpc}.rs` -- RAII wrappers around the C
+  prover / verifier / rpc contexts, `Drop`-safe.
+- `src/ffi.rs` -- Manually maintained `extern "C"` declarations
+  mirroring `bindings/colibri.h` + `src/util/plugin.h`.
+- `src/storage/` -- `Storage` trait plus `MemoryStorage` /
+  `FileStorage`; a global bridge installs Rust callbacks with the C
+  storage plugin.
+- `src/testing.rs` -- `discover_tests`, `FileBackedMockStorage`,
+  `FileBackedMockRequestHandler` -- replays the shared
+  `test/data/*` fixtures used by every binding.
+- `build.rs` -- Hybrid: `cmake` build inside the monorepo, downloads
+  prebuilt archives on `crates.io`, honours `COLIBRI_LIB_DIR` and
+  `DOCS_RS`.
+
+**Build**: `cargo build` inside the monorepo drives CMake to produce
+`libc4.a` + the individual chain archives, then compiles
+`bindings/colibri.c` + `bindings/colibri_common.c` and links them
+into the crate. Downstream users on crates.io get prebuilt native
+archives from the matching GitHub Release.
+
 ## Docker
 
 **Key files:**
@@ -97,11 +125,12 @@ The JSON status protocol (returned by `*_execute_json_status()`) uses this forma
 
 ### Binding Modules (auto-generated)
 
-- `dart/` -- 347 files
-- `docker/` -- 7 files
-- `emscripten/` -- 95 files
+- `dart/` -- 352 files
+- `docker/` -- 9 files
+- `emscripten/` -- 110 files
 - `kotlin/` -- 36 files
 - `python/` -- 27 files
+- `rust/` -- 676 files
 - `swift/` -- 14 files
 
 <!-- AUTO:BINDINGS_INDEX:END -->

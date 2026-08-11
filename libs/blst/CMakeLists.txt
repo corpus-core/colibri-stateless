@@ -191,7 +191,7 @@ else()
 
         add_custom_command(
             OUTPUT ${BLST_LIB}
-            COMMAND ${CMAKE_COMMAND} -E env 
+            COMMAND ${CMAKE_COMMAND} -E env
                 CC=${CMAKE_C_COMPILER}
                 CFLAGS=${BLST_CFLAGS}
                 bash ${blst_SOURCE_DIR}/build.sh -D__BLST_PORTABLE__
