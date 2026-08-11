@@ -119,6 +119,7 @@ option(KOTLIN "Build Kotlin bindings" OFF)
 option(SWIFT "Build Swift bindings" OFF)
 option(C4_PYTHON "Build Python bindings" OFF) # NOTE: ESP-IDF passes -DPYTHON=<python-executable> to CMake. Do not use PYTHON as a boolean option name.
 option(DART "Build Dart bindings" OFF)
+option(NODE_ADDON "Build the Node.js native addon (N-API)" OFF)
 option(TEST "Build the unit tests" OFF)
 option(COVERAGE "Enable coverage tracking" OFF)
 option(SHAREDLIB "Build shared library" OFF)
@@ -160,6 +161,16 @@ if(DART)
     set(CLI OFF CACHE BOOL "Disable CLI tools for Dart bindings" FORCE)
     set(HTTP_SERVER OFF CACHE BOOL "Disable HTTP server for Dart bindings" FORCE)
     message(STATUS "Dart bindings enabled: CURL=OFF, CLI=OFF, HTTP_SERVER=OFF")
+endif()
+
+# Node.js native addon configuration
+if(NODE_ADDON)
+    # HTTP is handled in JS; the addon is loaded into the Node process, so all
+    # static libraries must be position independent.
+    set(CURL OFF CACHE BOOL "Disable CURL for Node addon" FORCE)
+    set(CLI OFF CACHE BOOL "Disable CLI tools for Node addon" FORCE)
+    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+    message(STATUS "Node.js addon enabled: CURL=OFF, CLI=OFF, PIC=ON")
 endif()
 
 # Android/Kotlin bindings configuration
@@ -419,6 +430,10 @@ endif()
 
 if(WASM)
     add_subdirectory(bindings/emscripten)
+endif()
+
+if(NODE_ADDON)
+    add_subdirectory(bindings/node-addon)
 endif()
 
 if(KOTLIN)

@@ -75,3 +75,15 @@ export const getC4w = api.getC4w;
 export const get_prover_config_hex = api.get_prover_config_hex;
 export const set_trusted_checkpoint = api.set_trusted_checkpoint;
 export const decode_proof = api.decode_proof;
+
+/**
+ * Returns the directory of the compiled module. Used in Node to locate
+ * packaged assets (e.g. native addon prebuilds) relative to the package root.
+ * The CJS build swaps this file with `wasm_cjs.ts`, which uses `__dirname`.
+ * @return Absolute directory path of this module
+ */
+export async function module_dir(): Promise<string> {
+    const { fileURLToPath } = await (new Function('return import("node:url")') as () => Promise<any>)();
+    const { dirname } = await (new Function('return import("node:path")') as () => Promise<any>)();
+    return dirname(fileURLToPath(import.meta.url));
+}

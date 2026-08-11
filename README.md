@@ -4,7 +4,7 @@
 
 **Verify Ethereum RPC data cryptographically — without running a full node.**
 
-Colibri Stateless is a highly efficient prover/verifier for Ethereum (with upcoming support for Layer-2s such as OP-Stack). The core is written in portable C and ships with bindings for JavaScript/TypeScript, Swift, Kotlin/Java, Python, and Dart — small enough to run in browsers, mobile apps, and embedded devices.
+Colibri Stateless is a highly efficient prover/verifier for Ethereum (with upcoming support for Layer-2s such as OP-Stack). The core is written in portable C and ships with bindings for JavaScript/TypeScript, Swift, Kotlin/Java, Python, Dart, and Rust — small enough to run in browsers, mobile apps, and embedded devices.
 
 ![ETH2.0 Spec Version 1.4.0](https://img.shields.io/badge/ETH2.0_Spec_Version-1.4.0-2e86c1.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
@@ -30,7 +30,7 @@ flowchart LR
 - **Fully verified local transaction simulation** — `colibri_simulateTransaction` lets wallets simulate a transaction against verified state *before signing*, so users can be shown exactly what a transaction will do.
 - **Tiny & fast** — a portable C core for websites, mobile apps, and embedded systems. Most requests are barely slower than a plain RPC call — see the [benchmarks](https://corpus-core.gitbook.io/specification-colibri-stateless/specifications/ethereum/benchmark).
 - **Multi-chain** — Ethereum today, Layer-2s (OP-Stack) and more coming.
-- **Bindings everywhere** — JavaScript/TypeScript, Swift, Kotlin/Java, Python, and Dart.
+- **Bindings everywhere** — JavaScript/TypeScript, Swift, Kotlin/Java, Python, Dart, and Rust.
 - **Privacy-aware** — Pragmatic Adaptive Privacy (PAP) mode. See the [Privacy Whitepaper](https://corpus-core.gitbook.io/pap-colibri-stateless).
 
 ## How is Colibri different from other light clients?
@@ -174,7 +174,36 @@ colibri.close();
 
 </details>
 
-> **More languages coming:** **Rust** bindings are currently in progress; **Go** and **C#** are planned.
+<details>
+<summary><b>Rust</b></summary>
+
+```toml
+# Cargo.toml
+[dependencies]
+colibri-stateless = "0.1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+```
+
+```rust
+use colibri_stateless::Colibri;
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let client = Colibri::builder(1)
+        .provers(vec!["https://mainnet.colibri-proof.tech".into()])
+        .build();
+
+    let block = client.rpc("eth_blockNumber", &[]).await?;
+    println!("current block = {block}");
+    Ok(())
+}
+```
+
+[**crates.io**](https://crates.io/crates/colibri-stateless) · [**Full Rust Documentation**](https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/bindings/rust)
+
+</details>
+
+> **More languages coming:** **Go** and **C#** are planned.
 
 <details>
 <summary><b>CLI</b></summary>

@@ -31,8 +31,99 @@ permissions:
 
 jobs:
 
+  # Builds the self-contained native Node.js addon (statically linked C library
+  # with platform-optimized blst assembly) for every supported platform. The
+  # resulting prebuilds are bundled into the npm package by the emscripten job.
+  native_addon:
+    name: Native addon ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux-x64,    os: ubuntu-latest }
+          - { name: linux-arm64,  os: ubuntu-24.04-arm }
+          - { name: darwin-arm64, os: macos-latest }
+          - { name: darwin-x64,   os: macos-15-intel }
+          - { name: win32-x64,    os: windows-latest }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Enable Git long paths (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # The vendored CMake dependencies (evmone + recursive submodules) exceed
+          # Windows' 260-character MAX_PATH limit during FetchContent clone.
+          git config --global core.longpaths true
+          git config --system core.longpaths true 2>$null
+          exit 0
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Full history + tags so `git describe` can resolve the real version
+          # for the proof-gate logic in "Determine version".
+          fetch-depth: 0
+
+      - name: Setup MSBuild (Windows)
+        if: runner.os == 'Windows'
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Determine version
+        id: version
+        shell: bash
+        run: |
+          # Same v6 proof-gate logic as in the emscripten job below.
+          VERSION="$(git describe --tags --always --dirty)"
+          MAJOR="$(printf '%s' "$VERSION" | sed -E 's/^v//; s/[^0-9].*$//')"
+          if [ -z "$MAJOR" ] || [ "$MAJOR" -lt 2 ]; then
+            VERSION="2.0.0"
+          fi
+          echo "Using C4_VERSION=$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Build native addon
+        shell: bash
+        run: |
+          # Short build dir ("na") keeps the deep evmone FetchContent paths
+          # below Windows' MAX_PATH limit.
+          cmake -S . -B build/na -DCMAKE_BUILD_TYPE=Release -DNODE_ADDON=1
+          cmake --build build/na --config Release --parallel --target colibri_native
+        env:
+          C4_VERSION: ${{ steps.version.outputs.version }}
+
+      - name: Assemble prebuild + smoke test
+        shell: bash
+        run: |
+          TARGET="$(node -p 'process.platform + "-" + process.arch')"
+          if [ "$TARGET" != "${{ matrix.name }}" ]; then
+            echo "runner target $TARGET does not match matrix entry ${{ matrix.name }}" >&2
+            exit 1
+          fi
+          mkdir -p "prebuilds/$TARGET"
+          # Multi-config generators (MSVC) place the output in a Release/ subdir.
+          NODE_FILE="$(find build/na/node-addon -name 'colibri_native.node' | head -1)"
+          cp "$NODE_FILE" "prebuilds/$TARGET/"
+          node -e "
+            const b = require('./prebuilds/' + process.platform + '-' + process.arch + '/colibri_native.node');
+            if (b.getMethodType(1n, 'eth_getTransactionByHash', null, 0) !== 1) throw new Error('unexpected method type');
+            console.log('native addon OK, version 0x' + b.version().toString(16));
+          "
+
+      - name: Upload prebuild
+        uses: actions/upload-artifact@v4
+        with:
+          name: c4-native-${{ matrix.name }}
+          path: prebuilds/
+          if-no-files-found: error
+
   emscripten:
     runs-on: ubuntu-latest
+    needs: native_addon
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -45,6 +136,13 @@ jobs:
         uses: mymindstorm/setup-emsdk@v14
         with:
           version: 4.0.3
+
+      - name: Download native addon prebuilds
+        uses: actions/download-artifact@v4
+        with:
+          pattern: c4-native-*
+          path: native-prebuilds
+          merge-multiple: true
 
       - name: Determine version
         id: version
@@ -70,7 +168,7 @@ jobs:
 
       - name: Build with Emscripten (Split WASM for npm)
         run: |
-          emcmake cmake -B build -DWASM=true -DWASM_EMBED=OFF -DCLI=false -DTEST=false -DCURL=false -DCMAKE_BUILD_TYPE=MINSIZREL -S .
+          emcmake cmake -B build -DWASM=true -DWASM_EMBED=OFF -DCLI=false -DTEST=false -DCURL=false -DCMAKE_BUILD_TYPE=MINSIZREL -DC4W_PREBUILDS_DIR=$GITHUB_WORKSPACE/native-prebuilds -S .
           cmake --build build
         env:
           C4_VERSION: ${{ steps.version.outputs.version }}
@@ -79,6 +177,12 @@ jobs:
         run: |
           cd bindings/emscripten
           npm test
+          cd ../../
+
+      - name: Run unit tests against native addon
+        run: |
+          cd bindings/emscripten
+          npm run test:node:native
           cd ../../
 
 #      - name: Run integration tests (real infrastructure)

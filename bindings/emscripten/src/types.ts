@@ -189,7 +189,10 @@ export interface DataRequest {
     exclude_mask: number;
     url: string;
     payload: any;
-    req_ptr: number;
+    /** Opaque pointer to the underlying `data_request_t`: a heap address (number)
+     *  in the WASM runtime, or a decimal string in the native Node.js runtime
+     *  (64-bit pointers are not safely representable as JS numbers). */
+    req_ptr: number | string;
     /** Milliseconds to wait before (re-)executing this request (e.g. oblivious-node retry backoff). Optional. */
     delay?: number;
     /** Cache freshness bound in seconds. When set, forwarded as a `Cache-Control: max-age=<ttl>` request header so a shared cache/CDN never returns a response older than this bound (e.g. short bound for `latest` block proofs). Optional. */

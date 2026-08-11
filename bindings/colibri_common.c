@@ -165,6 +165,16 @@ static const char* data_request_type_to_string(data_request_type_t type) {
   return "eth_rpc";
 }
 
+void c4i_verify_set_witness_keys(verify_ctx_t* ctx, const char* witness_keys_hex) {
+  if (!witness_keys_hex) return;
+  size_t len = strlen(witness_keys_hex);
+  // "0x" + at least one 20-byte key (40 hex chars)
+  if (len <= 40 || witness_keys_hex[0] != '0' || witness_keys_hex[1] != 'x') return;
+  bytes_t keys = bytes(safe_malloc((len - 2) / 2), (uint32_t) ((len - 2) / 2));
+  hex_to_bytes(witness_keys_hex + 2, -1, keys);
+  ctx->witness_keys = keys;
+}
+
 /* ── JSON helpers ── */
 
 void c4i_add_data_request(buffer_t* result, data_request_t* req, bool req_ptr_as_string) {

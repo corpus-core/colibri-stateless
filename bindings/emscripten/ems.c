@@ -72,11 +72,7 @@ void* EMSCRIPTEN_KEEPALIVE c4w_create_verify_ctx(uint8_t* proof, size_t proof_le
   ctx->proof            = bytes_dup(bytes(proof, proof_len));
   c4_verify_init(&ctx->verify, ctx->proof, strdup(method), args ? json_parse(strdup(args)) : ((json_t){.len = 0, .start = "[]", .type = JSON_TYPE_ARRAY}), (chain_id_t) chain_id, (verify_flags_t) flags);
 
-  if (witness_keys && strlen(witness_keys) > 40 && witness_keys[0] == '0' && witness_keys[1] == 'x') {
-    bytes_t witness_key_bytes = bytes(safe_malloc(strlen(witness_keys) / 2), (strlen(witness_keys) - 2) / 2);
-    hex_to_bytes(witness_keys + 2, -1, witness_key_bytes);
-    ctx->verify.witness_keys = witness_key_bytes;
-  }
+  c4i_verify_set_witness_keys(&ctx->verify, witness_keys);
 
   ctx->verify.min_latest_block_ts = min_latest_block_ts;
 

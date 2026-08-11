@@ -79,6 +79,20 @@ set_target_properties(c4w PROPERTIES
     LINK_FLAGS "${EMC_PROPS}"
 )
 
+# Optional: bundle native Node.js addon prebuilds into the npm package output.
+# CI builds the prebuilds on the platform-specific runners (see bindings-emscripten.yml)
+# and passes the collected directory here. Layout: <platform>-<arch>/colibri_native.node
+set(C4W_PREBUILDS_DIR "" CACHE PATH "Directory containing native addon prebuilds to include in the npm package")
+if (C4W_PREBUILDS_DIR)
+    add_custom_command(
+        TARGET c4w POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${C4W_PREBUILDS_DIR}
+        ${EMSCRIPTEN_OUTPUT_DIR}/prebuilds
+        COMMENT "Copying native addon prebuilds into npm package output"
+    )
+endif()
+
 # Copy package.json to the output directory
 add_custom_command(
     TARGET c4w POST_BUILD

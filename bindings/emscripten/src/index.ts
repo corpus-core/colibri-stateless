@@ -21,16 +21,8 @@
  * SPDX-License-Identifier: MIT
  */
 
-// Import the Emscripten-generated module
-import {
-  as_bytes,
-  as_char_ptr,
-  as_json,
-  C4W,
-  copy_to_c,
-  getC4w,
-  Storage as C4Storage
-} from "./wasm.js";
+// Runtime abstraction: WASM (browser/default) or native addon (Node.js entry)
+import { getRuntime, type Storage as C4Storage } from './runtime.js';
 import { EventEmitter } from './eventEmitter.js';
 import { ConnectionState } from './connectionState.js';
 import {
@@ -53,7 +45,19 @@ import { fetch_rpc, handle_request } from './http.js';
 export { Strategy };
 
 // Public helper for controlling WASM loading behavior in Node/bundlers.
-export { set_wasm_url, decode_proof } from "./wasm.js";
+export { set_wasm_url } from "./wasm.js";
+
+// Runtime introspection (e.g. to check whether the native addon is active in Node).
+export { getRuntime, type C4Runtime, type RuntimeStatus } from './runtime.js';
+
+/**
+ * Decodes a serialized proof into its JSON representation using the active runtime.
+ * @param proof The proof bytes
+ * @return The decoded proof as JSON
+ */
+export async function decode_proof(proof: Uint8Array): Promise<any> {
+  return (await getRuntime()).decodeProof(proof);
+}
 
 // Re-export types needed by consumers of the C4Client module
 export {
@@ -193,17 +197,9 @@ export default class C4Client {
    * @returns The method type
    */
   async getMethodSupport(method: string, args?: any[]): Promise<C4MethodType> {
-    const c4w = await getC4w();
-    const free_buffers: number[] = [];
+    const runtime = await getRuntime();
     const paramsStr = args ? JSON.stringify(args) : null;
-    const method_type = c4w._c4w_get_method_type(
-      BigInt(this.config.chainId),
-      as_char_ptr(method, c4w, free_buffers),
-      paramsStr ? as_char_ptr(paramsStr, c4w, free_buffers) : 0,
-      this.verify_flags
-    );
-    free_buffers.forEach(ptr => c4w._free(ptr));
-    return method_type as C4MethodType;
+    return runtime.getMethodType(BigInt(this.config.chainId), method, paramsStr, this.verify_flags) as C4MethodType;
   }
 
   /**
@@ -213,35 +209,28 @@ export default class C4Client {
    * @returns The proof
    */
   async createProof(method: string, args: any[]): Promise<Uint8Array> {
-    const c4w = await getC4w();
-    const free_buffers: number[] = [];
-    let ctx = 0;
+    const runtime = await getRuntime();
+    let ctx = null;
 
     try {
-      // Call the C function
-      ctx = c4w._c4w_create_proof_ctx(
-        as_char_ptr(method, c4w, free_buffers),
-        as_char_ptr(JSON.stringify(args), c4w, free_buffers),
-        BigInt(this.config.chainId),
-        this.flags);
+      ctx = runtime.createProverCtx(method, JSON.stringify(args), BigInt(this.config.chainId), this.flags);
 
       while (true) {
-        const state = as_json(c4w._c4w_execute_proof_ctx(ctx), c4w, true);
+        const state = runtime.executeProverCtx(ctx);
 
         switch (state.status) {
           case "success":
-            return as_bytes(state.result, state.result_len, c4w);
+            return state.result;
           case "error":
             throw new Error(state.error);
           case "pending": {
-            await Promise.all(state.requests.map((req: DataRequest) => handle_request(req, this.config)));
+            await Promise.all(state.requests!.map((req: DataRequest) => handle_request(runtime, req, this.config)));
             break;
           }
         }
       }
     } finally {
-      free_buffers.forEach(ptr => c4w._free(ptr));
-      if (ctx) c4w._c4w_free_proof_ctx(ctx);
+      if (ctx) runtime.freeProverCtx(ctx);
     }
   }
 
@@ -253,34 +242,22 @@ export default class C4Client {
    * @returns The result
    */
   async verifyProof(method: string, args: any[], proof: Uint8Array): Promise<any> {
-    const c4w = await getC4w();
-    const free_buffers: number[] = [];
-    let ctx = 0;
+    const runtime = await getRuntime();
+    let ctx = null;
 
     try {
-
-      // Call the C function
-      const checkpoint_ptr = this.config.trusted_checkpoint
-        ? as_char_ptr(this.config.trusted_checkpoint, c4w, free_buffers)
-        : 0;
-
-      const witness_keys_ptr = this.config.checkpoint_witness_keys
-        ? as_char_ptr(this.config.checkpoint_witness_keys, c4w, free_buffers)
-        : 0;
-
-      ctx = c4w._c4w_create_verify_ctx(
-        copy_to_c(proof, c4w, free_buffers),
-        proof.length,
-        as_char_ptr(method, c4w, free_buffers),
-        as_char_ptr(JSON.stringify(args), c4w, free_buffers),
+      ctx = runtime.createVerifyCtx(
+        proof,
+        method,
+        JSON.stringify(args),
         BigInt(this.config.chainId),
-        checkpoint_ptr,
-        witness_keys_ptr,
+        this.config.trusted_checkpoint || null,
+        this.config.checkpoint_witness_keys || null,
         this.verify_flags,
         this.get_min_latest_block_ts());
 
       while (true) {
-        const state = as_json(c4w._c4w_verify_proof(ctx), c4w, true);
+        const state = runtime.verifyProof(ctx);
 
         switch (state.status) {
           case "success":
@@ -290,14 +267,13 @@ export default class C4Client {
           case "error":
             throw new Error(state.error);
           case "pending": {
-            await Promise.all(state.requests.map((req: DataRequest) => handle_request(req, this.config)));
+            await Promise.all(state.requests!.map((req: DataRequest) => handle_request(runtime, req, this.config)));
             break;
           }
         }
       }
     } finally {
-      free_buffers.forEach(ptr => c4w._free(ptr));
-      if (ctx) c4w._c4w_free_verify_ctx(ctx);
+      if (ctx) runtime.freeVerifyCtx(ctx);
     }
   }
 
@@ -328,9 +304,8 @@ export default class C4Client {
     if (method_type === C4MethodType.PROOFABLE && this.config.verify && !this.config.verify(method, args))
       return await fetch_rpc(this.config.rpcs, { method, params: args }, false, this.config.fetch);
 
-    const c4w = await getC4w();
-    const free_buffers: number[] = [];
-    let ctx = 0;
+    const runtime = await getRuntime();
+    let ctx = null;
 
     try {
       const prover_mode_map: Record<ProverMode, number> = { local: 0, remote: 1, hybrid: 2, proxy: 3, light_client: 4 };
@@ -339,61 +314,52 @@ export default class C4Client {
       let prover_flags = this.flags;
       if (this.config.zk_proof) prover_flags |= (1 << 7);
 
-      ctx = c4w._c4w_create_rpc_ctx(
-        as_char_ptr(method, c4w, free_buffers),
-        as_char_ptr(JSON.stringify(args || []), c4w, free_buffers),
+      ctx = runtime.createRpcCtx(
+        method,
+        JSON.stringify(args || []),
         BigInt(this.config.chainId),
         prover_flags,
         this.verify_flags,
         native_mode
       );
 
-      if (resolved_mode === 'proxy') {
-        const rpc_csv = this.config.rpcs.join(',');
-        const beacon_csv = this.config.beacon_apis.join(',');
-        c4w._c4w_rpc_ctx_set_proxy_urls(
-          ctx,
-          as_char_ptr(rpc_csv, c4w, free_buffers),
-          as_char_ptr(beacon_csv, c4w, free_buffers)
-        );
-      }
+      if (resolved_mode === 'proxy')
+        runtime.rpcCtxSetProxyUrls(ctx, this.config.rpcs.join(','), this.config.beacon_apis.join(','));
 
       if (this.config.trusted_checkpoint)
-        c4w._c4w_set_checkpoint(BigInt(this.config.chainId), as_char_ptr(this.config.trusted_checkpoint, c4w, free_buffers));
+        runtime.setCheckpoint(BigInt(this.config.chainId), this.config.trusted_checkpoint);
       if (this.config.checkpoint_witness_keys)
-        c4w._c4w_rpc_ctx_set_witness_keys(ctx, as_char_ptr(this.config.checkpoint_witness_keys, c4w, free_buffers));
+        runtime.rpcCtxSetWitnessKeys(ctx, this.config.checkpoint_witness_keys);
 
-      c4w._c4w_rpc_ctx_set_min_latest_block_ts(ctx, this.get_min_latest_block_ts());
+      runtime.rpcCtxSetMinLatestBlockTs(ctx, this.get_min_latest_block_ts());
 
       while (true) {
-        const state = as_json(c4w._c4w_execute_rpc_ctx(ctx), c4w, true);
+        const state = runtime.executeRpcCtx(ctx);
         switch (state.status) {
           case "success":
             return state.result;
           case "revert":
             throwRevert(state.data);
           case "error":
-            if (state.error.includes("zk sync proof") && this.config.zk_proof) {
+            if (state.error!.includes("zk sync proof") && this.config.zk_proof) {
               // try without zk proof
               this.config.zk_proof = false;
               return await this.rpc(method, args, method_type);
             }
             throw new Error(state.error);
           case "pending":
-            await Promise.all(state.requests.map((req: DataRequest) => handle_request(req, this.config)));
+            await Promise.all(state.requests!.map((req: DataRequest) => handle_request(runtime, req, this.config)));
             break;
         }
       }
     } finally {
-      free_buffers.forEach(ptr => c4w._free(ptr));
-      if (ctx) c4w._c4w_free_rpc_ctx(ctx);
+      if (ctx) runtime.freeRpcCtx(ctx);
     }
   }
 
 
   static async register_storage(storage: C4Storage) {
-    const c4w = await getC4w();
-    c4w.storage = storage;
+    (await getRuntime()).registerStorage(storage);
   }
 
   async request(args: RequestArguments): Promise<unknown> {

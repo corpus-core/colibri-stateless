@@ -20,7 +20,7 @@
  *
  * SPDX-License-Identifier: MIT
  */
-import { getC4w, as_char_ptr, copy_to_c } from './wasm.js';
+import type { C4Runtime } from './runtime.js';
 import { Config as C4Config, DataRequest } from './types.js';
 
 export type AcceptKind = 'json' | 'octet';
@@ -170,11 +170,11 @@ export async function fetch_rpc(urls: string[], payload: any, as_proof: boolean 
 /**
  * Handles a C4 data request by fetching from configured servers, setting the
  * response or error back into the C context, and leveraging cache if present.
+ * @param runtime The active runtime the request originated from
  * @param req DataRequest descriptor from C
  * @param conf Colibri configuration
  */
-export async function handle_request(req: DataRequest, conf: C4Config) {
-  const free_buffers: number[] = [];
+export async function handle_request(runtime: C4Runtime, req: DataRequest, conf: C4Config) {
   // Honor a requested delay before (re-)executing (e.g. oblivious-node retry backoff).
   if (req.delay && req.delay > 0) await new Promise(resolve => setTimeout(resolve, req.delay));
   let servers: string[] = [];
@@ -194,7 +194,6 @@ export async function handle_request(req: DataRequest, conf: C4Config) {
       servers = conf.rpcs || [...((conf.prover || []).map(p => p + (p.endsWith('/') ? '' : '/') + 'unverified_rpc'))];
       break;
   }
-  const c4w = await getC4w();
   let path = (req.type == 'eth_rpc' && req.payload)
     ? `rpc: ${req.payload?.method}(${req.payload?.params.join(',')})`
     : req.url;
@@ -204,7 +203,7 @@ export async function handle_request(req: DataRequest, conf: C4Config) {
     const data = await conf.cache.get(req);
     if (data) {
       if (conf.debug) log(`::: ${path} (len=${data.length} bytes) CACHED`);
-      c4w._c4w_req_set_response(req.req_ptr, copy_to_c(data, c4w), data.length, 0);
+      runtime.reqSetResponse(req, data, 0);
       if (conf.onTransfer) conf.onTransfer(data.length, req);
       return;
     }
@@ -213,16 +212,14 @@ export async function handle_request(req: DataRequest, conf: C4Config) {
     const accept = req.encoding == 'json' ? 'json' : 'octet';
     const fetchFn = conf.fetch || globalThis.fetch;
     const { data, nodeIndex } = await fetch_from_servers(servers, req.url || '', req.method as any, req.payload, accept as any, req.exclude_mask, fetchFn, req.ttl);
-    c4w._c4w_req_set_response(req.req_ptr, copy_to_c(data, c4w), data.length, nodeIndex);
+    runtime.reqSetResponse(req, data, nodeIndex);
     if (conf.onTransfer) conf.onTransfer(data.length, req);
     if (conf.debug) log(`::: ${path} (len=${data.length} bytes) FETCHED`);
     if (conf.cache && cacheable) conf.cache.set(req, data);
   } catch (e) {
     const last_error = (e instanceof Error) ? e.message : String(e);
-    c4w._c4w_req_set_error(req.req_ptr, as_char_ptr(last_error, c4w, free_buffers), 0);
+    runtime.reqSetError(req, last_error, 0);
     if (conf.debug) log(`::: ${path} (Error: ${last_error})`);
-  } finally {
-    free_buffers.forEach(ptr => c4w._free(ptr));
   }
 }
 
