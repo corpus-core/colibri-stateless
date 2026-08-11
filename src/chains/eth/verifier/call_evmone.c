@@ -353,6 +353,19 @@ static trace_entry_t* create_trace_entry(evmone_context_t* ctx, const struct evm
   return entry;
 }
 
+/**
+ * Bumps the CREATE/CREATE2 sender nonce on the parent context.
+ *
+ * EVMC ABI 18: the VM reads the pre-bump nonce via get_nonce() to compute the
+ * create address, then the host must increment before the child state checkpoint.
+ * The bump is not reverted when creation fails (Yellow Paper / evmone Host::call).
+ */
+static void bump_creator_nonce(evmone_context_t* ctx, const address_t sender) {
+  call_account_t* acc = call_account_get_or_create(ctx, sender);
+  acc->nonce++;
+  acc->flags |= ACCOUNT_HAS_NONCE;
+}
+
 static void host_call(void* context, const struct evmone_message* msg, const uint8_t* code, size_t code_size, struct evmone_result* result) {
   evmone_context_t* ctx = (evmone_context_t*) context;
   EVM_LOG("========Executing child call...");
@@ -384,11 +397,24 @@ static void host_call(void* context, const struct evmone_message* msg, const uin
     return;
   }
 
+  const bool is_create = (msg->kind == CALL_KIND_CREATE || msg->kind == CALL_KIND_CREATE2);
+
+  // Must run before the child context so a failed CREATE cannot roll the bump back.
+  if (is_create) {
+    bump_creator_nonce(ctx, msg->sender.bytes);
+    EVM_LOG("CREATE/CREATE2: bumped creator nonce");
+  }
+
   const uint8_t* execution_code      = code;
   size_t         execution_code_size = code_size;
   bytes_t        fetched_code        = {0};
 
-  if ((execution_code == NULL || execution_code_size == 0) && msg->kind != CALL_KIND_CREATE && msg->kind != CALL_KIND_CREATE2) {
+  if (is_create) {
+    // Initcode is passed as call input; the VM already put the create address in destination.
+    execution_code      = msg->input_data;
+    execution_code_size = msg->input_size;
+  }
+  else if (execution_code == NULL || execution_code_size == 0) {
     EVM_LOG("Code not provided, fetching from code_address");
     fetched_code        = call_account_get_code(ctx, msg->code_address.bytes);
     execution_code      = fetched_code.data;
@@ -430,12 +456,26 @@ static void host_call(void* context, const struct evmone_message* msg, const uin
     child.trace_address = trace->trace_address; // borrowed, owned by root trace list
   }
 
+  // Spurious Dragon+: newly created accounts start at nonce 1 (revertible with child).
+  if (is_create) {
+    call_account_t* created = call_account_get_or_create(&child, msg->destination.bytes);
+    created->nonce = 1;
+    created->flags |= ACCOUNT_HAS_NONCE;
+  }
+
+  // During initcode execution CALLDATA must be empty (initcode is the code, not input).
+  evmone_message exec_msg = *msg;
+  if (is_create) {
+    exec_msg.input_data = NULL;
+    exec_msg.input_size = 0;
+  }
+
   evmone_result exec_result = evmone_execute(
       ctx->executor,
       &host_interface,
       &child,
       EVMONE_REV_OSAKA,
-      msg,
+      &exec_msg,
       execution_code,
       execution_code_size);
 

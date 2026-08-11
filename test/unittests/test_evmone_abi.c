@@ -114,6 +114,8 @@ static void host_call(void* context, const struct evmone_message* msg, const uin
   if (msg->kind == EVMONE_CREATE || msg->kind == EVMONE_CREATE2) {
     host->saw_create       = true;
     host->last_create_dest = msg->destination;
+    // EVMC ABI 18 host contract: bump creator nonce; not reverted on failure.
+    host->nonce++;
   }
 }
 
@@ -267,8 +269,46 @@ void test_evmone_create_uses_get_nonce(void) {
   TEST_ASSERT_EQUAL_INT(0, result.status_code);
   TEST_ASSERT_TRUE(host.saw_create);
   TEST_ASSERT_EQUAL_UINT32(1, host.nonce_calls);
+  TEST_ASSERT_EQUAL_UINT64(2, host.nonce); // host bumped after pre-bump read of 1
   TEST_ASSERT_EQUAL_MEMORY(zero_address, host.last_nonce_addr.bytes, sizeof(zero_address));
   TEST_ASSERT_EQUAL_MEMORY(expected, host.last_create_dest.bytes, 20);
+
+  evmone_release_result(&result);
+  evmone_destroy_executor(executor);
+}
+
+void test_evmone_create_bumps_nonce_between_creates(void) {
+  // Two empty CREATEs; second address must use bumped nonce.
+  // PUSH1 0 / PUSH1 0 / PUSH1 0 / CREATE / PUSH1 0 / PUSH1 0 / PUSH1 0 / CREATE / STOP
+  const uint8_t code[] = {
+      0x60, 0x00, 0x60, 0x00, 0x60, 0x00, 0xf0,
+      0x60, 0x00, 0x60, 0x00, 0x60, 0x00, 0xf0,
+      0x00};
+
+  // create(0x00..00, nonce=0) and create(0x00..00, nonce=1)
+  const uint8_t addr_nonce0[20] = {
+      0xbd, 0x77, 0x04, 0x16, 0xa3, 0x34, 0x5f, 0x91, 0xe4, 0xb3,
+      0x45, 0x76, 0xcb, 0x80, 0x4a, 0x57, 0x6f, 0xa4, 0x8e, 0xb1};
+  const uint8_t addr_nonce1[20] = {
+      0x5a, 0x44, 0x37, 0x04, 0xdd, 0x4b, 0x59, 0x4b, 0x38, 0x2c,
+      0x22, 0xa0, 0x83, 0xe2, 0xbd, 0x30, 0x90, 0xa6, 0xfe, 0xf3};
+
+  void*       executor = evmone_create_executor();
+  test_host_t host     = {.nonce = 0};
+  TEST_ASSERT_NOT_NULL(executor);
+
+  evmone_message msg = {0};
+  msg.kind           = EVMONE_CALL;
+  msg.gas            = 1000000;
+
+  evmone_result result = evmone_execute(executor, &g_host, &host, EVMONE_REV_OSAKA, &msg, code, sizeof(code));
+  TEST_ASSERT_EQUAL_INT(0, result.status_code);
+  TEST_ASSERT_EQUAL_UINT32(2, host.nonce_calls);
+  TEST_ASSERT_EQUAL_UINT64(2, host.nonce);
+
+  // Without the host-side bump the second CREATE would reuse the nonce=0 address.
+  TEST_ASSERT_TRUE(memcmp(addr_nonce0, addr_nonce1, 20) != 0);
+  TEST_ASSERT_EQUAL_MEMORY(addr_nonce1, host.last_create_dest.bytes, 20);
 
   evmone_release_result(&result);
   evmone_destroy_executor(executor);
@@ -320,6 +360,7 @@ int main(void) {
   RUN_TEST(test_evmone_osaka_stop);
   RUN_TEST(test_evmone_revision_stays_on_osaka);
   RUN_TEST(test_evmone_create_uses_get_nonce);
+  RUN_TEST(test_evmone_create_bumps_nonce_between_creates);
   RUN_TEST(test_evmone_tx_context_blob_hashes);
 #else
   RUN_TEST(test_evmone_skipped);
