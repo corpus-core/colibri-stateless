@@ -103,11 +103,20 @@ static bool get_u64(napi_env env, napi_value value, uint64_t* result) {
   if (napi_typeof(env, value, &type) != napi_ok) return false;
   if (type == napi_bigint) {
     bool lossless = false;
-    return napi_get_value_bigint_uint64(env, value, result, &lossless) == napi_ok;
+    if (napi_get_value_bigint_uint64(env, value, result, &lossless) != napi_ok || !lossless) {
+      napi_throw_range_error(env, NULL, "bigint argument out of uint64 range");
+      return false;
+    }
+    return true;
   }
   if (type == napi_number) {
     double d = 0;
-    if (napi_get_value_double(env, value, &d) != napi_ok || d < 0) return false;
+    // Reject NaN, infinity, negatives and values >= 2^64: the cast below would
+    // be undefined behavior for them.
+    if (napi_get_value_double(env, value, &d) != napi_ok || !(d >= 0.0 && d < 18446744073709551616.0)) {
+      napi_throw_range_error(env, NULL, "number argument out of uint64 range");
+      return false;
+    }
     *result = (uint64_t) d;
     return true;
   }
@@ -116,11 +125,19 @@ static bool get_u64(napi_env env, napi_value value, uint64_t* result) {
 }
 
 static bool get_u32(napi_env env, napi_value value, uint32_t* result) {
-  return napi_get_value_uint32(env, value, result) == napi_ok;
+  if (napi_get_value_uint32(env, value, result) != napi_ok) {
+    napi_throw_type_error(env, NULL, "expected a number argument");
+    return false;
+  }
+  return true;
 }
 
 static bool get_i32(napi_env env, napi_value value, int32_t* result) {
-  return napi_get_value_int32(env, value, result) == napi_ok;
+  if (napi_get_value_int32(env, value, result) != napi_ok) {
+    napi_throw_type_error(env, NULL, "expected a number argument");
+    return false;
+  }
+  return true;
 }
 
 // Returns a view into the bytes of a Uint8Array/Buffer argument.
@@ -156,7 +173,7 @@ static napi_value make_owned_string(napi_env env, char* str) {
     return result;
   }
   napi_value result = make_string(env, str);
-  free(str);
+  safe_free(str);
   return result;
 }
 
@@ -173,9 +190,12 @@ typedef struct {
   handle_kind_t kind;
 } ctx_handle_t;
 
-// Mirrors c4w_verify_ctx_t in ems.c: owns a copy of the proof bytes.
+// Mirrors c4w_verify_ctx_t in ems.c, but additionally keeps the original
+// args string: `verify.args.start` may point *into* it (json_parse skips
+// leading whitespace), so freeing args.start would be an interior-pointer free.
 typedef struct {
   bytes_t      proof;
+  char*        args; // owned; verify.args references into this buffer
   verify_ctx_t verify;
 } addon_verify_ctx_t;
 
@@ -187,11 +207,11 @@ static void free_ctx(ctx_handle_t* handle) {
       break;
     case HANDLE_VERIFY: {
       addon_verify_ctx_t* ctx = (addon_verify_ctx_t*) handle->ptr;
-      if (ctx->verify.method) free((char*) ctx->verify.method);
-      if (ctx->verify.args.len) free((char*) ctx->verify.args.start);
-      if (ctx->proof.data) free(ctx->proof.data);
+      if (ctx->verify.method) safe_free((char*) ctx->verify.method);
+      safe_free(ctx->args);
+      safe_free(ctx->proof.data);
       c4_verify_free_data(&ctx->verify);
-      free(ctx);
+      safe_free(ctx);
       break;
     }
     case HANDLE_RPC:
@@ -237,7 +257,11 @@ static ctx_handle_t* unwrap_handle(napi_env env, napi_value value, handle_kind_t
   return handle;
 }
 
+// Declares argc/argv, throws on missing arguments and tracks the current env
+// (required by the storage bridge below, which may call back into JS while the
+// C core runs inside this call frame).
 #define GET_ARGS(env, info, count)                                                    \
+  g_env = (env);                                                                      \
   size_t     argc = (count);                                                          \
   napi_value argv[(count) > 0 ? (count) : 1];                                         \
   NAPI_CALL((env), napi_get_cb_info((env), (info), &argc, argv, NULL, NULL));         \
@@ -249,6 +273,9 @@ static ctx_handle_t* unwrap_handle(napi_env env, napi_value value, handle_kind_t
 // All storage callbacks are triggered from within such calls (the C core
 // only runs when JS invokes an addon function), so tracking the current
 // env at every entry point is safe.
+// Known limitation: these globals (and the C core itself) are not
+// thread-safe, so the addon must only be used from a single thread
+// (no concurrent use across worker_threads).
 static napi_env g_env         = NULL;
 static napi_ref g_storage_ref = NULL;
 
@@ -259,7 +286,19 @@ static bool storage_call(const char* fn_name, size_t argc, napi_value* argv, nap
   if (napi_get_named_property(g_env, storage, fn_name, &fn) != napi_ok) return false;
   napi_valuetype type;
   if (napi_typeof(g_env, fn, &type) != napi_ok || type != napi_function) return false;
-  return napi_call_function(g_env, storage, fn, argc, argv, result) == napi_ok;
+  if (napi_call_function(g_env, storage, fn, argc, argv, result) != napi_ok) {
+    // A throwing storage callback must not poison subsequent N-API calls in
+    // this frame: clear the pending exception and treat the operation as a
+    // miss/no-op (same behavior as the WASM binding, where storage errors
+    // never reach the C core).
+    bool pending = false;
+    if (napi_is_exception_pending(g_env, &pending) == napi_ok && pending) {
+      napi_value exception;
+      napi_get_and_clear_last_exception(g_env, &exception);
+    }
+    return false;
+  }
+  return true;
 }
 
 static bool js_storage_get(char* key, buffer_t* buffer) {
@@ -302,8 +341,6 @@ static void js_storage_del(char* key) {
 // registerStorage(storage: {get,set,del}) -> void
 static napi_value register_storage(napi_env env, napi_callback_info info) {
   GET_ARGS(env, info, 1);
-  g_env = env;
-
   if (g_storage_ref) {
     napi_delete_reference(env, g_storage_ref);
     g_storage_ref = NULL;
@@ -324,8 +361,6 @@ static napi_value register_storage(napi_env env, napi_callback_info info) {
 // getMethodType(chainId, method, paramsJson | null, flags) -> number
 static napi_value get_method_type(napi_env env, napi_callback_info info) {
   GET_ARGS(env, info, 4);
-  g_env = env;
-
   uint64_t chain_id = 0;
   uint32_t flags    = 0;
   bool     ok       = true;
@@ -358,8 +393,6 @@ static napi_value get_method_type(napi_env env, napi_callback_info info) {
 // createProverCtx(method, argsJson, chainId, flags) -> handle
 static napi_value create_prover_ctx(napi_env env, napi_callback_info info) {
   GET_ARGS(env, info, 4);
-  g_env = env;
-
   uint64_t chain_id = 0;
   uint32_t flags    = 0;
   bool     ok       = true;
@@ -386,8 +419,6 @@ static napi_value create_prover_ctx(napi_env env, napi_callback_info info) {
 // executeProverCtx(handle) -> JSON status string
 static napi_value execute_prover_ctx(napi_env env, napi_callback_info info) {
   GET_ARGS(env, info, 1);
-  g_env = env;
-
   ctx_handle_t* handle = unwrap_handle(env, argv[0], HANDLE_PROVER);
   if (!handle) return NULL;
   prover_ctx_t* ctx    = (prover_ctx_t*) handle->ptr;
@@ -398,8 +429,6 @@ static napi_value execute_prover_ctx(napi_env env, napi_callback_info info) {
 // getProof(handle) -> Uint8Array (copy of the generated proof)
 static napi_value get_proof(napi_env env, napi_callback_info info) {
   GET_ARGS(env, info, 1);
-  g_env = env;
-
   ctx_handle_t* handle = unwrap_handle(env, argv[0], HANDLE_PROVER);
   if (!handle) return NULL;
   prover_ctx_t* ctx = (prover_ctx_t*) handle->ptr;
@@ -415,7 +444,6 @@ static napi_value get_proof(napi_env env, napi_callback_info info) {
 // freeProverCtx(handle) -> void
 static napi_value free_prover_ctx(napi_env env, napi_callback_info info) {
   GET_ARGS(env, info, 1);
-  g_env                = env;
   ctx_handle_t* handle = unwrap_handle(env, argv[0], HANDLE_PROVER);
   if (handle) free_ctx(handle);
   return NULL;
@@ -426,8 +454,6 @@ static napi_value free_prover_ctx(napi_env env, napi_callback_info info) {
 // createVerifyCtx(proof, method, argsJson, chainId, checkpoint|null, witnessKeys|null, flags, minLatestBlockTs) -> handle
 static napi_value create_verify_ctx(napi_env env, napi_callback_info info) {
   GET_ARGS(env, info, 8);
-  g_env = env;
-
   bytes_t  proof               = {0};
   uint64_t chain_id            = 0;
   uint32_t flags               = 0;
@@ -451,20 +477,31 @@ static napi_value create_verify_ctx(napi_env env, napi_callback_info info) {
   if (!ok) goto cleanup_fail;
   if (!get_u32(env, argv[6], &flags) || !get_u64(env, argv[7], &min_latest_block_ts)) goto cleanup_fail;
 
+  if (!*method) {
+    napi_throw_error(env, NULL, "method cannot be empty");
+    goto cleanup_fail;
+  }
+
   c4_set_checkpoint((chain_id_t) chain_id, checkpoint);
 
   addon_verify_ctx_t* ctx = safe_calloc(1, sizeof(addon_verify_ctx_t));
   ctx->proof              = bytes_dup(proof);
-  c4_verify_init(&ctx->verify, ctx->proof, method,
-                 args ? json_parse(args) : ((json_t) {.len = 0, .start = "[]", .type = JSON_TYPE_ARRAY}),
-                 (chain_id_t) chain_id, (verify_flags_t) flags);
-  // method and args are now owned by the verify ctx (freed in free_ctx)
-
-  if (witness && strlen(witness) > 40 && witness[0] == '0' && witness[1] == 'x') {
-    bytes_t witness_key_bytes = bytes(safe_malloc(strlen(witness) / 2), (strlen(witness) - 2) / 2);
-    hex_to_bytes(witness + 2, -1, witness_key_bytes);
-    ctx->verify.witness_keys = witness_key_bytes;
+  ctx->args               = args; // owned by the addon ctx (verify.args references into it)
+  if (c4_verify_init(&ctx->verify, ctx->proof, method,
+                     args ? json_parse(args) : ((json_t) {.len = 0, .start = "[]", .type = JSON_TYPE_ARRAY}),
+                     (chain_id_t) chain_id, (verify_flags_t) flags) != C4_SUCCESS) {
+    // On failure c4_verify_init has not taken ownership of method.
+    napi_throw_error(env, NULL, ctx->verify.state.error ? ctx->verify.state.error : "failed to initialize verify context");
+    c4_verify_free_data(&ctx->verify);
+    safe_free(ctx->proof.data);
+    safe_free(ctx->args);
+    safe_free(ctx);
+    args = NULL; // already freed via ctx->args
+    goto cleanup_fail;
   }
+  // method is now owned by the verify ctx (freed in free_ctx)
+
+  c4i_verify_set_witness_keys(&ctx->verify, witness);
   ctx->verify.min_latest_block_ts = min_latest_block_ts;
 
   safe_free(checkpoint);
@@ -482,8 +519,6 @@ cleanup_fail:
 // verifyProof(handle) -> JSON status string
 static napi_value verify_proof(napi_env env, napi_callback_info info) {
   GET_ARGS(env, info, 1);
-  g_env = env;
-
   ctx_handle_t* handle = unwrap_handle(env, argv[0], HANDLE_VERIFY);
   if (!handle) return NULL;
   verify_ctx_t* ctx      = &((addon_verify_ctx_t*) handle->ptr)->verify;
@@ -495,7 +530,6 @@ static napi_value verify_proof(napi_env env, napi_callback_info info) {
 // freeVerifyCtx(handle) -> void
 static napi_value free_verify_ctx(napi_env env, napi_callback_info info) {
   GET_ARGS(env, info, 1);
-  g_env                = env;
   ctx_handle_t* handle = unwrap_handle(env, argv[0], HANDLE_VERIFY);
   if (handle) free_ctx(handle);
   return NULL;
@@ -506,8 +540,6 @@ static napi_value free_verify_ctx(napi_env env, napi_callback_info info) {
 // createRpcCtx(method, paramsJson, chainId, proverFlags, verifyFlags, proverMode) -> handle
 static napi_value create_rpc_ctx(napi_env env, napi_callback_info info) {
   GET_ARGS(env, info, 6);
-  g_env = env;
-
   uint64_t chain_id     = 0;
   uint32_t prover_flags = 0;
   uint32_t verify_flags = 0;
@@ -540,8 +572,6 @@ static napi_value create_rpc_ctx(napi_env env, napi_callback_info info) {
 // executeRpcCtx(handle) -> JSON status string
 static napi_value execute_rpc_ctx(napi_env env, napi_callback_info info) {
   GET_ARGS(env, info, 1);
-  g_env = env;
-
   ctx_handle_t* handle = unwrap_handle(env, argv[0], HANDLE_RPC);
   if (!handle) return NULL;
   return make_owned_string(env, c4_rpc_build_json_status((c4_rpc_ctx_t*) handle->ptr, true));
@@ -550,7 +580,6 @@ static napi_value execute_rpc_ctx(napi_env env, napi_callback_info info) {
 // freeRpcCtx(handle) -> void
 static napi_value free_rpc_ctx(napi_env env, napi_callback_info info) {
   GET_ARGS(env, info, 1);
-  g_env                = env;
   ctx_handle_t* handle = unwrap_handle(env, argv[0], HANDLE_RPC);
   if (handle) free_ctx(handle);
   return NULL;
@@ -559,8 +588,6 @@ static napi_value free_rpc_ctx(napi_env env, napi_callback_info info) {
 // rpcCtxSetWitnessKeys(handle, keys) -> void
 static napi_value rpc_ctx_set_witness_keys(napi_env env, napi_callback_info info) {
   GET_ARGS(env, info, 2);
-  g_env = env;
-
   ctx_handle_t* handle = unwrap_handle(env, argv[0], HANDLE_RPC);
   if (!handle) return NULL;
   bool  ok   = true;
@@ -574,8 +601,6 @@ static napi_value rpc_ctx_set_witness_keys(napi_env env, napi_callback_info info
 // rpcCtxSetProxyUrls(handle, rpcUrls, beaconUrls) -> void
 static napi_value rpc_ctx_set_proxy_urls(napi_env env, napi_callback_info info) {
   GET_ARGS(env, info, 3);
-  g_env = env;
-
   ctx_handle_t* handle = unwrap_handle(env, argv[0], HANDLE_RPC);
   if (!handle) return NULL;
   bool  ok       = true;
@@ -595,8 +620,6 @@ static napi_value rpc_ctx_set_proxy_urls(napi_env env, napi_callback_info info) 
 // rpcCtxSetMinLatestBlockTs(handle, ts) -> void
 static napi_value rpc_ctx_set_min_latest_block_ts(napi_env env, napi_callback_info info) {
   GET_ARGS(env, info, 2);
-  g_env = env;
-
   ctx_handle_t* handle = unwrap_handle(env, argv[0], HANDLE_RPC);
   if (!handle) return NULL;
   uint64_t ts = 0;
@@ -622,8 +645,6 @@ static data_request_t* parse_req_ptr(napi_env env, napi_value value) {
 // reqSetResponse(reqPtr: string, data: Uint8Array, nodeIndex: number) -> void
 static napi_value req_set_response(napi_env env, napi_callback_info info) {
   GET_ARGS(env, info, 3);
-  g_env = env;
-
   data_request_t* req = parse_req_ptr(env, argv[0]);
   if (!req) return NULL;
   bytes_t data = {0};
@@ -644,8 +665,6 @@ static napi_value req_set_response(napi_env env, napi_callback_info info) {
 // reqSetError(reqPtr: string, error: string, nodeIndex: number) -> void
 static napi_value req_set_error(napi_env env, napi_callback_info info) {
   GET_ARGS(env, info, 3);
-  g_env = env;
-
   data_request_t* req = parse_req_ptr(env, argv[0]);
   if (!req) return NULL;
   bool  ok    = true;
@@ -667,8 +686,6 @@ static napi_value req_set_error(napi_env env, napi_callback_info info) {
 // setCheckpoint(chainId, checkpoint) -> void
 static napi_value set_checkpoint(napi_env env, napi_callback_info info) {
   GET_ARGS(env, info, 2);
-  g_env = env;
-
   uint64_t chain_id = 0;
   if (!get_u64(env, argv[0], &chain_id)) return NULL;
   bool  ok         = true;
@@ -682,8 +699,6 @@ static napi_value set_checkpoint(napi_env env, napi_callback_info info) {
 // decodeProof(data: Uint8Array) -> JSON string | null
 static napi_value decode_proof(napi_env env, napi_callback_info info) {
   GET_ARGS(env, info, 1);
-  g_env = env;
-
   bytes_t data = {0};
   if (!get_bytes_view(env, argv[0], &data)) return NULL;
   const ssz_def_t* def = c4_get_req_type_from_req(data);

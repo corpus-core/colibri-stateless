@@ -63,3 +63,10 @@ npm run test:node:native   # runs the shared fixture suite against the native ad
   within synchronous N-API calls.
 - The TypeScript side selects the runtime in `bindings/emscripten/src/runtime_node.ts`
   (see `runtime.ts` for the runtime abstraction shared with WASM).
+
+## Limitations
+
+- **Single-threaded**: the addon (like the underlying C library) keeps global
+  state and must not be used concurrently from multiple `worker_threads`.
+- Storage callbacks (`register_storage`) are invoked synchronously and should
+  not throw; a throwing callback is treated as a cache miss.

@@ -21,12 +21,15 @@
  * SPDX-License-Identifier: MIT
  */
 
-import { as_bytes, as_char_ptr, as_json, copy_to_c, getC4w, type C4W } from './wasm.js';
+import { getC4w } from './wasm.js';
+import { as_bytes, as_char_ptr, as_json, copy_to_c, type C4W } from './wasm_shared.js';
 import type { C4Runtime, CtxHandle, RuntimeStatus, Storage } from './runtime.js';
 import type { DataRequest } from './types.js';
 
 // The WASM runtime wraps the pointer-level Emscripten API (`C4W`) behind the
 // value-level `C4Runtime` interface. The module is loaded once via `getC4w()`.
+// Note: the historical c4w_* exports say "proof_ctx" where the core C API
+// (and this interface) say "prover" (c4_prover_create etc.).
 
 function createRuntime(c4w: C4W): C4Runtime {
     return {

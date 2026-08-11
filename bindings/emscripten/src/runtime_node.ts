@@ -35,6 +35,7 @@ import { module_dir } from './wasm.js';
  * - `C4_NATIVE_ADDON`: absolute path to a `colibri_native.node` (overrides prebuild lookup)
  * - `C4_FORCE_NATIVE=1`: fail instead of falling back to WASM
  * - `C4_DISABLE_NATIVE=1`: skip the native addon entirely (always WASM)
+ * - `C4_DEBUG_NATIVE=1`: log the reason when falling back to WASM
  */
 
 type NativeBinding = {
@@ -90,40 +91,36 @@ async function loadNativeBinding(): Promise<NativeBinding> {
     throw new Error(`no native colibri addon found for ${target} (checked: ${candidates.join(', ')})`);
 }
 
-function parseStatus(json: string): RuntimeStatus {
-    return JSON.parse(json);
-}
-
 function createNativeRuntime(binding: NativeBinding): C4Runtime {
+    // Most methods are direct pass-throughs (N-API functions don't need `this`);
+    // only status parsing and the req_ptr string conversion add logic.
     return {
         kind: 'native',
 
-        getMethodType: (chainId, method, paramsJson, flags) => binding.getMethodType(chainId, method, paramsJson, flags),
+        getMethodType: binding.getMethodType,
 
-        createProverCtx: (method, argsJson, chainId, flags) => binding.createProverCtx(method, argsJson, chainId, flags),
+        createProverCtx: binding.createProverCtx,
         executeProverCtx(ctx: CtxHandle): RuntimeStatus {
-            const state = parseStatus(binding.executeProverCtx(ctx));
+            const state: RuntimeStatus = JSON.parse(binding.executeProverCtx(ctx));
             // The JSON status carries the proof as native pointer (unusable in JS);
             // fetch the bytes through the dedicated accessor instead.
             if (state.status === 'success') state.result = binding.getProof(ctx);
             return state;
         },
-        freeProverCtx: (ctx: CtxHandle) => binding.freeProverCtx(ctx),
+        freeProverCtx: binding.freeProverCtx,
 
-        createVerifyCtx: (proof, method, argsJson, chainId, trustedCheckpoint, witnessKeys, flags, minLatestBlockTs) =>
-            binding.createVerifyCtx(proof, method, argsJson, chainId, trustedCheckpoint, witnessKeys, flags, minLatestBlockTs),
-        verifyProof: (ctx: CtxHandle) => parseStatus(binding.verifyProof(ctx)),
-        freeVerifyCtx: (ctx: CtxHandle) => binding.freeVerifyCtx(ctx),
+        createVerifyCtx: binding.createVerifyCtx,
+        verifyProof: (ctx: CtxHandle) => JSON.parse(binding.verifyProof(ctx)),
+        freeVerifyCtx: binding.freeVerifyCtx,
 
-        createRpcCtx: (method, paramsJson, chainId, proverFlags, verifyFlags, proverMode) =>
-            binding.createRpcCtx(method, paramsJson, chainId, proverFlags, verifyFlags, proverMode),
-        executeRpcCtx: (ctx: CtxHandle) => parseStatus(binding.executeRpcCtx(ctx)),
-        freeRpcCtx: (ctx: CtxHandle) => binding.freeRpcCtx(ctx),
-        rpcCtxSetProxyUrls: (ctx: CtxHandle, rpcUrls: string, beaconUrls: string) => binding.rpcCtxSetProxyUrls(ctx, rpcUrls, beaconUrls),
-        rpcCtxSetWitnessKeys: (ctx: CtxHandle, keys: string) => binding.rpcCtxSetWitnessKeys(ctx, keys),
-        rpcCtxSetMinLatestBlockTs: (ctx: CtxHandle, ts: bigint) => binding.rpcCtxSetMinLatestBlockTs(ctx, ts),
+        createRpcCtx: binding.createRpcCtx,
+        executeRpcCtx: (ctx: CtxHandle) => JSON.parse(binding.executeRpcCtx(ctx)),
+        freeRpcCtx: binding.freeRpcCtx,
+        rpcCtxSetProxyUrls: binding.rpcCtxSetProxyUrls,
+        rpcCtxSetWitnessKeys: binding.rpcCtxSetWitnessKeys,
+        rpcCtxSetMinLatestBlockTs: binding.rpcCtxSetMinLatestBlockTs,
 
-        setCheckpoint: (chainId, checkpoint) => binding.setCheckpoint(chainId, checkpoint),
+        setCheckpoint: binding.setCheckpoint,
 
         reqSetResponse: (req: DataRequest, data: Uint8Array, nodeIndex: number) =>
             binding.reqSetResponse(String(req.req_ptr), data, nodeIndex),
@@ -136,7 +133,7 @@ function createNativeRuntime(binding: NativeBinding): C4Runtime {
             return JSON.parse(json);
         },
 
-        registerStorage: (storage: Storage) => binding.registerStorage(storage),
+        registerStorage: binding.registerStorage,
     };
 }
 

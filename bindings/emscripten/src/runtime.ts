@@ -102,7 +102,11 @@ let cached: Promise<C4Runtime> | null = null;
 
 /**
  * Replaces the runtime provider (e.g. native addon in Node.js).
- * Must be called before the first `getRuntime()` use.
+ *
+ * Intended to be called once by the entry point before the first
+ * `getRuntime()` use. Calling it later resets the cached runtime, so the
+ * next `getRuntime()` initializes the new provider - context handles
+ * created by the previous runtime must not be used afterwards.
  * @param provider Factory returning an initialized runtime
  */
 export function setRuntimeProvider(provider: RuntimeProvider) {

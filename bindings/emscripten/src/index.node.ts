@@ -30,19 +30,10 @@
  * never see this file.
  */
 
-import { getRuntime, setRuntimeProvider } from './runtime.js';
+import { setRuntimeProvider } from './runtime.js';
 import { getNodeRuntime } from './runtime_node.js';
 
 setRuntimeProvider(getNodeRuntime);
 
 export * from './index.js';
 export { default } from './index.js';
-
-/**
- * Decodes a serialized proof into a JSON representation (native-aware override).
- * @param proof The proof bytes
- * @return The decoded proof as JSON
- */
-export async function decode_proof(proof: Uint8Array): Promise<any> {
-    return (await getRuntime()).decodeProof(proof);
-}

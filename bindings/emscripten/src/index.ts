@@ -45,10 +45,19 @@ import { fetch_rpc, handle_request } from './http.js';
 export { Strategy };
 
 // Public helper for controlling WASM loading behavior in Node/bundlers.
-export { set_wasm_url, decode_proof } from "./wasm.js";
+export { set_wasm_url } from "./wasm.js";
 
 // Runtime introspection (e.g. to check whether the native addon is active in Node).
 export { getRuntime, type C4Runtime, type RuntimeStatus } from './runtime.js';
+
+/**
+ * Decodes a serialized proof into its JSON representation using the active runtime.
+ * @param proof The proof bytes
+ * @return The decoded proof as JSON
+ */
+export async function decode_proof(proof: Uint8Array): Promise<any> {
+  return (await getRuntime()).decodeProof(proof);
+}
 
 // Re-export types needed by consumers of the C4Client module
 export {

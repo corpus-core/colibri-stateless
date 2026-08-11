@@ -77,6 +77,7 @@ export const decode_proof = api.decode_proof;
 /**
  * Returns the directory of the compiled module. Used in Node to locate
  * packaged assets (e.g. native addon prebuilds) relative to the package root.
+ * This CJS variant replaces `wasm.ts` (ESM, `import.meta.url`) at build time.
  * @return Absolute directory path of this module
  */
 export async function module_dir(): Promise<string> {

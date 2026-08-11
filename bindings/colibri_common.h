@@ -227,6 +227,18 @@ void c4_rpc_ctx_free(c4_rpc_ctx_t* ctx);
  */
 bool c4_is_remote_delegated_prover_method(const char* method);
 
+/**
+ * Parses hex-encoded witness keys and assigns them to the verify context.
+ *
+ * Expects `"0x"` followed by at least one 20-byte key (40 hex chars);
+ * anything shorter (or NULL) is ignored. The allocated key bytes are owned
+ * by the context and freed by `c4_verify_free_data()`.
+ *
+ * @param ctx the verify context
+ * @param witness_keys_hex hex string with "0x" prefix, or NULL
+ */
+void c4i_verify_set_witness_keys(verify_ctx_t* ctx, const char* witness_keys_hex);
+
 /* ── JSON serialization helpers shared by colibri.c and ems.c ── */
 
 /**

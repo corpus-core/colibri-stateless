@@ -20,7 +20,7 @@
     },
     "scripts": {
         "test": "npm run test:node && npm run test:webpack",
-        "test:node": "node --test test/rpc.test.mjs test/cjs_bridge.test.mjs",
+        "test:node": "node --test test/rpc.test.mjs test/cjs_bridge.test.mjs test/runtime_selection.test.mjs",
         "test:node:native": "node --test test/native.test.mjs",
         "test:integration": "C4_RUN_INTEGRATION=1 node --test test/integration.test.mjs",
         "test:ccip": "C4_RUN_INTEGRATION=1 node --test test/ens_ccip.test.mjs",
