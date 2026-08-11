@@ -84,7 +84,7 @@ endif()
 FetchContent_Declare(
     evmone_external
     GIT_REPOSITORY https://github.com/ipsilon/evmone.git
-    GIT_TAG v0.19.0
+    GIT_TAG v0.23.0
     GIT_SHALLOW TRUE
     GIT_SUBMODULES_RECURSE TRUE
 )
@@ -103,19 +103,23 @@ if(NOT evmone_external_POPULATED)
     # Apply patches using the CMake scripts
     set(SOURCE_DIR ${evmone_external_SOURCE_DIR})
     include(${CMAKE_CURRENT_SOURCE_DIR}/compat/patch_evmc.cmake)
+    include(${CMAKE_CURRENT_SOURCE_DIR}/compat/patch_evmc_c23_enum.cmake)
     include(${CMAKE_CURRENT_SOURCE_DIR}/compat/patch_instructions_calls.cmake)
     include(${CMAKE_CURRENT_SOURCE_DIR}/compat/patch_baseline_analysis.cmake)
     include(${CMAKE_CURRENT_SOURCE_DIR}/compat/patch_consteval.cmake)
     include(${CMAKE_CURRENT_SOURCE_DIR}/compat/patch_delegation.cmake)
+    include(${CMAKE_CURRENT_SOURCE_DIR}/compat/patch_create_address.cmake)
     
-    # Now create the CMakeLists.txt file
+    # Now create the CMakeLists.txt file.
+    # Intentionally omit upstream evmone_precompiles (and its blst dependency):
+    # Colibri provides keccak via keccak_bridge and precompiles via src/chains/eth/precompiles.
     file(WRITE ${evmone_external_SOURCE_DIR}/CMakeLists.txt "
         # Set deployment target for iOS builds
         if(APPLE)
             set(CMAKE_OSX_DEPLOYMENT_TARGET \"${CMAKE_OSX_DEPLOYMENT_TARGET}\" CACHE STRING \"Minimum deployment target\" FORCE)
         endif()
 
-        add_definitions(-DPROJECT_VERSION=\\\"0.19.0\\\")
+        add_definitions(-DPROJECT_VERSION=\\\"0.23.0\\\")
 
         add_library(evmone STATIC
             include/evmone/evmone.h
@@ -130,6 +134,8 @@ if(NOT evmone_external_POPULATED)
             lib/evmone/baseline_instruction_table.cpp
             lib/evmone/baseline_instruction_table.hpp
             lib/evmone/constants.hpp
+            lib/evmone/create_address.cpp
+            lib/evmone/create_address.hpp
             lib/evmone/delegation.cpp
             lib/evmone/delegation.hpp
             lib/evmone/instructions.hpp
@@ -203,5 +209,3 @@ target_include_directories(evmone_wrapper
 )
 
 target_link_libraries(evmone_wrapper PUBLIC evmone)
-
-

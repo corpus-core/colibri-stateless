@@ -3,15 +3,31 @@
  */
 #include "evmone_c_wrapper.h"
 
-// C++ headers
+#include <cstring>
 #include <memory>
 #include <string>
 #include <vector>
 
-// evmone headers - make sure to include these after all C++ standard headers
 #include <evmc/evmc.h>
 #include <evmc/evmc.hpp>
 #include <evmone/evmone.h>
+
+static_assert(EVMC_ABI_VERSION == 18, "evmone wrapper requires EVMC ABI 18 (evmone >= 0.23)");
+
+namespace {
+
+bool map_revision(int revision, evmc_revision* out) noexcept {
+  switch (revision) {
+  case EVMONE_REV_OSAKA:
+    *out = EVMC_OSAKA;
+    return true;
+  default:
+    // Refuse unknown Colibri revision IDs instead of silently selecting a fork.
+    return false;
+  }
+}
+
+} // namespace
 
 /* C++ to C host interface adapter */
 struct HostInterfaceAdapter {
@@ -38,7 +54,6 @@ public:
   evmc::bytes32 get_storage(const evmc::address& addr, const evmc::bytes32& key) const noexcept override {
     if (!m_adapter.c_interface->get_storage) return {};
 
-    // Create a temporary to safely store the result
     evmc_bytes32 result = m_adapter.c_interface->get_storage(
         m_adapter.context,
         reinterpret_cast<const evmc_address*>(&addr),
@@ -63,11 +78,16 @@ public:
   evmc::bytes32 get_balance(const evmc::address& addr) const noexcept override {
     if (!m_adapter.c_interface->get_balance) return {};
 
-    // Create a temporary to safely store the result
     evmc_bytes32 result = m_adapter.c_interface->get_balance(
         m_adapter.context, reinterpret_cast<const evmc_address*>(&addr));
 
     return *reinterpret_cast<const evmc::bytes32*>(&result);
+  }
+
+  uint64_t get_nonce(const evmc::address& addr) const noexcept override {
+    if (!m_adapter.c_interface->get_nonce) return 0;
+    return m_adapter.c_interface->get_nonce(m_adapter.context,
+                                            reinterpret_cast<const evmc_address*>(&addr));
   }
 
   size_t get_code_size(const evmc::address& addr) const noexcept override {
@@ -79,7 +99,6 @@ public:
   evmc::bytes32 get_code_hash(const evmc::address& addr) const noexcept override {
     if (!m_adapter.c_interface->get_code_hash) return {};
 
-    // Create a temporary to safely store the result
     evmc_bytes32 result = m_adapter.c_interface->get_code_hash(
         m_adapter.context, reinterpret_cast<const evmc_address*>(&addr));
 
@@ -97,7 +116,6 @@ public:
         buffer_size);
   }
 
-  // Updated return type to match EVMC API
   bool selfdestruct(const evmc::address& addr, const evmc::address& beneficiary) noexcept override {
     if (m_adapter.c_interface->selfdestruct) {
       m_adapter.c_interface->selfdestruct(
@@ -114,7 +132,8 @@ public:
 
     evmone_message c_msg{};
     c_msg.kind         = static_cast<decltype(c_msg.kind)>(msg.kind);
-    c_msg.is_static    = msg.flags & EVMC_STATIC;
+    c_msg.is_static    = (msg.flags & EVMC_STATIC) != 0;
+    c_msg.is_delegated = (msg.flags & EVMC_DELEGATED) != 0;
     c_msg.depth        = msg.depth;
     c_msg.gas          = msg.gas;
     c_msg.destination  = *reinterpret_cast<const evmc_address*>(&msg.recipient);
@@ -122,24 +141,21 @@ public:
     c_msg.input_data   = msg.input_data;
     c_msg.input_size   = msg.input_size;
     c_msg.value        = *reinterpret_cast<const evmc_bytes32*>(&msg.value);
-    c_msg.create_salt  = *reinterpret_cast<const evmc_bytes32*>(&msg.create2_salt);
     c_msg.code_address = *reinterpret_cast<const evmc_address*>(&msg.code_address);
 
     evmone_result c_result{};
-    m_adapter.c_interface->call(m_adapter.context, &c_msg, nullptr, 0, &c_result);
+    m_adapter.c_interface->call(m_adapter.context, &c_msg, msg.code, msg.code_size, &c_result);
 
-    evmc::Result cpp_result;
-    cpp_result.status_code = static_cast<evmc_status_code>(c_result.status_code);
-    cpp_result.gas_left    = c_result.gas_left;
-    cpp_result.gas_refund  = c_result.gas_refund;
-    cpp_result.output_data = c_result.output_data;
-    cpp_result.output_size = c_result.output_size;
-    if (c_result.create_address) {
-      cpp_result.create_address = *reinterpret_cast<const evmc::address*>(c_result.create_address);
-    }
-
-    // Caller must handle memory management
-    return cpp_result;
+    // Transfer ownership of host-provided output buffers without copying.
+    // The Colibri host keeps results alive until evmone_release_result().
+    evmc_result raw{};
+    raw.status_code = static_cast<evmc_status_code>(c_result.status_code);
+    raw.gas_left    = static_cast<int64_t>(c_result.gas_left);
+    raw.gas_refund  = static_cast<int64_t>(c_result.gas_refund);
+    raw.output_data = c_result.output_data;
+    raw.output_size = c_result.output_size;
+    raw.release     = nullptr;
+    return evmc::Result{raw};
   }
 
   evmc_tx_context get_tx_context() const noexcept override {
@@ -157,13 +173,15 @@ public:
     result.chain_id          = *reinterpret_cast<const evmc_uint256be*>(&c_tx_ctx.chain_id);
     result.block_base_fee    = *reinterpret_cast<const evmc_uint256be*>(&c_tx_ctx.block_base_fee);
     result.blob_base_fee     = *reinterpret_cast<const evmc_uint256be*>(&c_tx_ctx.blob_base_fee);
+    result.blob_hashes       = c_tx_ctx.blob_hashes;
+    result.blob_hashes_count = c_tx_ctx.blob_hashes_count;
+    result.block_slot_number = c_tx_ctx.block_slot_number;
     return result;
   }
 
   evmc::bytes32 get_block_hash(int64_t number) const noexcept override {
     if (!m_adapter.c_interface->get_block_hash) return {};
 
-    // Create a temporary to safely store the result
     evmc_bytes32 result = m_adapter.c_interface->get_block_hash(m_adapter.context, number);
 
     return *reinterpret_cast<const evmc::bytes32*>(&result);
@@ -187,7 +205,7 @@ public:
       int status = m_adapter.c_interface->access_account(
           m_adapter.context,
           reinterpret_cast<const evmc_address*>(&addr));
-      return static_cast<evmc_access_status>(status);
+      return status == EVMONE_ACCESS_WARM ? EVMC_ACCESS_WARM : EVMC_ACCESS_COLD;
     }
     return EVMC_ACCESS_COLD;
   }
@@ -198,7 +216,7 @@ public:
           m_adapter.context,
           reinterpret_cast<const evmc_address*>(&addr),
           reinterpret_cast<const evmc_bytes32*>(&key));
-      return static_cast<evmc_access_status>(status);
+      return status == EVMONE_ACCESS_WARM ? EVMC_ACCESS_WARM : EVMC_ACCESS_COLD;
     }
     return EVMC_ACCESS_COLD;
   }
@@ -227,25 +245,9 @@ public:
   }
 };
 
-/* Simple holder for result's output */
-struct ResultDataHolder {
-  std::vector<uint8_t> output_data;
-};
-
-/* Release callback for result */
-void release_result_callback(const evmc_result* result) {
-  // This function is called by EVMC to release resources
-  // In our case, there's nothing to do as we don't allocate extra resources
-  // for EVMC results
-  (void) result;
-}
-
 extern "C" {
-// Forward declaration for evmc_create_evmone from evmone.h
 struct evmc_vm* evmc_create_evmone(void) noexcept;
 
-// For WASM compatibility, provide evmone_create as a wrapper around evmc_create_evmone
-// This helps when the symbol is expected under a different name
 #if defined(EVMONE_WASM_BUILD) && defined(__EMSCRIPTEN__)
 struct evmc_vm* evmone_create(void) noexcept {
   return evmc_create_evmone();
@@ -256,19 +258,21 @@ struct evmc_vm* evmone_create(void) noexcept {
 /* Create a new EVM instance */
 extern "C" void* evmone_create_executor() {
 #if defined(EVMONE_WASM_BUILD) && defined(__EMSCRIPTEN__)
-  // For WASM builds, we'll use a simpler approach that calls evmone_create
-  // directly to avoid any linking issues with evmc_create_evmone
-  return evmone_create();
+  auto* vm = evmone_create();
 #else
-  // Standard path for non-WASM builds
-  return evmc_create_evmone();
+  auto* vm = evmc_create_evmone();
 #endif
+  if (!vm) return nullptr;
+  if (vm->abi_version != EVMC_ABI_VERSION) {
+    evmc_destroy(vm);
+    return nullptr;
+  }
+  return vm;
 }
 
 /* Destroy an EVM instance */
 extern "C" void evmone_destroy_executor(void* executor) {
   if (executor) {
-    // Use the evmc helper function to destroy VM
     evmc_destroy(static_cast<evmc_vm*>(executor));
   }
 }
@@ -285,18 +289,24 @@ extern "C" evmone_result evmone_execute(
 
   auto* vm = static_cast<struct evmc_vm*>(executor);
 
-  // Setup host adapter
+  evmc_revision rev = EVMC_OSAKA;
+  if (!map_revision(revision, &rev)) {
+    evmone_result err{};
+    err.status_code = EVMC_INTERNAL_ERROR;
+    return err;
+  }
+
   HostInterfaceAdapter adapter(host_interface, host_context);
   EvmoneHostAdapter    host(adapter);
 
-  // Create host context & interface for EVMC
   struct evmc_host_context*         context   = reinterpret_cast<struct evmc_host_context*>(&host);
   const struct evmc_host_interface* interface = &evmc::Host::get_interface();
 
-  // Convert message to evmc_message
   evmc_message cpp_msg{};
   cpp_msg.kind         = static_cast<evmc_call_kind>(msg->kind);
-  cpp_msg.flags        = msg->is_static ? EVMC_STATIC : 0;
+  cpp_msg.flags        = 0;
+  if (msg->is_static) cpp_msg.flags |= EVMC_STATIC;
+  if (msg->is_delegated) cpp_msg.flags |= EVMC_DELEGATED;
   cpp_msg.depth        = msg->depth;
   cpp_msg.gas          = msg->gas;
   cpp_msg.recipient    = *reinterpret_cast<const evmc_address*>(&msg->destination);
@@ -304,31 +314,20 @@ extern "C" evmone_result evmone_execute(
   cpp_msg.input_data   = msg->input_data;
   cpp_msg.input_size   = msg->input_size;
   cpp_msg.value        = *reinterpret_cast<const evmc_bytes32*>(&msg->value);
-  cpp_msg.create2_salt = *reinterpret_cast<const evmc_bytes32*>(&msg->create_salt);
   cpp_msg.code_address = *reinterpret_cast<const evmc_address*>(&msg->code_address);
+  cpp_msg.code         = code;
+  cpp_msg.code_size    = code_size;
 
-  // Execute using the VM's execute function directly
-  evmc_result cpp_result = vm->execute(vm, interface, context,
-                                       static_cast<evmc_revision>(revision),
-                                       &cpp_msg, code, code_size);
+  evmc_result cpp_result = vm->execute(vm, interface, context, rev, &cpp_msg, code, code_size);
 
-  // Convert result
   evmone_result c_result{};
   c_result.status_code      = cpp_result.status_code;
-  c_result.gas_left         = cpp_result.gas_left;
-  c_result.gas_refund       = cpp_result.gas_refund;
+  c_result.gas_left         = static_cast<uint64_t>(cpp_result.gas_left);
+  c_result.gas_refund       = static_cast<uint64_t>(cpp_result.gas_refund);
   c_result.output_data      = cpp_result.output_data;
   c_result.output_size      = cpp_result.output_size;
   c_result.release_callback = reinterpret_cast<void*>(cpp_result.release);
-  c_result.release_context  = nullptr; // We don't need additional context
-
-  // Handle create address if present
-  if (cpp_result.create_address.bytes[0] != 0) {
-    c_result.create_address = reinterpret_cast<const evmc_address*>(&cpp_result.create_address);
-  }
-  else {
-    c_result.create_address = nullptr;
-  }
+  c_result.release_context  = nullptr;
 
   return c_result;
 }
@@ -338,16 +337,13 @@ extern "C" void evmone_release_result(evmone_result* result) {
   if (result && result->release_callback) {
     auto release_fn = reinterpret_cast<evmc_release_result_fn>(result->release_callback);
 
-    // Create a temporary evmc_result to release
     evmc_result cpp_result{};
     cpp_result.output_data = result->output_data;
     cpp_result.output_size = result->output_size;
 
-    // Release the resources
     release_fn(&cpp_result);
   }
 
-  // Clear the result data to prevent double-free
   result->output_data      = nullptr;
   result->output_size      = 0;
   result->release_callback = nullptr;
