@@ -24,19 +24,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0 # Fetch all history for metrics
 
       - name: Setup Pages
-        uses: actions/configure-pages@v4
+        uses: actions/configure-pages@v6
 
-      - name: Download all artifacts from current workflow run
-        uses: actions/download-artifact@v4
+      - name: Download pages artifacts from current workflow run
+        uses: actions/download-artifact@v7
         with:
           path: artifacts
-          # Downloads all artifacts from the current workflow run (main-ci.yml)
-          # This works because github-pages.yml is called as a reusable workflow from main-ci.yml
+          # Only pull report artifacts needed for the metrics site.
+          # Downloading *all* artifacts also pulls Buildx GHA cache blobs
+          # (*.dockerbuild), which are not zip archives and fail extraction.
+          pattern: '{coverage-report,static-analysis-report,memory-analysis,memory-analysis-reports}'
 
       - name: List artifact contents for debugging
         run: |
@@ -1559,7 +1561,7 @@ jobs:
           EOL
 
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v4
 
   # Deployment job
   deploy:
@@ -1572,4 +1574,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
