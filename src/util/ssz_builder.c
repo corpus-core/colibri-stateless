@@ -41,7 +41,7 @@
  * @return Pointer to the field's type definition, or NULL if not found
  */
 static const ssz_def_t* find_def(const ssz_def_t* def, const char* name) {
-  if (def->type != SSZ_TYPE_CONTAINER) return NULL;
+  if (!ssz_is_container_type(def)) return NULL;
   for (int i = 0; i < def->def.container.len; i++) {
     if (strcmp(def->def.container.elements[i].name, name) == 0) return def->def.container.elements + i;
   }
@@ -227,6 +227,7 @@ ssz_ob_t ssz_from_json(json_t json, const ssz_def_t* def, c4_state_t* state) {
   ssz_builder_t buf = {0};
   buf.def           = def;
   switch (def->type) {
+    case SSZ_TYPE_PROG_CONTAINER:
     case SSZ_TYPE_CONTAINER: {
       // Container: iterate over all fields, convert JSON to SSZ
       // Handle optional fields (opt_mask) and CamelCase/snake_case field names
@@ -234,6 +235,7 @@ ssz_ob_t ssz_from_json(json_t json, const ssz_def_t* def, c4_state_t* state) {
       int      optmask_len = 0;
       int      optmask_idx = -1;
       for (int i = 0; i < def->def.container.len; i++) {
+        if (def->def.container.elements[i].type == SSZ_TYPE_NONE) continue; // inactive slot of a progressive container
         if (def->def.container.elements[i].flags & SSZ_FLAG_OPT_MASK) {
           optmask_idx = buf.fixed.data.len;
           optmask_len = def->def.container.elements[i].def.uint.len;
@@ -268,7 +270,7 @@ ssz_ob_t ssz_from_json(json_t json, const ssz_def_t* def, c4_state_t* state) {
           c4_state_add_error(state, error);
           free(error);
         }
-        optmask |= 1 << i;
+        if (i < 64) optmask |= ((uint64_t) 1) << i; // the opt mask covers at most 64 fields
         ssz_ob_t ob = ssz_from_json(element, def->def.container.elements + i, state);
         ssz_add_bytes(&buf, def->def.container.elements[i].name, ob.bytes);
         safe_free(ob.bytes.data);
@@ -329,6 +331,7 @@ ssz_ob_t ssz_from_json(json_t json, const ssz_def_t* def, c4_state_t* state) {
         return (ssz_ob_t) {.def = def, .bytes = buf.fixed.data};
       }
     }
+    case SSZ_TYPE_PROG_LIST:
     case SSZ_TYPE_LIST: {
       // List: convert JSON array to variable-length SSZ list
       if (def->def.vector.type->type == SSZ_TYPE_UINT && def->def.vector.type->def.uint.len == 1)
@@ -363,6 +366,7 @@ ssz_ob_t ssz_from_json(json_t json, const ssz_def_t* def, c4_state_t* state) {
       return (ssz_ob_t) {.def = def, .bytes = buf.fixed.data};
     }
     case SSZ_TYPE_BIT_LIST:
+    case SSZ_TYPE_PROG_BIT_LIST:
       return (ssz_ob_t) {.def = def, .bytes = json_as_bytes(json, &buf.fixed)};
     default:
       return (ssz_ob_t) {.def = def, .bytes = {0}};

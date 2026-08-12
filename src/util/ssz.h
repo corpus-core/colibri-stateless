@@ -51,6 +51,10 @@ extern "C" {
 #define SSZ_MAX_UINT_SIZE   32                   /**< Maximum size for uint types in bytes */
 #define SSZ_MAX_BYTES       (1024 * 1024 * 1024) /**< Maximum SSZ object size (1GB) to prevent integer overflows */
 
+/** Maximum serialized size for progressive bit lists (EIP-7916 defines no capacity),
+ * chosen so the bit length always fits into 32 bits without wrapping. */
+#define SSZ_MAX_PROG_BITLIST_BYTES (((uint32_t) 1 << 29) - 1)
+
 // Forward declarations
 typedef struct ssz_def       ssz_def_t;
 typedef struct ssz_list      ssz_list_t;
@@ -59,15 +63,18 @@ typedef uint64_t             gindex_t;
 
 /** the available SSZ Types */
 typedef enum {
-  SSZ_TYPE_UINT       = 0, /**< Basic uint type */
-  SSZ_TYPE_BOOLEAN    = 1, /**< Basic boolean type (true or false) */
-  SSZ_TYPE_CONTAINER  = 2, /**< Container type */
-  SSZ_TYPE_VECTOR     = 3, /**< Vector type wih a fixed length*/
-  SSZ_TYPE_LIST       = 4, /**< List type with a variable length*/
-  SSZ_TYPE_BIT_VECTOR = 5, /**< Bit vector type  with a fixed length*/
-  SSZ_TYPE_BIT_LIST   = 6, /**< Bit list type with a variable length*/
-  SSZ_TYPE_UNION      = 7, /**< Union type with a variable length*/
-  SSZ_TYPE_NONE       = 8, /**< a NONE-Type (only used in unions) */
+  SSZ_TYPE_UINT           = 0,  /**< Basic uint type */
+  SSZ_TYPE_BOOLEAN        = 1,  /**< Basic boolean type (true or false) */
+  SSZ_TYPE_CONTAINER      = 2,  /**< Container type */
+  SSZ_TYPE_VECTOR         = 3,  /**< Vector type with a fixed length*/
+  SSZ_TYPE_LIST           = 4,  /**< List type with a variable length*/
+  SSZ_TYPE_BIT_VECTOR     = 5,  /**< Bit vector type  with a fixed length*/
+  SSZ_TYPE_BIT_LIST       = 6,  /**< Bit list type with a variable length*/
+  SSZ_TYPE_UNION          = 7,  /**< Union type with a variable length*/
+  SSZ_TYPE_NONE           = 8,  /**< a NONE-Type (only used in unions and as inactive slot in progressive containers) */
+  SSZ_TYPE_PROG_CONTAINER = 9,  /**< ProgressiveContainer (EIP-7495): container with progressive merkleization and active_fields mix-in */
+  SSZ_TYPE_PROG_LIST      = 10, /**< ProgressiveList (EIP-7916): list without capacity, progressive merkleization */
+  SSZ_TYPE_PROG_BIT_LIST  = 11, /**< ProgressiveBitlist (EIP-7916): bit list without capacity, progressive merkleization */
 } ssz_type_t;
 
 /**
@@ -85,7 +92,7 @@ typedef enum {
 /** a SSZ Type Definition */
 struct ssz_def {
   const char* name;      /**< name of the property or SSZ Def*/
-  uint8_t     type : 4;  /**< General SSZ type (4 bits, 0-8 fits) */
+  uint8_t     type : 4;  /**< General SSZ type (4 bits, 0-11 fits) */
   uint8_t     flags : 4; /**< flags of the object (4 bits) */
   union {
     struct {
@@ -135,6 +142,26 @@ typedef struct {
  */
 #define ssz_builder_for_def(typename) \
   (ssz_builder_t) { .def = (const ssz_def_t*) (typename), .fixed = (buffer_t) {.data = (bytes_t) {.data = NULL, .len = 0}, .allocated = 0}, .dynamic = (buffer_t) {.data = (bytes_t) {.data = NULL, .len = 0}, .allocated = 0} }
+
+/** checks if the definition is a container type (Container or ProgressiveContainer) */
+static inline bool ssz_is_container_type(const ssz_def_t* def) {
+  return def->type == SSZ_TYPE_CONTAINER || def->type == SSZ_TYPE_PROG_CONTAINER;
+}
+
+/** checks if the definition is a list type (List or ProgressiveList) */
+static inline bool ssz_is_list_type(const ssz_def_t* def) {
+  return def->type == SSZ_TYPE_LIST || def->type == SSZ_TYPE_PROG_LIST;
+}
+
+/** checks if the definition is a bit list type (Bitlist or ProgressiveBitlist) */
+static inline bool ssz_is_bit_list_type(const ssz_def_t* def) {
+  return def->type == SSZ_TYPE_BIT_LIST || def->type == SSZ_TYPE_PROG_BIT_LIST;
+}
+
+/** checks if the definition uses progressive merkleization (EIP-7495 / EIP-7916) */
+static inline bool ssz_is_progressive_type(const ssz_def_t* def) {
+  return def->type == SSZ_TYPE_PROG_CONTAINER || def->type == SSZ_TYPE_PROG_LIST || def->type == SSZ_TYPE_PROG_BIT_LIST;
+}
 
 /** gets the uint64 value of the object */
 static inline uint64_t ssz_uint64(ssz_ob_t ob) {
@@ -705,6 +732,89 @@ extern const ssz_def_t ssz_none;                // special value for none in uio
     .def.container = {.elements = children,                         \
                       .len      = sizeof(children) / sizeof(ssz_def_t) } \
   }
+
+/**
+ * Defines a ProgressiveContainer (EIP-7495) type with named fields.
+ *
+ * The container is merkleized using the progressive Merkle tree shape
+ * (EIP-7916) and the `active_fields` bitvector is mixed into the root.
+ * Inactive field positions (gaps in `active_fields`) are represented by
+ * `SSZ_NONE` entries in the field array: they are not serialized, but they
+ * occupy a chunk position (zero chunk) in the Merkle tree, keeping the
+ * generalized indices of the remaining fields stable across versions.
+ *
+ * The last entry must not be `SSZ_NONE` (per EIP-7495 `active_fields`
+ * must not end in 0) and at most 256 field positions are allowed.
+ *
+ * @param propname Name of the container type
+ * @param children Array of ssz_def_t field definitions (with SSZ_NONE gaps)
+ *
+ * Example:
+ * ```c
+ * // active_fields = [1, 0, 1]
+ * static const ssz_def_t SQUARE[] = {
+ *     SSZ_UINT16("side"),  // merkleized at field index 0
+ *     SSZ_NONE,            // inactive slot
+ *     SSZ_UINT8("color"),  // merkleized at field index 2
+ * };
+ * const ssz_def_t SQUARE_CONTAINER = SSZ_PROG_CONTAINER("Square", SQUARE);
+ * ```
+ */
+#define SSZ_PROG_CONTAINER(propname, children)                          \
+  {                                                                     \
+    .name          = propname,                                         \
+    .type          = SSZ_TYPE_PROG_CONTAINER,                          \
+    .def.container = {.elements = children,                            \
+                      .len      = sizeof(children) / sizeof(ssz_def_t) } \
+  }
+
+/**
+ * Defines a ProgressiveList (EIP-7916) field: a list without a capacity
+ * limit, merkleized using the progressive Merkle tree shape.
+ *
+ * Serialization is identical to `SSZ_LIST`, only the merkleization differs.
+ *
+ * @param property Name of the field
+ * @param typePtr Element type definition (without &)
+ *
+ * Example:
+ * ```c
+ * SSZ_PROG_LIST("transactions", Transaction)
+ * ```
+ */
+#define SSZ_PROG_LIST(property, typePtr)                                       \
+  {                                                                            \
+    .name = property, .type = SSZ_TYPE_PROG_LIST, .def.vector = {.len  = 0,   \
+                                                                 .type = &typePtr } \
+  }
+
+/**
+ * Defines a ProgressiveBitlist (EIP-7916) field: a bit list without a
+ * capacity limit, merkleized using the progressive Merkle tree shape.
+ *
+ * Serialization is identical to `SSZ_BIT_LIST` (incl. sentinel bit).
+ *
+ * @param property Name of the field
+ *
+ * Example:
+ * ```c
+ * SSZ_PROG_BIT_LIST("aggregation_bits")
+ * ```
+ */
+#define SSZ_PROG_BIT_LIST(property)                                            \
+  {                                                                            \
+    .name = property, .type = SSZ_TYPE_PROG_BIT_LIST, .def.vector = {.len  = 0,    \
+                                                                     .type = NULL } \
+  }
+
+/**
+ * Defines a ProgressiveList of bytes (rendered as hex in JSON).
+ *
+ * @param name Field name
+ *
+ * Example: SSZ_PROG_BYTES("extra_data")
+ */
+#define SSZ_PROG_BYTES(name) SSZ_PROG_LIST(name, ssz_uint8)
 
 /**
  * Defines a union type (one of several variants).

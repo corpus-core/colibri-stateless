@@ -191,6 +191,8 @@ static const ssz_def_t C4_ETH_ZK_SYNCDATA_V6[6] = {
  */
 static inline size_t array_idx(const ssz_def_t* array, size_t len, const ssz_def_t* target) {
   for (size_t i = 0; i < len; i++) {
+    // >= SSZ_TYPE_CONTAINER matches any def whose first union member is a child-def
+    // pointer (container, vector, list, union and the progressive variants)
     if (array[i].type >= SSZ_TYPE_CONTAINER && array[i].def.container.elements == target) return i;
   }
   return 0;

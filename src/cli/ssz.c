@@ -131,7 +131,7 @@ int main(int argc, char* argv[]) {
         }
       }
     }
-    else if (res.def && res.def->type != SSZ_TYPE_CONTAINER) {
+    else if (res.def && !ssz_is_container_type(res.def)) {
       char* endptr;
       long  value = strtol(argv[i], &endptr, 10);
       if (endptr && *endptr == '\0')
