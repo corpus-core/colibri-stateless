@@ -79,6 +79,28 @@ static bool is_basic_type(const ssz_def_t* def) {
   return def->type == SSZ_TYPE_UINT || def->type == SSZ_TYPE_BOOLEAN || def->type == SSZ_TYPE_NONE;
 }
 
+/**
+ * Computes the generalized index of a chunk within a progressive Merkle
+ * tree (EIP-7916), relative to the progressive data root (excluding the
+ * length / active_fields mix-in).
+ *
+ * The progressive tree is a chain of balanced subtrees with 4^level leaves:
+ * chunk ranges 0..<1, 1..<5, 5..<21, 21..<85, ...
+ *
+ * @param chunk_i The chunk index
+ * @return The gindex of the chunk relative to the progressive data root
+ */
+static gindex_t prog_chunk_gindex(uint64_t chunk_i) {
+  gindex_t gindex = 1;
+  uint32_t depth  = 0;
+  while (chunk_i >= ((uint64_t) 1) << depth) {
+    chunk_i -= ((uint64_t) 1) << depth;
+    depth += 2;
+    gindex = (gindex << 1) | 1;
+  }
+  return ((gindex << 1) << depth) + chunk_i;
+}
+
 gindex_t ssz_gindex(const ssz_def_t* def, int num_elements, ...) {
   if (!def || num_elements <= 0) return 0;
   gindex_t gindex = 1;
@@ -90,7 +112,39 @@ gindex_t ssz_gindex(const ssz_def_t* def, int num_elements, ...) {
     uint64_t leafes = 0;
     uint64_t idx    = 0;
 
-    if (def->type == SSZ_TYPE_CONTAINER) {
+    if (def->type == SSZ_TYPE_PROG_CONTAINER) {
+      // progressive containers: the chunk index is the field position in the base
+      // container (inactive positions are unreachable), the data tree sits at gindex 2
+      // below the active_fields mix-in
+      const char*      path_element = va_arg(args, const char*);
+      const ssz_def_t* elements     = ssz_container_elements(def);
+      uint32_t         base_len     = ssz_container_len(def);
+      const ssz_def_t* found        = NULL;
+      uint64_t         chunk_i      = 0;
+      for (uint32_t n = 0; n < base_len; n++) {
+        if (ssz_field_active(def, n) && strcmp(elements[n].name, path_element) == 0) {
+          found   = elements + n;
+          chunk_i = n;
+          break;
+        }
+      }
+      if (!found) {
+        va_end(args);
+        return 0;
+      }
+      def    = found;
+      gindex = ssz_add_gindex(gindex, ssz_add_gindex(2, prog_chunk_gindex(chunk_i)));
+      continue;
+    }
+    else if (def->type == SSZ_TYPE_PROG_LIST) {
+      // like List, the index addresses the chunk for basic element types and the element otherwise,
+      // the data tree sits at gindex 2 below the length mix-in
+      idx    = (uint64_t) va_arg(args, int);
+      def    = def->def.vector.type;
+      gindex = ssz_add_gindex(gindex, ssz_add_gindex(2, prog_chunk_gindex(idx)));
+      continue;
+    }
+    else if (def->type == SSZ_TYPE_CONTAINER) {
       const char* path_element = va_arg(args, const char*);
       for (int i = 0; i < def->def.container.len; i++) {
         if (strcmp(def->def.container.elements[i].name, path_element) == 0) {
@@ -173,23 +227,27 @@ static void ssz_add_multi_merkle_proof(gindex_t gindex, buffer_t* witnesses, buf
   }
 }
 
-// gets the value of a field from a container
+// gets the value of a field from a container by base-container position index
 static ssz_ob_t ssz_get_field(ssz_ob_t* ob, int index) {
   ssz_ob_t res = {0};
   // check if the object is valid
-  if (!ob || !ob->def || ob->def->type != SSZ_TYPE_CONTAINER || !ob->bytes.data || !ob->bytes.len || index < 0 || index >= ob->def->def.container.len)
+  if (!ob || !ob->def || !ssz_is_container_type(ob->def) || !ob->bytes.data || !ob->bytes.len || index < 0)
     return res;
+  const ssz_def_t* elements = ssz_container_elements(ob->def);
+  uint32_t         count    = ssz_container_len(ob->def);
+  if ((uint32_t) index >= count || !ssz_field_active(ob->def, (uint32_t) index)) return res;
 
-  // iterate over the fields of the container
+  // iterate over the (active) fields of the container
   size_t           pos = 0;
   const ssz_def_t* def = NULL;
-  for (int i = 0; i < ob->def->def.container.len; i++) {
-    def        = ob->def->def.container.elements + i;
+  for (uint32_t i = 0; i < count; i++) {
+    if (!ssz_field_active(ob->def, i)) continue; // inactive position of a progressive container
+    def        = elements + i;
     size_t len = ssz_fixed_length(def);
 
     if (pos + len > ob->bytes.len) return res;
 
-    if (i == index) {
+    if ((int) i == index) {
       res.def = def;
       if (ssz_is_dynamic(def)) {
         uint32_t offset = uint32_from_le(ob->bytes.data + pos);
@@ -198,9 +256,10 @@ static ssz_ob_t ssz_get_field(ssz_ob_t* ob, int index) {
         res.bytes.len  = ob->bytes.len - offset;
         pos += len;
 
-        // find next offset
-        for (int n = i + 1; n < ob->def->def.container.len; n++) {
-          if (ssz_is_dynamic(ob->def->def.container.elements + n)) {
+        // find next active dynamic offset
+        for (uint32_t n = i + 1; n < count; n++) {
+          if (!ssz_field_active(ob->def, n)) continue;
+          if (ssz_is_dynamic(elements + n)) {
             if (pos + 4 > ob->bytes.len) return (ssz_ob_t) {0};
 
             offset = uint32_from_le(ob->bytes.data + pos);
@@ -208,7 +267,7 @@ static ssz_ob_t ssz_get_field(ssz_ob_t* ob, int index) {
               res.bytes.len = ob->bytes.data + offset - res.bytes.data;
             break;
           }
-          pos += ssz_fixed_length(ob->def->def.container.elements + n);
+          pos += ssz_fixed_length(elements + n);
         }
       }
       else {
@@ -233,16 +292,20 @@ static ssz_ob_t ssz_get_field(ssz_ob_t* ob, int index) {
 }
 
 const ssz_def_t* ssz_get_def(const ssz_def_t* def, const char* name) {
-  for (int i = 0; i < def->def.container.len; i++) {
-    if (strcmp(def->def.container.elements[i].name, name) == 0) return def->def.container.elements + i;
+  const ssz_def_t* elements = ssz_container_elements(def);
+  uint32_t         count    = ssz_container_len(def);
+  for (uint32_t i = 0; i < count; i++) {
+    if (ssz_field_active(def, i) && strcmp(elements[i].name, name) == 0) return elements + i;
   }
   return NULL;
 }
 
 ssz_ob_t ssz_get(ssz_ob_t* ob, const char* name) {
-  if (ob->def->type != SSZ_TYPE_CONTAINER) return (ssz_ob_t) {0};
-  for (int i = 0; i < ob->def->def.container.len; i++) {
-    if (strcmp(ob->def->def.container.elements[i].name, name) == 0) return ssz_get_field(ob, i);
+  if (!ssz_is_container_type(ob->def)) return (ssz_ob_t) {0};
+  const ssz_def_t* elements = ssz_container_elements(ob->def);
+  uint32_t         count    = ssz_container_len(ob->def);
+  for (uint32_t i = 0; i < count; i++) {
+    if (ssz_field_active(ob->def, i) && strcmp(elements[i].name, name) == 0) return ssz_get_field(ob, (int) i);
   }
   log_error("ssz_get: %s not found in %s", name, ob->def->name);
   return (ssz_ob_t) {0};
@@ -276,7 +339,17 @@ static int calc_num_leafes(const ssz_ob_t* ob, bool only_used) {
   const ssz_def_t* def = ob->def;
   switch (def->type) {
     case SSZ_TYPE_CONTAINER:
-      return def->def.container.len;
+    case SSZ_TYPE_PROG_CONTAINER: // all base-container field positions occupy a chunk (inactive positions merkleize as zero chunks)
+      return (int) ssz_container_len(def);
+    case SSZ_TYPE_PROG_LIST: { // progressive lists have no capacity, so the chunk count is always the used count
+      uint32_t len = ssz_len(*ob);
+      if (is_basic_type(def->def.vector.type))
+        return (len * ssz_fixed_length(def->def.vector.type) + 31) >> 5;
+      else
+        return len;
+    }
+    case SSZ_TYPE_PROG_BIT_LIST:
+      return (ssz_len(*ob) + (SSZ_BITS_PER_CHUNK - 1)) >> 8;
     case SSZ_TYPE_VECTOR:
       if (is_basic_type(def->def.vector.type))
         return (def->def.vector.len * ssz_fixed_length(def->def.vector.type) + 31) >> 5;
@@ -299,26 +372,29 @@ static int calc_num_leafes(const ssz_ob_t* ob, bool only_used) {
 }
 
 static void hash_tree_root(ssz_ob_t ob, uint8_t* out, merkle_ctx_t* parent);
-static void set_leaf(ssz_ob_t ob, int index, uint8_t* out, merkle_ctx_t* ctx) {
+// the chunk index is 64 bit, since progressive trees pad the deepest subtree
+// with virtual zero chunks beyond the used chunk count
+static void set_leaf(ssz_ob_t ob, uint64_t index, uint8_t* out, merkle_ctx_t* ctx) {
   memset(out, 0, 32);
   const ssz_def_t* def = ob.def;
   switch (def->type) {
     case SSZ_TYPE_NONE: break;
-    case SSZ_TYPE_CONTAINER: {
-      if (index < def->def.container.len)
-        hash_tree_root(
-            ssz_get(&ob, (char*) def->def.container.elements[index].name),
-            out, ctx);
+    case SSZ_TYPE_CONTAINER:
+    case SSZ_TYPE_PROG_CONTAINER: {
+      // inactive positions of progressive containers merkleize as zero chunks
+      if (index < ssz_container_len(def) && ssz_field_active(def, (uint32_t) index))
+        hash_tree_root(ssz_get_field(&ob, (int) index), out, ctx);
       break;
     }
+    case SSZ_TYPE_PROG_BIT_LIST:
     case SSZ_TYPE_BIT_LIST: {
       uint32_t bit_len = ssz_len(ob);
       uint32_t chunks  = (bit_len + (SSZ_BITS_PER_CHUNK - 1)) >> 8;
       if (index < chunks) {
-        uint32_t byte_offset = index << 5; // index * 32
+        uint64_t byte_offset = index << 5; // index * 32
         // Buffer overflow protection
         if (byte_offset >= ob.bytes.len) return;
-        uint32_t rest = ob.bytes.len - byte_offset;
+        uint32_t rest = ob.bytes.len - (uint32_t) byte_offset;
         if (bit_len % 8 == 0) rest--; // Account for sentinel byte
         if (rest > SSZ_BYTES_PER_CHUNK) rest = SSZ_BYTES_PER_CHUNK;
         memcpy(out, ob.bytes.data + byte_offset, rest);
@@ -329,21 +405,23 @@ static void set_leaf(ssz_ob_t ob, int index, uint8_t* out, merkle_ctx_t* ctx) {
     }
     case SSZ_TYPE_VECTOR:
     case SSZ_TYPE_LIST:
+    case SSZ_TYPE_PROG_LIST:
     case SSZ_TYPE_BIT_VECTOR: {
 
       // handle complex types
-      if ((def->type == SSZ_TYPE_VECTOR || def->type == SSZ_TYPE_LIST) && !is_basic_type(def->def.vector.type)) {
+      if (def->type != SSZ_TYPE_BIT_VECTOR && !is_basic_type(def->def.vector.type)) {
         uint32_t len = ssz_len(ob);
         if (index < len)
-          hash_tree_root(ssz_at(ob, index), out, ctx);
+          hash_tree_root(ssz_at(ob, (uint32_t) index), out, ctx);
         return;
       }
 
-      int offset = index * SSZ_BYTES_PER_CHUNK;
-      int len    = ob.bytes.len - offset;
-      if (len > SSZ_BYTES_PER_CHUNK) len = SSZ_BYTES_PER_CHUNK;
-      if (offset < ob.bytes.len)
+      uint64_t offset = index * SSZ_BYTES_PER_CHUNK;
+      if (offset < ob.bytes.len) {
+        uint32_t len = ob.bytes.len - (uint32_t) offset;
+        if (len > SSZ_BYTES_PER_CHUNK) len = SSZ_BYTES_PER_CHUNK;
         memcpy(out, ob.bytes.data + offset, len);
+      }
       break;
     }
     case SSZ_TYPE_UINT:
@@ -355,6 +433,39 @@ static void set_leaf(ssz_ob_t ob, int index, uint8_t* out, merkle_ctx_t* ctx) {
       // TODO imoplement it
       break;
   }
+}
+
+/**
+ * Records a node hash as proof witness if the given global gindex
+ * is part of the requested witness set.
+ *
+ * @param ctx Merkle context (no-op if NULL or no proof is attached)
+ * @param gindex global gindex of the node
+ * @param value The node hash to record (32 bytes)
+ */
+static void record_witness_at(merkle_ctx_t* ctx, gindex_t gindex, const uint8_t* value) {
+  if (!ctx || !ctx->proof) return;
+  int pos = gindex_indexOf(ctx->proof->witnesses, gindex);
+  log_debug_full("gindex: %l (r:%l) %s %x",
+                 gindex, ctx->root_gindex, pos >= 0 ? "X" : " ", bytes(value, 32));
+  if (pos >= 0) {
+    buffer_grow(ctx->proof->proof, (ctx->proof->witnesses->data.len / sizeof(gindex_t)) * 32);
+    ctx->proof->proof->data.len = ctx->proof->witnesses->data.len / sizeof(gindex_t) * 32;
+    memcpy(ctx->proof->proof->data.data + pos * 32, value, 32);
+  }
+}
+
+/**
+ * Records a computed node hash as proof witness if its global gindex
+ * is part of the requested witness set.
+ *
+ * @param ctx Merkle context (no-op if no proof is attached)
+ * @param local_gindex gindex of the node relative to the object's data root
+ * @param out The computed node hash (32 bytes)
+ */
+static void record_witness(merkle_ctx_t* ctx, gindex_t local_gindex, const uint8_t* out) {
+  if (!ctx->proof) return;
+  record_witness_at(ctx, ssz_add_gindex(ctx->root_gindex, local_gindex), out);
 }
 
 /**
@@ -406,19 +517,63 @@ static void merkle_hash(merkle_ctx_t* ctx, int index, int depth, uint8_t* out) {
     //   safe_free(s);
   }
 
-  if (ctx->proof) {
-    gindex  = ssz_add_gindex(ctx->root_gindex, gindex); // global gindex
-    int pos = gindex_indexOf(ctx->proof->witnesses, gindex);
-    log_debug_full("gindex: %l (i: %d  d:%d  r:%l) %s %x",
-                   gindex, index, depth, ctx->root_gindex, pos >= 0 ? "X" : " ", bytes(out, 32));
-    //    fprintf(stderr, "gindex: %llu (i: %d  d:%d  r:%llu) %s", gindex, index, depth, ctx->root_gindex, pos >= 0 ? "X" : " ");
-    //    print_hex(stderr, bytes(out, 32), " : ", "\n");
-    if (pos >= 0) {
-      buffer_grow(ctx->proof->proof, (ctx->proof->witnesses->data.len / sizeof(gindex_t)) * 32);
-      ctx->proof->proof->data.len = ctx->proof->witnesses->data.len / sizeof(gindex_t) * 32;
-      memcpy(ctx->proof->proof->data.data + pos * 32, out, 32);
-    }
+  record_witness(ctx, gindex, out);
+}
+
+/**
+ * Computes a node of a balanced binary subtree within a progressive Merkle
+ * tree (EIP-7916). The subtree rooted at this node covers 2^depth chunks
+ * starting at chunk_index; chunks beyond the used chunk count are zero.
+ *
+ * @param ctx Merkle context with object data and proof state
+ * @param chunk_index Index of the first chunk covered by this node
+ * @param depth Remaining depth below this node
+ * @param local_gindex gindex of this node relative to the object's data root
+ * @param out Output buffer for the node hash (32 bytes)
+ */
+static void merkle_hash_prog_subtree(merkle_ctx_t* ctx, uint64_t chunk_index, uint32_t depth, gindex_t local_gindex, uint8_t* out) {
+  if (depth == 0) {
+    if (ctx->proof) ctx->last_gindex = ssz_add_gindex(ctx->root_gindex, local_gindex);
+    set_leaf(ctx->ob, chunk_index, out, ctx);
   }
+#ifdef PRECOMPILE_ZERO_HASHES
+  else if (chunk_index >= (uint64_t) ctx->num_used_leafes && depth <= MAX_DEPTH)
+    cached_zero_hash((int) depth - 1, out);
+#endif
+  else {
+    uint8_t temp[64];
+    merkle_hash_prog_subtree(ctx, chunk_index, depth - 1, local_gindex << 1, temp);
+    merkle_hash_prog_subtree(ctx, chunk_index + (((uint64_t) 1) << (depth - 1)), depth - 1, (local_gindex << 1) | 1, temp + 32);
+    sha256(bytes(temp, 64), out);
+  }
+  record_witness(ctx, local_gindex, out);
+}
+
+/**
+ * Computes a chain node of a progressive Merkle tree (EIP-7916).
+ *
+ * The progressive tree is a chain of balanced binary subtrees with
+ * 4^level leaves each: the left child of a chain node is the balanced
+ * subtree covering the next 4^level chunks, the right child is the next
+ * chain node. The chain terminates with a zero node once all used chunks
+ * are covered.
+ *
+ * @param ctx Merkle context with object data and proof state
+ * @param chunk_offset Index of the first chunk covered by this chain node
+ * @param level Progressive level (the left subtree covers 4^level chunks)
+ * @param local_gindex gindex of this chain node relative to the object's data root
+ * @param out Output buffer for the node hash (32 bytes)
+ */
+static void merkle_hash_progressive(merkle_ctx_t* ctx, uint64_t chunk_offset, uint32_t level, gindex_t local_gindex, uint8_t* out) {
+  if (chunk_offset >= (uint64_t) ctx->num_used_leafes)
+    memset(out, 0, 32); // zero terminator of the subtree chain
+  else {
+    uint8_t temp[64];
+    merkle_hash_prog_subtree(ctx, chunk_offset, 2 * level, local_gindex << 1, temp);
+    merkle_hash_progressive(ctx, chunk_offset + (((uint64_t) 1) << (2 * level)), level + 1, (local_gindex << 1) | 1, temp + 32);
+    sha256(bytes(temp, 64), out);
+  }
+  record_witness(ctx, local_gindex, out);
 }
 
 static inline void calc_leafes(merkle_ctx_t* ctx, ssz_ob_t ob) {
@@ -441,11 +596,28 @@ static void mix_in_length(uint8_t* root, uint32_t length, merkle_ctx_t* ctx) {
   uint64_to_le(length_bytes, (uint64_t) length);
   sha256_merkle(bytes(root, 32), bytes(length_bytes, 32), root);
 
-  if (ctx && ctx->proof) {
-    int pos = gindex_indexOf(ctx->proof->witnesses, ctx->root_gindex + 1);
-    if (pos >= 0 && ctx->proof->proof->data.data)
-      memcpy(ctx->proof->proof->data.data + pos * 32, length_bytes, 32);
-  }
+  // the length node is the right sibling of the data root
+  if (ctx) record_witness_at(ctx, ctx->root_gindex + 1, length_bytes);
+}
+
+/**
+ * Mixes in the active_fields bitvector for progressive containers (EIP-7495).
+ * The bitmask is stored directly in the type definition.
+ *
+ * @param root The current root hash (will be modified in place)
+ * @param def The progressive container definition
+ * @param ctx Merkle context for proof generation (can be NULL)
+ */
+static void mix_in_active_fields(uint8_t* root, const ssz_def_t* def, merkle_ctx_t* ctx) {
+  uint8_t  active_fields[32] = {0};
+  uint64_t mask              = def->def.progressive_container.active_fields;
+  // serialize the mask as a 256-bit little-endian bitvector (only bits 0..63 are used)
+  for (uint32_t i = 0; i < 8; i++)
+    active_fields[i] = (uint8_t) ((mask >> (i * 8)) & 0xff);
+  sha256_merkle(bytes(root, 32), bytes(active_fields, 32), root);
+
+  // the active_fields node is the right sibling of the data root
+  if (ctx) record_witness_at(ctx, ctx->root_gindex + 1, active_fields);
 }
 
 /**
@@ -459,22 +631,30 @@ static void mix_in_length(uint8_t* root, uint32_t length, merkle_ctx_t* ctx) {
 static void hash_tree_root(ssz_ob_t ob, uint8_t* out, merkle_ctx_t* parent) {
   memset(out, 0, 32);
   if (!ob.def) return;
-  merkle_ctx_t ctx = {0};
-  ctx.root_gindex  = 1;
+  merkle_ctx_t ctx         = {0};
+  bool         progressive = ssz_is_progressive_type(ob.def);
+  ctx.root_gindex          = 1;
   calc_leafes(&ctx, ob);
   if (parent) {
-    ctx.proof       = parent->proof;
-    ctx.root_gindex = ob.def->type == SSZ_TYPE_LIST ? parent->last_gindex * 2 : parent->last_gindex;
+    ctx.proof = parent->proof;
+    // lists and progressive types adjust root_gindex for their mix-in, so their data
+    // tree becomes the left child of the object root (bit lists keep the legacy behavior)
+    ctx.root_gindex = (ob.def->type == SSZ_TYPE_LIST || progressive) ? parent->last_gindex * 2 : parent->last_gindex;
   }
 
-  if (ctx.num_leafes == 1)
+  if (progressive)
+    merkle_hash_progressive(&ctx, 0, 0, 1, out);
+  else if (ctx.num_leafes == 1)
     set_leaf(ob, 0, out, NULL);
   else
     merkle_hash(&ctx, 0, 0, out);
 
   // Mix in length for variable-length types (lists and bit lists)
-  if (ob.def->type == SSZ_TYPE_LIST || ob.def->type == SSZ_TYPE_BIT_LIST)
+  if (ssz_is_list_type(ob.def) || ssz_is_bit_list_type(ob.def))
     mix_in_length(out, ssz_len(ob), &ctx);
+  // Mix in the active_fields bitvector for progressive containers
+  else if (ob.def->type == SSZ_TYPE_PROG_CONTAINER)
+    mix_in_active_fields(out, ob.def, &ctx);
 }
 
 void ssz_hash_tree_root(ssz_ob_t ob, uint8_t* out) {
@@ -710,10 +890,13 @@ void ssz_verify_single_merkle_proof(bytes_t proof_data, bytes32_t leaf, gindex_t
 }
 
 gindex_t ssz_add_gindex(gindex_t gindex1, gindex_t gindex2) {
-  uint32_t depth = log2_ceil((uint32_t) gindex2 + 1) - 1;
-  if (depth > 63) {
-    log_error("gindex depth is too large: %u", depth);
-    return 0;
-  }
-  return (gindex1 << depth) | (gindex2 & ((1 << depth) - 1));
+  if (gindex1 == 0 || gindex2 == 0) return 0;
+  // 64-bit floor(log2(gindex)) = depth of the gindex in the tree
+  uint32_t depth1 = 0;
+  for (gindex_t g = gindex1 >> 1; g; g >>= 1) depth1++;
+  uint32_t depth2 = 0;
+  for (gindex_t g = gindex2 >> 1; g; g >>= 1) depth2++;
+  // combined depth must fit into 64 bits, otherwise the gindex would silently wrap
+  if (depth1 + depth2 > 63) return 0;
+  return (gindex1 << depth2) | (gindex2 & ((((gindex_t) 1) << depth2) - 1));
 }

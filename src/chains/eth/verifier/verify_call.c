@@ -90,7 +90,7 @@ static call_account_t* call_accounts_from_ssz(ssz_ob_t ssz_accounts) {
     // code) or a boolean "code_used" flag (false = no code, true = code
     // exists but was not included in the proof).
     ssz_ob_t code = ssz_get(&acc, "code");
-    if (code.def && code.def->type == SSZ_TYPE_LIST && code.bytes.len > 0) {
+    if (code.def && ssz_is_list_type(code.def) && code.bytes.len > 0) {
       ca->code = code.bytes;
       ca->flags |= ACCOUNT_HAS_CODE;
     }
@@ -129,7 +129,7 @@ bool c4_eth_verify_accounts(verify_ctx_t* ctx, ssz_ob_t accounts, bytes32_t stat
     ssz_ob_t acc = ssz_at(accounts, i);
     if (!eth_verify_account_proof_exec(ctx, &acc, root, ETH_ACCOUNT_CODE_HASH, bytes(code_hash_exepected, 32))) RETURN_VERIFY_ERROR(ctx, "Failed to verify account proof");
     ssz_ob_t code = ssz_get(&acc, "code");
-    if (code.def->type == SSZ_TYPE_LIST) {
+    if (ssz_is_list_type(code.def)) {
       bytes32_t code_hash_passed = {0};
       keccak(code.bytes, code_hash_passed);
       if (memcmp(code_hash_exepected, code_hash_passed, 32) != 0) RETURN_VERIFY_ERROR(ctx, "Code hash mismatch");

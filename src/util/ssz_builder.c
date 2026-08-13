@@ -41,9 +41,11 @@
  * @return Pointer to the field's type definition, or NULL if not found
  */
 static const ssz_def_t* find_def(const ssz_def_t* def, const char* name) {
-  if (def->type != SSZ_TYPE_CONTAINER) return NULL;
-  for (int i = 0; i < def->def.container.len; i++) {
-    if (strcmp(def->def.container.elements[i].name, name) == 0) return def->def.container.elements + i;
+  if (!ssz_is_container_type(def)) return NULL;
+  const ssz_def_t* elements = ssz_container_elements(def);
+  uint32_t         count    = ssz_container_len(def);
+  for (uint32_t i = 0; i < count; i++) {
+    if (ssz_field_active(def, i) && strcmp(elements[i].name, name) == 0) return elements + i;
   }
   return NULL;
 }
@@ -125,26 +127,31 @@ void ssz_add_bytes(ssz_builder_t* buffer, const char* name, bytes_t data) {
     fbprintf(stderr, "ssz_add_bytes: name %s not found in %s\n", name, buffer->def->name);
     return;
   }
-  buffer_t* bytes        = &(buffer->fixed);
-  size_t    fixed_length = 0;
+  const ssz_def_t* elements = ssz_container_elements(buffer->def);
+  uint32_t         count    = ssz_container_len(buffer->def);
+  buffer_t*        bytes    = &(buffer->fixed);
+  size_t           fixed_length = 0;
 
   // check offset
   size_t offset = 0;
-  for (int i = 0; i < buffer->def->def.container.len; i++) {
-    if (buffer->def->def.container.elements + i == def) {
+  for (uint32_t i = 0; i < count; i++) {
+    if (!ssz_field_active(buffer->def, i)) continue; // inactive position of a progressive container
+    if (elements + i == def) {
       if (offset != buffer->fixed.data.len) {
         fbprintf(stderr, "ssz_add_bytes: %d ( +%d ) %s\n", buffer->fixed.data.len, data.len, name);
         fbprintf(stderr, "ssz_add_bytes:    offset mismatch %l != %d\n", (uint64_t) offset, buffer->fixed.data.len);
       }
       break;
     }
-    offset += ssz_fixed_length(buffer->def->def.container.elements + i);
+    offset += ssz_fixed_length(elements + i);
   }
 
   if (ssz_is_dynamic(def)) {
     offset = 0;
-    for (int i = 0; i < buffer->def->def.container.len; i++)
-      offset += ssz_fixed_length(buffer->def->def.container.elements + i);
+    for (uint32_t i = 0; i < count; i++) {
+      if (ssz_field_active(buffer->def, i))
+        offset += ssz_fixed_length(elements + i);
+    }
     ssz_add_uint32(buffer, offset + buffer->dynamic.data.len);
     bytes = &(buffer->dynamic);
   }
@@ -227,25 +234,29 @@ ssz_ob_t ssz_from_json(json_t json, const ssz_def_t* def, c4_state_t* state) {
   ssz_builder_t buf = {0};
   buf.def           = def;
   switch (def->type) {
+    case SSZ_TYPE_PROG_CONTAINER:
     case SSZ_TYPE_CONTAINER: {
-      // Container: iterate over all fields, convert JSON to SSZ
+      // Container: iterate over active fields, convert JSON to SSZ
       // Handle optional fields (opt_mask) and CamelCase/snake_case field names
-      uint64_t optmask     = 0;
-      int      optmask_len = 0;
-      int      optmask_idx = -1;
-      for (int i = 0; i < def->def.container.len; i++) {
-        if (def->def.container.elements[i].flags & SSZ_FLAG_OPT_MASK) {
+      const ssz_def_t* elements    = ssz_container_elements(def);
+      uint32_t         count       = ssz_container_len(def);
+      uint64_t         optmask     = 0;
+      int              optmask_len = 0;
+      int              optmask_idx = -1;
+      for (uint32_t i = 0; i < count; i++) {
+        if (!ssz_field_active(def, i)) continue; // inactive position of a progressive container
+        if (elements[i].flags & SSZ_FLAG_OPT_MASK) {
           optmask_idx = buf.fixed.data.len;
-          optmask_len = def->def.container.elements[i].def.uint.len;
-          ssz_add_bytes(&buf, def->def.container.elements[i].name, NULL_BYTES);
+          optmask_len = elements[i].def.uint.len;
+          ssz_add_bytes(&buf, elements[i].name, NULL_BYTES);
           continue;
         }
-        json_t element = json_get(json, def->def.container.elements[i].name);
+        json_t element = json_get(json, elements[i].name);
         if (element.type == JSON_TYPE_NOT_FOUND) {
           // Field not found: try converting CamelCase to snake_case
           // e.g., "blockNumber" -> "block_number"
           buffer_t pascal_name = {0};
-          for (const char* c = def->def.container.elements[i].name; *c; c++) {
+          for (const char* c = elements[i].name; *c; c++) {
             char cc = *c;
             if (cc >= 'A' && cc <= 'Z') {
               if (pascal_name.data.len && pascal_name.data.data[pascal_name.data.len - 1] != '_')
@@ -261,16 +272,16 @@ ssz_ob_t ssz_from_json(json_t json, const ssz_def_t* def, c4_state_t* state) {
         }
         if (element.type == JSON_TYPE_NOT_FOUND) {
           if (optmask_idx != -1) {
-            ssz_add_bytes(&buf, def->def.container.elements[i].name, NULL_BYTES);
+            ssz_add_bytes(&buf, elements[i].name, NULL_BYTES);
             continue;
           }
-          char* error = bprintf(NULL, "ssz_from_json: %s.%s not found", def->name, def->def.container.elements[i].name);
+          char* error = bprintf(NULL, "ssz_from_json: %s.%s not found", def->name, elements[i].name);
           c4_state_add_error(state, error);
           free(error);
         }
-        optmask |= 1 << i;
-        ssz_ob_t ob = ssz_from_json(element, def->def.container.elements + i, state);
-        ssz_add_bytes(&buf, def->def.container.elements[i].name, ob.bytes);
+        if (i < 64) optmask |= ((uint64_t) 1) << i; // the opt mask covers at most 64 fields
+        ssz_ob_t ob = ssz_from_json(element, elements + i, state);
+        ssz_add_bytes(&buf, elements[i].name, ob.bytes);
         safe_free(ob.bytes.data);
       }
       if (optmask_len == 4 && buf.fixed.data.data)
@@ -329,6 +340,7 @@ ssz_ob_t ssz_from_json(json_t json, const ssz_def_t* def, c4_state_t* state) {
         return (ssz_ob_t) {.def = def, .bytes = buf.fixed.data};
       }
     }
+    case SSZ_TYPE_PROG_LIST:
     case SSZ_TYPE_LIST: {
       // List: convert JSON array to variable-length SSZ list
       if (def->def.vector.type->type == SSZ_TYPE_UINT && def->def.vector.type->def.uint.len == 1)
@@ -363,6 +375,7 @@ ssz_ob_t ssz_from_json(json_t json, const ssz_def_t* def, c4_state_t* state) {
       return (ssz_ob_t) {.def = def, .bytes = buf.fixed.data};
     }
     case SSZ_TYPE_BIT_LIST:
+    case SSZ_TYPE_PROG_BIT_LIST:
       return (ssz_ob_t) {.def = def, .bytes = json_as_bytes(json, &buf.fixed)};
     default:
       return (ssz_ob_t) {.def = def, .bytes = {0}};
