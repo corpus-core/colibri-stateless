@@ -1,3 +1,6 @@
+.env
+.proverkey
+/eip-*.md
 /build
 /build/ios
 /build_ios_*
