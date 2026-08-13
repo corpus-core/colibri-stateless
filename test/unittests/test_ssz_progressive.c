@@ -28,6 +28,7 @@
 #include "bytes.h"
 #include "c4_assert.h"
 #include "json.h"
+#include "logger.h"
 #include "ssz.h"
 #include "state.h"
 #include "unity.h"
@@ -52,32 +53,28 @@ static const ssz_def_t PROG_BIT_LIST = SSZ_PROG_BIT_LIST("bits");
 static const ssz_def_t BYTE_LIST_64       = SSZ_BYTES("data", 64);
 static const ssz_def_t BYTELIST_PROG_LIST = SSZ_PROG_LIST("byte_lists", BYTE_LIST_64);
 
-// EIP-7495 example: class Square(ProgressiveContainer(active_fields=[1, 0, 1]))
-static const ssz_def_t SQUARE[] = {
-    SSZ_UINT16("side"),
-    SSZ_NONE,
-    SSZ_UINT8("color"),
+// EIP-7495 example: Shape base container with all fields at their canonical positions
+// (Square uses active_fields=[1, 0, 1], Circle uses [0, 1, 1] over the same base)
+static const ssz_def_t SHAPE_FIELDS[] = {
+    SSZ_UINT16("side"),   // field position 0
+    SSZ_UINT16("radius"), // field position 1
+    SSZ_UINT8("color"),   // field position 2
 };
-static const ssz_def_t SQUARE_CONTAINER = SSZ_PROG_CONTAINER("Square", SQUARE);
-
-// EIP-7495 example: class Circle(ProgressiveContainer(active_fields=[0, 1, 1]))
-static const ssz_def_t CIRCLE[] = {
-    SSZ_NONE,
-    SSZ_UINT16("radius"),
-    SSZ_UINT8("color"),
-};
-static const ssz_def_t CIRCLE_CONTAINER = SSZ_PROG_CONTAINER("Circle", CIRCLE);
+static const ssz_def_t SHAPE_CONTAINER  = SSZ_CONTAINER("Shape", SHAPE_FIELDS);
+static const ssz_def_t SQUARE_CONTAINER = SSZ_PROG_CONTAINER("Square", SHAPE_CONTAINER, 0b101);
+static const ssz_def_t CIRCLE_CONTAINER = SSZ_PROG_CONTAINER("Circle", SHAPE_CONTAINER, 0b110);
 
 // class Nested(ProgressiveContainer(active_fields=[1, 1, 0, 0, 1])):
 //   slot: uint64, root: Bytes32, values: ProgressiveList[uint64]
-static const ssz_def_t NESTED[] = {
-    SSZ_UINT64("slot"),
-    SSZ_BYTES32("root"),
-    SSZ_NONE,
-    SSZ_NONE,
-    SSZ_PROG_LIST("values", ssz_uint64_def),
+static const ssz_def_t NESTED_FIELDS[] = {
+    SSZ_UINT64("slot"),                     // field position 0
+    SSZ_BYTES32("root"),                    // field position 1
+    SSZ_UINT8("reserved_1"),                // field position 2 (inactive in Nested)
+    SSZ_UINT8("reserved_2"),                // field position 3 (inactive in Nested)
+    SSZ_PROG_LIST("values", ssz_uint64_def) // field position 4
 };
-static const ssz_def_t NESTED_CONTAINER = SSZ_PROG_CONTAINER("Nested", NESTED);
+static const ssz_def_t NESTED_BASE_CONTAINER = SSZ_CONTAINER("NestedBase", NESTED_FIELDS);
+static const ssz_def_t NESTED_CONTAINER      = SSZ_PROG_CONTAINER("Nested", NESTED_BASE_CONTAINER, 0b10011);
 
 // serialization of Nested(slot=12345, root=0x11*32, values=[1..7]) created with remerkleable
 static const char* NESTED_SER_HEX = "0x39300000000000001111111111111111111111111111111111111111111111111111111111111111"
@@ -248,7 +245,7 @@ void test_prog_gindex(void) {
   for (size_t i = 0; i < sizeof(vectors) / sizeof(vectors[0]); i++)
     TEST_ASSERT_EQUAL_UINT64(vectors[i].gindex, ssz_gindex(&BYTES32_PROG_LIST, 1, vectors[i].idx));
 
-  // field gindices of a progressive container (chunk index == field position incl. SSZ_NONE slots)
+  // field gindices of a progressive container (chunk index == base-container field position)
   TEST_ASSERT_EQUAL_UINT64(4, ssz_gindex(&NESTED_CONTAINER, 1, "slot"));    // chunk 0
   TEST_ASSERT_EQUAL_UINT64(40, ssz_gindex(&NESTED_CONTAINER, 1, "root"));   // chunk 1
   TEST_ASSERT_EQUAL_UINT64(43, ssz_gindex(&NESTED_CONTAINER, 1, "values")); // chunk 4
@@ -256,9 +253,10 @@ void test_prog_gindex(void) {
   // combined path into the nested progressive list (values[0..3] are packed in chunk 0)
   TEST_ASSERT_EQUAL_UINT64(172, ssz_gindex(&NESTED_CONTAINER, 2, "values", 0));
 
-  // unknown fields and inactive slots must not resolve
+  // unknown fields and inactive positions must not resolve
   TEST_ASSERT_EQUAL_UINT64(0, ssz_gindex(&NESTED_CONTAINER, 1, "unknown"));
-  TEST_ASSERT_EQUAL_UINT64(0, ssz_gindex(&NESTED_CONTAINER, 1, "NONE"));
+  TEST_ASSERT_EQUAL_UINT64(0, ssz_gindex(&NESTED_CONTAINER, 1, "reserved_1"));
+  TEST_ASSERT_EQUAL_UINT64(0, ssz_gindex(&NESTED_CONTAINER, 1, "reserved_2"));
 }
 
 void test_prog_proof_roundtrip(void) {
@@ -455,7 +453,7 @@ void test_prog_container_invalid_bytes(void) {
   c4_state_free(&state);
 }
 
-// JSON dump of a progressive container must skip inactive SSZ_NONE slots
+// JSON dump of a progressive container must skip inactive positions
 void test_prog_container_dump(void) {
   uint8_t  raw[128] = {0};
   bytes_t  data     = from_hex(NESTED_SER_HEX, raw, sizeof(raw));
@@ -463,7 +461,8 @@ void test_prog_container_dump(void) {
 
   char* json_str = ssz_dump_to_str(ob, false, false);
   TEST_ASSERT_NOT_NULL(json_str);
-  TEST_ASSERT_NULL_MESSAGE(strstr(json_str, "NONE"), "inactive slots must not appear in the JSON dump");
+  TEST_ASSERT_NULL_MESSAGE(strstr(json_str, "reserved_1"), "inactive positions must not appear in the JSON dump");
+  TEST_ASSERT_NULL_MESSAGE(strstr(json_str, "reserved_2"), "inactive positions must not appear in the JSON dump");
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(json_str, "\"slot\""), "active field slot missing in dump");
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(json_str, "\"root\""), "active field root missing in dump");
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(json_str, "\"values\""), "active field values missing in dump");
@@ -546,17 +545,365 @@ void test_prog_proof_dynamic_element(void) {
 }
 
 void test_prog_container_invalid_defs(void) {
-  // active_fields must not end in 0 -> last element must not be SSZ_NONE
-  static const ssz_def_t TRAILING_NONE[] = {
+  // active_fields must not end in 0 -> highest set bit must be < base_len
+  static const ssz_def_t SINGLE_FIELD[] = {
       SSZ_UINT64("value"),
-      SSZ_NONE,
   };
-  static const ssz_def_t TRAILING_NONE_CONTAINER = SSZ_PROG_CONTAINER("TrailingNone", TRAILING_NONE);
+  static const ssz_def_t SINGLE_FIELD_CONTAINER    = SSZ_CONTAINER("SingleField", SINGLE_FIELD);
+  static const ssz_def_t TRAILING_ZERO_CONTAINER   = SSZ_PROG_CONTAINER("TrailingZero", SINGLE_FIELD_CONTAINER, 0b10);
+  static const ssz_def_t EMPTY_MASK_CONTAINER      = SSZ_PROG_CONTAINER("EmptyMask", SINGLE_FIELD_CONTAINER, 0);
 
   uint8_t    data[8] = {0};
   c4_state_t state   = {0};
-  TEST_ASSERT_FALSE_MESSAGE(ssz_is_valid(ssz_ob(TRAILING_NONE_CONTAINER, bytes(data, sizeof(data))), false, &state), "trailing SSZ_NONE must be invalid");
+  TEST_ASSERT_FALSE_MESSAGE(ssz_is_valid(ssz_ob(TRAILING_ZERO_CONTAINER, bytes(data, sizeof(data))), false, &state), "bit outside base_len must be invalid");
   c4_state_free(&state);
+  state = (c4_state_t) {0};
+  TEST_ASSERT_FALSE_MESSAGE(ssz_is_valid(ssz_ob(EMPTY_MASK_CONTAINER, bytes(data, sizeof(data))), false, &state), "empty active_fields mask must be invalid");
+  c4_state_free(&state);
+}
+
+// Two variants of the same base container are only equal when their active_fields match
+void test_prog_container_is_type(void) {
+  static const ssz_def_t SHAPE_A = SSZ_PROG_CONTAINER("A", SHAPE_CONTAINER, 0b101);
+  static const ssz_def_t SHAPE_B = SSZ_PROG_CONTAINER("B", SHAPE_CONTAINER, 0b110);
+
+  // Square uses the same base and mask as SHAPE_A, so they must compare equal
+  uint8_t  square_data[3] = {0x2a, 0x00, 0x07}; // side=42, color=7
+  ssz_ob_t sq             = ssz_ob(SHAPE_A, bytes(square_data, sizeof(square_data)));
+  TEST_ASSERT_TRUE(ssz_is_type(&sq, &SQUARE_CONTAINER));
+
+  // Different mask -> different type, even with the same base container
+  TEST_ASSERT_FALSE(ssz_is_type(&sq, &SHAPE_B));
+  TEST_ASSERT_FALSE(ssz_is_type(&sq, &CIRCLE_CONTAINER));
+}
+
+// Direct unit tests for the new public helpers ssz_container_elements,
+// ssz_container_len, ssz_field_active and ssz_active_fields
+void test_prog_container_helpers(void) {
+  // Regular container: helpers must reflect the raw definition
+  TEST_ASSERT_EQUAL_PTR(SHAPE_FIELDS, ssz_container_elements(&SHAPE_CONTAINER));
+  TEST_ASSERT_EQUAL_UINT32(3, ssz_container_len(&SHAPE_CONTAINER));
+  TEST_ASSERT_TRUE(ssz_field_active(&SHAPE_CONTAINER, 0));
+  TEST_ASSERT_TRUE(ssz_field_active(&SHAPE_CONTAINER, 1));
+  TEST_ASSERT_TRUE(ssz_field_active(&SHAPE_CONTAINER, 2));
+  TEST_ASSERT_TRUE_MESSAGE(ssz_field_active(&SHAPE_CONTAINER, 63), "regular containers report all positions active");
+  TEST_ASSERT_EQUAL_UINT64_MESSAGE(0, ssz_active_fields(&SHAPE_CONTAINER), "regular containers have no active_fields mask");
+
+  // Progressive container SQUARE (mask 0b101): resolves to base fields
+  TEST_ASSERT_EQUAL_PTR(SHAPE_FIELDS, ssz_container_elements(&SQUARE_CONTAINER));
+  TEST_ASSERT_EQUAL_UINT32(3, ssz_container_len(&SQUARE_CONTAINER));
+  TEST_ASSERT_EQUAL_UINT64(0x5ULL, ssz_active_fields(&SQUARE_CONTAINER));
+  TEST_ASSERT_TRUE(ssz_field_active(&SQUARE_CONTAINER, 0));
+  TEST_ASSERT_FALSE(ssz_field_active(&SQUARE_CONTAINER, 1));
+  TEST_ASSERT_TRUE(ssz_field_active(&SQUARE_CONTAINER, 2));
+  // Positions beyond the mask must not report as active and must not overflow the uint64 shift
+  TEST_ASSERT_FALSE(ssz_field_active(&SQUARE_CONTAINER, 3));
+  TEST_ASSERT_FALSE(ssz_field_active(&SQUARE_CONTAINER, 63));
+  TEST_ASSERT_FALSE_MESSAGE(ssz_field_active(&SQUARE_CONTAINER, 64), "field_active must guard against 64-bit shift overflow");
+  TEST_ASSERT_FALSE(ssz_field_active(&SQUARE_CONTAINER, 1000));
+
+  // Different mask over the same base
+  TEST_ASSERT_EQUAL_PTR(SHAPE_FIELDS, ssz_container_elements(&CIRCLE_CONTAINER));
+  TEST_ASSERT_EQUAL_UINT64(0x6ULL, ssz_active_fields(&CIRCLE_CONTAINER));
+  TEST_ASSERT_FALSE(ssz_field_active(&CIRCLE_CONTAINER, 0));
+  TEST_ASSERT_TRUE(ssz_field_active(&CIRCLE_CONTAINER, 1));
+  TEST_ASSERT_TRUE(ssz_field_active(&CIRCLE_CONTAINER, 2));
+
+  // Confirm the base container is really referenced (not copied) so that any change
+  // to the base propagates to every variant that shares it.
+  TEST_ASSERT_EQUAL_PTR(&SHAPE_CONTAINER, SQUARE_CONTAINER.def.progressive_container.container);
+  TEST_ASSERT_EQUAL_PTR(&SHAPE_CONTAINER, CIRCLE_CONTAINER.def.progressive_container.container);
+}
+
+// Regression: two variants that share the exact same base container must produce
+// different hash tree roots when their active_fields differ, even if the serialized
+// bytes happen to be identical.
+void test_prog_container_base_sharing_regression(void) {
+  // Both Square and Circle keep only two of the three positions active, both fields
+  // have the same total fixed length (uint16 + uint8 = 3 bytes), so serialized bytes
+  // are identical for the values [0x42, 0x00, 0x01].
+  uint8_t  raw[3] = {0x42, 0x00, 0x01};
+  ssz_ob_t sq     = ssz_ob(SQUARE_CONTAINER, bytes(raw, sizeof(raw)));
+  ssz_ob_t ci     = ssz_ob(CIRCLE_CONTAINER, bytes(raw, sizeof(raw)));
+
+  TEST_ASSERT_EQUAL_UINT32(sq.bytes.len, ci.bytes.len);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY_MESSAGE(sq.bytes.data, ci.bytes.data, sq.bytes.len,
+                                        "shared base container: serialized bytes must be identical");
+
+  // But the merkle roots must differ because active_fields is mixed into the root.
+  bytes32_t sq_root = {0};
+  bytes32_t ci_root = {0};
+  ssz_hash_tree_root(sq, sq_root);
+  ssz_hash_tree_root(ci, ci_root);
+  TEST_ASSERT_FALSE_MESSAGE(memcmp(sq_root, ci_root, 32) == 0,
+                            "different masks over identical bytes must produce different roots");
+
+  // The same byte value maps to a different named field depending on the mask
+  TEST_ASSERT_EQUAL_UINT64(0x42, ssz_get_uint64(&sq, "side"));
+  TEST_ASSERT_EQUAL_UINT64(0x42, ssz_get_uint64(&ci, "radius"));
+
+  // Inactive positions are addressed by base-container field names but must not
+  // be reachable; silence log_error noise from ssz_get() while probing them.
+  log_level_t old_level = c4_get_log_level();
+  c4_set_log_level(LOG_SILENT);
+  TEST_ASSERT_TRUE_MESSAGE(ssz_is_error(ssz_get(&sq, "radius")), "radius is inactive in Square");
+  TEST_ASSERT_TRUE_MESSAGE(ssz_is_error(ssz_get(&ci, "side")), "side is inactive in Circle");
+  c4_set_log_level(old_level);
+}
+
+// Base container with camelCase field names, used to test JSON name mapping
+static const ssz_def_t CAMEL_FIELDS[] = {
+    SSZ_UINT64("blockNumber"),
+    SSZ_UINT32("gasLimit"),
+};
+static const ssz_def_t CAMEL_BASE_CONTAINER = SSZ_CONTAINER("CamelBase", CAMEL_FIELDS);
+static const ssz_def_t CAMEL_PROG_CONTAINER = SSZ_PROG_CONTAINER("CamelProg", CAMEL_BASE_CONTAINER, 0b11);
+
+// ssz_from_json must map snake_case JSON keys to camelCase DEF field names for
+// progressive containers as well (already covered for regular containers).
+void test_prog_container_camel_case_from_json(void) {
+  uint8_t expected[12] = {0};
+  uint64_to_le(expected, 12345);
+  uint32_to_le(expected + 8, 1000000);
+
+  // 1) snake_case JSON matches camelCase DEF via the built-in conversion
+  json_t     json_snake = json_parse("{\"block_number\": 12345, \"gas_limit\": 1000000}");
+  c4_state_t state      = {0};
+  ssz_ob_t   ob         = ssz_from_json(json_snake, &CAMEL_PROG_CONTAINER, &state);
+  TEST_ASSERT_NULL_MESSAGE(state.error, state.error);
+  TEST_ASSERT_EQUAL_UINT32(sizeof(expected), ob.bytes.len);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY_MESSAGE(expected, ob.bytes.data, sizeof(expected),
+                                        "snake_case JSON must map to camelCase DEF fields");
+  check_root(ob, "0x71c4a192e55369c7d2c11b137106dad2e1d84f1a308a1ffee20c04ede9455a5e",
+             "invalid CamelProg root from snake_case JSON");
+  safe_free(ob.bytes.data);
+
+  // 2) exact camelCase JSON must also be accepted (direct name lookup)
+  json_t     json_camel = json_parse("{\"blockNumber\": 12345, \"gasLimit\": 1000000}");
+  c4_state_t state2     = {0};
+  ssz_ob_t   ob2        = ssz_from_json(json_camel, &CAMEL_PROG_CONTAINER, &state2);
+  TEST_ASSERT_NULL_MESSAGE(state2.error, state2.error);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY_MESSAGE(expected, ob2.bytes.data, sizeof(expected),
+                                        "camelCase JSON must also match the DEF field name directly");
+  safe_free(ob2.bytes.data);
+
+  // 3) ssz_get on a progressive container also resolves camelCase field names
+  ssz_ob_t stored = ssz_ob(CAMEL_PROG_CONTAINER, bytes(expected, sizeof(expected)));
+  TEST_ASSERT_EQUAL_UINT64(12345, ssz_get_uint64(&stored, "blockNumber"));
+  TEST_ASSERT_EQUAL_UINT32(1000000, ssz_get_uint32(&stored, "gasLimit"));
+}
+
+// Inactive positions of a progressive container must not be reachable via any
+// public accessor. Also verifies that unknown field names return an error object.
+void test_prog_container_inactive_field_unreachable(void) {
+  uint8_t  raw[128] = {0};
+  bytes_t  data     = from_hex(NESTED_SER_HEX, raw, sizeof(raw));
+  ssz_ob_t ob       = ssz_ob(NESTED_CONTAINER, data);
+
+  // active fields are reachable and produce non-zero gindices
+  TEST_ASSERT_FALSE(ssz_is_error(ssz_get(&ob, "slot")));
+  TEST_ASSERT_NOT_NULL(ssz_get_def(&NESTED_CONTAINER, "slot"));
+  TEST_ASSERT_NOT_EQUAL(0, ssz_gindex(&NESTED_CONTAINER, 1, "slot"));
+
+  // silence the log_error() spam from ssz_get() for unreachable names
+  log_level_t old_level = c4_get_log_level();
+  c4_set_log_level(LOG_SILENT);
+
+  // inactive positions defined in the base container must be unreachable
+  ssz_ob_t r1 = ssz_get(&ob, "reserved_1");
+  TEST_ASSERT_TRUE_MESSAGE(ssz_is_error(r1), "ssz_get on inactive position must return an error object");
+  TEST_ASSERT_NULL_MESSAGE(ssz_get_def(&NESTED_CONTAINER, "reserved_1"), "ssz_get_def must return NULL for inactive position");
+  TEST_ASSERT_EQUAL_UINT64(0, ssz_gindex(&NESTED_CONTAINER, 1, "reserved_1"));
+
+  ssz_ob_t r2 = ssz_get(&ob, "reserved_2");
+  TEST_ASSERT_TRUE(ssz_is_error(r2));
+  TEST_ASSERT_NULL(ssz_get_def(&NESTED_CONTAINER, "reserved_2"));
+  TEST_ASSERT_EQUAL_UINT64(0, ssz_gindex(&NESTED_CONTAINER, 1, "reserved_2"));
+
+  // fully unknown field name behaves the same
+  TEST_ASSERT_TRUE(ssz_is_error(ssz_get(&ob, "does_not_exist")));
+  TEST_ASSERT_NULL(ssz_get_def(&NESTED_CONTAINER, "does_not_exist"));
+
+  c4_set_log_level(old_level);
+}
+
+// Serialization order test: field positions in the base container determine byte order,
+// not the order in which values are provided via JSON.
+void test_prog_container_field_order(void) {
+  // Base SHAPE_CONTAINER positions: side(0), radius(1), color(2)
+  // Square mask 0b101 -> active positions [0, 2] -> serialized as [side, color] = [uint16, uint8] (3 bytes)
+  const uint8_t expected[3] = {0x42, 0x00, 0x01}; // side=0x42, color=0x01
+
+  // JSON with keys in reversed order must still produce the canonical position-order encoding
+  json_t json = json_parse("{\"color\": 1, \"side\": 66}"); // 66 == 0x42
+  c4_state_t state = {0};
+  ssz_ob_t   ob    = ssz_from_json(json, &SQUARE_CONTAINER, &state);
+  TEST_ASSERT_NULL_MESSAGE(state.error, state.error);
+  TEST_ASSERT_EQUAL_UINT32(sizeof(expected), ob.bytes.len);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY_MESSAGE(expected, ob.bytes.data, sizeof(expected),
+                                        "serialization must follow base-container position order, not JSON key order");
+
+  // The resulting object hashes to the well-known Square root (identical to
+  // test_prog_container_eip7495_examples), confirming the byte layout is canonical.
+  check_root(ob, "0x5d5c127e27e9862d9aacb13609cd9e936514fbe38e97dba278f0a83b553e57a0",
+             "Square root from reversed-key JSON must match canonical root");
+  safe_free(ob.bytes.data);
+}
+
+// ---------- Mask edge-case fixtures ----------
+
+// Single-field base container (base_len=1). Only valid mask per EIP-7495 is 0b1.
+static const ssz_def_t SINGLE_UINT64_FIELDS[] = {
+    SSZ_UINT64("only"),
+};
+static const ssz_def_t SINGLE_UINT64_BASE = SSZ_CONTAINER("SingleUint64Base", SINGLE_UINT64_FIELDS);
+static const ssz_def_t SINGLE_UINT64_PROG = SSZ_PROG_CONTAINER("SingleUint64Prog", SINGLE_UINT64_BASE, 0x1ULL);
+
+// 5-field base container. Variants: only last active (0x10) and all active (0x1F).
+static const ssz_def_t FIVE_UINT64_FIELDS[] = {
+    SSZ_UINT64("a"),
+    SSZ_UINT64("b"),
+    SSZ_UINT64("c"),
+    SSZ_UINT64("d"),
+    SSZ_UINT64("e"),
+};
+static const ssz_def_t FIVE_UINT64_BASE      = SSZ_CONTAINER("FiveUint64Base", FIVE_UINT64_FIELDS);
+static const ssz_def_t FIVE_LAST_ONLY_PROG   = SSZ_PROG_CONTAINER("FiveLast", FIVE_UINT64_BASE, 0x10ULL); // 1 << 4
+static const ssz_def_t FIVE_ALL_ACTIVE_PROG  = SSZ_PROG_CONTAINER("FiveAll", FIVE_UINT64_BASE, 0x1FULL);  // 5 bits set
+
+// 64-field base container: exercises the boundary where mask_bound would wrap.
+static const ssz_def_t BASE64_UINT8_FIELDS[64] = {
+    SSZ_UINT8("f00"), SSZ_UINT8("f01"), SSZ_UINT8("f02"), SSZ_UINT8("f03"),
+    SSZ_UINT8("f04"), SSZ_UINT8("f05"), SSZ_UINT8("f06"), SSZ_UINT8("f07"),
+    SSZ_UINT8("f08"), SSZ_UINT8("f09"), SSZ_UINT8("f10"), SSZ_UINT8("f11"),
+    SSZ_UINT8("f12"), SSZ_UINT8("f13"), SSZ_UINT8("f14"), SSZ_UINT8("f15"),
+    SSZ_UINT8("f16"), SSZ_UINT8("f17"), SSZ_UINT8("f18"), SSZ_UINT8("f19"),
+    SSZ_UINT8("f20"), SSZ_UINT8("f21"), SSZ_UINT8("f22"), SSZ_UINT8("f23"),
+    SSZ_UINT8("f24"), SSZ_UINT8("f25"), SSZ_UINT8("f26"), SSZ_UINT8("f27"),
+    SSZ_UINT8("f28"), SSZ_UINT8("f29"), SSZ_UINT8("f30"), SSZ_UINT8("f31"),
+    SSZ_UINT8("f32"), SSZ_UINT8("f33"), SSZ_UINT8("f34"), SSZ_UINT8("f35"),
+    SSZ_UINT8("f36"), SSZ_UINT8("f37"), SSZ_UINT8("f38"), SSZ_UINT8("f39"),
+    SSZ_UINT8("f40"), SSZ_UINT8("f41"), SSZ_UINT8("f42"), SSZ_UINT8("f43"),
+    SSZ_UINT8("f44"), SSZ_UINT8("f45"), SSZ_UINT8("f46"), SSZ_UINT8("f47"),
+    SSZ_UINT8("f48"), SSZ_UINT8("f49"), SSZ_UINT8("f50"), SSZ_UINT8("f51"),
+    SSZ_UINT8("f52"), SSZ_UINT8("f53"), SSZ_UINT8("f54"), SSZ_UINT8("f55"),
+    SSZ_UINT8("f56"), SSZ_UINT8("f57"), SSZ_UINT8("f58"), SSZ_UINT8("f59"),
+    SSZ_UINT8("f60"), SSZ_UINT8("f61"), SSZ_UINT8("f62"), SSZ_UINT8("f63"),
+};
+static const ssz_def_t BASE64_UINT8_BASE          = SSZ_CONTAINER("Base64", BASE64_UINT8_FIELDS);
+static const ssz_def_t BASE64_ALL_ACTIVE_PROG     = SSZ_PROG_CONTAINER("Base64All", BASE64_UINT8_BASE, 0xFFFFFFFFFFFFFFFFULL);
+static const ssz_def_t BASE64_LAST_ONLY_PROG      = SSZ_PROG_CONTAINER("Base64Last", BASE64_UINT8_BASE, 0x8000000000000000ULL); // 1 << 63
+
+// Verifies the mask edge cases: only first, only last, all active, base_len=64.
+// Expected roots were produced with remerkleable.
+void test_prog_container_mask_edge_cases(void) {
+  c4_state_t state = {0};
+
+  // 1) base_len=1, mask=0b1 (only valid mask for a single-field base)
+  uint8_t single_data[8] = {0};
+  uint64_to_le(single_data, 0xdead);
+  ssz_ob_t single_ob = ssz_ob(SINGLE_UINT64_PROG, bytes(single_data, sizeof(single_data)));
+  TEST_ASSERT_TRUE_MESSAGE(ssz_is_valid(single_ob, true, &state), state.error);
+  TEST_ASSERT_EQUAL_UINT64(0xdead, ssz_get_uint64(&single_ob, "only"));
+  check_root(single_ob, "0x0af7681c73c2c78bda41c2e0f3e7535fe3057cbeae454c948f86e84353e4292f",
+             "invalid root for single-field prog container (mask=1)");
+
+  // 2) base_len=5, mask=1<<4 (only the last position active)
+  //    serialization is just the uint64 value of "e"
+  uint8_t last_data[8] = {0};
+  uint64_to_le(last_data, 0xbeef);
+  ssz_ob_t last_ob = ssz_ob(FIVE_LAST_ONLY_PROG, bytes(last_data, sizeof(last_data)));
+  TEST_ASSERT_TRUE_MESSAGE(ssz_is_valid(last_ob, true, &state), state.error);
+  TEST_ASSERT_EQUAL_UINT64(0xbeef, ssz_get_uint64(&last_ob, "e"));
+  // Inactive positions (0..3) are unreachable via ssz_get
+  log_level_t old_level = c4_get_log_level();
+  c4_set_log_level(LOG_SILENT);
+  TEST_ASSERT_TRUE(ssz_is_error(ssz_get(&last_ob, "a")));
+  TEST_ASSERT_TRUE(ssz_is_error(ssz_get(&last_ob, "b")));
+  TEST_ASSERT_TRUE(ssz_is_error(ssz_get(&last_ob, "c")));
+  TEST_ASSERT_TRUE(ssz_is_error(ssz_get(&last_ob, "d")));
+  c4_set_log_level(old_level);
+  check_root(last_ob, "0x922f69e3c97ba64d887c42b8bd28f38ac568c49408903e88a539fdcc24d85669",
+             "invalid root for 5-field prog container with only last position active");
+
+  // 3) base_len=5, mask=0x1F (all 5 positions active)
+  uint8_t all5_data[40] = {0};
+  for (uint32_t i = 0; i < 5; i++) uint64_to_le(all5_data + i * 8, (uint64_t) (i + 1));
+  ssz_ob_t all5_ob = ssz_ob(FIVE_ALL_ACTIVE_PROG, bytes(all5_data, sizeof(all5_data)));
+  TEST_ASSERT_TRUE_MESSAGE(ssz_is_valid(all5_ob, true, &state), state.error);
+  TEST_ASSERT_EQUAL_UINT64(1, ssz_get_uint64(&all5_ob, "a"));
+  TEST_ASSERT_EQUAL_UINT64(5, ssz_get_uint64(&all5_ob, "e"));
+  check_root(all5_ob, "0x5a167eafdb77037933df6b87009c5d116ef0b6e6800d37b2e70693875b64318d",
+             "invalid root for 5-field prog container with all positions active");
+
+  // 4) base_len=64, mask=all 64 bits set - stresses the special-case branch
+  //    in ssz_is_valid where the bound check is skipped.
+  uint8_t base64_data[64] = {0};
+  for (uint32_t i = 0; i < 64; i++) base64_data[i] = (uint8_t) i;
+  ssz_ob_t base64_all_ob = ssz_ob(BASE64_ALL_ACTIVE_PROG, bytes(base64_data, sizeof(base64_data)));
+  TEST_ASSERT_TRUE_MESSAGE(ssz_is_valid(base64_all_ob, true, &state), state.error);
+  TEST_ASSERT_EQUAL_UINT32(63, ssz_uint32(ssz_get(&base64_all_ob, "f63")));
+  check_root(base64_all_ob, "0x4b042d887794442c1af2513e6eef8418f17fd4b1f3fe06904e8a5a48ed486bc6",
+             "invalid root for 64-field prog container with all bits set");
+
+  // 5) base_len=64, mask=1<<63 (only the very last position active)
+  uint8_t base64_last_byte[1] = {0xcd};
+  ssz_ob_t base64_last_ob     = ssz_ob(BASE64_LAST_ONLY_PROG, bytes(base64_last_byte, sizeof(base64_last_byte)));
+  TEST_ASSERT_TRUE_MESSAGE(ssz_is_valid(base64_last_ob, true, &state), state.error);
+  TEST_ASSERT_EQUAL_UINT32(0xcd, ssz_uint32(ssz_get(&base64_last_ob, "f63")));
+  check_root(base64_last_ob, "0x0fe6af3b3a37b46aa0ff135554dadc84a5f789db81834572d951f109069cbf85",
+             "invalid root for 64-field prog container with only f63 active");
+}
+
+// ---------- Nested progressive container ----------
+
+// Inner progressive container (identical to SQUARE_CONTAINER shape).
+static const ssz_def_t NESTED_INNER_FIELDS[] = {
+    SSZ_UINT16("side"),
+    SSZ_UINT16("radius"),
+    SSZ_UINT8("color"),
+};
+static const ssz_def_t NESTED_INNER_BASE = SSZ_CONTAINER("InnerBase", NESTED_INNER_FIELDS);
+static const ssz_def_t NESTED_INNER_PROG = SSZ_PROG_CONTAINER("Inner", NESTED_INNER_BASE, 0b101);
+
+// Outer container has 2 positions, both active. Position 1 is itself a prog container.
+static const ssz_def_t NESTED_OUTER_FIELDS[] = {
+    SSZ_UINT64("tag"),
+    {.name = "shape", .type = SSZ_TYPE_PROG_CONTAINER,
+     .def.progressive_container = {.container = &NESTED_INNER_BASE, .active_fields = 0x5ULL}},
+};
+static const ssz_def_t NESTED_OUTER_BASE = SSZ_CONTAINER("OuterBase", NESTED_OUTER_FIELDS);
+static const ssz_def_t NESTED_OUTER_PROG = SSZ_PROG_CONTAINER("Outer", NESTED_OUTER_BASE, 0b11);
+
+// A progressive container nested inside another progressive container must
+// merkleize correctly through both mix-ins. Expected root generated with remerkleable.
+void test_prog_container_nested_prog(void) {
+  // Outer(tag=0xaabbccdd, shape=Inner(side=0x1234, color=0x77))
+  // Serialization: tag (8 bytes, LE) + inner (3 bytes: side=uint16 LE, color=uint8)
+  uint8_t data[11] = {0};
+  uint64_to_le(data, 0xaabbccddULL);
+  data[8]  = 0x34; // side lo
+  data[9]  = 0x12; // side hi
+  data[10] = 0x77; // color
+
+  c4_state_t state = {0};
+  ssz_ob_t   ob    = ssz_ob(NESTED_OUTER_PROG, bytes(data, sizeof(data)));
+  TEST_ASSERT_TRUE_MESSAGE(ssz_is_valid(ob, true, &state), state.error);
+
+  TEST_ASSERT_EQUAL_UINT64(0xaabbccddULL, ssz_get_uint64(&ob, "tag"));
+
+  ssz_ob_t shape = ssz_get(&ob, "shape");
+  TEST_ASSERT_FALSE(ssz_is_error(shape));
+  TEST_ASSERT_EQUAL_INT(SSZ_TYPE_PROG_CONTAINER, shape.def->type);
+  TEST_ASSERT_EQUAL_UINT64(0x5ULL, ssz_active_fields(shape.def));
+  TEST_ASSERT_EQUAL_UINT32(0x1234, ssz_uint32(ssz_get(&shape, "side")));
+  TEST_ASSERT_EQUAL_UINT32(0x77, ssz_uint32(ssz_get(&shape, "color")));
+
+  // Reference root from remerkleable for the same nested value
+  check_root(shape, "0x018504225a478a26465b81b335fe94f2a725642a717d4c109c5f9bb43d5382f5",
+             "invalid inner prog container root");
+  check_root(ob, "0x37e9c1d8796717fa296eb3541104f3cfc14c1c827411255db7c54395f11846b7",
+             "invalid outer prog container root with nested prog container");
 }
 
 int main(void) {
@@ -570,6 +917,14 @@ int main(void) {
   RUN_TEST(test_prog_gindex);
   RUN_TEST(test_prog_proof_roundtrip);
   RUN_TEST(test_prog_container_invalid_defs);
+  RUN_TEST(test_prog_container_is_type);
+  RUN_TEST(test_prog_container_helpers);
+  RUN_TEST(test_prog_container_base_sharing_regression);
+  RUN_TEST(test_prog_container_camel_case_from_json);
+  RUN_TEST(test_prog_container_inactive_field_unreachable);
+  RUN_TEST(test_prog_container_field_order);
+  RUN_TEST(test_prog_container_mask_edge_cases);
+  RUN_TEST(test_prog_container_nested_prog);
   RUN_TEST(test_prog_list_dynamic_elements);
   RUN_TEST(test_prog_list_dynamic_from_json);
   RUN_TEST(test_prog_list_invalid_bytes);

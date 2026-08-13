@@ -56,8 +56,10 @@ static bool is_basic_type(const ssz_def_t* def) {
 // checks if a definition has a dynamic length
 bool ssz_is_dynamic(const ssz_def_t* def) {
   if (ssz_is_container_type(def)) {
-    for (int i = 0; i < def->def.container.len; i++) {
-      if (ssz_is_dynamic(def->def.container.elements + i))
+    const ssz_def_t* elements = ssz_container_elements(def);
+    uint32_t         len      = ssz_container_len(def);
+    for (uint32_t i = 0; i < len; i++) {
+      if (ssz_field_active(def, i) && ssz_is_dynamic(elements + i))
         return true;
     }
   }
@@ -75,9 +77,13 @@ size_t ssz_fixed_length(const ssz_def_t* def) {
       return 1;
     case SSZ_TYPE_CONTAINER:
     case SSZ_TYPE_PROG_CONTAINER: {
-      size_t len = 0;
-      for (int i = 0; i < def->def.container.len; i++)
-        len += ssz_fixed_length(def->def.container.elements + i);
+      const ssz_def_t* elements = ssz_container_elements(def);
+      uint32_t         count    = ssz_container_len(def);
+      size_t           len      = 0;
+      for (uint32_t i = 0; i < count; i++) {
+        if (ssz_field_active(def, i))
+          len += ssz_fixed_length(elements + i);
+      }
       return len;
     }
     case SSZ_TYPE_VECTOR:
@@ -193,21 +199,33 @@ bool ssz_is_valid(ssz_ob_t ob, bool recursive, c4_state_t* state) {
     case SSZ_TYPE_UINT:
       // Uint length must match definition
       RETURN_VALID_IF(ob.bytes.len == ob.def->def.uint.len, "Invalid length for uint");
-    case SSZ_TYPE_PROG_CONTAINER:
-      // ProgressiveContainer: at most 256 field positions, active_fields must not end in 0 (EIP-7495)
-      if (ob.def->def.container.len == 0 || ob.def->def.container.len > 256 ||
-          ob.def->def.container.elements[ob.def->def.container.len - 1].type == SSZ_TYPE_NONE)
+    case SSZ_TYPE_PROG_CONTAINER: {
+      // ProgressiveContainer (EIP-7495): the def must reference a valid base container,
+      // the mask must be non-zero (highest set bit < base_len), and at most 64 positions
+      // are supported by the uint64 mask.
+      const ssz_def_t* base = ob.def->def.progressive_container.container;
+      uint64_t         mask = ob.def->def.progressive_container.active_fields;
+      if (!base || base->type != SSZ_TYPE_CONTAINER || base->def.container.len == 0 || base->def.container.len > 64 || mask == 0)
         THROW_INVALID("Invalid progressive container definition");
-      // fallthrough: remaining checks are identical to Container
+      // highest set bit of the mask must reference an existing field position
+      uint64_t mask_bound = base->def.container.len < 64 ? (((uint64_t) 1) << base->def.container.len) : (uint64_t) -1;
+      if (base->def.container.len < 64 && mask >= mask_bound)
+        THROW_INVALID("Invalid progressive container active_fields mask");
+    }
+      // fallthrough: remaining checks are identical to Container (using helpers that
+      // resolve base container + active_fields for progressive containers)
     case SSZ_TYPE_CONTAINER: {
       // Container with mixed fixed/dynamic fields
       if (ssz_is_dynamic(ob.def) ? (ob.bytes.len < ssz_fixed_length(ob.def)) : (ob.bytes.len != ssz_fixed_length(ob.def))) THROW_INVALID("Invalid length for container");
       if (recursive) {
-        ssz_ob_t last_ob     = {0};
-        uint32_t last_offset = 0;
-        uint32_t pos         = 0;
-        for (int i = 0; i < ob.def->def.container.len; i++) {
-          const ssz_def_t* def = ob.def->def.container.elements + i;
+        const ssz_def_t* elements    = ssz_container_elements(ob.def);
+        uint32_t         count       = ssz_container_len(ob.def);
+        ssz_ob_t         last_ob     = {0};
+        uint32_t         last_offset = 0;
+        uint32_t         pos         = 0;
+        for (uint32_t i = 0; i < count; i++) {
+          if (!ssz_field_active(ob.def, i)) continue; // inactive slot of a progressive container
+          const ssz_def_t* def = elements + i;
           if (ssz_is_dynamic(def)) {
             uint32_t offset = uint32_from_le(ob.bytes.data + pos);
             // Validate offset: must be within bounds, after fixed portion, and monotonically increasing
@@ -322,7 +340,11 @@ bool ssz_is_type(ssz_ob_t* ob, const ssz_def_t* def) {
     ssz_ob_t union_ob = ssz_union(*ob);
     return ssz_is_type(&union_ob, def);
   }
-  if (ssz_is_container_type(ob->def)) return ob->def->def.container.elements == def;
+  // progressive containers with the same base and mask are the same variant
+  if (ob->def->type == SSZ_TYPE_PROG_CONTAINER && def->type == SSZ_TYPE_PROG_CONTAINER)
+    return ob->def->def.progressive_container.container == def->def.progressive_container.container &&
+           ob->def->def.progressive_container.active_fields == def->def.progressive_container.active_fields;
+  if (ssz_is_container_type(ob->def)) return ssz_container_elements(ob->def) == def;
   if (ssz_is_list_type(ob->def)) return ob->def->def.vector.type == def;
   switch (def->type) {
     case SSZ_TYPE_UINT:
@@ -334,7 +356,7 @@ bool ssz_is_type(ssz_ob_t* ob, const ssz_def_t* def) {
     case SSZ_TYPE_BIT_VECTOR:
       return def->type == SSZ_TYPE_BIT_VECTOR && ob->def->def.uint.len == def->def.uint.len;
     case SSZ_TYPE_CONTAINER:
-      return ob->def->def.container.elements == def;
+      return ssz_container_elements(ob->def) == def;
     case SSZ_TYPE_VECTOR: {
       ssz_ob_t el = {.def = ob->def->def.vector.type, .bytes = ob->bytes};
       return def->type == SSZ_TYPE_VECTOR && ob->def->def.uint.len == def->def.uint.len && ssz_is_type(&el, def->def.vector.type);
@@ -411,15 +433,18 @@ static void dump(ssz_dump_t* ctx, ssz_ob_t ob, const char* name, int intend) {
       break;
     case SSZ_TYPE_PROG_CONTAINER:
     case SSZ_TYPE_CONTAINER: {
-      // Container: iterate through fields, respect optional field mask
-      uint64_t mask  = 0;
-      ctx->no_quotes = false;
-      close_char     = '}';
-      bool first     = true;
+      // Container: iterate through fields, respect optional field mask and (for
+      // progressive containers) skip inactive positions
+      const ssz_def_t* elements = ssz_container_elements(def);
+      uint32_t         count    = ssz_container_len(def);
+      uint64_t         mask     = 0;
+      ctx->no_quotes            = false;
+      close_char                = '}';
+      bool first                = true;
       buffer_add_chars(buf, "{\n");
-      for (int i = 0; i < def->def.container.len; i++) {
-        if (def->def.container.elements[i].type == SSZ_TYPE_NONE) continue; // inactive slot of a progressive container
-        ssz_ob_t val = ssz_get(&ob, (char*) def->def.container.elements[i].name);
+      for (uint32_t i = 0; i < count; i++) {
+        if (!ssz_field_active(def, i)) continue; // inactive position of a progressive container
+        ssz_ob_t val = ssz_get(&ob, (char*) elements[i].name);
         if (val.def->flags & SSZ_FLAG_OPT_MASK) {
           mask |= bytes_as_le(val.bytes);
           continue;
@@ -430,7 +455,7 @@ static void dump(ssz_dump_t* ctx, ssz_ob_t ob, const char* name, int intend) {
           first = false;
         else
           buffer_add_chars(buf, ",\n");
-        dump(ctx, val, def->def.container.elements[i].name, intend + 2);
+        dump(ctx, val, elements[i].name, intend + 2);
       }
       break;
     }

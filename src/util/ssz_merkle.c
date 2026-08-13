@@ -113,14 +113,17 @@ gindex_t ssz_gindex(const ssz_def_t* def, int num_elements, ...) {
     uint64_t idx    = 0;
 
     if (def->type == SSZ_TYPE_PROG_CONTAINER) {
-      // progressive containers: the chunk index is the field position (incl. inactive SSZ_NONE slots),
-      // the data tree sits at gindex 2 below the active_fields mix-in
+      // progressive containers: the chunk index is the field position in the base
+      // container (inactive positions are unreachable), the data tree sits at gindex 2
+      // below the active_fields mix-in
       const char*      path_element = va_arg(args, const char*);
+      const ssz_def_t* elements     = ssz_container_elements(def);
+      uint32_t         base_len     = ssz_container_len(def);
       const ssz_def_t* found        = NULL;
       uint64_t         chunk_i      = 0;
-      for (uint32_t n = 0; n < def->def.container.len; n++) {
-        if (def->def.container.elements[n].type != SSZ_TYPE_NONE && strcmp(def->def.container.elements[n].name, path_element) == 0) {
-          found   = def->def.container.elements + n;
+      for (uint32_t n = 0; n < base_len; n++) {
+        if (ssz_field_active(def, n) && strcmp(elements[n].name, path_element) == 0) {
+          found   = elements + n;
           chunk_i = n;
           break;
         }
@@ -224,23 +227,27 @@ static void ssz_add_multi_merkle_proof(gindex_t gindex, buffer_t* witnesses, buf
   }
 }
 
-// gets the value of a field from a container
+// gets the value of a field from a container by base-container position index
 static ssz_ob_t ssz_get_field(ssz_ob_t* ob, int index) {
   ssz_ob_t res = {0};
   // check if the object is valid
-  if (!ob || !ob->def || !ssz_is_container_type(ob->def) || !ob->bytes.data || !ob->bytes.len || index < 0 || index >= ob->def->def.container.len)
+  if (!ob || !ob->def || !ssz_is_container_type(ob->def) || !ob->bytes.data || !ob->bytes.len || index < 0)
     return res;
+  const ssz_def_t* elements = ssz_container_elements(ob->def);
+  uint32_t         count    = ssz_container_len(ob->def);
+  if ((uint32_t) index >= count || !ssz_field_active(ob->def, (uint32_t) index)) return res;
 
-  // iterate over the fields of the container
+  // iterate over the (active) fields of the container
   size_t           pos = 0;
   const ssz_def_t* def = NULL;
-  for (int i = 0; i < ob->def->def.container.len; i++) {
-    def        = ob->def->def.container.elements + i;
+  for (uint32_t i = 0; i < count; i++) {
+    if (!ssz_field_active(ob->def, i)) continue; // inactive position of a progressive container
+    def        = elements + i;
     size_t len = ssz_fixed_length(def);
 
     if (pos + len > ob->bytes.len) return res;
 
-    if (i == index) {
+    if ((int) i == index) {
       res.def = def;
       if (ssz_is_dynamic(def)) {
         uint32_t offset = uint32_from_le(ob->bytes.data + pos);
@@ -249,9 +256,10 @@ static ssz_ob_t ssz_get_field(ssz_ob_t* ob, int index) {
         res.bytes.len  = ob->bytes.len - offset;
         pos += len;
 
-        // find next offset
-        for (int n = i + 1; n < ob->def->def.container.len; n++) {
-          if (ssz_is_dynamic(ob->def->def.container.elements + n)) {
+        // find next active dynamic offset
+        for (uint32_t n = i + 1; n < count; n++) {
+          if (!ssz_field_active(ob->def, n)) continue;
+          if (ssz_is_dynamic(elements + n)) {
             if (pos + 4 > ob->bytes.len) return (ssz_ob_t) {0};
 
             offset = uint32_from_le(ob->bytes.data + pos);
@@ -259,7 +267,7 @@ static ssz_ob_t ssz_get_field(ssz_ob_t* ob, int index) {
               res.bytes.len = ob->bytes.data + offset - res.bytes.data;
             break;
           }
-          pos += ssz_fixed_length(ob->def->def.container.elements + n);
+          pos += ssz_fixed_length(elements + n);
         }
       }
       else {
@@ -284,16 +292,20 @@ static ssz_ob_t ssz_get_field(ssz_ob_t* ob, int index) {
 }
 
 const ssz_def_t* ssz_get_def(const ssz_def_t* def, const char* name) {
-  for (int i = 0; i < def->def.container.len; i++) {
-    if (strcmp(def->def.container.elements[i].name, name) == 0) return def->def.container.elements + i;
+  const ssz_def_t* elements = ssz_container_elements(def);
+  uint32_t         count    = ssz_container_len(def);
+  for (uint32_t i = 0; i < count; i++) {
+    if (ssz_field_active(def, i) && strcmp(elements[i].name, name) == 0) return elements + i;
   }
   return NULL;
 }
 
 ssz_ob_t ssz_get(ssz_ob_t* ob, const char* name) {
   if (!ssz_is_container_type(ob->def)) return (ssz_ob_t) {0};
-  for (int i = 0; i < ob->def->def.container.len; i++) {
-    if (strcmp(ob->def->def.container.elements[i].name, name) == 0) return ssz_get_field(ob, i);
+  const ssz_def_t* elements = ssz_container_elements(ob->def);
+  uint32_t         count    = ssz_container_len(ob->def);
+  for (uint32_t i = 0; i < count; i++) {
+    if (ssz_field_active(ob->def, i) && strcmp(elements[i].name, name) == 0) return ssz_get_field(ob, (int) i);
   }
   log_error("ssz_get: %s not found in %s", name, ob->def->name);
   return (ssz_ob_t) {0};
@@ -327,8 +339,8 @@ static int calc_num_leafes(const ssz_ob_t* ob, bool only_used) {
   const ssz_def_t* def = ob->def;
   switch (def->type) {
     case SSZ_TYPE_CONTAINER:
-    case SSZ_TYPE_PROG_CONTAINER: // all field positions (incl. inactive SSZ_NONE slots) occupy a chunk
-      return def->def.container.len;
+    case SSZ_TYPE_PROG_CONTAINER: // all base-container field positions occupy a chunk (inactive positions merkleize as zero chunks)
+      return (int) ssz_container_len(def);
     case SSZ_TYPE_PROG_LIST: { // progressive lists have no capacity, so the chunk count is always the used count
       uint32_t len = ssz_len(*ob);
       if (is_basic_type(def->def.vector.type))
@@ -369,8 +381,8 @@ static void set_leaf(ssz_ob_t ob, uint64_t index, uint8_t* out, merkle_ctx_t* ct
     case SSZ_TYPE_NONE: break;
     case SSZ_TYPE_CONTAINER:
     case SSZ_TYPE_PROG_CONTAINER: {
-      // inactive slots (SSZ_NONE) of progressive containers merkleize as zero chunks
-      if (index < def->def.container.len && def->def.container.elements[index].type != SSZ_TYPE_NONE)
+      // inactive positions of progressive containers merkleize as zero chunks
+      if (index < ssz_container_len(def) && ssz_field_active(def, (uint32_t) index))
         hash_tree_root(ssz_get_field(&ob, (int) index), out, ctx);
       break;
     }
@@ -590,19 +602,18 @@ static void mix_in_length(uint8_t* root, uint32_t length, merkle_ctx_t* ctx) {
 
 /**
  * Mixes in the active_fields bitvector for progressive containers (EIP-7495).
- * The bitmask is derived from the type definition: bit i is set if field
- * position i holds an active field (not SSZ_NONE).
+ * The bitmask is stored directly in the type definition.
  *
  * @param root The current root hash (will be modified in place)
  * @param def The progressive container definition
  * @param ctx Merkle context for proof generation (can be NULL)
  */
 static void mix_in_active_fields(uint8_t* root, const ssz_def_t* def, merkle_ctx_t* ctx) {
-  uint8_t active_fields[32] = {0};
-  for (uint32_t i = 0; i < def->def.container.len && i < 256; i++) {
-    if (def->def.container.elements[i].type != SSZ_TYPE_NONE)
-      active_fields[i >> 3] |= (uint8_t) (1 << (i & 7));
-  }
+  uint8_t  active_fields[32] = {0};
+  uint64_t mask              = def->def.progressive_container.active_fields;
+  // serialize the mask as a 256-bit little-endian bitvector (only bits 0..63 are used)
+  for (uint32_t i = 0; i < 8; i++)
+    active_fields[i] = (uint8_t) ((mask >> (i * 8)) & 0xff);
   sha256_merkle(bytes(root, 32), bytes(active_fields, 32), root);
 
   // the active_fields node is the right sibling of the data root
