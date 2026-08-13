@@ -855,6 +855,42 @@ void test_prog_container_mask_edge_cases(void) {
              "invalid root for 64-field prog container with only f63 active");
 }
 
+// ---------- Serialization semantics: inactive positions carry no bytes ----------
+
+// EIP-7495: "Serialization is identical to Container" refers to the container
+// formed by the ACTIVE fields only. In remerkleable a ProgressiveContainer only
+// declares its active fields (popcount(active_fields) must equal the field
+// count), so the fixed/dynamic decision and the offset table depend exclusively
+// on active fields. A dynamic type at an inactive base position (e.g. a field
+// used by a different container version) must neither add bytes nor turn the
+// container into a variable-size one; the merkle gap it leaves is a plain zero
+// chunk, independent of the field's type.
+static const ssz_def_t DYN_SHAPE_FIELDS[] = {
+    SSZ_UINT16("side"),     // position 0 (active)
+    SSZ_BYTES("extra", 64), // position 1 (inactive here, dynamic in another version)
+    SSZ_UINT8("color"),     // position 2 (active)
+};
+static const ssz_def_t DYN_SHAPE_BASE = SSZ_CONTAINER("DynShapeBase", DYN_SHAPE_FIELDS);
+static const ssz_def_t DYN_SHAPE_PROG = SSZ_PROG_CONTAINER("DynShape", DYN_SHAPE_BASE, 0b101);
+
+void test_prog_container_inactive_dynamic_field(void) {
+  TEST_ASSERT_FALSE_MESSAGE(ssz_is_dynamic(&DYN_SHAPE_PROG),
+                            "dynamic type at an inactive position must not make the container dynamic");
+  TEST_ASSERT_EQUAL_size_t_MESSAGE(3, ssz_fixed_length(&DYN_SHAPE_PROG),
+                                   "fixed length must cover active fields only (uint16 + uint8)");
+
+  // same bytes as Square: side=0x42, color=1 - no offset table, no bytes for "extra"
+  uint8_t    data[] = {0x42, 0x00, 0x01};
+  ssz_ob_t   ob     = ssz_ob(DYN_SHAPE_PROG, bytes(data, sizeof(data)));
+  c4_state_t state  = {0};
+  TEST_ASSERT_TRUE_MESSAGE(ssz_is_valid(ob, true, &state), state.error);
+
+  // The root equals the remerkleable Square root: the zero-gap at position 1 is
+  // independent of the type the base container declares there.
+  check_root(ob, "0x5d5c127e27e9862d9aacb13609cd9e936514fbe38e97dba278f0a83b553e57a0",
+             "root must match remerkleable Square regardless of the inactive field type");
+}
+
 // ---------- Nested progressive container ----------
 
 // Inner progressive container (identical to SQUARE_CONTAINER shape).
@@ -924,6 +960,7 @@ int main(void) {
   RUN_TEST(test_prog_container_inactive_field_unreachable);
   RUN_TEST(test_prog_container_field_order);
   RUN_TEST(test_prog_container_mask_edge_cases);
+  RUN_TEST(test_prog_container_inactive_dynamic_field);
   RUN_TEST(test_prog_container_nested_prog);
   RUN_TEST(test_prog_list_dynamic_elements);
   RUN_TEST(test_prog_list_dynamic_from_json);
