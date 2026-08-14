@@ -315,11 +315,12 @@ static bool req_bootstrap(c4_state_t* state, bytes32_t block_root, chain_id_t ch
 }
 
 c4_status_t c4_handle_bootstrap(verify_ctx_t* ctx, bytes_t bootstrap_data, bytes32_t trusted_checkpoint) {
-  // Parse bootstrap data as SSZ
+  // Parse bootstrap data as SSZ. The bootstrap container layout differs by fork
+  // (branch depth changes), so we resolve it via the central helper.
   fork_id_t        fork                  = c4_eth_get_fork_for_lcu(ctx->chain_id, bootstrap_data);
-  const ssz_def_t* bootstrap_def_list    = (fork <= C4_FORK_DENEB) ? DENEP_LIGHT_CLIENT_BOOTSTRAP : ELECTRA_LIGHT_CLIENT_BOOTSTRAP;
-  const ssz_def_t  bootstrap_def         = {.name = "LightClientBootstrap", .type = SSZ_TYPE_CONTAINER, .def.container = {.elements = bootstrap_def_list, .len = 3}};
-  ssz_ob_t         bootstrap             = {.bytes = bootstrap_data, .def = &bootstrap_def};
+  const ssz_def_t* bootstrap_def         = eth_get_light_client_bootstrap(fork);
+  if (!bootstrap_def) THROW_ERROR("Bootstrap data: unsupported fork");
+  ssz_ob_t         bootstrap             = {.bytes = bootstrap_data, .def = bootstrap_def};
   bytes32_t        previous_pubkeys_hash = {0}; // in case of a bootstrap, there is no previous pubkey hash, so we set it to 0
 
   // Validate SSZ structure (checks offsets and ensures all properties exist)
@@ -847,10 +848,13 @@ static c4_status_t c4_check_weak_subjectivity(verify_ctx_t* ctx, c4_sync_validat
     return ctx->state.error ? C4_ERROR : C4_PENDING;
 
   // 3. Parse the bootstrap SSZ and bind the header to the checkpointz root.
-  fork_id_t        fork                  = c4_eth_get_fork_for_lcu(ctx->chain_id, bootstrap_data);
-  const ssz_def_t* bootstrap_def_list    = (fork <= C4_FORK_DENEB) ? DENEP_LIGHT_CLIENT_BOOTSTRAP : ELECTRA_LIGHT_CLIENT_BOOTSTRAP;
-  const ssz_def_t  bootstrap_def         = {.name = "LightClientBootstrap", .type = SSZ_TYPE_CONTAINER, .def.container = {.elements = bootstrap_def_list, .len = 3}};
-  ssz_ob_t         bootstrap             = {.bytes = bootstrap_data, .def = &bootstrap_def};
+  fork_id_t        fork          = c4_eth_get_fork_for_lcu(ctx->chain_id, bootstrap_data);
+  const ssz_def_t* bootstrap_def = eth_get_light_client_bootstrap(fork);
+  if (!bootstrap_def) {
+    clear_sync_state(ctx->chain_id);
+    return c4_state_add_error(&ctx->state, "WSP bootstrap: unsupported fork");
+  }
+  ssz_ob_t bootstrap = {.bytes = bootstrap_data, .def = bootstrap_def};
   if (!ssz_is_valid(bootstrap, true, &ctx->state)) {
     clear_sync_state(ctx->chain_id);
     return c4_state_add_error(&ctx->state, "WSP bootstrap: invalid SSZ structure");

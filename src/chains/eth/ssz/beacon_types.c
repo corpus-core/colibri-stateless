@@ -20,15 +20,15 @@
  *
  * SPDX-License-Identifier: MIT
  */
-
+#define NOT_ASSIGNED_YET 0xffffffffffffffffULL
 #include "beacon_types.h"
 #include "ssz.h"
 
 // the fork epochs for the different chains. index 0 is the the first fork or the epcoh of the ALTAIR fork. Must be NULL-Terminated
-static const uint64_t eth_mainnet_fork_epochs[] = {74240ULL, 144896ULL, 194048ULL, 269568ULL, 364032ULL, 411392ULL, 0ULL};
-static const uint64_t eth_gnosis_fork_epochs[]  = {512ULL, 385536ULL, 648704ULL, 889856ULL, 1337856ULL, 1714688ULL, 0ULL};
-static const uint64_t eth_sepolia_fork_epochs[] = {50L, 100L, 56832L, 132608L, 222464L, 272640L, 0ULL};
-static const uint64_t eth_chiado_fork_epochs[]  = {90L, 180L, 244224L, 516608L, 948224L, 1353216L , 0ULL};
+static const uint64_t eth_mainnet_fork_epochs[] = {74240ULL, 144896ULL, 194048ULL, 269568ULL, 364032ULL, 411392ULL, NOT_ASSIGNED_YET, 0ULL};
+static const uint64_t eth_gnosis_fork_epochs[]  = {512ULL, 385536ULL, 648704ULL, 889856ULL, 1337856ULL, 1714688ULL, NOT_ASSIGNED_YET, 0ULL};
+static const uint64_t eth_sepolia_fork_epochs[] = {50L, 100L, 56832L, 132608L, 222464L, 272640L, NOT_ASSIGNED_YET, 0ULL};
+static const uint64_t eth_chiado_fork_epochs[]  = {90L, 180L, 244224L, 516608L, 948224L, 1353216L, NOT_ASSIGNED_YET, 0ULL};
 
 static void mainnet_fork_version(chain_id_t chain_id, fork_id_t fork, uint8_t* version) {
   version[0] = (uint8_t) fork;
@@ -114,7 +114,10 @@ const ssz_def_t* eth_ssz_type_for_fork(eth_ssz_type_t type, fork_id_t fork, chai
   switch (fork) {
     case C4_FORK_DENEB: return eth_ssz_type_for_denep(type, chain_id);
     case C4_FORK_ELECTRA: return eth_ssz_type_for_electra(type, chain_id);
+    // Fulu keeps the Electra `BeaconBlockBody` / `ExecutionPayload` layout
+    // (only the state gained `proposer_lookahead`, which we do not parse here).
     case C4_FORK_FULU: return eth_ssz_type_for_electra(type, chain_id);
+    case C4_FORK_GLOAS: return eth_ssz_type_for_gloas(type, chain_id);
     default: return NULL;
   }
 }
@@ -141,6 +144,9 @@ const gindex_t* c4_block_header_gindexes(chain_id_t chain_id, uint64_t slot) {
   // EP at gindex 25 in BeaconBlockBody (index 9, depth 4), field index i in EP (depth 5) → 25*32+i
   // Deneb: body has 12 fields, EP has 17 fields → EP gindex=25, same layout
   // Electra: body has 13 fields, EP has 17 fields → EP gindex=25, same layout
+  // TODO(gloas): EIP-7732 removes `executionPayload` from the body, so these
+  //              gindices no longer address any EL field once Gloas activates.
+  //              See `eth_tx.h` for the follow-up plan (bid.block_hash + RLP).
   static const gindex_t deneb_gindexes[BLOCK_HEADER_FIELD_COUNT] = {
       800,  // parentHash      (EP index 0)
       802,  // stateRoot       (EP index 2)
@@ -160,6 +166,48 @@ const gindex_t* c4_block_header_gindexes(chain_id_t chain_id, uint64_t slot) {
   fork_id_t           fork = c4_chain_fork_id(chain_id, epoch_for_slot(slot, spec));
   (void) fork;
   return deneb_gindexes;
+}
+
+// Generalized indices for the fork-specific `BeaconState` layout used by the
+// light client. Values are the source of truth for both the verifier and the
+// prover, and are cross-verified against the consensus spec constants (see
+// `specs/gloas/light-client/sync-protocol.md`).
+#define DENEP_CURRENT_SYNC_COMMITTEE_GINDEX   54
+#define ELECTRA_CURRENT_SYNC_COMMITTEE_GINDEX 86
+#define GLOAS_CURRENT_SYNC_COMMITTEE_GINDEX   2945
+#define DENEP_NEXT_SYNC_COMMITTEE_GINDEX      55
+#define ELECTRA_NEXT_SYNC_COMMITTEE_GINDEX    87
+#define GLOAS_NEXT_SYNC_COMMITTEE_GINDEX      2946
+#define DENEP_FINALIZED_ROOT_GINDEX           105
+#define ELECTRA_FINALIZED_ROOT_GINDEX         169
+#define GLOAS_FINALIZED_ROOT_GINDEX           735
+
+// Resolves the fork active at `slot` on `chain_id`. Centralised here so that
+// callers reduce to a single lookup and the fork-detection code cannot drift.
+static inline fork_id_t fork_at_slot(chain_id_t chain_id, uint64_t slot) {
+  const chain_spec_t* spec = c4_eth_get_chain_spec(chain_id);
+  return c4_chain_fork_id(chain_id, epoch_for_slot(slot, spec));
+}
+
+gindex_t c4_current_sync_committee_gindex(chain_id_t chain_id, uint64_t slot) {
+  fork_id_t fork = fork_at_slot(chain_id, slot);
+  if (fork >= C4_FORK_GLOAS) return GLOAS_CURRENT_SYNC_COMMITTEE_GINDEX;
+  if (fork >= C4_FORK_ELECTRA) return ELECTRA_CURRENT_SYNC_COMMITTEE_GINDEX;
+  return DENEP_CURRENT_SYNC_COMMITTEE_GINDEX;
+}
+
+gindex_t c4_next_sync_committee_gindex(chain_id_t chain_id, uint64_t slot) {
+  fork_id_t fork = fork_at_slot(chain_id, slot);
+  if (fork >= C4_FORK_GLOAS) return GLOAS_NEXT_SYNC_COMMITTEE_GINDEX;
+  if (fork >= C4_FORK_ELECTRA) return ELECTRA_NEXT_SYNC_COMMITTEE_GINDEX;
+  return DENEP_NEXT_SYNC_COMMITTEE_GINDEX;
+}
+
+gindex_t c4_finalized_root_gindex(chain_id_t chain_id, uint64_t slot) {
+  fork_id_t fork = fork_at_slot(chain_id, slot);
+  if (fork >= C4_FORK_GLOAS) return GLOAS_FINALIZED_ROOT_GINDEX;
+  if (fork >= C4_FORK_ELECTRA) return ELECTRA_FINALIZED_ROOT_GINDEX;
+  return DENEP_FINALIZED_ROOT_GINDEX;
 }
 
 const gindex_t* c4_call_block_context_gindexes(void) {
