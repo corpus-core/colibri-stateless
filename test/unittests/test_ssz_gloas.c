@@ -114,8 +114,6 @@ static const ssz_def_t GLOAS_TEST_BEACON_STATE_BASE[] = {
     SSZ_UINT64("payload_expected_withdrawals"),     // 44
     SSZ_UINT64("ptc_window")                        // 45
 };
-_Static_assert(sizeof(GLOAS_TEST_BEACON_STATE_BASE) / sizeof(ssz_def_t) == 46,
-               "Gloas BeaconState must have exactly 46 fields");
 
 static const ssz_def_t GLOAS_TEST_BEACON_STATE_BASE_CONTAINER =
     SSZ_CONTAINER("GloasBeaconStateBase", GLOAS_TEST_BEACON_STATE_BASE);
@@ -123,6 +121,13 @@ static const ssz_def_t GLOAS_TEST_BEACON_STATE =
     SSZ_PROG_CONTAINER("GloasBeaconState", GLOAS_TEST_BEACON_STATE_BASE_CONTAINER, 0x3FFFFFFFFFFFULL); // [1]*46
 
 void test_gloas_state_gindexes(void) {
+  // Runtime field-count check instead of `_Static_assert`: MSVC's C frontend
+  // rejects `_Static_assert` at file scope (C2143/C2059), so keep the guard
+  // portable across Clang/GCC/MSVC.
+  TEST_ASSERT_EQUAL_size_t_MESSAGE(
+      46, sizeof(GLOAS_TEST_BEACON_STATE_BASE) / sizeof(ssz_def_t),
+      "Gloas BeaconState must have exactly 46 fields");
+
   // Values pinned by specs/gloas/light-client/sync-protocol.md
   TEST_ASSERT_EQUAL_UINT64(2945, ssz_gindex(&GLOAS_TEST_BEACON_STATE, 1, "current_sync_committee"));
   TEST_ASSERT_EQUAL_UINT64(2946, ssz_gindex(&GLOAS_TEST_BEACON_STATE, 1, "next_sync_committee"));
