@@ -30,6 +30,7 @@
 //   3. Ensure the light-client containers accept sane payloads (structural
 //      validation + hash_tree_root does not crash).
 
+#include "c4_assert.h" // provides read_testdata() and ASSERT_HEX_STRING_EQUAL()
 #include "beacon_types.h"
 #include "bytes.h"
 #include "chains.h"
@@ -550,6 +551,232 @@ void test_gloas_lc_header_hash_tree_root(void) {
   TEST_ASSERT_EQUAL_UINT8_ARRAY_MESSAGE(root_a, root_b, 32, "hash_tree_root must be deterministic");
 }
 
+// -----------------------------------------------------------------------------
+// Real Glamsterdam-testnet block: full SSZ roundtrip against reference vectors
+// -----------------------------------------------------------------------------
+//
+// `test/data/ssz/block_gloas.ssz` is the SSZ-encoded `SignedBeaconBlock` of a
+// real Glamsterdam-testnet block, fetched via its block_root
+//   0xf154895ca213a8785468dc6a342f1c6eda6e3c0664408421b9bf8e01ff7ac47f
+// (which equals `hash_tree_root(BeaconBlock)`, i.e. the message part of the
+// `SignedBeaconBlock`). `block_gloas.json` is the equivalent JSON.
+//
+// This is the strongest reference vector we currently have: if any of the
+// Gloas SSZ definitions (progressive containers, the ExecutionPayloadBid
+// layout, or the merkleization for progressive containers) drifts from the
+// spec, either `ssz_is_valid`, one of the `ssz_get` accessors, or the
+// `hash_tree_root` comparison below will fail.
+
+#ifdef PROVER
+void test_gloas_signed_beacon_block_ssz_roundtrip(void) {
+  bytes_t data = read_testdata("ssz/block_gloas.ssz");
+  TEST_ASSERT_NOT_NULL_MESSAGE(data.data, "ssz/block_gloas.ssz is missing from test data");
+  // Sanity check on file size so we notice truncated/replaced fixtures early.
+  TEST_ASSERT_EQUAL_UINT32_MESSAGE(1428, data.len,
+                                   "block_gloas.ssz is expected to be 1428 bytes");
+
+  const ssz_def_t* signed_block_def = eth_ssz_type_for_gloas(
+      ETH_SSZ_SIGNED_BEACON_BLOCK_CONTAINER, C4_CHAIN_MAINNET);
+  TEST_ASSERT_NOT_NULL(signed_block_def);
+  TEST_ASSERT_EQUAL_STRING("signedBeaconBlock", signed_block_def->name);
+
+  ssz_ob_t signed_block = {.bytes = data, .def = signed_block_def};
+
+  // Full recursive structural validation (offset tables, list lengths, ...).
+  c4_state_t state = {0};
+  TEST_ASSERT_TRUE_MESSAGE(ssz_is_valid(signed_block, true, &state),
+                           state.error ? state.error
+                                       : "Gloas SignedBeaconBlock must validate");
+
+  // block_root = hash_tree_root(BeaconBlock message).
+  ssz_ob_t message = ssz_get(&signed_block, "message");
+  TEST_ASSERT_NOT_NULL_MESSAGE(message.def, "ssz_get(message) must not fail");
+
+  bytes32_t block_root = {0};
+  ssz_hash_tree_root(message, block_root);
+  ASSERT_HEX_STRING_EQUAL(
+      "0xf154895ca213a8785468dc6a342f1c6eda6e3c0664408421b9bf8e01ff7ac47f",
+      block_root, 32,
+      "hash_tree_root(BeaconBlock) must match the block_root the block was fetched by");
+
+  // -- Top-level BeaconBlock fields (compared against block_gloas.json) --
+  TEST_ASSERT_EQUAL_UINT64_MESSAGE(222963, ssz_get_uint64(&message, "slot"),
+                                   "slot mismatch vs JSON");
+  TEST_ASSERT_EQUAL_UINT64_MESSAGE(503453, ssz_get_uint64(&message, "proposerIndex"),
+                                   "proposer_index mismatch vs JSON");
+
+  bytes_t parent_root = ssz_get(&message, "parentRoot").bytes;
+  TEST_ASSERT_EQUAL_UINT32(32, parent_root.len);
+  ASSERT_HEX_STRING_EQUAL(
+      "0x083e5a8fdd6318914c46b429c9513de1d3dc11b5eeea8945d8ac9a8d41fa6b0b",
+      parent_root.data, 32, "parent_root mismatch vs JSON");
+
+  bytes_t state_root = ssz_get(&message, "stateRoot").bytes;
+  TEST_ASSERT_EQUAL_UINT32(32, state_root.len);
+  ASSERT_HEX_STRING_EQUAL(
+      "0x7b2db6afb0e09b2547a2664857df00ea2397e41f454090d108989b630193ccbb",
+      state_root.data, 32, "state_root mismatch vs JSON");
+
+  // SignedBeaconBlock.signature at the outer level.
+  bytes_t sig = ssz_get(&signed_block, "signature").bytes;
+  TEST_ASSERT_EQUAL_UINT32(96, sig.len);
+  ASSERT_HEX_STRING_EQUAL(
+      "0x94b07360104d6988865d5cabd1ebcba1485eca8e85ced430072582ebae269688"
+      "c17d679baf8fce9e9746b4f52b1510211611bd05b807e4c6458b6335552fa40e"
+      "702c9d8ca458ef0c1ffdeefca539601abe6f090f6bce0d377a75ad70c79c0e82",
+      sig.data, 96, "SignedBeaconBlock.signature mismatch vs JSON");
+
+  // -- BeaconBlockBody accessors (13-field progressive container) --
+  ssz_ob_t body = ssz_get(&message, "body");
+  TEST_ASSERT_NOT_NULL_MESSAGE(body.def, "ssz_get(body) must not fail");
+
+  bytes_t randao = ssz_get(&body, "randaoReveal").bytes;
+  TEST_ASSERT_EQUAL_UINT32(96, randao.len);
+  ASSERT_HEX_STRING_EQUAL(
+      "0x8cd05bb5a98b0526464b5cfa2a4ca2549043757848482793a9881f04391932f8"
+      "2b8b3e31df66cb6689af6a9fe9af129507af2581af5eebb35db239e39b3b0341"
+      "b24641952626a464320bec9675e7327ea144177064863966c1c440219678b0ee",
+      randao.data, 96, "randao_reveal mismatch vs JSON");
+
+  bytes_t graffiti = ssz_get(&body, "graffiti").bytes;
+  TEST_ASSERT_EQUAL_UINT32(32, graffiti.len);
+  ASSERT_HEX_STRING_EQUAL(
+      "0x6e696d6275732d657269676f6e2d310000000000000000000000000000000000",
+      graffiti.data, 32, "graffiti mismatch vs JSON");
+
+  // eth1_data.deposit_count = 0 (empty pre-merge-style anchor).
+  ssz_ob_t eth1_data = ssz_get(&body, "eth1Data");
+  TEST_ASSERT_NOT_NULL(eth1_data.def);
+  TEST_ASSERT_EQUAL_UINT64(0, ssz_get_uint64(&eth1_data, "depositCount"));
+
+  // Progressive lists that are empty in this block.
+  TEST_ASSERT_EQUAL_UINT32(0, ssz_len(ssz_get(&body, "proposerSlashings")));
+  TEST_ASSERT_EQUAL_UINT32(0, ssz_len(ssz_get(&body, "attesterSlashings")));
+  TEST_ASSERT_EQUAL_UINT32(0, ssz_len(ssz_get(&body, "deposits")));
+  TEST_ASSERT_EQUAL_UINT32(0, ssz_len(ssz_get(&body, "voluntaryExits")));
+  TEST_ASSERT_EQUAL_UINT32(0, ssz_len(ssz_get(&body, "blsToExecutionChanges")));
+
+  // -- signed_execution_payload_bid.message (Gloas ExecutionPayloadBid) --
+  //
+  // The bid is the new EIP-7732 vehicle for the execution block hash and the
+  // sole EL-facing anchor left inside the body. Any layout drift here breaks
+  // the Gloas light-client header proof against gindex 2856.
+  ssz_ob_t signed_bid = ssz_get(&body, "signedExecutionPayloadBid");
+  TEST_ASSERT_NOT_NULL(signed_bid.def);
+  ssz_ob_t bid = ssz_get(&signed_bid, "message");
+  TEST_ASSERT_NOT_NULL(bid.def);
+
+  TEST_ASSERT_EQUAL_UINT64_MESSAGE(222963, ssz_get_uint64(&bid, "slot"),
+                                   "bid.slot mismatch vs JSON");
+  TEST_ASSERT_EQUAL_UINT64_MESSAGE(300000000ULL, ssz_get_uint64(&bid, "gasLimit"),
+                                   "bid.gas_limit mismatch vs JSON");
+  TEST_ASSERT_EQUAL_UINT64_MESSAGE(32, ssz_get_uint64(&bid, "builderIndex"),
+                                   "bid.builder_index mismatch vs JSON");
+  TEST_ASSERT_EQUAL_UINT64_MESSAGE(289640105ULL, ssz_get_uint64(&bid, "value"),
+                                   "bid.value mismatch vs JSON");
+  TEST_ASSERT_EQUAL_UINT64_MESSAGE(0, ssz_get_uint64(&bid, "executionPayment"),
+                                   "bid.execution_payment mismatch vs JSON");
+
+  bytes_t bid_parent_block_hash = ssz_get(&bid, "parentBlockHash").bytes;
+  TEST_ASSERT_EQUAL_UINT32(32, bid_parent_block_hash.len);
+  ASSERT_HEX_STRING_EQUAL(
+      "0x4d8994978964090ffc380d07ea6c912369f796a36b5715d4b06ffc5e36bed76f",
+      bid_parent_block_hash.data, 32,
+      "bid.parent_block_hash mismatch vs JSON (this is the value the Gloas LC "
+      "header executionBlockHash proof anchors against, gindex 2856)");
+
+  bytes_t bid_parent_block_root = ssz_get(&bid, "parentBlockRoot").bytes;
+  TEST_ASSERT_EQUAL_UINT32(32, bid_parent_block_root.len);
+  ASSERT_HEX_STRING_EQUAL(
+      "0x083e5a8fdd6318914c46b429c9513de1d3dc11b5eeea8945d8ac9a8d41fa6b0b",
+      bid_parent_block_root.data, 32, "bid.parent_block_root mismatch vs JSON");
+  // Cross-check: bid.parent_block_root == BeaconBlock.parent_root.
+  TEST_ASSERT_EQUAL_UINT8_ARRAY_MESSAGE(
+      parent_root.data, bid_parent_block_root.data, 32,
+      "bid.parent_block_root must equal BeaconBlock.parent_root");
+
+  bytes_t bid_block_hash = ssz_get(&bid, "blockHash").bytes;
+  TEST_ASSERT_EQUAL_UINT32(32, bid_block_hash.len);
+  ASSERT_HEX_STRING_EQUAL(
+      "0x7461c15a2e403ec46304b487b67d35782c82a0011cecdf5ec187e7556dbc6742",
+      bid_block_hash.data, 32, "bid.block_hash mismatch vs JSON");
+
+  bytes_t bid_fee_recipient = ssz_get(&bid, "feeRecipient").bytes;
+  TEST_ASSERT_EQUAL_UINT32(20, bid_fee_recipient.len);
+  ASSERT_HEX_STRING_EQUAL(
+      "0xf97e180c050e5ab072211ad2c213eb5aee4df134",
+      bid_fee_recipient.data, 20, "bid.fee_recipient mismatch vs JSON");
+
+  bytes_t bid_exec_reqs_root = ssz_get(&bid, "executionRequestsRoot").bytes;
+  TEST_ASSERT_EQUAL_UINT32(32, bid_exec_reqs_root.len);
+  ASSERT_HEX_STRING_EQUAL(
+      "0x87b69a306c8e430d0857f7c4ac5e27cecffa1108d43c2e5df7388056fea7a423",
+      bid_exec_reqs_root.data, 32, "bid.execution_requests_root mismatch vs JSON");
+
+  // Progressive list inside the ProgressiveContainer bid: exactly one KZG commitment.
+  ssz_ob_t kzg_commitments = ssz_get(&bid, "blobKzgCommitments");
+  TEST_ASSERT_NOT_NULL(kzg_commitments.def);
+  TEST_ASSERT_EQUAL_UINT32(1, ssz_len(kzg_commitments));
+  ssz_ob_t kzg0 = ssz_at(kzg_commitments, 0);
+  TEST_ASSERT_EQUAL_UINT32(48, kzg0.bytes.len);
+  ASSERT_HEX_STRING_EQUAL(
+      "0x84928f06a090aff94cd08889dc5fb30e4c7194abfa50579a6b55c181ffd4ce37"
+      "d9e86dca7cb08a623fd4e870faf5ee99",
+      kzg0.bytes.data, 48, "blob_kzg_commitments[0] mismatch vs JSON");
+
+  // -- attestations (progressive list of ProgressiveContainer Attestation) --
+  ssz_ob_t attestations = ssz_get(&body, "attestations");
+  TEST_ASSERT_NOT_NULL(attestations.def);
+  TEST_ASSERT_EQUAL_UINT32(1, ssz_len(attestations));
+  ssz_ob_t att = ssz_at(attestations, 0);
+  TEST_ASSERT_NOT_NULL(att.def);
+  ssz_ob_t att_data = ssz_get(&att, "data");
+  TEST_ASSERT_NOT_NULL(att_data.def);
+  TEST_ASSERT_EQUAL_UINT64(222962, ssz_get_uint64(&att_data, "slot"));
+  TEST_ASSERT_EQUAL_UINT64(0, ssz_get_uint64(&att_data, "index"));
+  bytes_t att_bbroot = ssz_get(&att_data, "beaconBlockRoot").bytes;
+  ASSERT_HEX_STRING_EQUAL(
+      "0x083e5a8fdd6318914c46b429c9513de1d3dc11b5eeea8945d8ac9a8d41fa6b0b",
+      att_bbroot.data, 32, "attestations[0].data.beacon_block_root mismatch");
+  ssz_ob_t att_target = ssz_get(&att_data, "target");
+  TEST_ASSERT_EQUAL_UINT64(6967, ssz_get_uint64(&att_target, "epoch"));
+  ssz_ob_t att_source = ssz_get(&att_data, "source");
+  TEST_ASSERT_EQUAL_UINT64(6966, ssz_get_uint64(&att_source, "epoch"));
+
+  // -- payload_attestations (Gloas-only progressive list) --
+  ssz_ob_t payload_atts = ssz_get(&body, "payloadAttestations");
+  TEST_ASSERT_NOT_NULL(payload_atts.def);
+  TEST_ASSERT_EQUAL_UINT32(1, ssz_len(payload_atts));
+  ssz_ob_t patt = ssz_at(payload_atts, 0);
+  ssz_ob_t patt_data = ssz_get(&patt, "data");
+  TEST_ASSERT_NOT_NULL(patt_data.def);
+  TEST_ASSERT_EQUAL_UINT64(222962, ssz_get_uint64(&patt_data, "slot"));
+  bytes_t patt_bbroot = ssz_get(&patt_data, "beaconBlockRoot").bytes;
+  ASSERT_HEX_STRING_EQUAL(
+      "0x083e5a8fdd6318914c46b429c9513de1d3dc11b5eeea8945d8ac9a8d41fa6b0b",
+      patt_bbroot.data, 32, "payload_attestations[0].data.beacon_block_root mismatch");
+
+  // -- parent_execution_requests: all five progressive lists empty in this block --
+  ssz_ob_t parent_exec_reqs = ssz_get(&body, "parentExecutionRequests");
+  TEST_ASSERT_NOT_NULL(parent_exec_reqs.def);
+  TEST_ASSERT_EQUAL_UINT32(0, ssz_len(ssz_get(&parent_exec_reqs, "deposits")));
+  TEST_ASSERT_EQUAL_UINT32(0, ssz_len(ssz_get(&parent_exec_reqs, "withdrawals")));
+  TEST_ASSERT_EQUAL_UINT32(0, ssz_len(ssz_get(&parent_exec_reqs, "consolidations")));
+  TEST_ASSERT_EQUAL_UINT32(0, ssz_len(ssz_get(&parent_exec_reqs, "builderDeposits")));
+  TEST_ASSERT_EQUAL_UINT32(0, ssz_len(ssz_get(&parent_exec_reqs, "builderExits")));
+
+  // hash_tree_root must be deterministic across repeated calls (regression
+  // against non-idempotent internal caches).
+  bytes32_t block_root_again = {0};
+  ssz_hash_tree_root(message, block_root_again);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY_MESSAGE(
+      block_root, block_root_again, 32,
+      "hash_tree_root must be deterministic across repeated calls");
+
+  safe_free(data.data);
+}
+#endif // PROVER
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_gloas_state_gindexes);
@@ -564,6 +791,7 @@ int main(void) {
 #ifdef PROVER
   RUN_TEST(test_gloas_execution_block_hash_gindex);
   RUN_TEST(test_gloas_dispatch_body_container_shape);
+  RUN_TEST(test_gloas_signed_beacon_block_ssz_roundtrip);
 #endif
   RUN_TEST(test_gloas_lc_header_shape);
   RUN_TEST(test_gloas_lc_bootstrap_shape);
