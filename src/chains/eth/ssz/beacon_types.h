@@ -36,6 +36,7 @@ typedef enum {
   C4_FORK_DENEB     = 4,
   C4_FORK_ELECTRA   = 5,
   C4_FORK_FULU      = 6,
+  C4_FORK_GLOAS     = 7,
 
   C4_FORK_INVALID = -1
 } fork_id_t;
@@ -135,6 +136,7 @@ const ssz_def_t*    eth_ssz_type_for_fork(eth_ssz_type_t type, fork_id_t fork, c
 // forks
 const ssz_def_t* eth_ssz_type_for_denep(eth_ssz_type_t type, chain_id_t chain_id);
 const ssz_def_t* eth_ssz_type_for_electra(eth_ssz_type_t type, chain_id_t chain_id);
+const ssz_def_t* eth_ssz_type_for_gloas(eth_ssz_type_t type, chain_id_t chain_id);
 
 #ifdef PROVER
 /**
@@ -148,6 +150,7 @@ const ssz_def_t* eth_ssz_type_for_electra(eth_ssz_type_t type, chain_id_t chain_
 const ssz_def_t* c4_eth_execution_payload_def(chain_id_t chain_id);
 #endif
 const ssz_def_t* eth_get_light_client_update(fork_id_t fork);
+const ssz_def_t* eth_get_light_client_bootstrap(fork_id_t fork);
 //  c4 specific
 const ssz_def_t*       eth_ssz_verification_type(eth_ssz_type_t type);
 extern const ssz_def_t ssz_transactions_bytes;
@@ -159,11 +162,12 @@ extern const ssz_def_t DENEP_LIGHT_CLIENT_BOOTSTRAP[3];
 extern const ssz_def_t ELECTRA_LIGHT_CLIENT_BOOTSTRAP[3];
 extern const ssz_def_t DENEP_LIGHT_CLIENT_UPDATE[7];
 extern const ssz_def_t ELECTRA_LIGHT_CLIENT_UPDATE[7];
+extern const ssz_def_t GLOAS_LIGHT_CLIENT_HEADER[3];
+extern const ssz_def_t GLOAS_LIGHT_CLIENT_BOOTSTRAP[3];
+extern const ssz_def_t GLOAS_LIGHT_CLIENT_UPDATE[7];
 extern const ssz_def_t DENEP_EXECUTION_PAYLOAD[17];
 extern const ssz_def_t GNOSIS_EXECUTION_PAYLOAD[17];
 extern const ssz_def_t DENEP_WITHDRAWAL_CONTAINER;
-extern const ssz_def_t ELECTRA_EXECUTION_PAYLOAD[17];
-extern const ssz_def_t ELECTRA_WITHDRAWAL_CONTAINER;
 extern const ssz_def_t C4_ETH_REQUEST_DATA_UNION[12];
 extern const ssz_def_t C4_ETH_REQUEST_SYNCDATA_UNION[4];
 
@@ -187,5 +191,47 @@ const gindex_t* c4_block_header_gindexes(chain_id_t chain_id, uint64_t slot);
 #define CALL_BLOCK_CONTEXT_FIELD_COUNT 9
 /** Gindexes for state proof + block context: stateRoot, blockNumber, timestamp, feeRecipient, prevRandao, baseFeePerGas, blockHash, gasLimit, excessBlobGas. */
 const gindex_t* c4_call_block_context_gindexes(void);
+
+/**
+ * Returns the generalized index of `current_sync_committee` within `BeaconState` for the fork active at `slot`.
+ *
+ * The gindex depends on the BeaconState layout, which changes with each fork:
+ * - Deneb:   54
+ * - Electra: 86 (Fulu keeps the Electra layout for these fields)
+ * - Gloas:   2945 (BeaconState becomes a `ProgressiveContainer`)
+ *
+ * @param chain_id Chain identifier used to look up fork epochs
+ * @param slot Beacon slot; used to derive the epoch and thus the active fork
+ * @return Generalized index used to build/verify the sync-committee Merkle proof
+ */
+gindex_t c4_current_sync_committee_gindex(chain_id_t chain_id, uint64_t slot);
+
+/**
+ * Returns the generalized index of `next_sync_committee` within `BeaconState` for the fork active at `slot`.
+ *
+ * The gindex depends on the BeaconState layout:
+ * - Deneb:   55
+ * - Electra: 87 (Fulu keeps the Electra layout for these fields)
+ * - Gloas:   2946
+ *
+ * @param chain_id Chain identifier used to look up fork epochs
+ * @param slot Beacon slot; used to derive the epoch and thus the active fork
+ * @return Generalized index used to build/verify the next-sync-committee Merkle proof
+ */
+gindex_t c4_next_sync_committee_gindex(chain_id_t chain_id, uint64_t slot);
+
+/**
+ * Returns the generalized index of `finalized_checkpoint.root` within `BeaconState` for the fork active at `slot`.
+ *
+ * The gindex depends on the BeaconState layout:
+ * - Deneb:   105
+ * - Electra: 169 (Fulu keeps the Electra layout for these fields)
+ * - Gloas:   735
+ *
+ * @param chain_id Chain identifier used to look up fork epochs
+ * @param slot Beacon slot; used to derive the epoch and thus the active fork
+ * @return Generalized index used to build/verify the finality Merkle proof
+ */
+gindex_t c4_finalized_root_gindex(chain_id_t chain_id, uint64_t slot);
 
 #endif

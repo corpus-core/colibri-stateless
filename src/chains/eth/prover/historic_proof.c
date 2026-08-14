@@ -195,6 +195,11 @@ static c4_status_t check_historic_proof_direct(prover_ctx_t* ctx, blockroot_proo
   json_t    data           = json_get(history_proof, "data");                                    // the the main json-object
   uint32_t  summary_idx    = block_period - offset_period;                                       // the index starting from the  cappella fork, where we got zhe first Summary entry.
   uint32_t  block_idx      = slot % 8192;                                                        // idx within the period
+  // TODO(gloas): Gloas turns `BeaconState` into a `ProgressiveContainer` (EIP-7688),
+  //              so the classical `2^depth + field_index` chunking no longer matches
+  //              the spec merkleization. This branch keeps the Electra layout for
+  //              Fulu (unchanged for the sync-committee/historical fields) and must
+  //              be revisited before `C4_FORK_GLOAS` gets an activation epoch.
   gindex_t  summaries_gidx = (fork >= C4_FORK_ELECTRA ? 64 : 32) + 27;                           // the gindex of the field for the summaries in the state. summaries have the index 27 in the state.
   gindex_t  period_gidx    = ssz_gindex(&SUMMARIES, 2, summary_idx, "block_summary_root");       // the gindex of the single summary-object we need to proof
   gindex_t  block_gidx     = ssz_gindex(&BLOCKS, 1, block_idx);
@@ -295,12 +300,11 @@ static c4_status_t fetch_bootstrap_by_root(prover_ctx_t* ctx, bytes32_t header_r
   sbprintf(path, "eth/v1/beacon/light_client/bootstrap/0x%x", bytes(header_root, 32));
   TRY_ASYNC(c4_send_beacon_ssz(ctx, path, NULL, NULL, DEFAULT_TTL, &result));
 
-  const ssz_def_t* bootstrap_union_def = ssz_get_def(eth_ssz_verification_type(ETH_SSZ_VERIFY_LC_SYNCDATA), "bootstrap");
-  fork_id_t        fork                = c4_eth_get_fork_for_lcu(ctx->chain_id, result.bytes);
+  fork_id_t fork = c4_eth_get_fork_for_lcu(ctx->chain_id, result.bytes);
   if (fork == 0) THROW_ERROR("Invalid bootstrap data: cannot determine fork!");
-  // Mirror the verifier-side mapping in `sync_committee_state.c`: pre-Electra forks
-  // (incl. Deneb) use the Deneb container; Electra and later use the Electra container.
-  result.def = &bootstrap_union_def->def.container.elements[fork <= C4_FORK_DENEB ? 1 : 2];
+  // Single source of truth for fork -> bootstrap container mapping.
+  result.def = eth_get_light_client_bootstrap(fork);
+  if (!result.def) THROW_ERROR("Invalid bootstrap data: unsupported fork!");
   if (!ssz_is_valid(result, true, &ctx->state)) THROW_ERROR("Invalid bootstrap data!");
   *out_bootstrap = result;
   return C4_SUCCESS;
@@ -372,7 +376,15 @@ static c4_status_t fetch_updates_data(prover_ctx_t* ctx, syncdata_state_t* sync_
 
     bytes_t prefixed = bytes(safe_malloc(update.bytes.len + 1), update.bytes.len + 1);
     memcpy(prefixed.data + 1, update.bytes.data, update.bytes.len);
-    prefixed.data[0] = (uint8_t) (fork == C4_FORK_DENEB ? 0 : 1);
+    // Union tag for `C4_ETH_SYNCDATA_UPDATE_UNION`:
+    //   0 = DenepLightClientUpdate, 1 = ElectraLightClientUpdate (also used for Fulu),
+    //   2 = GloasLightClientUpdate.
+    uint8_t union_tag = 0;
+    if (fork >= C4_FORK_GLOAS)
+      union_tag = 2;
+    else if (fork >= C4_FORK_ELECTRA)
+      union_tag = 1;
+    prefixed.data[0] = union_tag;
     ssz_add_dynamic_list_bytes(updates, count, prefixed);
     safe_free(prefixed.data);
   }

@@ -38,12 +38,10 @@
 #include "zk_verifier.h"
 #endif
 
-#define DENEP_CURRENT_SYNC_COMMITTEE_GINDEX   54
-#define ELECTRA_CURRENT_SYNC_COMMITTEE_GINDEX 86
-#define DENEP_NEXT_SYNC_COMMITTEE_GINDEX      55
-#define ELECTRA_NEXT_SYNC_COMMITTEE_GINDEX    87
-#define DENEP_FINALIZED_ROOT_GINDEX           105
-#define ELECTRA_FINALIZED_ROOT_GINDEX         169
+// Fork-specific BeaconState gindices have moved to `beacon_types.c` so all
+// fork-aware selections live in one place. See:
+//   `c4_current_sync_committee_gindex`, `c4_next_sync_committee_gindex`,
+//   `c4_finalized_root_gindex`.
 
 void c4_eth_eip191_digest_32(const bytes32_t message, bytes32_t out_digest) {
   static const char prefix[]                       = "\x19"
@@ -52,24 +50,6 @@ void c4_eth_eip191_digest_32(const bytes32_t message, bytes32_t out_digest) {
   memcpy(buf, prefix, sizeof(prefix) - 1);
   memcpy(buf + (sizeof(prefix) - 1), message, 32);
   keccak(bytes(buf, sizeof(buf)), out_digest);
-}
-
-INTERNAL uint64_t c4_current_sync_committee_gindex(chain_id_t chain_id, uint64_t slot) {
-  const chain_spec_t* spec = c4_eth_get_chain_spec(chain_id);
-  fork_id_t           fork = c4_chain_fork_id(chain_id, epoch_for_slot(slot, spec));
-  return fork == C4_FORK_DENEB ? DENEP_CURRENT_SYNC_COMMITTEE_GINDEX : ELECTRA_CURRENT_SYNC_COMMITTEE_GINDEX;
-}
-
-static uint64_t next_sync_committee_gindex(chain_id_t chain_id, uint64_t slot) {
-  const chain_spec_t* spec = c4_eth_get_chain_spec(chain_id);
-  fork_id_t           fork = c4_chain_fork_id(chain_id, epoch_for_slot(slot, spec));
-  return fork == C4_FORK_DENEB ? DENEP_NEXT_SYNC_COMMITTEE_GINDEX : ELECTRA_NEXT_SYNC_COMMITTEE_GINDEX;
-}
-
-static uint64_t finalized_root_gindex(chain_id_t chain_id, uint64_t slot) {
-  const chain_spec_t* spec = c4_eth_get_chain_spec(chain_id);
-  fork_id_t           fork = c4_chain_fork_id(chain_id, epoch_for_slot(slot, spec));
-  return fork == C4_FORK_DENEB ? DENEP_FINALIZED_ROOT_GINDEX : ELECTRA_FINALIZED_ROOT_GINDEX;
 }
 
 // True if `ob` is the `checkpoint_proof` variant of either ETH_HEADER_PROOFS_UNION
@@ -207,13 +187,13 @@ static bool update_light_client_update(verify_ctx_t* ctx, ssz_ob_t* update) {
 
   // verify nextSyncCommittee merkle proof against attested state root
   ssz_hash_tree_root(sync_committee, sync_root);
-  ssz_verify_single_merkle_proof(next_sync_branch.bytes, sync_root, next_sync_committee_gindex(ctx->chain_id, attested_slot), merkle_root);
+  ssz_verify_single_merkle_proof(next_sync_branch.bytes, sync_root, c4_next_sync_committee_gindex(ctx->chain_id, attested_slot), merkle_root);
   if (memcmp(merkle_root, attested_state_root.bytes.data, 32))
     RETURN_VERIFY_ERROR(ctx, "invalid merkle root for next sync committee!");
 
   // verify finalizedHeader merkle proof against attested state root
   ssz_hash_tree_root(finalized_header, finalized_header_root);
-  ssz_verify_single_merkle_proof(finality_branch.bytes, finalized_header_root, finalized_root_gindex(ctx->chain_id, attested_slot), merkle_root);
+  ssz_verify_single_merkle_proof(finality_branch.bytes, finalized_header_root, c4_finalized_root_gindex(ctx->chain_id, attested_slot), merkle_root);
   if (memcmp(merkle_root, attested_state_root.bytes.data, 32))
     RETURN_VERIFY_ERROR(ctx, "invalid merkle root for finalized header!");
 
@@ -512,6 +492,17 @@ INTERNAL c4_status_t c4_update_from_sync_data(verify_ctx_t* ctx) {
 }
 
 fork_id_t c4_eth_get_fork_for_lcu(chain_id_t chain_id, bytes_t data) {
+  // TODO(gloas): This detector reads the leading SSZ offset assuming the outer
+  //              LightClientUpdate/Bootstrap is variable-size (dynamic
+  //              ExecutionPayloadHeader inside LightClientHeader). EIP-7732
+  //              replaces that header field with a fixed `executionBlockHash`
+  //              plus a `Vector[Bytes32, 11]` branch, making Gloas LC blobs
+  //              fully fixed-size and this offset probe useless. Before Gloas
+  //              gets an activation epoch on any chain, the fork must be
+  //              derived from the SSZ union tag delivered on the wire (see
+  //              `C4_ETH_SYNCDATA_UPDATE_UNION` / `..._BOOTSTRAP_UNION` in
+  //              `verify_types.c`), not from the payload body. Guarded by
+  //              `test_gloas_activation_epoch_still_reserved`.
   if (data.len < 4) return 0;
   uint32_t offset = uint32_from_le(data.data);
   if (offset + 8 > data.len) return 0;
@@ -583,6 +574,7 @@ INTERNAL bool c4_process_light_client_updates(verify_ctx_t* ctx, bytes_t light_c
     const ssz_def_t* light_client_update_def   = eth_get_light_client_update(fork);
 
     if (!light_client_update_def) {
+      c4_state_add_error(&ctx->state, "light client update: unknown/unsupported fork");
       success = false;
       break;
     }

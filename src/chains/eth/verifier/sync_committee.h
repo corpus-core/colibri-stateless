@@ -180,24 +180,19 @@ c4_chain_state_t c4_get_chain_state(chain_id_t chain_id);
 void c4_eth_set_trusted_checkpoint(chain_id_t chain_id, bytes32_t checkpoint);
 
 /**
- * Detect the fork (Deneb/Electra) for a light client update based on slot.
- * Reads the slot from the SSZ-encoded data and determines the fork.
+ * Detect the fork for a light client update based on the slot embedded in the payload.
+ * Reads the slot from the SSZ-encoded data and determines the fork (Deneb, Electra,
+ * Fulu, or Gloas once scheduled).
  *
  * @param chain_id Chain identifier
  * @param data SSZ-encoded light client update data
- * @return Fork identifier (C4_FORK_DENEB or C4_FORK_ELECTRA)
+ * @return Fork identifier corresponding to the slot in the update payload
  */
 fork_id_t c4_eth_get_fork_for_lcu(chain_id_t chain_id, bytes_t data);
 
-/**
- * Get the generalized index (gindex) for the current sync committee in the beacon state.
- * The gindex differs between forks (Deneb: 54, Electra: 86).
- *
- * @param chain_id Chain identifier
- * @param slot Slot number to determine the fork
- * @return Generalized index for current sync committee merkle proof
- */
-uint64_t c4_current_sync_committee_gindex(chain_id_t chain_id, uint64_t slot);
+// `c4_current_sync_committee_gindex`, `c4_next_sync_committee_gindex` and
+// `c4_finalized_root_gindex` are declared in `beacon_types.h` (which is
+// already included via `#include "beacon_types.h"` above).
 
 c4_chain_state_t c4_state_deserialize(bytes_t data);
 
@@ -243,7 +238,7 @@ c4_status_t c4_verify_checkpointz_root(verify_ctx_t* ctx, uint64_t slot, bytes32
  * Steps performed:
  *   1. Reconstruct `sync_committee_root = SHA256(pubkeys_root || hash_tree_root(aggregate_pubkey))`.
  *   2. Walk `proof` up to a computed `state_root` using the fork-specific
- *      `currentSyncCommittee` gindex (Deneb 54, Electra 86).
+ *      `currentSyncCommittee` gindex (Deneb 54, Electra/Fulu 86, Gloas 2945).
  *   3. Compare against `header.stateRoot`.
  *   4. Anchor `header` against `checkpointz` via `c4_verify_checkpointz_root`.
  *

@@ -103,17 +103,21 @@ static const ssz_def_t C4_REQUEST_PROOFS_UNION[] = {
 };
 
 // A List of possible types of sync data used to update the sync state by verifying the transition from the last period to the required.
+// Existing indices (1..3) are frozen for wire compatibility with released clients;
+// the Gloas variant is appended at index 4.
 static const ssz_def_t C4_ETH_SYNCDATA_BOOTSTRAP_UNION[] = {
     SSZ_NONE,
-    SSZ_CONTAINER("DenepLightClientBootstrap", DENEP_LIGHT_CLIENT_BOOTSTRAP),     // Deneb-fork structured LightClient Bootstrap
-    SSZ_CONTAINER("ElectraLightClientBootstrap", ELECTRA_LIGHT_CLIENT_BOOTSTRAP), // Electra-fork structured LightClient Bootstrap
-    SSZ_CONTAINER("CheckpointProof", ETH_CHECKPOINT_PROOF)                        // slim WSP anchor (header + currentSyncCommitteeBranch + aggregate)
+    SSZ_CONTAINER("DenepLightClientBootstrap", DENEP_LIGHT_CLIENT_BOOTSTRAP),     // 1: Deneb-fork structured LightClient Bootstrap
+    SSZ_CONTAINER("ElectraLightClientBootstrap", ELECTRA_LIGHT_CLIENT_BOOTSTRAP), // 2: Electra-fork structured LightClient Bootstrap
+    SSZ_CONTAINER("CheckpointProof", ETH_CHECKPOINT_PROOF),                       // 3: slim WSP anchor (header + currentSyncCommitteeBranch + aggregate)
+    SSZ_CONTAINER("GloasLightClientBootstrap", GLOAS_LIGHT_CLIENT_BOOTSTRAP)      // 4: Gloas-fork structured LightClient Bootstrap
 };
 
 // A List of LightClient Updates as returned from light_client/updates endpoint.
 static const ssz_def_t C4_ETH_SYNCDATA_UPDATE_UNION[] = {
-    SSZ_CONTAINER("DenepLightClientUpdate", DENEP_LIGHT_CLIENT_UPDATE),    // Deneb-fork structured LightClient Update
-    SSZ_CONTAINER("ElectraLightClientUpdate", ELECTRA_LIGHT_CLIENT_UPDATE) // Electra-fork structured LightClient Update
+    SSZ_CONTAINER("DenepLightClientUpdate", DENEP_LIGHT_CLIENT_UPDATE),      // 0: Deneb-fork structured LightClient Update
+    SSZ_CONTAINER("ElectraLightClientUpdate", ELECTRA_LIGHT_CLIENT_UPDATE),  // 1: Electra-fork structured LightClient Update
+    SSZ_CONTAINER("GloasLightClientUpdate", GLOAS_LIGHT_CLIENT_UPDATE)       // 2: Gloas-fork structured LightClient Update
 };
 
 // A Union of possible types of sync data used to update the sync state by verifying the transition from the last period to the required.
@@ -206,7 +210,7 @@ static inline size_t array_idx(const ssz_def_t* array, size_t len, const ssz_def
  * Returns the SSZ definition for a LightClient Update based on the fork ID.
  * Maps fork identifiers to the corresponding update type in the union array.
  *
- * @param fork Fork identifier (C4_FORK_DENEB, C4_FORK_ELECTRA, C4_FORK_FULU)
+ * @param fork Fork identifier (C4_FORK_DENEB, C4_FORK_ELECTRA, C4_FORK_FULU, C4_FORK_GLOAS)
  * @return Pointer to the SSZ definition for the update type, or NULL for unsupported forks
  */
 const ssz_def_t* eth_get_light_client_update(fork_id_t fork) {
@@ -215,7 +219,37 @@ const ssz_def_t* eth_get_light_client_update(fork_id_t fork) {
       return C4_ETH_SYNCDATA_UPDATE_UNION;
     case C4_FORK_ELECTRA:
     case C4_FORK_FULU:
+      // Fulu keeps the Electra LightClientUpdate layout (branch depths unchanged).
       return C4_ETH_SYNCDATA_UPDATE_UNION + 1;
+    case C4_FORK_GLOAS:
+      return C4_ETH_SYNCDATA_UPDATE_UNION + 2;
+    default:
+      return NULL;
+  }
+}
+
+/**
+ * Returns the SSZ definition for a LightClient Bootstrap based on the fork ID.
+ * This is the single source of truth for mapping a fork to the correct bootstrap
+ * container, so callers do not have to keep local fork -> array-pointer switches
+ * in sync when new forks are added.
+ *
+ * @param fork Fork identifier
+ * @return Pointer to the SSZ container definition for the bootstrap variant, or NULL for unsupported forks
+ */
+const ssz_def_t* eth_get_light_client_bootstrap(fork_id_t fork) {
+  switch (fork) {
+    case C4_FORK_PHASE0:
+    case C4_FORK_ALTAIR:
+    case C4_FORK_BELLATRIX:
+    case C4_FORK_CAPELLA:
+    case C4_FORK_DENEB:
+      return C4_ETH_SYNCDATA_BOOTSTRAP_UNION + 1; // DenepLightClientBootstrap
+    case C4_FORK_ELECTRA:
+    case C4_FORK_FULU:
+      return C4_ETH_SYNCDATA_BOOTSTRAP_UNION + 2; // ElectraLightClientBootstrap
+    case C4_FORK_GLOAS:
+      return C4_ETH_SYNCDATA_BOOTSTRAP_UNION + 4; // GloasLightClientBootstrap
     default:
       return NULL;
   }

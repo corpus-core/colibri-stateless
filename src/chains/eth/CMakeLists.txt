@@ -103,6 +103,7 @@ set(VERIFIER_SOURCES
   ssz/beacon_types.c
   ssz/beacon_denep.c
   ssz/beacon_electra.c
+  ssz/beacon_gloas.c
 )
 set(VERIFIER_DEPS util)
 

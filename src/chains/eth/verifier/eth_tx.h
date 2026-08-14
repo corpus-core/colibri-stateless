@@ -36,6 +36,14 @@ extern "C" {
 // fork-stable as long as neither container reorders or grows past the next
 // power-of-two boundary; if a future fork changes the layout, all the
 // constants below must be revisited together.
+//
+// TODO(gloas): EIP-7732 removes `executionPayload` from the beacon block body,
+// so these gindices no longer resolve to a valid EL field once
+// `C4_FORK_GLOAS` activates. The follow-up strategy is to prove
+// `signed_execution_payload_bid.message.parent_block_hash` via SSZ (gindex
+// 2856 in the Gloas body, depth 11 -- see `EXECUTION_BLOCK_HASH_GINDEX_GLOAS`
+// in `specs/gloas/light-client/sync-protocol.md`) and reconstruct the EL
+// header via RLP + keccak against the resulting block hash.
 #define GINDEX_RECEIPT_ROOT 803
 #define GINDEX_LOGS_BLOOM   804
 #define GINDEX_BLOCKUMBER   806

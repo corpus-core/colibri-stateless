@@ -31,6 +31,7 @@ extern "C" {
 #include "beacon_types.h"
 #include "verify.h"
 // STATE_ROOT_GINDEX = (25 << 5) | 2 (see GINDEX_* comment in eth_tx.h).
+// TODO(gloas): breaks with EIP-7732 -- see `eth_tx.h` for the migration note.
 #define STATE_ROOT_GINDEX 802
 
 extern const uint8_t* EMPTY_HASH;
