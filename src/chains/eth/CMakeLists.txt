@@ -99,6 +99,7 @@ set(VERIFIER_SOURCES
   verifier/patricia.c
   verifier/prover_cache_url.c
   verifier/rlp.c
+  verifier/el_header.c
   ssz/verify_types.c
   ssz/beacon_types.c
   ssz/beacon_denep.c

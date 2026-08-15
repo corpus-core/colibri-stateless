@@ -59,6 +59,12 @@ uint8_t* c4_eth_receipt_cachekey(bytes32_t target, bytes32_t blockhash) {
   target[1] = 'T';
   return target;
 }
+uint8_t* c4_eth_tx_cachekey(bytes32_t target, bytes32_t blockhash) {
+  if (target != blockhash) memcpy(target, blockhash, 32);
+  target[0] = 'T';
+  target[1] = 'T';
+  return target;
+}
 #endif
 
 // Union variant selectors for ETH_STATE_BLOCK_UNION (see verify_proof_types.h).
@@ -175,4 +181,22 @@ ssz_builder_t eth_ssz_create_state_proof(prover_ctx_t* ctx, json_t block_number,
 
   safe_free(proof.data);
   return state_proof;
+}
+
+
+void eth_add_block_proof(prover_ctx_t* ctx, ssz_builder_t* builder, beacon_block_t* block_data, blockroot_proof_t* historic_block_proof) {
+  if (memcmp(ctx->last_block_hash, block_data->el_block_hash, 32) == 0) 
+    ssz_add_ob(builder,"block", (ssz_ob_t){.def = &ssz_bytes32, .bytes = bytes(block_data->el_block_hash, 32)});
+  else {
+    ssz_builder_t block_proof = ssz_builder_for_type(ETH_SSZ_CL_BLOCK_PROOF);
+    ssz_add_bytes(&block_proof, "elHeader", block_data->el_header);
+    ssz_add_builders(&block_proof, "clHeader", c4_proof_add_header(block_data->header,  block_data->body_root));
+    ssz_add_bytes(&block_proof, "blockhashBranch", block_data->block_hash_branch);
+    ssz_add_uint64(&block_proof, block_data->block_hash_branch_gindex);
+    ssz_add_header_proof(&block_proof, block_data, *historic_block_proof);
+    ssz_add_builders(builder, "block", block_proof);
+  }
+
+
+
 }

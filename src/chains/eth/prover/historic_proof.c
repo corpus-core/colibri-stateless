@@ -260,7 +260,7 @@ static c4_status_t check_historic_proof_direct(prover_ctx_t* ctx, blockroot_proo
 }
 
 void ssz_add_header_proof(ssz_builder_t* builder, beacon_block_t* block_data, blockroot_proof_t block_proof) {
-  ssz_builder_t bp             = ssz_builder_for_def(ssz_get_def(builder->def, "header_proof")->def.container.elements + block_proof.type);
+  ssz_builder_t bp             = ssz_builder_for_def(ssz_get_def(builder->def, "headerProof")->def.container.elements + block_proof.type);
   ssz_ob_t      sync_aggregate = block_proof.sync_aggregate;
 
   switch (block_proof.type) {
@@ -282,7 +282,7 @@ void ssz_add_header_proof(ssz_builder_t* builder, beacon_block_t* block_data, bl
   ssz_add_bytes(&bp, "sync_committee_bits", ssz_get(&sync_aggregate, "syncCommitteeBits").bytes);
   ssz_add_bytes(&bp, "sync_committee_signature", ssz_get(&sync_aggregate, "syncCommitteeSignature").bytes);
 
-  ssz_add_builders(builder, "header_proof", bp);
+  ssz_add_builders(builder, "headerProof", bp);
 }
 
 void c4_free_block_proof(blockroot_proof_t* block_proof) {

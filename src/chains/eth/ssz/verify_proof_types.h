@@ -240,8 +240,6 @@ static const ssz_def_t ETH_LOGS_BLOCK[] = {
 
 static const ssz_def_t ETH_LOGS_BLOCK_CONTAINER = SSZ_CONTAINER("LogsBlock", ETH_LOGS_BLOCK);
 
-
-
 // A **Logs Completeness Proof** proves for a contiguous range of execution blocks
 // `[fromBlock, toBlock]` that **no** matching log for the `eth_getLogs` filter was
 // omitted. The normal Logs Proof only proves inclusion of the returned logs; this
@@ -281,8 +279,8 @@ static const ssz_def_t ETH_COMPLETENESS_BLOOM_NEGATIVE[] = {
 
 // Full-receipts block: all receipts are delivered so the verifier rebuilds the receipts trie.
 static const ssz_def_t ETH_COMPLETENESS_FULL_RECEIPTS[] = {
-    SSZ_UINT64("blockNumber"),                            // the execution block number
-    SSZ_BYTES32("blockHash"),                             // the execution block hash (for reconstructed log entries)
+    SSZ_UINT64("blockNumber"),                           // the execution block number
+    SSZ_BYTES32("blockHash"),                            // the execution block hash (for reconstructed log entries)
     SSZ_LIST("receipts", ssz_bytes_list, 65536),         // all RLP-serialized receipts of the block
     SSZ_LIST("txs", ETH_COMPLETENESS_TX_CONTAINER, 256), // raw transactions of the matching logs (for transactionHash)
     SSZ_LIST("proof", ssz_bytes32, 1024),                // multi proof of blockNumber + blockHash + receiptsRoot + matched txs to bodyRoot
@@ -320,6 +318,20 @@ static const ssz_def_t ETH_LOGS_COMPLETENESS_PROOF[] = {
 };
 static const ssz_def_t ETH_LOGS_COMPLETENESS_PROOF_CONTAINER = SSZ_CONTAINER("LogsCompletenessProof", ETH_LOGS_COMPLETENESS_PROOF);
 
+// The proof data for a Execution block header.
+static const ssz_def_t ETH_CL_BLOCK_PROOF[] = {
+    SSZ_PROG_BYTES("elHeader"),                       // the rlp serialized execution layer header
+    SSZ_CONTAINER("clHeader", BEACON_BLOCK_HEADER),   // the header of the beacon block
+    SSZ_PROG_LIST("blockhashBranch", ssz_bytes32),    // the multi proof of the transaction, blockNumber and blockHash
+    SSZ_UINT64("gindex"),                             // the gindex of the blockhash branch could be message.block_hash or message.parent_block_hash
+    SSZ_UNION("headerProof", ETH_HEADER_PROOFS_UNION) // the proof for the correctness of the header
+};
+
+// the union for different types of block proofs.
+static const ssz_def_t ETH_BLOCK_PROOF_UNION[] = {
+    SSZ_BYTES32("blockHash"),                     // the blockHash of the execution block, if only the hash is provided, it means the header is already verified in the cache.
+    SSZ_CONTAINER("clProof", ETH_CL_BLOCK_PROOF), // the block will be proven by the CL-Proof
+};
 
 // :: Transaction Proof
 //
@@ -362,14 +374,9 @@ static const ssz_def_t ETH_LOGS_COMPLETENESS_PROOF_CONTAINER = SSZ_CONTAINER("Lo
 
 // The main proof data for a single transaction.
 static const ssz_def_t ETH_TRANSACTION_PROOF[] = {
-    SSZ_BYTES("transaction", 1073741824),              // the raw transaction payload
     SSZ_UINT32("transactionIndex"),                    // the index of the transaction in the block
-    SSZ_UINT64("blockNumber"),                         // the number of the execution block containing the transaction
-    SSZ_BYTES32("blockHash"),                          // the blockHash of the execution block containing the transaction
-    SSZ_UINT64("baseFeePerGas"),                       // the baseFeePerGas
-    SSZ_LIST("proof", ssz_bytes32, 64),                // the multi proof of the transaction, blockNumber and blockHash
-    SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),      // the header of the beacon block
-    SSZ_UNION("header_proof", ETH_HEADER_PROOFS_UNION) // the proof for the correctness of the header
+    SSZ_PROG_LIST("transactionProof", ssz_bytes_list), // the Patricia Merkle Proof of the transaction, the leaf contains the raw transaction.
+    SSZ_UNION("block", ETH_BLOCK_PROOF_UNION),         // the proof for the execution block containing the transaction
 };
 
 // :: Account Proof

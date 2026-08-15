@@ -345,6 +345,8 @@ const ssz_def_t* eth_ssz_verification_type(eth_ssz_type_t type) {
       return C4_ETH_REQUEST_SYNCDATA_UNION + 2;
     case ETH_SSZ_VERIFY_ZK_SYNCDATA_V6:
       return C4_ETH_REQUEST_SYNCDATA_UNION + 3;
+    case ETH_SSZ_CL_BLOCK_PROOF:
+      return ARRAY_TYPE(ETH_BLOCK_PROOF_UNION, ETH_CL_BLOCK_PROOF);
     default: return NULL;
   }
 }
