@@ -483,9 +483,18 @@ static c4_status_t get_el_header_and_branch(prover_ctx_t* ctx, bytes_t* el_heade
   }
 
   if (fork < C4_FORK_GLOAS) {
-    ssz_ob_t body      = ssz_get(&data_block, "body");
-    ssz_ob_t execution = ssz_get(&body, "executionPayload");
-    TRY_ASYNC(eth_el_header_build_from_ep(&ctx->state, &generated_header, fork, execution));
+    ssz_ob_t            body      = ssz_get(&data_block, "body");
+    ssz_ob_t            execution = ssz_get(&body, "executionPayload");
+    eth_el_header_ctx_t el_ctx    = {
+           .execution_payload = execution,
+           .fork              = fork,
+           .state             = &ctx->state,
+           .chain_id          = ctx->chain_id,
+           .beacon_block      = data_block,
+    };
+    bytes_t parent_root = ssz_get(&data_block, "parentRoot").bytes;
+    if (parent_root.len == 32) memcpy(el_ctx.parent_root, parent_root.data, 32);
+    TRY_ASYNC(eth_el_header_build_from_ep(&generated_header, &el_ctx));
     generated_branch_gindex = 812;
     generated_branch        = ssz_create_proof(body, body_root, generated_branch_gindex);
   }

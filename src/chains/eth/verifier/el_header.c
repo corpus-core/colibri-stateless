@@ -23,6 +23,10 @@
 
 #include "el_header.h"
 #include "beacon_types.h"
+#include "crypto.h"
+#include "eth_account.h"
+#include "eth_tx.h"
+#include "patricia.h"
 #include "rlp.h"
 typedef bytes_t (*el_header_field_func)(void*, buffer_t*, char*);
 static const char* el_header_field_names[] = {
@@ -57,7 +61,8 @@ static c4_status_t eth_el_header_build(c4_state_t* state, bytes_t* el_header, fo
   buffer_t buffer = {0};
   buffer_t result = {0};
   int      count  = sizeof(el_header_field_names) / sizeof(el_header_field_names[0]);
-  if (fork < C4_FORK_GLOAS) count -= 2;
+  if (fork < C4_FORK_GLOAS) count -= 2;   // no blockAccessListHash and slotNumber before Gloas
+  if (fork < C4_FORK_ELECTRA) count -= 1; // no requestsHash before Prague/Electra
 
   for (int i = 0; i < count; i++) {
     char    type       = el_header_field_names[i][0];
@@ -99,9 +104,113 @@ static c4_status_t eth_el_header_build(c4_state_t* state, bytes_t* el_header, fo
   return C4_SUCCESS;
 }
 
+// computes the requests_hash as defined in EIP-7685:
+// sha256( sha256(0x00 ++ deposits) ++ sha256(0x01 ++ withdrawals) ++ sha256(0x02 ++ consolidations) )
+// where requests with empty request_data are skipped. Since all request containers are
+// fixed-size, the raw SSZ list bytes are exactly the flat request_data encoding.
+static void get_requests_hash(bytes32_t out_hash, eth_el_header_ctx_t* ctx) {
+  static const char* request_lists[] = {"deposits", "withdrawals", "consolidations"};
+  uint8_t            hashes[sizeof(request_lists) / sizeof(request_lists[0]) * 32]; // one intermediate hash per non-empty request list
+  uint32_t           hashes_len         = 0;
+  ssz_ob_t           body               = ssz_get(&ctx->beacon_block, "body");
+  ssz_ob_t           execution_requests = ssz_get(&body, "executionRequests");
+  for (uint8_t type = 0; type < sizeof(request_lists) / sizeof(request_lists[0]); type++) {
+    ssz_ob_t list = ssz_get(&execution_requests, request_lists[type]);
+    if (list.def == NULL || list.bytes.len == 0) continue; // empty requests are excluded per EIP-7685
+    sha256_merkle(bytes(&type, 1), list.bytes, hashes + hashes_len);
+    hashes_len += 32;
+  }
+  sha256(bytes(hashes, hashes_len), out_hash);
+}
+
+// computes the withdrawalsRoot as defined in EIP-4895: a Merkle Patricia Trie built over
+// all withdrawals of the execution payload. The key for withdrawal i is the RLP-encoded
+// index (same encoding as the transactions trie), the value is the RLP-encoded list
+// [index, validatorIndex, address, amount] (all uint64 except address which is 20 bytes).
+static void get_withdrawals_root(bytes32_t out_hash, eth_el_header_ctx_t* ctx) {
+  ssz_ob_t withdrawals = ssz_get(&ctx->execution_payload, "withdrawals");
+  uint32_t len         = ssz_len(withdrawals);
+
+  if (len == 0) {
+    memcpy(out_hash, EMPTY_ROOT_HASH, 32);
+    return;
+  }
+
+  bytes32_t path_tmp = {0};
+  buffer_t  path_buf = stack_buffer(path_tmp);
+  uint8_t   value_tmp[64]; // 4 uint64 (each up to 9 bytes with RLP prefix) + 20-byte address + list header well under 64
+  buffer_t  value_buf = stack_buffer(value_tmp);
+  node_t*   root      = NULL;
+
+  for (uint32_t i = 0; i < len; i++) {
+    ssz_ob_t w       = ssz_at(withdrawals, i);
+    ssz_ob_t address = ssz_get(&w, "address");
+    value_buf.data.len = 0;
+    rlp_add_uint64(&value_buf, ssz_get_uint64(&w, "index"));
+    rlp_add_uint64(&value_buf, ssz_get_uint64(&w, "validatorIndex"));
+    rlp_add_item(&value_buf, address.bytes);
+    rlp_add_uint64(&value_buf, ssz_get_uint64(&w, "amount"));
+    rlp_to_list(&value_buf);
+    patricia_set_value(&root, c4_eth_create_tx_path(i, &path_buf), value_buf.data);
+  }
+
+  memcpy(out_hash, patricia_get_root(root).data, 32);
+  patricia_node_free(root);
+}
+
+// computes the withdrawalsRoot as defined in EIP-4895: a Merkle Patricia Trie built over
+// all withdrawals of the execution payload. The key for withdrawal i is the RLP-encoded
+// index (same encoding as the transactions trie), the value is the RLP-encoded list
+// [index, validatorIndex, address, amount] (all uint64 except address which is 20 bytes).
+static void get_transactions_root(bytes32_t out_hash, eth_el_header_ctx_t* ctx) {
+  ssz_ob_t txs = ssz_get(&ctx->execution_payload, "transactions");
+  uint32_t len         = ssz_len(txs);
+
+  if (len == 0) {
+    memcpy(out_hash, EMPTY_ROOT_HASH, 32);
+    return;
+  }
+
+  bytes32_t path_tmp = {0};
+  buffer_t  path_buf = stack_buffer(path_tmp);
+  node_t*   root      = NULL;
+
+  for (uint32_t i = 0; i < len; i++) {
+    ssz_ob_t tx       = ssz_at(txs, i);
+    patricia_set_value(&root, c4_eth_create_tx_path(i, &path_buf), tx.bytes);
+  }
+
+  memcpy(out_hash, patricia_get_root(root).data, 32);
+  patricia_node_free(root);
+}
+
 static bytes_t get_from_ep(void* data, buffer_t* buffer, char* name) {
-  ssz_ob_t* ep    = (ssz_ob_t*) data;
-  ssz_ob_t  field = ssz_get(ep, name);
+  eth_el_header_ctx_t* ctx = (eth_el_header_ctx_t*) data;
+  if (strcmp(name, "parentBeaconBlockRoot") == 0)
+    return bytes(ctx->parent_root, 32);
+    if (strcmp(name, "requestsHash") == 0) {
+      buffer_reset(buffer);
+      buffer_grow(buffer, 32);
+      buffer->data.len = 32;
+      get_requests_hash(buffer->data.data, ctx);
+      return buffer->data;
+    }
+    if (strcmp(name, "withdrawalsRoot") == 0) {
+      buffer_reset(buffer);
+      buffer_grow(buffer, 32);
+      buffer->data.len = 32;
+      get_withdrawals_root(buffer->data.data, ctx);
+      return buffer->data;
+    }
+    if (strcmp(name, "transactionsRoot") == 0) {
+      buffer_reset(buffer);
+      buffer_grow(buffer, 32);
+      buffer->data.len = 32;
+      get_transactions_root(buffer->data.data, ctx);
+      return buffer->data;
+    }
+
+  ssz_ob_t field = ssz_get(&ctx->execution_payload, name);
   if (field.def == NULL) return NULL_BYTES;
   if (field.def->type == SSZ_TYPE_UINT) {
     buffer_reset(buffer);
@@ -113,8 +222,8 @@ static bytes_t get_from_ep(void* data, buffer_t* buffer, char* name) {
   return field.bytes;
 }
 
-c4_status_t eth_el_header_build_from_ep(c4_state_t* state, bytes_t* el_header, fork_id_t fork, ssz_ob_t ep) {
-  return eth_el_header_build(state, el_header, fork, &ep, get_from_ep);
+c4_status_t eth_el_header_build_from_ep(bytes_t* el_header, eth_el_header_ctx_t* ctx) {
+  return eth_el_header_build(ctx->state, el_header, ctx->fork, ctx, get_from_ep);
 }
 
 static bytes_t get_from_json(void* data, buffer_t* buffer, char* name) {
