@@ -249,3 +249,9 @@ bytes_t eth_el_header_get(bytes_t header, char* name) {
   }
   return NULL_BYTES;
 }
+
+uint64_t eth_el_header_get_uint64(bytes_t header, char* name) {
+  bytes_t value = eth_el_header_get(header, name);
+  if (value.len ==0) return 0;
+  return bytes_as_be(value);
+}

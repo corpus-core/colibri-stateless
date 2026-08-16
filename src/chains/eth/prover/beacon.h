@@ -318,6 +318,8 @@ bytes_t ssz_create_multi_proof_from_body_cache(
 void c4_beacon_cache_update_blockdata(prover_ctx_t* ctx, beacon_block_t* beacon_block, uint64_t latest_timestamp, bytes32_t block_root);
 
 #endif
+c4_status_t c4_beacon_fill_becaon_block_from_eth(prover_ctx_t* ctx,
+  beacon_block_t* beacon_block, bytes32_t data_root, ssz_ob_t data_block, ssz_ob_t sig_block);
 
 #ifdef __cplusplus
 }

@@ -89,17 +89,8 @@ static c4_status_t handle_head(prover_ctx_t* ctx, beacon_head_t* b) {
   }
   TRY_ASYNC(status);
 
-  // all requests are done, let's update the latest block number
-  ssz_ob_t       sig_body     = ssz_get(&sig_block, "body");
-  ssz_ob_t       data_body    = ssz_get(&data_block, "body");
-  beacon_block_t beacon_block = {
-      .slot           = ssz_get_uint64(&data_block, "slot"),
-      .header         = data_block,
-      .body           = data_body,
-      .execution      = ssz_get(&data_body, "executionPayload"),
-      .sync_aggregate = ssz_get(&sig_body, "syncAggregate")};
-  memcpy(beacon_block.data_block_root, data_root, 32);
-  memcpy(beacon_block.sign_parent_root, ssz_get(&sig_block, "parentRoot").bytes.data, 32);
+  beacon_block_t beacon_block = {0};
+  TRY_ASYNC(c4_beacon_fill_becaon_block_from_eth(ctx, &beacon_block, data_root, data_block, sig_block));
 
   c4_beacon_cache_update_blockdata(ctx, &beacon_block, c4_watcher_check_block_number ? 0 : ssz_get_uint64(&beacon_block.execution, "timestamp"), beacon_block.sign_parent_root);
   uint64_t beacon_block_number = ssz_get_uint64(&beacon_block.execution, "blockNumber");
@@ -114,6 +105,7 @@ static c4_status_t handle_head(prover_ctx_t* ctx, beacon_head_t* b) {
   if (c4_eth_logs_cache_is_enabled()) {
     // Prefer prefetching the signed block's execution payload (latest head), not the parent data_block.
     // If not available, fall back to data_block execution payload.
+    ssz_ob_t sig_body              = ssz_get(&sig_block, "body");
     ssz_ob_t sig_exec              = ssz_get(&sig_body, "executionPayload");
     bytes_t  bloom                 = ssz_get(&sig_exec, "logsBloom").bytes;
     uint64_t prefetch_block_number = ssz_get_uint64(&sig_exec, "blockNumber");
@@ -137,6 +129,7 @@ static c4_status_t handle_head(prover_ctx_t* ctx, beacon_head_t* b) {
 #endif
   // Persist current head for period store (if enabled)
   if (eth_config.period_store && !eth_config.period_master_url) {
+    ssz_ob_t data_body = ssz_get(&data_block, "body");
     uint8_t header112[112] = {0};
     // Direkt 80 Bytes der fixen Container-Felder kopieren (slot, proposerIndex, parentRoot, stateRoot)
     memcpy(header112, ssz_get(&data_block, "slot").bytes.data, 80);

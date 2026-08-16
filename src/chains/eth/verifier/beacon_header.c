@@ -129,7 +129,7 @@ static c4_status_t c4_verify_historic_proof(verify_ctx_t* ctx, ssz_ob_t header, 
 }
 
 c4_status_t c4_verify_header(verify_ctx_t* ctx, ssz_ob_t header, ssz_ob_t block_proof) {
-  ssz_ob_t header_proof             = ssz_get(&block_proof, "header_proof");
+  ssz_ob_t header_proof             = ssz_get(&block_proof, "headerProof");
   ssz_ob_t sync_committee_bits      = ssz_get(&header_proof, "sync_committee_bits");
   ssz_ob_t sync_committee_signature = ssz_get(&header_proof, "sync_committee_signature");
 
@@ -199,4 +199,36 @@ c4_status_t c4_verify_blockroot_signature(verify_ctx_t* ctx, ssz_ob_t* header, s
 #endif
 
   return C4_SUCCESS;
+}
+
+c4_status_t c4_verify_block(verify_ctx_t* ctx, ssz_ob_t block, bytes_t* el_header, bytes32_t block_hash) {
+  if (strcmp(block.def->name, "blockHash") == 0) {
+    // TODO return blockheader from cache
+  }
+
+  if (strcmp(block.def->name, "clProof") == 0) {
+    *el_header           = ssz_get(&block, "elHeader").bytes;
+    bytes32_t body_root  = {0};
+    gindex_t   gindex     = ssz_get_uint64(&block, "gindex");
+    ssz_ob_t  cl_header  = ssz_get(&block, "clHeader");
+    keccak(*el_header, block_hash);
+    ssz_verify_single_merkle_proof(
+        ssz_get(&block, "blockhashBranch").bytes, block_hash,
+        gindex,
+        body_root);
+    
+    if (memcmp(body_root, ssz_get(&cl_header, "bodyRoot").bytes.data, 32))
+      THROW_ERROR("invalid body root for cl proof!");
+
+    // check gindex
+    chain_spec_t* chain = c4_eth_get_chain_spec(ctx->chain_id);
+    fork_id_t fork = c4_chain_fork_id(ctx->chain_id, epoch_for_slot(ssz_get_uint64(&cl_header, "slot"), chain));
+    gindex_t expected_gindex = (fork < C4_FORK_GLOAS) ? 812 : 0;
+    if (gindex != expected_gindex)
+      THROW_ERROR("invalid gindex for cl proof!");
+
+    return c4_verify_header(ctx, cl_header,block);
+  }
+
+  THROW_ERROR("invalid block type!");
 }

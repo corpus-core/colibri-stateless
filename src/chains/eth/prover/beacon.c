@@ -204,8 +204,8 @@ void c4_beacon_cache_update_blockdata(prover_ctx_t* ctx, beacon_block_t* beacon_
   beacon_block_t* block            = (beacon_block_t*) cached;
   block->header.bytes.data         = (uint8_t*) cached + sizeof(beacon_block_t);
   block->sync_aggregate.bytes.data = (uint8_t*) cached + sizeof(beacon_block_t) + beacon_block->header.bytes.len;
-  block->el_header.data           = (uint8_t*) cached + sizeof(beacon_block_t) + beacon_block->header.bytes.len + beacon_block->sync_aggregate.bytes.len;
-  block->block_hash_branch.data   = (uint8_t*) cached + sizeof(beacon_block_t) + beacon_block->header.bytes.len + beacon_block->sync_aggregate.bytes.len + beacon_block->el_header.len;
+  block->el_header.data            = (uint8_t*) cached + sizeof(beacon_block_t) + beacon_block->header.bytes.len + beacon_block->sync_aggregate.bytes.len;
+  block->block_hash_branch.data    = (uint8_t*) cached + sizeof(beacon_block_t) + beacon_block->header.bytes.len + beacon_block->sync_aggregate.bytes.len + beacon_block->el_header.len;
   block->body.bytes.data           = block->header.bytes.data + (beacon_block->body.bytes.data - beacon_block->header.bytes.data);
   block->execution.bytes.data      = block->header.bytes.data + (beacon_block->execution.bytes.data - beacon_block->header.bytes.data);
   c4_prover_cache_set(ctx, key, block, full_size, ttl, free); // keep it for 1 day
@@ -551,18 +551,36 @@ c4_status_t c4_beacon_get_execution_for_eth(prover_ctx_t* ctx, json_t block, bea
   return c4_beacon_get_block_for_eth(ctx, block, beacon_block);
 }
 
+c4_status_t c4_beacon_fill_becaon_block_from_eth(prover_ctx_t*   ctx,
+                                                 beacon_block_t* beacon_block, bytes32_t data_root, ssz_ob_t data_block, ssz_ob_t sig_block) {
+
+  chain_spec_t* chain = c4_eth_get_chain_spec(ctx->chain_id);
+#ifdef PROVER_CACHE
+  TRY_ASYNC(get_el_header_and_branch(ctx, &beacon_block->el_header, &beacon_block->block_hash_branch, &beacon_block->block_hash_branch_gindex,
+                                     c4_chain_fork_id(ctx->chain_id, epoch_for_slot(ssz_get_uint64(&data_block, "slot"), chain)), data_block, data_root));
+#endif
+
+  ssz_ob_t sig_body            = ssz_get(&sig_block, "body");
+  beacon_block->slot           = ssz_get_uint64(&data_block, "slot");
+  beacon_block->header         = data_block;
+  beacon_block->body           = ssz_get(&data_block, "body");
+  beacon_block->execution      = ssz_get(&beacon_block->body, "executionPayload");
+  beacon_block->sync_aggregate = ssz_get(&sig_body, "syncAggregate");
+  memcpy(beacon_block->sign_parent_root, ssz_get(&sig_block, "parentRoot").bytes.data, 32);
+  memcpy(beacon_block->data_block_root, data_root, 32);
+  keccak(beacon_block->el_header, beacon_block->el_block_hash);
+  ssz_hash_tree_root(beacon_block->body, beacon_block->body_root); // TODO: we are already calculating the body_root when creating the branch, why not reuse it?
+
+  return C4_SUCCESS;
+}
 c4_status_t c4_beacon_get_block_for_eth(prover_ctx_t* ctx, json_t block, beacon_block_t* beacon_block) {
 
   if (ctx->flags & C4_PROVER_FLAG_HYBRID)
     return c4_hybrid_get_block_for_eth(ctx, block, beacon_block);
 
-  ssz_ob_t      sig_block = {0}, data_block = {0}, sig_body = {0};
-  bytes32_t     sig_root      = {0};
-  bytes32_t     data_root     = {0};
-  bytes_t       el_header     = {0};
-  bytes_t       branch        = {0};
-  gindex_t      branch_gindex = {0};
-  chain_spec_t* chain         = c4_eth_get_chain_spec(ctx->chain_id);
+  ssz_ob_t  sig_block = {0}, data_block = {0}, sig_body = {0};
+  bytes32_t sig_root  = {0};
+  bytes32_t data_root = {0};
 
   // convert the execution block number to beacon block hashes
   TRY_ASYNC(eth_get_block_roots(ctx, block, sig_root, data_root));
@@ -580,24 +598,7 @@ c4_status_t c4_beacon_get_block_for_eth(prover_ctx_t* ctx, json_t block, beacon_
       bytes_all_zero(bytes(data_root, 32)) ? NULL : data_root,
       &sig_block, &data_block, data_root));
 
-#ifdef PROVER_CACHE
-  TRY_ASYNC(get_el_header_and_branch(ctx, &el_header, &branch, &branch_gindex, c4_chain_fork_id(ctx->chain_id, epoch_for_slot(ssz_get_uint64(&data_block, "slot"), chain)), data_block, data_root));
-#endif
-
-  sig_body                               = ssz_get(&sig_block, "body");
-  beacon_block->slot                     = ssz_get_uint64(&data_block, "slot");
-  beacon_block->header                   = data_block;
-  beacon_block->body                     = ssz_get(&data_block, "body");
-  beacon_block->execution                = ssz_get(&beacon_block->body, "executionPayload");
-  beacon_block->sync_aggregate           = ssz_get(&sig_body, "syncAggregate");
-  beacon_block->el_header                = el_header;
-  beacon_block->block_hash_branch        = branch;
-  beacon_block->block_hash_branch_gindex = branch_gindex;
-  memcpy(beacon_block->sign_parent_root, ssz_get(&sig_block, "parentRoot").bytes.data, 32);
-  memcpy(beacon_block->data_block_root, data_root, 32);
-  keccak(el_header,beacon_block->el_block_hash);
-  ssz_hash_tree_root(beacon_block->body, beacon_block->body_root); // TODO: we are already calculating the body_root when creating the branch, why not reuse it?
-
+  TRY_ASYNC(c4_beacon_fill_becaon_block_from_eth(ctx, beacon_block, data_root, data_block, sig_block));
 #ifdef PROVER_CACHE
   if (strncmp(block.start, "\"latest\"", 8) == 0) { // for latest we take the timestamp, so we can define the ttl
     ssz_ob_t execution = ssz_get(&sig_body, "executionPayload");
