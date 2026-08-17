@@ -380,6 +380,7 @@ c4_status_t c4_hybrid_get_execution_for_eth(prover_ctx_t* ctx, json_t block, bea
     beacon_block->execution = cached->execution;
     beacon_block->slot      = cached->block_number;
     memcpy(beacon_block->data_block_root, cached->block_hash, 32);
+    memcpy(beacon_block->el_block_hash, cached->block_hash, 32);
     return C4_SUCCESS;
   }
 

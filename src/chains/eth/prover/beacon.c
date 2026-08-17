@@ -578,7 +578,7 @@ c4_status_t c4_beacon_get_block_for_eth(prover_ctx_t* ctx, json_t block, beacon_
   if (ctx->flags & C4_PROVER_FLAG_HYBRID)
     return c4_hybrid_get_block_for_eth(ctx, block, beacon_block);
 
-  ssz_ob_t  sig_block = {0}, data_block = {0}, sig_body = {0};
+  ssz_ob_t  sig_block = {0}, data_block = {0};
   bytes32_t sig_root  = {0};
   bytes32_t data_root = {0};
 
@@ -601,6 +601,7 @@ c4_status_t c4_beacon_get_block_for_eth(prover_ctx_t* ctx, json_t block, beacon_
   TRY_ASYNC(c4_beacon_fill_becaon_block_from_eth(ctx, beacon_block, data_root, data_block, sig_block));
 #ifdef PROVER_CACHE
   if (strncmp(block.start, "\"latest\"", 8) == 0) { // for latest we take the timestamp, so we can define the ttl
+    ssz_ob_t sig_body  = ssz_get(&sig_block, "body");
     ssz_ob_t execution = ssz_get(&sig_body, "executionPayload");
     c4_beacon_cache_update_blockdata(ctx, beacon_block, ssz_get_uint64(&execution, "timestamp"), beacon_block->data_block_root);
   }
