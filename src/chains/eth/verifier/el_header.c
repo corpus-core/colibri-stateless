@@ -29,30 +29,32 @@
 #include "patricia.h"
 #include "rlp.h"
 typedef bytes_t (*el_header_field_func)(void*, buffer_t*, char*);
+// prefix defines the RLP encoding: H = 32-byte hash, A = 20-byte address,
+// B = raw bytes, U = uint (big-endian, no leading zeros)
 static const char* el_header_field_names[] = {
-    "H:parentHash",            // 0
-    "H:sha3Uncles",            // 1
-    "A:feeRecipient",          // 2
-    "H:stateRoot",             // 3
-    "H:transactionsRoot",      // 4
-    "H:receiptsRoot",          // 5
-    "B:logsBloom",             // 6
-    "U:difficulty",            // 7
-    "U:blockNumber",           // 8
-    "U:gasLimit",              // 9
-    "U:gasUsed",               // 10
-    "U:timestamp",             // 11
-    "B:extraData",             // 12
-    "H:prevRandao",            // 13
-    "B:nonce",                 // 14
-    "U:baseFeePerGas",         // 15
-    "H:withdrawalsRoot",       // 16
-    "U:blobGasUsed",           // 17
-    "U:excessBlobGas",         // 18
-    "H:parentBeaconBlockRoot", // 19
-    "H:requestsHash",          // 20
-    "H:blockAccessListHash",   // 21
-    "U:slotNumber",            // 22
+    "H:" EL_PARENT_HASH,              // 0
+    "H:" EL_SHA3_UNCLES,              // 1
+    "A:" EL_FEE_RECIPIENT,            // 2
+    "H:" EL_STATE_ROOT,               // 3
+    "H:" EL_TRANSACTIONS_ROOT,        // 4
+    "H:" EL_RECEIPTS_ROOT,            // 5
+    "B:" EL_LOGS_BLOOM,               // 6
+    "U:" EL_DIFFICULTY,               // 7
+    "U:" EL_BLOCK_NUMBER,             // 8
+    "U:" EL_GAS_LIMIT,                // 9
+    "U:" EL_GAS_USED,                 // 10
+    "U:" EL_TIMESTAMP,                // 11
+    "B:" EL_EXTRA_DATA,               // 12
+    "H:" EL_PREV_RANDAO,              // 13
+    "B:" EL_NONCE,                    // 14
+    "U:" EL_BASE_FEE_PER_GAS,         // 15
+    "H:" EL_WITHDRAWALS_ROOT,         // 16
+    "U:" EL_BLOB_GAS_USED,            // 17
+    "U:" EL_EXCESS_BLOB_GAS,          // 18
+    "H:" EL_PARENT_BEACON_BLOCK_ROOT, // 19
+    "H:" EL_REQUESTS_HASH,            // 20
+    "H:" EL_BLOCK_ACCESS_LIST_HASH,   // 21
+    "U:" EL_SLOT_NUMBER,              // 22
 };
 
 const char* EMPTY_RLP_LIST = "\x1d\xcc\x4d\xe8\xde\xc7\x5d\x7a\xab\x85\xb5\x67\xb6\xcc\xd4\x1a\xd3\x12\x45\x1b\x94\x8a\x74\x13\xf0\xa1\x42\xfd\x40\xd4\x93\x47";
@@ -68,11 +70,11 @@ static c4_status_t eth_el_header_build(c4_state_t* state, bytes_t* el_header, fo
     char    type       = el_header_field_names[i][0];
     char*   field_name = el_header_field_names[i] + 2;
     bytes_t value      = {0};
-    if (strcmp(field_name, "sha3Uncles") == 0)
+    if (strcmp(field_name, EL_SHA3_UNCLES) == 0)
       value = bytes(EMPTY_RLP_LIST, 32);
-    else if (strcmp(field_name, "difficulty") == 0)
+    else if (strcmp(field_name, EL_DIFFICULTY) == 0)
       value = bytes("\x00", 1);
-    else if (strcmp(field_name, "nonce") == 0)
+    else if (strcmp(field_name, EL_NONCE) == 0)
       value = bytes("\x00\x00\x00\x00\x00\x00\x00\x00", 8);
     else
       value = get_field_func(data, &buffer, field_name);
@@ -232,11 +234,11 @@ static bytes_t get_from_json(void* data, buffer_t* buffer, char* name) {
   // some fields use execution-payload naming internally, but standard JSON-RPC block
   // responses (eth_getBlockByHash etc.) use the legacy header names: fall back to those.
   if (field.type == JSON_TYPE_NOT_FOUND) {
-    if (strcmp(name, "feeRecipient") == 0)
+    if (strcmp(name, EL_FEE_RECIPIENT) == 0)
       field = json_get(*json, "miner");
-    else if (strcmp(name, "prevRandao") == 0)
+    else if (strcmp(name, EL_PREV_RANDAO) == 0)
       field = json_get(*json, "mixHash");
-    else if (strcmp(name, "blockNumber") == 0)
+    else if (strcmp(name, EL_BLOCK_NUMBER) == 0)
       field = json_get(*json, "number");
   }
   if (field.type == JSON_TYPE_NOT_FOUND) return NULL_BYTES;

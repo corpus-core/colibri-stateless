@@ -797,9 +797,7 @@ static const ssz_def_t ETH_BLOCK_NUMBER_PROOF[] = {
 // for `eth_getBlockHeader` we prove selected fields of the execution payload using a multi-merkle proof.
 // The actual field values are carried in the data union (ETH_BLOCK_HEADER_DATA), not in this proof container.
 static const ssz_def_t ETH_BLOCK_HEADER_PROOF[] = {
-    SSZ_LIST("proof", ssz_bytes32, 256),                 // the multi merkle proof from the selected executionPayload fields down to the blockBodyRoot hash
-    SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),        // the header of the beacon block
-    SSZ_UNION("header_proof", ETH_HEADER_PROOFS_UNION)}; // the proof for the correctness of the header
+    SSZ_UNION("block", ETH_BLOCK_PROOF_UNION)}; // the proof for the correctness of the header
 
 // :: Block Receipts Proof
 //

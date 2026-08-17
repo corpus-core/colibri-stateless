@@ -36,7 +36,6 @@ bool verify_logs_proof(verify_ctx_t* ctx);
 bool verify_logs_completeness(verify_ctx_t* ctx);
 bool verify_call_proof(verify_ctx_t* ctx);
 bool verify_block_proof(verify_ctx_t* ctx);
-bool verify_block_number_proof(verify_ctx_t* ctx);
 bool verify_block_header_proof(verify_ctx_t* ctx);
 bool verify_block_receipts_proof(verify_ctx_t* ctx);
 bool verify_eth_local(verify_ctx_t* ctx);
