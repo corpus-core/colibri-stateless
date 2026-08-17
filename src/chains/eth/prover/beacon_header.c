@@ -23,6 +23,9 @@
 
 #include "beacon.h"
 #include "beacon_types.h"
+#include "crypto.h"
+#include "el_header.h"
+#include "eth_req.h"
 #include "json.h"
 #include "prover.h"
 #include "prover_cache_url.h"
@@ -31,11 +34,42 @@
 #include <stdlib.h>
 #include <string.h>
 
-// -- Global Header Cache (hybrid mode only) --
+// -- Tag-to-Block-Hash Cache (hybrid mode only) --
+//
+// The verified header entries themselves live in the verifier-side cache
+// (`verifier/header_cache.h`). Only the mapping from block tags to block hashes
+// (with TTL and stale-while-revalidate handling) is prover-specific and kept here.
 
 #define TAG_FETCH_TIMEOUT_MS 30000 /**< max time a stale-while-revalidate sentinel stays valid before allowing a retry */
 
-static verified_header_cache_t g_header_cache = {0};
+/** Block tag indices for the tag-to-block-hash cache. */
+typedef enum {
+  HEADER_TAG_LATEST    = 0,
+  HEADER_TAG_SAFE      = 1,
+  HEADER_TAG_FINALIZED = 2,
+  HEADER_TAG_COUNT     = 3
+} header_tag_t;
+
+/**
+ * Maps a block tag (latest/safe/finalized) to a cached block hash with a timestamp for TTL checks.
+ *
+ * The `fetching_since_ms` / `fetching_ctx` pair implements a stale-while-revalidate sentinel
+ * to prevent thundering-herd fetches when the tag TTL expires while multiple requests are in flight.
+ * The first request to miss sets the sentinel; subsequent requests serve the stale entry.
+ * `fetching_ctx` is only compared by pointer value (never dereferenced) so that the fetching
+ * context's own re-entry can bypass the stale path and process its response.
+ *
+ * Thread safety: these fields are not protected by a mutex. In multi-threaded bindings
+ * (Kotlin, Swift, Python) a race can at worst cause a duplicate fetch, which is acceptable.
+ */
+typedef struct {
+  bytes32_t block_hash;
+  uint64_t  cached_at_ms;
+  uint64_t  fetching_since_ms; /**< non-zero while a fetch is in progress (unprotected: benign race accepted) */
+  uintptr_t fetching_ctx;      /**< opaque identity of the fetching prover context (compared, never dereferenced) */
+} tag_cache_entry_t;
+
+static tag_cache_entry_t g_header_tags[HEADER_TAG_COUNT] = {0};
 
 // -- Tag TTL Calculation --
 
@@ -56,77 +90,6 @@ static uint64_t header_tag_ttl_ms(chain_id_t chain_id, header_tag_t tag, prover_
     }
     default:
       return 0;
-  }
-}
-
-// -- Header Cache Implementation --
-
-const verified_header_entry_t* c4_header_cache_get_by_number(const verified_header_cache_t* cache, chain_id_t chain_id, uint64_t block_number) {
-  if (!cache) return NULL;
-  for (uint32_t i = 0; i < cache->count; i++) {
-    const verified_header_entry_t* e = &cache->entries[i];
-    if (e->chain_id == chain_id && e->block_number == block_number && e->header_data.bytes.data)
-      return e;
-  }
-  return NULL;
-}
-
-const verified_header_entry_t* c4_header_cache_get_by_hash(const verified_header_cache_t* cache, chain_id_t chain_id, const uint8_t* block_hash) {
-  if (!cache || !block_hash) return NULL;
-  for (uint32_t i = 0; i < cache->count; i++) {
-    const verified_header_entry_t* e = &cache->entries[i];
-    if (e->chain_id == chain_id && e->header_data.bytes.data && memcmp(e->block_hash, block_hash, 32) == 0)
-      return e;
-  }
-  return NULL;
-}
-
-static void header_cache_free_entry(verified_header_entry_t* e) {
-  safe_free(e->header_data.bytes.data);
-  safe_free(e->execution.bytes.data);
-  e->header_data = (ssz_ob_t) {0};
-  e->execution   = (ssz_ob_t) {0};
-}
-
-void c4_header_cache_put(verified_header_cache_t* cache, chain_id_t chain_id, uint64_t block_number, const uint8_t* block_hash, ssz_ob_t header_data) {
-  if (!cache || !block_hash || !header_data.bytes.data) return;
-
-  for (uint32_t i = 0; i < cache->count; i++) {
-    verified_header_entry_t* e = &cache->entries[i];
-    if (e->chain_id == chain_id && e->block_number == block_number) {
-      header_cache_free_entry(e);
-      e->header_data.bytes = bytes_dup(header_data.bytes);
-      e->header_data.def   = header_data.def;
-      e->cached_at_ms      = current_ms();
-      memcpy(e->block_hash, block_hash, 32);
-      return;
-    }
-  }
-
-  verified_header_entry_t* slot = &cache->entries[cache->head_idx];
-  header_cache_free_entry(slot);
-  slot->chain_id     = chain_id;
-  slot->block_number = block_number;
-  memcpy(slot->block_hash, block_hash, 32);
-  slot->header_data.bytes = bytes_dup(header_data.bytes);
-  slot->header_data.def   = header_data.def;
-  slot->cached_at_ms      = current_ms();
-
-  cache->head_idx = (cache->head_idx + 1) % HEADER_CACHE_SIZE;
-  if (cache->count < HEADER_CACHE_SIZE)
-    cache->count++;
-}
-
-void c4_header_cache_set_execution(verified_header_cache_t* cache, chain_id_t chain_id, uint64_t block_number, ssz_ob_t execution) {
-  if (!cache || !execution.bytes.data) return;
-  for (uint32_t i = 0; i < cache->count; i++) {
-    verified_header_entry_t* e = &cache->entries[i];
-    if (e->chain_id == chain_id && e->block_number == block_number && e->header_data.bytes.data) {
-      safe_free(e->execution.bytes.data);
-      e->execution.bytes = bytes_dup(execution.bytes);
-      e->execution.def   = execution.def;
-      return;
-    }
   }
 }
 
@@ -284,24 +247,24 @@ c4_status_t c4_hybrid_get_block_for_eth(prover_ctx_t* ctx, json_t block, beacon_
     tag = HEADER_TAG_FINALIZED;
 
   if (tag < HEADER_TAG_COUNT) {
-    tag_cache_entry_t* tc  = &g_header_cache.tags[tag];
+    tag_cache_entry_t* tc  = &g_header_tags[tag];
     uint64_t           now = current_ms();
     if (tc->cached_at_ms && !bytes_all_zero(bytes(tc->block_hash, 32))) {
       uint64_t ttl                    = header_tag_ttl_ms(ctx->chain_id, tag, ctx->flags);
       bool     within_ttl             = (now - tc->cached_at_ms < ttl);
       bool     stale_while_revalidate = !within_ttl && tc->fetching_since_ms && tc->fetching_ctx != (uintptr_t) ctx && (now - tc->fetching_since_ms < TAG_FETCH_TIMEOUT_MS);
       if (within_ttl || stale_while_revalidate)
-        cached = c4_header_cache_get_by_hash(&g_header_cache, ctx->chain_id, tc->block_hash);
+        cached = c4_header_cache_get_by_hash(ctx->chain_id, tc->block_hash);
     }
   }
   else if (block.type == JSON_TYPE_STRING && block.len == 68) {
     bytes32_t hash_buf = {0};
     hex_to_bytes(block.start + 1, 66, bytes(hash_buf, 32));
-    cached = c4_header_cache_get_by_hash(&g_header_cache, ctx->chain_id, hash_buf);
+    cached = c4_header_cache_get_by_hash(ctx->chain_id, hash_buf);
   }
   else if (block.type == JSON_TYPE_STRING && block.len > 4 && block.start[1] == '0' && block.start[2] == 'x') {
     uint64_t bn = json_as_uint64(block);
-    if (bn) cached = c4_header_cache_get_by_number(&g_header_cache, ctx->chain_id, bn);
+    if (bn) cached = c4_header_cache_get_by_number(ctx->chain_id, bn);
   }
 
   if (cached) {
@@ -309,26 +272,26 @@ c4_status_t c4_hybrid_get_block_for_eth(prover_ctx_t* ctx, json_t block, beacon_
     header_data.bytes = bytes_dup(cached->header_data.bytes);
   }
   else {
-    if (tag < HEADER_TAG_COUNT && !g_header_cache.tags[tag].fetching_since_ms) {
-      g_header_cache.tags[tag].fetching_since_ms = current_ms();
-      g_header_cache.tags[tag].fetching_ctx      = (uintptr_t) ctx;
+    if (tag < HEADER_TAG_COUNT && !g_header_tags[tag].fetching_since_ms) {
+      g_header_tags[tag].fetching_since_ms = current_ms();
+      g_header_tags[tag].fetching_ctx      = (uintptr_t) ctx;
     }
     c4_status_t status = hybrid_fetch_and_verify(ctx, block, HYBRID_FETCH_HEADER, &header_data);
     if (status != C4_SUCCESS) {
       if (status == C4_ERROR && tag < HEADER_TAG_COUNT) {
-        g_header_cache.tags[tag].fetching_since_ms = 0;
-        g_header_cache.tags[tag].fetching_ctx      = 0;
+        g_header_tags[tag].fetching_since_ms = 0;
+        g_header_tags[tag].fetching_ctx      = 0;
       }
       return status;
     }
     uint64_t hdr_bn = ssz_get_uint64(&header_data, "blockNumber");
     bytes_t  bh     = ssz_get(&header_data, "blockHash").bytes;
-    c4_header_cache_put(&g_header_cache, ctx->chain_id, hdr_bn, bh.data, header_data);
+    c4_header_cache_put(ctx->chain_id, hdr_bn, bh.data, header_data);
     if (tag < HEADER_TAG_COUNT && bh.data && bh.len == 32) {
-      memcpy(g_header_cache.tags[tag].block_hash, bh.data, 32);
-      g_header_cache.tags[tag].cached_at_ms      = current_ms();
-      g_header_cache.tags[tag].fetching_since_ms = 0;
-      g_header_cache.tags[tag].fetching_ctx      = 0;
+      memcpy(g_header_tags[tag].block_hash, bh.data, 32);
+      g_header_tags[tag].cached_at_ms      = current_ms();
+      g_header_tags[tag].fetching_since_ms = 0;
+      g_header_tags[tag].fetching_ctx      = 0;
     }
   }
 
@@ -355,24 +318,24 @@ c4_status_t c4_hybrid_get_execution_for_eth(prover_ctx_t* ctx, json_t block, bea
     tag = HEADER_TAG_FINALIZED;
 
   if (tag < HEADER_TAG_COUNT) {
-    tag_cache_entry_t* tc  = &g_header_cache.tags[tag];
+    tag_cache_entry_t* tc  = &g_header_tags[tag];
     uint64_t           now = current_ms();
     if (tc->cached_at_ms && !bytes_all_zero(bytes(tc->block_hash, 32))) {
       uint64_t ttl                    = header_tag_ttl_ms(ctx->chain_id, tag, ctx->flags);
       bool     within_ttl             = (now - tc->cached_at_ms < ttl);
       bool     stale_while_revalidate = !within_ttl && tc->fetching_since_ms && tc->fetching_ctx != (uintptr_t) ctx && (now - tc->fetching_since_ms < TAG_FETCH_TIMEOUT_MS);
       if (within_ttl || stale_while_revalidate)
-        cached = c4_header_cache_get_by_hash(&g_header_cache, ctx->chain_id, tc->block_hash);
+        cached = c4_header_cache_get_by_hash(ctx->chain_id, tc->block_hash);
     }
   }
   else if (block.type == JSON_TYPE_STRING && block.len == 68) {
     bytes32_t hash_buf = {0};
     hex_to_bytes(block.start + 1, 66, bytes(hash_buf, 32));
-    cached = c4_header_cache_get_by_hash(&g_header_cache, ctx->chain_id, hash_buf);
+    cached = c4_header_cache_get_by_hash(ctx->chain_id, hash_buf);
   }
   else if (block.type == JSON_TYPE_STRING && block.len > 4 && block.start[1] == '0' && block.start[2] == 'x') {
     uint64_t bn = json_as_uint64(block);
-    if (bn) cached = c4_header_cache_get_by_number(&g_header_cache, ctx->chain_id, bn);
+    if (bn) cached = c4_header_cache_get_by_number(ctx->chain_id, bn);
   }
 
   if (cached && cached->execution.bytes.data) {
@@ -384,17 +347,17 @@ c4_status_t c4_hybrid_get_execution_for_eth(prover_ctx_t* ctx, json_t block, bea
     return C4_SUCCESS;
   }
 
-  if (tag < HEADER_TAG_COUNT && !g_header_cache.tags[tag].fetching_since_ms) {
-    g_header_cache.tags[tag].fetching_since_ms = current_ms();
-    g_header_cache.tags[tag].fetching_ctx      = (uintptr_t) ctx;
+  if (tag < HEADER_TAG_COUNT && !g_header_tags[tag].fetching_since_ms) {
+    g_header_tags[tag].fetching_since_ms = current_ms();
+    g_header_tags[tag].fetching_ctx      = (uintptr_t) ctx;
   }
 
   ssz_ob_t    execution = {0};
   c4_status_t status    = hybrid_fetch_and_verify(ctx, block, HYBRID_FETCH_EXECUTION, &execution);
   if (status != C4_SUCCESS) {
     if (status == C4_ERROR && tag < HEADER_TAG_COUNT) {
-      g_header_cache.tags[tag].fetching_since_ms = 0;
-      g_header_cache.tags[tag].fetching_ctx      = 0;
+      g_header_tags[tag].fetching_since_ms = 0;
+      g_header_tags[tag].fetching_ctx      = 0;
     }
     return status;
   }
@@ -402,24 +365,74 @@ c4_status_t c4_hybrid_get_execution_for_eth(prover_ctx_t* ctx, json_t block, bea
   uint64_t ep_bn = ssz_get_uint64(&execution, "blockNumber");
   bytes_t  bh    = ssz_get(&execution, "blockHash").bytes;
 
-  const verified_header_entry_t* hdr_cached = c4_header_cache_get_by_number(&g_header_cache, ctx->chain_id, ep_bn);
+  const verified_header_entry_t* hdr_cached = c4_header_cache_get_by_number(ctx->chain_id, ep_bn);
   if (!hdr_cached) {
     ssz_ob_t header_data = c4_build_header_data_from_execution(execution);
-    c4_header_cache_put(&g_header_cache, ctx->chain_id, ep_bn, bh.data, header_data);
+    c4_header_cache_put(ctx->chain_id, ep_bn, bh.data, header_data);
     safe_free(header_data.bytes.data);
   }
-  c4_header_cache_set_execution(&g_header_cache, ctx->chain_id, ep_bn, execution);
+  c4_header_cache_set_execution(ctx->chain_id, ep_bn, bh.data, execution);
 
   if (tag < HEADER_TAG_COUNT && bh.data && bh.len == 32) {
-    memcpy(g_header_cache.tags[tag].block_hash, bh.data, 32);
-    g_header_cache.tags[tag].cached_at_ms      = current_ms();
-    g_header_cache.tags[tag].fetching_since_ms = 0;
-    g_header_cache.tags[tag].fetching_ctx      = 0;
+    memcpy(g_header_tags[tag].block_hash, bh.data, 32);
+    g_header_tags[tag].cached_at_ms      = current_ms();
+    g_header_tags[tag].fetching_since_ms = 0;
+    g_header_tags[tag].fetching_ctx      = 0;
   }
 
   memset(beacon_block, 0, sizeof(beacon_block_t));
   beacon_block->execution = execution;
   beacon_block->slot      = ep_bn;
-  if (bh.data && bh.len == 32) memcpy(beacon_block->data_block_root, bh.data, 32);
+  if (bh.data && bh.len == 32) {
+    memcpy(beacon_block->data_block_root, bh.data, 32);
+    memcpy(beacon_block->el_block_hash, bh.data, 32);
+  }
   return C4_SUCCESS;
+}
+
+// -- Hybrid: Ensure the verified RLP EL header is in the verifier cache --
+
+c4_status_t c4_hybrid_ensure_el_header(prover_ctx_t* ctx, ssz_ob_t execution) {
+#ifdef EL_HEADER_CACHE
+  bytes_t block_hash = ssz_get(&execution, "blockHash").bytes;
+  if (block_hash.len != 32) THROW_ERROR("execution payload has no blockHash!");
+  if (c4_header_cache_has_el_header(ctx->chain_id, block_hash.data)) return C4_SUCCESS;
+
+  // Fetch the block from the user's RPC (untrusted) and rebuild the RLP header from the
+  // JSON fields. Trust comes solely from the keccak check against the verified blockHash.
+  // TODO: this bridge becomes obsolete once the remote block proofs deliver the RLP
+  // elHeader directly (migration of eth_getBlockHeader / eth_getBlockByNumber).
+  char     params[80] = {0};
+  buffer_t params_buf = stack_buffer(params);
+  json_t   rpc_block  = {0};
+  bprintf(&params_buf, "[\"0x%x\",false]", block_hash);
+  TRY_ASYNC(c4_send_eth_rpc(ctx, "eth_getBlockByHash", params, DEFAULT_TTL, &rpc_block, NULL));
+  if (rpc_block.type != JSON_TYPE_OBJECT) THROW_ERROR("block not found on the execution layer!");
+
+  // The fork only controls how many RLP fields the header has. Detecting it from the
+  // presence of the fork-specific JSON fields is safe: any mismatch (missing or bogus
+  // fields) changes the RLP encoding and is caught by the keccak check below.
+  fork_id_t fork = json_get(rpc_block, "blockAccessListHash").type == JSON_TYPE_STRING ? C4_FORK_GLOAS
+                   : json_get(rpc_block, "requestsHash").type == JSON_TYPE_STRING      ? C4_FORK_ELECTRA
+                                                                                       : C4_FORK_DENEB;
+
+  bytes_t el_header = {0};
+  TRY_ASYNC(eth_el_header_build_from_json(&ctx->state, &el_header, fork, rpc_block));
+
+  bytes32_t computed_hash = {0};
+  keccak(el_header, computed_hash);
+  if (memcmp(computed_hash, block_hash.data, 32) != 0) {
+    safe_free(el_header.data);
+    THROW_ERROR("RPC block header does not match the verified block hash!");
+  }
+
+  c4_header_cache_put_el_header(ctx->chain_id, ssz_get_uint64(&execution, "blockNumber"), block_hash.data, el_header);
+  safe_free(el_header.data);
+  return C4_SUCCESS;
+#else
+  // without the cache the verifier cannot resolve the blockHash union variant,
+  // so hybrid proofs referencing a block by hash only are not possible.
+  (void) execution;
+  THROW_ERROR("hybrid proofs require the EL_HEADER_CACHE build option!");
+#endif
 }

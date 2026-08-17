@@ -466,7 +466,7 @@ void c4_prover_handle_request(request_t* req) {
 
 void c4_proof_request_dispatch(client_t* client, char* method_str, char* params_str,
                                uint32_t version, prover_flags_t extra_flags,
-                               bytes_t client_state, bytes_t witness_key,
+                               bytes_t client_state, bytes_t witness_key, bytes_t last_block_hash,
                                server_list_t* proxy_rpc, server_list_t* proxy_beacon,
                                const char* cache_control) {
   prover_flags_t flags = C4_PROVER_FLAG_UV_SERVER_CTX | http_server.prover_flags | extra_flags;
@@ -488,6 +488,10 @@ void c4_proof_request_dispatch(client_t* client, char* method_str, char* params_
   }
   if (witness_key.data && witness_key.len)
     ctx->witness_key = bytes_dup(witness_key);
+  // the client advertised the newest block header it has verified and cached: the prover
+  // may reference this block by hash only instead of appending the full block proof.
+  if (last_block_hash.data && last_block_hash.len == 32)
+    memcpy(ctx->last_block_hash, last_block_hash.data, 32);
 
   // Tracing: start root span
   if (tracing_is_enabled() && client->trace_level != TRACE_LEVEL_NONE) {
@@ -543,6 +547,7 @@ bool c4_handle_proof_request(client_t* client) {
   json_t zk_proof     = json_get(rpc_req, "zk_proof");
   json_t logs_compl   = json_get(rpc_req, "logs_completeness");
   json_t signers      = json_get(rpc_req, "signers");
+  json_t last_block   = json_get(rpc_req, "last_block_hash");
   if (method.type != JSON_TYPE_STRING || params.type != JSON_TYPE_ARRAY) {
     c4_write_error_response(client, 400, "Invalid request");
     return true;
@@ -612,8 +617,18 @@ bool c4_handle_proof_request(client_t* client) {
 
   uint32_t version_num = version.type == JSON_TYPE_NUMBER ? (uint32_t) json_as_uint32(version) : 0;
 
+  // optional: the newest block hash the client has verified and cached ("0x" + 64 hex chars);
+  // anything else is ignored and the prover simply includes the full block proof.
+  bytes32_t lbh_data = {0};
+  buffer_t  lbh_buf  = stack_buffer(lbh_data);
+  bytes_t   lbh      = NULL_BYTES;
+  if (last_block.type == JSON_TYPE_STRING && last_block.len == 68) {
+    bytes_t parsed = json_as_bytes(last_block, &lbh_buf);
+    if (parsed.len == 32) lbh = parsed;
+  }
+
   c4_proof_request_dispatch(client, bprintf(NULL, "%j", method), bprintf(NULL, "%J", params),
-                            version_num, extra_flags, cs, wk, proxy_rpc, proxy_beacon, NULL);
+                            version_num, extra_flags, cs, wk, lbh, proxy_rpc, proxy_beacon, NULL);
 
   buffer_free(&client_state_buf);
   buffer_free(&witness_buf);

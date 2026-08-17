@@ -100,6 +100,7 @@ set(VERIFIER_SOURCES
   verifier/prover_cache_url.c
   verifier/rlp.c
   verifier/el_header.c
+  verifier/header_cache.c
   ssz/verify_types.c
   ssz/beacon_types.c
   ssz/beacon_denep.c

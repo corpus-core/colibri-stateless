@@ -51,6 +51,11 @@ bool verify_pap_tx(verify_ctx_t* ctx);
 
 c4_status_t c4_verify_blockroot_signature(verify_ctx_t* ctx, ssz_ob_t* header, ssz_ob_t* sync_committee_bits, ssz_ob_t* sync_committee_signature, uint64_t slot, bytes32_t pubkey_hash);
 c4_status_t c4_verify_header(verify_ctx_t* ctx, ssz_ob_t header, ssz_ob_t block_proof);
+// verifies an ETH_BLOCK_PROOF_UNION. On success `el_header` holds the verified RLP header
+// and `block_hash` its keccak hash. The header is NOT owned by the caller: it either points
+// into the proof (clProof variant) or into a C4_DATA_TYPE_CACHE snapshot attached to
+// ctx->state (blockHash variant), so it stays valid for the lifetime of the verify_ctx and
+// is freed automatically with it.
 c4_status_t c4_verify_block(verify_ctx_t* ctx, ssz_ob_t block, bytes_t* el_header, bytes32_t block_hash);
 void        eth_set_block_data(verify_ctx_t* ctx, uint32_t mask, ssz_ob_t block, bytes32_t parent_root, bytes32_t withdrawel_root, bool include_txs);
 bool        eth_calculate_domain(chain_id_t chain_id, uint64_t slot, bytes32_t domain);

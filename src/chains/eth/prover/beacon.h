@@ -26,6 +26,7 @@
 
 #include "../util/json.h"
 #include "../util/ssz.h"
+#include "header_cache.h"
 #include "prover.h"
 
 // Bitmask-based beacon client types for feature detection
@@ -97,113 +98,12 @@ typedef struct {
 } beacon_block_t;
 
 // :: Verified Header Cache
-
-#define HEADER_CACHE_SIZE 256
-
-/**
- * A single cached verified block header entry.
- * Stores the SSZ-encoded `ETH_BLOCK_HEADER_DATA` (14 fields, ~540 bytes).
- * Optionally stores the full SSZ execution payload when fetched via
- * `eth_getBlockByNumber` (for transaction/receipt proofs that need the full block).
- * Memory for `header_data.bytes` and `execution.bytes` is independently allocated via `bytes_dup()`.
- */
-typedef struct {
-  chain_id_t chain_id;
-  uint64_t   block_number;
-  bytes32_t  block_hash;
-  ssz_ob_t   header_data;
-  ssz_ob_t   execution; // optional: full SSZ execution payload (NULL when only header is cached)
-  uint64_t   cached_at_ms;
-} verified_header_entry_t;
-
-/** Block tag indices for the tag-to-block-hash cache. */
-typedef enum {
-  HEADER_TAG_LATEST    = 0,
-  HEADER_TAG_SAFE      = 1,
-  HEADER_TAG_FINALIZED = 2,
-  HEADER_TAG_COUNT     = 3
-} header_tag_t;
-
-/**
- * Maps a block tag (latest/safe/finalized) to a cached block hash with a timestamp for TTL checks.
- *
- * The `fetching_since_ms` / `fetching_ctx` pair implements a stale-while-revalidate sentinel
- * to prevent thundering-herd fetches when the tag TTL expires while multiple requests are in flight.
- * The first request to miss sets the sentinel; subsequent requests serve the stale entry.
- * `fetching_ctx` is only compared by pointer value (never dereferenced) so that the fetching
- * context's own re-entry can bypass the stale path and process its response.
- *
- * Thread safety: these fields are not protected by a mutex. In multi-threaded bindings
- * (Kotlin, Swift, Python) a race can at worst cause a duplicate fetch, which is acceptable.
- */
-typedef struct {
-  bytes32_t block_hash;
-  uint64_t  cached_at_ms;
-  uint64_t  fetching_since_ms; /**< non-zero while a fetch is in progress (unprotected: benign race accepted) */
-  uintptr_t fetching_ctx;      /**< opaque identity of the fetching prover context (compared, never dereferenced) */
-} tag_cache_entry_t;
-
-/**
- * Ring-buffer cache of verified block headers for prover-side optimization.
- * Avoids redundant `eth_getBlockHeader` requests when multiple RPC calls
- * target the same block. The verifier does NOT read from this cache.
- *
- * The `tags` array caches the mapping from special block identifiers
- * (`latest`, `safe`/`justified`, `finalized`) to their resolved block hash.
- * Each mapping has a TTL: `latest` ~ block_time/2, `safe` ~ half epoch,
- * `finalized` ~ one epoch.
- */
-typedef struct {
-  verified_header_entry_t entries[HEADER_CACHE_SIZE];
-  uint32_t                count;
-  uint32_t                head_idx;
-  tag_cache_entry_t       tags[HEADER_TAG_COUNT];
-} verified_header_cache_t;
-
-/**
- * Looks up a verified header by block number.
- *
- * @param cache the header cache
- * @param chain_id the chain to match
- * @param block_number the block number to look up
- * @return pointer to the cached entry, or NULL on miss
- */
-const verified_header_entry_t* c4_header_cache_get_by_number(const verified_header_cache_t* cache, chain_id_t chain_id, uint64_t block_number);
-
-/**
- * Looks up a verified header by block hash.
- *
- * @param cache the header cache
- * @param chain_id the chain to match
- * @param block_hash 32-byte block hash to look up
- * @return pointer to the cached entry, or NULL on miss
- */
-const verified_header_entry_t* c4_header_cache_get_by_hash(const verified_header_cache_t* cache, chain_id_t chain_id, const uint8_t* block_hash);
-
-/**
- * Inserts a verified header into the cache. Overwrites the oldest entry when full.
- * The `header_data.bytes` are duplicated via `bytes_dup()`.
- *
- * @param cache the header cache
- * @param chain_id the chain ID
- * @param block_number the block number
- * @param block_hash 32-byte block hash
- * @param header_data SSZ-encoded `ETH_BLOCK_HEADER_DATA` (will be copied)
- */
-void c4_header_cache_put(verified_header_cache_t* cache, chain_id_t chain_id, uint64_t block_number, const uint8_t* block_hash, ssz_ob_t header_data);
-
-/**
- * Attaches a full SSZ execution payload to an existing cache entry.
- * This allows subsequent calls (e.g. `eth_getTransactionReceipt` after
- * `eth_getTransactionByHash`) to reuse the execution payload from cache.
- * No-op if the entry does not exist. The `execution.bytes` are duplicated.
- *
- * @param cache the header cache
- * @param chain_id the chain ID
- * @param block_number the block number of the entry to update
- * @param execution full SSZ execution payload (will be copied)
- */
-void c4_header_cache_set_execution(verified_header_cache_t* cache, chain_id_t chain_id, uint64_t block_number, ssz_ob_t execution);
+//
+// The cache of verified headers lives in the verifier (`verifier/header_cache.h`,
+// included above), since the verifier resolves `blockHash`-only block proofs from it.
+// The prover uses the same cache for hybrid-mode header/execution reuse. The
+// tag-to-block-hash mapping (`latest`/`safe`/`finalized` with TTLs) is prover-only
+// and stays private to `prover/beacon_header.c`.
 
 // get the beacon block for the given eth block number or hash
 c4_status_t c4_eth_get_signblock_and_parent(prover_ctx_t* ctx, bytes32_t sig_root, bytes32_t data_root, ssz_ob_t* sig_block, ssz_ob_t* data_block, bytes32_t data_root_result);
@@ -263,6 +163,24 @@ c4_status_t c4_hybrid_get_execution_for_eth(prover_ctx_t* ctx, json_t block, bea
  * @return SSZ object with `ETH_BLOCK_HEADER_DATA` def and heap-allocated bytes
  */
 ssz_ob_t c4_build_header_data_from_execution(ssz_ob_t execution);
+
+/**
+ * Ensures the verifier header cache holds the RLP-encoded EL header for the block
+ * of the given (already verified) execution payload, so proofs built in hybrid mode
+ * can reference the block by hash only (`blockHash` variant of `ETH_BLOCK_PROOF_UNION`).
+ *
+ * On a cache miss the block is fetched via `eth_getBlockByHash` from the user's RPC
+ * (untrusted), the RLP header is rebuilt from the JSON and only cached when
+ * `keccak(rlp) == blockHash` of the verified execution payload. This bridge becomes
+ * obsolete once the remote block proofs deliver the RLP `elHeader` directly.
+ *
+ * No-op when the `EL_HEADER_CACHE` build option is disabled.
+ *
+ * @param ctx prover context (must have `C4_PROVER_FLAG_HYBRID` set)
+ * @param execution verified full SSZ execution payload of the block
+ * @return `C4_SUCCESS` when cached, `C4_PENDING` while fetching, `C4_ERROR` on failure
+ */
+c4_status_t c4_hybrid_ensure_el_header(prover_ctx_t* ctx, ssz_ob_t execution);
 
 // creates a new header with the body_root passed and returns the ssz_builder_t, which must be freed
 ssz_builder_t c4_proof_add_header(ssz_ob_t header, bytes32_t body_root);

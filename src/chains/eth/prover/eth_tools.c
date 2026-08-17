@@ -185,8 +185,24 @@ ssz_builder_t eth_ssz_create_state_proof(prover_ctx_t* ctx, json_t block_number,
 
 
 void eth_add_block_proof(prover_ctx_t* ctx, ssz_builder_t* builder, beacon_block_t* block_data, blockroot_proof_t* historic_block_proof) {
-  if (memcmp(ctx->last_block_hash, block_data->el_block_hash, 32) == 0) 
-    ssz_add_ob(builder,"block", (ssz_ob_t){.def = &ssz_bytes32, .bytes = bytes(block_data->el_block_hash, 32)});
+  // the blockHash-only variant is safe whenever the verifier already holds the verified
+  // header: either the client advertised it as its last verified block (remote mode) or
+  // prover and verifier run in the same process and share the header cache (hybrid mode).
+  bool verifier_has_header = !bytes_all_zero(bytes(block_data->el_block_hash, 32)) &&
+                             memcmp(ctx->last_block_hash, block_data->el_block_hash, 32) == 0;
+#ifdef EL_HEADER_CACHE
+  if (!verifier_has_header && (ctx->flags & C4_PROVER_FLAG_HYBRID) && !bytes_all_zero(bytes(block_data->el_block_hash, 32)))
+    // the lookup also LRU-touches the entry, protecting it from eviction until the
+    // proof is verified locally right after.
+    verifier_has_header = c4_header_cache_has_el_header(ctx->chain_id, block_data->el_block_hash);
+#endif
+
+  if (verifier_has_header) {
+    // union variant 0 (blockHash): selector byte + 32-byte hash
+    uint8_t block_hash_union[33] = {0};
+    memcpy(block_hash_union + 1, block_data->el_block_hash, 32);
+    ssz_add_bytes(builder, "block", bytes(block_hash_union, sizeof(block_hash_union)));
+  }
   else {
     ssz_builder_t block_proof = ssz_builder_for_type(ETH_SSZ_CL_BLOCK_PROOF);
     ssz_add_bytes(&block_proof, "elHeader", block_data->el_header);
@@ -196,7 +212,4 @@ void eth_add_block_proof(prover_ctx_t* ctx, ssz_builder_t* builder, beacon_block
     ssz_add_header_proof(&block_proof, block_data, *historic_block_proof);
     ssz_add_builders(builder, "block", block_proof);
   }
-
-
-
 }

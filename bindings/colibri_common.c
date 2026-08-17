@@ -27,6 +27,7 @@
 #include "plugin.h"
 #include "version.h"
 #ifdef CHAIN_ETH
+#include "header_cache.h"
 #include "sync_committee.h"
 #endif
 #include <stdlib.h>
@@ -44,6 +45,19 @@ static bool bytes_memmem(bytes_t p, const char* needle) {
   }
   return false;
 #endif
+}
+
+// Returns the newest verified block hash the local verifier can still resolve from its
+// header cache. Advertising it as `last_block_hash` lets the remote prover omit the block
+// proof (blockHash union variant). NULL_BYTES when nothing is cached (or no eth support).
+static bytes_t get_last_block_hash(c4_rpc_ctx_t* ctx, bytes32_t buf) {
+#ifdef CHAIN_ETH
+  if (c4_header_cache_latest_block_hash(ctx->chain_id, buf)) return bytes(buf, 32);
+#else
+  (void) ctx;
+  (void) buf;
+#endif
+  return NULL_BYTES;
 }
 
 /** Appends `,"key":"csv_value"` (the CSV is transmitted as-is; server splits on comma). */
@@ -114,9 +128,10 @@ static void enrich_pending_prover_requests(c4_rpc_ctx_t* ctx) {
     // the payload is consumed and the request is rewritten in place.
     if (promote_prover_request_to_get(req, ctx)) continue;
 
-    buffer_t out = {0};
+    buffer_t  out = {0};
+    bytes32_t lbh = {0};
     buffer_append(&out, bytes(req->payload.data, req->payload.len - 1));
-    c4_append_prover_request_props(&out, ctx->client_state, ctx->chain_id, ctx->prover_flags, ctx->witness_keys);
+    c4_append_prover_request_props(&out, ctx->client_state, ctx->chain_id, ctx->prover_flags, ctx->witness_keys, get_last_block_hash(ctx, lbh));
     append_proxy_fields(&out, ctx);
     bprintf(&out, "}");
     safe_free(req->payload.data);
@@ -430,7 +445,8 @@ static c4_status_t rpc_handle_remote_proof(c4_rpc_ctx_t* ctx) {
             params_buf.data.len ? (char*) params_buf.data.data : ctx->params);
     buffer_free(&method_buf);
     buffer_free(&params_buf);
-    c4_append_prover_request_props(&payload, ctx->client_state, ctx->chain_id, ctx->prover_flags, ctx->witness_keys);
+    bytes32_t lbh = {0};
+    c4_append_prover_request_props(&payload, ctx->client_state, ctx->chain_id, ctx->prover_flags, ctx->witness_keys, get_last_block_hash(ctx, lbh));
     append_proxy_fields(&payload, ctx);
     bprintf(&payload, "}");
     ctx->rpc_state.requests->payload = payload.data;

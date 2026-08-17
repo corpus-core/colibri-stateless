@@ -296,8 +296,8 @@ void c4_request_free(data_request_t* req);
 /**
  * Appends common remote-prover JSON fields to an open object (after `method` / `params`).
  *
- * Writes: `,"version"`, optional `,"c4"`, optional `zk_proof`, `include_code`, `signers`.
- * Caller must finish the JSON object with `}`.
+ * Writes: `,"version"`, optional `,"c4"`, optional `zk_proof`, `include_code`, `signers`
+ * and optional `last_block_hash`. Caller must finish the JSON object with `}`.
  *
  * @param payload growable buffer; current content must not include the closing `}`
  * @param client_state pre-captured snapshot of the chain's client_state; pass `NULL_BYTES`
@@ -305,8 +305,11 @@ void c4_request_free(data_request_t* req);
  * @param chain_id chain used for fallback `c4_get_client_state` when no snapshot is given
  * @param flags bitmask using `C4_PROVER_REQ_FLAG_*` (same bit layout as `prover_flags_t`)
  * @param witness_key witness bytes for `signers` (may be `NULL_BYTES`)
+ * @param last_block_hash 32-byte hash of the newest execution block header the client has
+ *                        verified and cached; allows the prover to omit the block proof
+ *                        (`blockHash` union variant). Pass `NULL_BYTES` to omit the field.
  */
-void c4_append_prover_request_props(buffer_t* payload, bytes_t client_state, chain_id_t chain_id, uint32_t flags, bytes_t witness_key);
+void c4_append_prover_request_props(buffer_t* payload, bytes_t client_state, chain_id_t chain_id, uint32_t flags, bytes_t witness_key, bytes_t last_block_hash);
 
 /**
  * Finds a data request by its unique identifier.

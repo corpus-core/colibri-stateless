@@ -229,6 +229,16 @@ c4_status_t eth_el_header_build_from_ep(bytes_t* el_header, eth_el_header_ctx_t*
 static bytes_t get_from_json(void* data, buffer_t* buffer, char* name) {
   json_t* json  = (json_t*) data;
   json_t  field = json_get(*json, name);
+  // some fields use execution-payload naming internally, but standard JSON-RPC block
+  // responses (eth_getBlockByHash etc.) use the legacy header names: fall back to those.
+  if (field.type == JSON_TYPE_NOT_FOUND) {
+    if (strcmp(name, "feeRecipient") == 0)
+      field = json_get(*json, "miner");
+    else if (strcmp(name, "prevRandao") == 0)
+      field = json_get(*json, "mixHash");
+    else if (strcmp(name, "blockNumber") == 0)
+      field = json_get(*json, "number");
+  }
   if (field.type == JSON_TYPE_NOT_FOUND) return NULL_BYTES;
   return json_as_bytes(field, buffer);
 }

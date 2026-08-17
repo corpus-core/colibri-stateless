@@ -28,7 +28,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-void c4_append_prover_request_props(buffer_t* payload, bytes_t client_state, chain_id_t chain_id, uint32_t flags, bytes_t witness_key) {
+void c4_append_prover_request_props(buffer_t* payload, bytes_t client_state, chain_id_t chain_id, uint32_t flags, bytes_t witness_key, bytes_t last_block_hash) {
   if (!payload) return;
   bprintf(payload, ",\"version\":%d", c4_current_version_number());
 
@@ -51,6 +51,8 @@ void c4_append_prover_request_props(buffer_t* payload, bytes_t client_state, cha
     bprintf(payload, ",\"logs_completeness\":true");
   if (witness_key.data && witness_key.len)
     bprintf(payload, ",\"signers\":\"0x%x\"", witness_key);
+  if (last_block_hash.data && last_block_hash.len == 32)
+    bprintf(payload, ",\"last_block_hash\":\"0x%x\"", last_block_hash);
 }
 
 void c4_request_free(data_request_t* req) {

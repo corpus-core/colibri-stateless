@@ -114,6 +114,14 @@ endif()
 # Build type options
 option(EMBEDDED "Build for embedded target" OFF)
 option(BLOCK_HASH_CACHE "Cache block hashes for faster verification within the same block" ON)
+option(EL_HEADER_CACHE "verifier-side cache of verified execution-layer block headers. Required for hybrid mode and for proofs referencing an already verified block by hash only (smaller proofs). Disable for embedded targets to save memory (~25 KB static + cached payloads)." ON)
+
+# The define must be global (not scoped to src/chains/eth): bindings, server and tests
+# also compile against header_cache.h, which switches between real declarations and
+# inline no-op stubs based on this flag.
+if(EL_HEADER_CACHE AND CHAIN_ETH AND NOT EMBEDDED)
+  add_definitions(-DEL_HEADER_CACHE)
+endif()
 option(WASM "Build WebAssembly target" OFF)
 option(KOTLIN "Build Kotlin bindings" OFF)
 option(SWIFT "Build Swift bindings" OFF)

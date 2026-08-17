@@ -379,13 +379,16 @@ bool           c4_handle_proof_request(client_t* client);
  * @param extra_flags  additional prover flags (e.g. INCLUDE_CODE / ZK_PROOF)
  * @param client_state client_state snapshot (copied, may be empty)
  * @param witness_key  witness/signer keys (copied, may be empty)
+ * @param last_block_hash 32-byte hash of the newest block header the client has verified
+ *                     and cached (copied, pass `NULL_BYTES` if unknown); lets the prover
+ *                     omit the block proof (blockHash union variant) for matching blocks
  * @param proxy_rpc    per-request RPC proxy list (ownership transferred, may be NULL)
  * @param proxy_beacon per-request Beacon proxy list (ownership transferred, may be NULL)
  * @param cache_control optional `Cache-Control` header value for the direct response (copied, may be NULL)
  */
 void           c4_proof_request_dispatch(client_t* client, char* method_str, char* params_str,
                                          uint32_t version, prover_flags_t extra_flags,
-                                         bytes_t client_state, bytes_t witness_key,
+                                         bytes_t client_state, bytes_t witness_key, bytes_t last_block_hash,
                                          server_list_t* proxy_rpc, server_list_t* proxy_beacon,
                                          const char* cache_control);
 bool           c4_handle_status(client_t* client);

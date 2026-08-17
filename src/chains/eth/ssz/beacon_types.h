@@ -81,8 +81,9 @@ typedef enum {
   ETH_SSZ_DATA_BLOCK_RECEIPTS         = 32,
 
   // hybrid proof types (header_data embedded, no consensus proof needed)
+  // (34 was ETH_SSZ_VERIFY_HYBRID_TRANSACTION_PROOF: hybrid tx proofs now use
+  //  ETH_SSZ_VERIFY_TRANSACTION_PROOF with the blockHash variant of ETH_BLOCK_PROOF_UNION)
   ETH_SSZ_VERIFY_HYBRID_ACCOUNT_PROOF      = 33,
-  ETH_SSZ_VERIFY_HYBRID_TRANSACTION_PROOF  = 34,
   ETH_SSZ_VERIFY_HYBRID_RECEIPT_PROOF      = 35,
   ETH_SSZ_VERIFY_HYBRID_LOGS_PROOF         = 36,
   ETH_SSZ_VERIFY_HYBRID_CALL_PROOF         = 37,
