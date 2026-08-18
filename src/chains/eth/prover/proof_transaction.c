@@ -155,12 +155,11 @@ c4_status_t c4_proof_transaction(prover_ctx_t* ctx) {
   // get the beacon-block with signature
   TRY_ADD_ASYNC(status, c4_beacon_get_block_for_eth_with_body(ctx, block_number, &block));
 
-  ssz_ob_t el_body = block.execution.def ? block.execution : block.el_body;
 
   // check if we need historical proofs
   if (block.slot) TRY_ADD_ASYNC(status, c4_check_blockroot_proof(ctx, &block_proof, &block));
-  if (!el_body.bytes.data && status == C4_SUCCESS) status = c4_state_add_error(&ctx->state, "block execution is missing");
-  else if (status == C4_SUCCESS) TRY_ADD_ASYNC(status, c4_eth_get_tx_proof(ctx,block.el_block_hash,el_body, tx_index,&tx_proof));
+  if (!block.el_body.bytes.data && status == C4_SUCCESS) status = c4_state_add_error(&ctx->state, "block execution is missing");
+  else if (status == C4_SUCCESS) TRY_ADD_ASYNC(status, c4_eth_get_tx_proof(ctx,block.el_block_hash,block.el_body, tx_index,&tx_proof));
 
   TRY_ASYNC_CATCH(status, safe_free(block_proof.historic_proof.data));
   TRACE_START(ctx, "proof_data");

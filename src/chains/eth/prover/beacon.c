@@ -76,6 +76,8 @@ static bool c4_beacon_cache_get_blockdata(prover_ctx_t* ctx, bytes32_t block_roo
   beacon_block_t* cached_block = (beacon_block_t*) c4_prover_cache_get(ctx, key);
   if (cached_block) {
     *beacon_block = *cached_block;
+    if (beacon_block->execution.def && !beacon_block->el_body.def)
+      beacon_block->el_body = beacon_block->execution;
     return true;
   }
   return false;
@@ -609,6 +611,8 @@ c4_status_t c4_beacon_get_block_for_eth(prover_ctx_t* ctx, json_t block, beacon_
   else
     c4_beacon_cache_update_blockdata(ctx, beacon_block, 0, beacon_block->data_block_root);
 #endif
+  if (beacon_block->execution.def && !beacon_block->el_body.def)
+    beacon_block->el_body = beacon_block->execution;
 
   return C4_SUCCESS;
 }
