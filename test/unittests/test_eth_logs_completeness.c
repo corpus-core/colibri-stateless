@@ -117,12 +117,12 @@ static ssz_ob_t build_completeness_proof(uint32_t header_count) {
   ssz_add_builders(&b, "headers", hlist);
 
   // header_proof: zeroed signature_proof variant (index 0 of ETH_HEADER_PROOFS_UNION)
-  const ssz_def_t* hp_field = ssz_get_def(def, "header_proof");
+  const ssz_def_t* hp_field = ssz_get_def(def, "headerProof");
   ssz_builder_t    sp       = ssz_builder_for_def(hp_field->def.container.elements + 0);
   uint8_t          bits[64] = {0}, sig[96] = {0};
   ssz_add_bytes(&sp, "sync_committee_bits", bytes(bits, sizeof(bits)));
   ssz_add_bytes(&sp, "sync_committee_signature", bytes(sig, sizeof(sig)));
-  ssz_add_builders(&b, "header_proof", sp);
+  ssz_add_builders(&b, "headerProof", sp);
 
   // tag_proof: `none` variant (index 0 of ETH_STATE_BLOCK_UNION) + empty branch. The structural
   // guards under test run before tag_proof verification, so its content is irrelevant here.

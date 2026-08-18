@@ -96,10 +96,13 @@ bool c4_eth_matches_blocknumber(verify_ctx_t* ctx, ssz_ob_t block, json_t req_bl
     bytes32_t hash = {0};
     buffer_t  buf  = stack_buffer(hash);
     json_as_bytes(req_block, &buf);
-    if (memcmp(hash, ssz_get(&block, "blockHash").bytes.data, 32) != 0) RETURN_VERIFY_ERROR(ctx, "blockhash mismatch");
+    // EthBlockData uses "hash", the other data/payload containers use "blockHash"
+    bytes_t block_hash = ssz_get_def(block.def, "blockHash") ? ssz_get(&block, "blockHash").bytes : ssz_get(&block, "hash").bytes;
+    if (block_hash.len != 32 || memcmp(hash, block_hash.data, 32) != 0) RETURN_VERIFY_ERROR(ctx, "blockhash mismatch");
     return true;
   }
-  else if (ssz_get_uint64(&block, "blockNumber") != json_as_uint64(req_block))
+  // EthBlockData uses "number", the other data/payload containers use "blockNumber"
+  else if ((ssz_get_def(block.def, "blockNumber") ? ssz_get_uint64(&block, "blockNumber") : ssz_get_uint64(&block, "number")) != json_as_uint64(req_block))
     RETURN_VERIFY_ERROR(ctx, "blocknumber mismatch");
   return true;
 }
@@ -192,7 +195,7 @@ bool eth_set_block_data(verify_ctx_t* ctx, bytes_t el_header, bool include_txs, 
     ssz_add_uint32(&data, mask);
     ssz_add_uint64(&data, eth_el_header_get_uint64(el_header, EL_BLOCK_NUMBER));
     ssz_add_bytes(&data, "hash", bytes(block_hash, 32));
-    ssz_add_builders(&data, "transactions", create_txs_builder(ctx,       ssz_get_def(body->def, "transactions"), include_txs, ssz_get(body, "transactions"),el_header, block_hash));
+    ssz_add_builders(&data, "transactions", create_txs_builder(ctx, ssz_get_def(data.def, "transactions"), include_txs, ssz_get(body, "transactions"), el_header, block_hash));
     ssz_add_bytes(&data, "logsBloom", eth_el_header_get (el_header, EL_LOGS_BLOOM));
     ssz_add_bytes(&data, "receiptsRoot", eth_el_header_get (el_header, EL_RECEIPTS_ROOT));
     ssz_add_bytes(&data, "extraData", eth_el_header_get (el_header, EL_EXTRA_DATA));
@@ -223,29 +226,21 @@ bool eth_set_block_data(verify_ctx_t* ctx, bytes_t el_header, bool include_txs, 
   return true;
 }
 
-bool verify_block_header_proof(verify_ctx_t* ctx) {
-  bytes_t   el_header  = {0};
-  bytes32_t block_hash = {0};
-  if (!ctx->method || !is_block_header_method(ctx->method)) RETURN_VERIFY_ERROR(ctx, "method mismatch for block header proof");
-  if (json_len(ctx->args) > 1) RETURN_VERIFY_ERROR(ctx, "invalid arguments for block header proof");
-  if (c4_verify_block(ctx, ssz_get(&ctx->proof, "block"), &el_header, block_hash) != C4_SUCCESS) return false;
-  if (!eth_set_block_data(ctx, el_header,false, NULL,ETH_BLOCK_DATA_MASK_ALL_WITHOUT_REQUESTS)) return false;
-  if (json_len(ctx->args) >= 1 && !c4_eth_matches_blocknumber(ctx, ctx->data, json_at(ctx->args, 0))) return false;
-  if (!eth_check_latest_freshness(ctx, json_len(ctx->args) == 0 || eth_json_is_latest(json_at(ctx->args, 0)), true, eth_el_header_get_uint64(el_header, EL_TIMESTAMP))) return false;
-  ctx->success = true;
-  return ctx->success;
-}
-
 bool verify_block_proof(verify_ctx_t* ctx) {
-  bool      include_txs = false;
-  bytes_t   el_header   = {0};
-  bytes32_t block_hash  = {0};
-  if (!ctx->method || !is_block_header_method(ctx->method)) RETURN_VERIFY_ERROR(ctx, "method mismatch for block header proof");
-  if (json_len(ctx->args) > 1) RETURN_VERIFY_ERROR(ctx, "invalid arguments for block header proof");
+  bool      include_txs   = false;
+  bytes_t   el_header     = {0};
+  bytes32_t block_hash    = {0};
+  bool      is_full_block = ctx->method && (strcmp(ctx->method, "eth_getBlockByNumber") == 0 || strcmp(ctx->method, "eth_getBlockByHash") == 0);
+
+  if (!ctx->method || (!is_full_block && !is_block_header_method(ctx->method))) RETURN_VERIFY_ERROR(ctx, "method mismatch for block proof");
+  // full block methods take [block, includeTx], header-only methods at most [block]
+  if (json_len(ctx->args) > (is_full_block ? 2 : 1)) RETURN_VERIFY_ERROR(ctx, "invalid arguments for block proof");
   if (c4_verify_block(ctx, ssz_get(&ctx->proof, "block"), &el_header, block_hash) != C4_SUCCESS) return false;
-  ssz_ob_t body = ssz_get(&ctx->proof, "body");
-  if (body.def && strcmp(body.def->name, "content")) {
-    // verify block body
+
+  ssz_ob_t body     = ssz_get(&ctx->proof, "body");
+  bool     has_body = body.def && strcmp(body.def->name, "content") == 0;
+  if (has_body) {
+    // the body payload is untrusted until its roots match the verified header
     bytes32_t transaction_root = {0};
     bytes32_t withdrawal_root  = {0};
     include_txs                = json_as_bool(json_at(ctx->args, 1));
@@ -254,10 +249,10 @@ bool verify_block_proof(verify_ctx_t* ctx) {
     if (memcmp(transaction_root, eth_el_header_get(el_header, EL_TRANSACTIONS_ROOT).data, 32) != 0) RETURN_VERIFY_ERROR(ctx, "invalid transaction root!");
     if (memcmp(withdrawal_root, eth_el_header_get(el_header, EL_WITHDRAWALS_ROOT).data, 32) != 0) RETURN_VERIFY_ERROR(ctx, "invalid withdrawal root!");
   }
-  else if (strcmp(ctx->method, "eth_getBlockByNumber") == 0 || strcmp(ctx->method, "eth_getBlockByHash") == 0)
+  else if (is_full_block)
     RETURN_VERIFY_ERROR(ctx, "missing body for block proof");
 
-  if (!eth_set_block_data(ctx, el_header, include_txs, &body, ETH_BLOCK_DATA_MASK_ALL_WITHOUT_REQUESTS)) return false;
+  if (!eth_set_block_data(ctx, el_header, include_txs, has_body ? &body : NULL, ETH_BLOCK_DATA_MASK_ALL_WITHOUT_REQUESTS)) return false;
   if (json_len(ctx->args) >= 1 && !c4_eth_matches_blocknumber(ctx, ctx->data, json_at(ctx->args, 0))) return false;
   if (!eth_check_latest_freshness(ctx, json_len(ctx->args) == 0 || eth_json_is_latest(json_at(ctx->args, 0)), true, eth_el_header_get_uint64(el_header, EL_TIMESTAMP))) return false;
   ctx->success = true;

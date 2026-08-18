@@ -138,7 +138,7 @@ c4_status_t c4_verify_header(verify_ctx_t* ctx, ssz_ob_t header, ssz_ob_t block_
   if (strcmp(header_proof.def->name, "signature_proof") == 0) // direct proof - the signature matches the current header
     return c4_verify_blockroot_signature(ctx, &header, &sync_committee_bits, &sync_committee_signature, 0, NULL);
 
-  if (strcmp(header_proof.def->name, "header_proof") == 0) // header proof - the signature matches the signed header in the header_proof
+  if (strcmp(header_proof.def->name, "headerProof") == 0) // header proof - the signature matches the signed header in the header_proof
     return c4_verify_headers_proof(ctx, header, sync_committee_bits, sync_committee_signature, header_proof);
 
   // historic proof

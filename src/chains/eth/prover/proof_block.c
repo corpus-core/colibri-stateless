@@ -37,53 +37,39 @@
 
 c4_status_t c4_proof_block(prover_ctx_t* ctx) {
   beacon_block_t    block          = {0};
-  ssz_builder_t     block_proof   = ssz_builder_for_type(ETH_SSZ_VERIFY_BLOCK_PROOF);
+  ssz_builder_t     block_proof    = ssz_builder_for_type(ETH_SSZ_VERIFY_BLOCK_PROOF);
   blockroot_proof_t historic_proof = {0};
   ssz_builder_t     sync_proof     = NULL_SSZ_BUILDER;
   json_t            block_arg      = json_len(ctx->params) > 0 ? json_at(ctx->params, 0) : json_parse("\"latest\"");
+  // full block methods carry transactions + withdrawals in the body, header-only methods
+  // (eth_blockNumber, eth_getBlockHeader, eth_blobBaseFee, ...) use the NONE variant.
+  bool include_body = strcmp(ctx->method, "eth_getBlockByHash") == 0 ||
+                      strcmp(ctx->method, "eth_getBlockByNumber") == 0 ||
+                      strcmp(ctx->method, "colibri_proofBlock") == 0;
 
   // fetch the block (default to "latest" if no params given, e.g. for eth_blobBaseFee)
   TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, block_arg, &block));
   TRY_ASYNC(c4_check_blockroot_proof(ctx, &historic_proof, &block));
   TRY_ASYNC(c4_get_syncdata_proof(ctx, &historic_proof.sync, &sync_proof));
 
-  if (block.execution.def == NULL) THROW_ERROR("execution payload is null");
-
-  ssz_builder_t content_proof = ssz_builder_for_def( ssz_get_def( ssz_get_def(block_proof.def, "body"),"content"));
-  ssz_add_ob(&content_proof, "transactions", ssz_get(&block.execution,"transaction"));
-  ssz_add_ob(&content_proof, "withdrawals", ssz_get(&block.execution,"withdrawals"));
-  ssz_add_builders(&block_proof, "body", content_proof);
+  if (include_body) {
+    if (block.execution.def == NULL) THROW_ERROR("execution payload is null");
+    ssz_builder_t content_proof = ssz_builder_for_def(ssz_get_def(ssz_get_def(block_proof.def, "body"), "content"));
+    ssz_add_ob(&content_proof, "transactions", ssz_get(&block.execution, "transactions"));
+    ssz_add_ob(&content_proof, "withdrawals", ssz_get(&block.execution, "withdrawals"));
+    ssz_add_builders(&block_proof, "body", content_proof);
+  }
+  else {
+    // body union variant 0 (NONE): a single selector byte, no payload
+    uint8_t none_body = 0;
+    ssz_add_bytes(&block_proof, "body", bytes(&none_body, 1));
+  }
   eth_add_block_proof(ctx, &block_proof, &block, &historic_proof);
 
   ctx->proof = eth_create_proof_request(
       ctx->chain_id,
       NULL_SSZ_BUILDER,
       block_proof,
-      sync_proof);
-
-  c4_free_block_proof(&historic_proof);
-  return C4_SUCCESS;
-}
-
-c4_status_t c4_proof_block_header(prover_ctx_t* ctx) {
-  beacon_block_t    block          = {0};
-  ssz_builder_t     header_proof   = ssz_builder_for_type(ETH_SSZ_VERIFY_BLOCK_HEADER_PROOF);
-  blockroot_proof_t historic_proof = {0};
-  ssz_builder_t     sync_proof     = NULL_SSZ_BUILDER;
-  json_t            block_arg      = json_len(ctx->params) > 0 ? json_at(ctx->params, 0) : json_parse("\"latest\"");
-
-  // fetch the block (default to "latest" if no params given, e.g. for eth_blobBaseFee)
-  TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, block_arg, &block));
-  TRY_ASYNC(c4_check_blockroot_proof(ctx, &historic_proof, &block));
-  TRY_ASYNC(c4_get_syncdata_proof(ctx, &historic_proof.sync, &sync_proof));
-
-  // build the proof
-  eth_add_block_proof(ctx, &header_proof, &block, &historic_proof);
-
-  ctx->proof = eth_create_proof_request(
-      ctx->chain_id,
-      NULL_SSZ_BUILDER,
-      header_proof,
       sync_proof);
 
   c4_free_block_proof(&historic_proof);

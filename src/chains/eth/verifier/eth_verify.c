@@ -360,8 +360,6 @@ bool c4_eth_verify(verify_ctx_t* ctx) {
       if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_HYBRID_BLOCK_PROOF)) ||
           ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_BLOCK_PROOF)))
     verify_block_proof(ctx);
-  else if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_BLOCK_HEADER_PROOF)))
-    verify_block_header_proof(ctx);
   else
 #endif
 #ifdef PAP

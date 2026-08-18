@@ -204,7 +204,7 @@ static bool update_light_client_update(verify_ctx_t* ctx, ssz_ob_t* update) {
   return c4_set_sync_period(period, ssz_get(&sync_committee, "pubkeys").bytes, ctx->chain_id, previous_pubkeys_hash);
 }
 static bool verify_signatures(verify_ctx_t* ctx, ssz_ob_t checkpoint_ob, ssz_ob_t attested_header, ssz_ob_t signatures) {
-  if (!checkpoint_ob.def || strcmp(checkpoint_ob.def->name, "header_proof"))
+  if (!checkpoint_ob.def || strcmp(checkpoint_ob.def->name, "headerProof"))
     RETURN_VERIFY_ERROR(ctx, "invalid checkpoint, must be a header_proof!");
   ssz_ob_t  signed_header = ssz_get(&checkpoint_ob, "header");
   bytes32_t checkpoint    = {0};
@@ -436,7 +436,7 @@ static c4_status_t update_from_zk_sync_data(verify_ctx_t* ctx) {
         // `period_store_zk_ssz.c`), NOT the attested header (typically mid-epoch);
         // checkpointz only serves epoch-boundary blocks. `historic_proof` carries the
         // same `header` field as `header_proof`, so both share the anchor logic.
-        bool     have_header_field = checkpoint.def && (strcmp(checkpoint.def->name, "header_proof") == 0 ||
+        bool     have_header_field = checkpoint.def && (strcmp(checkpoint.def->name, "headerProof") == 0 ||
                                                         strcmp(checkpoint.def->name, "historic_proof") == 0);
         ssz_ob_t anchor_header     = have_header_field
                                          ? ssz_get(&checkpoint, "header")

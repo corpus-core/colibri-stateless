@@ -86,18 +86,17 @@ static const ssz_def_t C4_REQUEST_PROOFS_UNION[] = {
     SSZ_LIST("LogsProof", ETH_LOGS_BLOCK_CONTAINER, 256),                //  4: a Proof for multiple Receipts and txs
     SSZ_CONTAINER("CallProof", ETH_CALL_PROOF),                          //  5: a Proof of a Call like eth_call
     SSZ_CONTAINER("SyncProof", ETH_SYNC_PROOF),                          //  6: Proof as input data for the sync committee transition used by zk
-    SSZ_CONTAINER("BlockProof", ETH_BLOCK_PROOF),                        //  7: Proof for BlockData
-    SSZ_CONTAINER("WitnessProof", C4_WITNESS_SIGNED),                    //  9: Proof for Witness
-    SSZ_CONTAINER("BlockHeaderProof", ETH_BLOCK_HEADER_PROOF),           // 10: Proof for compact BlockHeader
-    SSZ_CONTAINER("BlockReceiptsProof", ETH_BLOCK_RECEIPTS_PROOF),       // 11: Proof for all block receipts
-    SSZ_CONTAINER("HybridAccountProof", ETH_HYBRID_ACCOUNT_PROOF),       // 12: Hybrid account proof with embedded header_data
-    SSZ_CONTAINER("HybridReceiptProof", ETH_HYBRID_RECEIPT_PROOF),       // 13: Hybrid receipt proof (Patricia + header_data)
-    SSZ_LIST("HybridLogsProof", ETH_HYBRID_LOGS_BLOCK_CONTAINER, 256),    // 14: Hybrid logs proof with embedded header_data per block
-    SSZ_CONTAINER("HybridCallProof", ETH_HYBRID_CALL_PROOF),               // 15: Hybrid call proof with embedded header_data
-    SSZ_CONTAINER("HybridBlockProof", ETH_HYBRID_BLOCK_PROOF),             // 16: Hybrid block proof (EP only)
-    SSZ_CONTAINER("HybridBlockHeaderProof", ETH_HYBRID_BLOCK_HEADER_PROOF), // 17: Hybrid block header/number proof (header_data only)
-    SSZ_CONTAINER("HybridBlockReceiptsProof", ETH_HYBRID_BLOCK_RECEIPTS_PROOF), // 18: Hybrid block receipts proof (header_data only)
-    SSZ_CONTAINER("LogsCompletenessProof", ETH_LOGS_COMPLETENESS_PROOF), // 19: Completeness proof for eth_getLogs over a contiguous block range
+    SSZ_CONTAINER("BlockProof", ETH_BLOCK_PROOF),                        //  7: Proof for BlockData (body union: NONE = header-only proof)
+    SSZ_CONTAINER("WitnessProof", C4_WITNESS_SIGNED),                    //  8: Proof for Witness
+    SSZ_CONTAINER("BlockReceiptsProof", ETH_BLOCK_RECEIPTS_PROOF),       //  9: Proof for all block receipts
+    SSZ_CONTAINER("HybridAccountProof", ETH_HYBRID_ACCOUNT_PROOF),       // 10: Hybrid account proof with embedded header_data
+    SSZ_CONTAINER("HybridReceiptProof", ETH_HYBRID_RECEIPT_PROOF),       // 11: Hybrid receipt proof (Patricia + header_data)
+    SSZ_LIST("HybridLogsProof", ETH_HYBRID_LOGS_BLOCK_CONTAINER, 256),   // 12: Hybrid logs proof with embedded header_data per block
+    SSZ_CONTAINER("HybridCallProof", ETH_HYBRID_CALL_PROOF),             // 13: Hybrid call proof with embedded header_data
+    SSZ_CONTAINER("HybridBlockProof", ETH_HYBRID_BLOCK_PROOF),           // 14: Hybrid block proof (EP only)
+    SSZ_CONTAINER("HybridBlockHeaderProof", ETH_HYBRID_BLOCK_HEADER_PROOF),     // 15: Hybrid block header/number proof (header_data only)
+    SSZ_CONTAINER("HybridBlockReceiptsProof", ETH_HYBRID_BLOCK_RECEIPTS_PROOF), // 16: Hybrid block receipts proof (header_data only)
+    SSZ_CONTAINER("LogsCompletenessProof", ETH_LOGS_COMPLETENESS_PROOF), // 17: Completeness proof for eth_getLogs over a contiguous block range
 };
 
 // A List of possible types of sync data used to update the sync state by verifying the transition from the last period to the required.
@@ -309,8 +308,6 @@ const ssz_def_t* eth_ssz_verification_type(eth_ssz_type_t type) {
       return ETH_STATE_BLOCK_UNION + 3;
     case ETH_SSZ_DATA_STATE_BLOCK_TIMESTAMP:
       return ETH_STATE_BLOCK_UNION + 4;
-    case ETH_SSZ_VERIFY_BLOCK_HEADER_PROOF:
-      return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, ETH_BLOCK_HEADER_PROOF);
     case ETH_SSZ_VERIFY_BLOCK_RECEIPTS_PROOF:
       return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, ETH_BLOCK_RECEIPTS_PROOF);
     case ETH_SSZ_DATA_BLOCK_RECEIPTS:

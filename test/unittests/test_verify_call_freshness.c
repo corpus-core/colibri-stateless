@@ -393,11 +393,12 @@ void test_freshness_block_header_fresh_passes(void) {
 // :: eth_blobBaseFee / eth_maxPriorityFeePerGas (empty-args latest)
 //
 // Both methods take no arguments and implicitly target `latest`; the
-// `verify_block_header_proof` short-circuits `is_latest` on `json_len == 0`.
-// The dispatch share `c4_proof_block_header` (see eth_prover.c) and the
-// `EthBlockHeaderProof` SSZ shape, so the existing `eth_getBlockHeader1`
-// fixture is reusable -- the prover defaults `block_arg` to `"latest"` when
-// `params == []`, producing identical beacon requests.
+// `verify_block_proof` short-circuits `is_latest` on `json_len == 0`.
+// The dispatch shares `c4_proof_block` (see eth_prover.c) and the
+// `EthBlockProof` SSZ shape (body union NONE), so the existing
+// `eth_getBlockHeader1` fixture is reusable -- the prover defaults
+// `block_arg` to `"latest"` when `params == []`, producing identical
+// beacon requests.
 
 void test_freshness_blob_base_fee_implicit_latest_stale_rejected(void) {
   run_freshness_case("eth_getBlockHeader1", "eth_blobBaseFee",
