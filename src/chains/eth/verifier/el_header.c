@@ -111,11 +111,14 @@ static c4_status_t eth_el_header_build(c4_state_t* state, bytes_t* el_header, fo
 // where requests with empty request_data are skipped. Since all request containers are
 // fixed-size, the raw SSZ list bytes are exactly the flat request_data encoding.
 static void get_requests_hash(bytes32_t out_hash, eth_el_header_ctx_t* ctx) {
+  if (ctx->beacon_block.def == NULL) {
+    memcpy(out_hash, EMPTY_HASH, 32);
+    return;}
+  ssz_ob_t           body               = ssz_get(&ctx->beacon_block, "body");
+  ssz_ob_t           execution_requests = ssz_get(&body, "executionRequests");
   static const char* request_lists[] = {"deposits", "withdrawals", "consolidations"};
   uint8_t            hashes[sizeof(request_lists) / sizeof(request_lists[0]) * 32]; // one intermediate hash per non-empty request list
   uint32_t           hashes_len         = 0;
-  ssz_ob_t           body               = ssz_get(&ctx->beacon_block, "body");
-  ssz_ob_t           execution_requests = ssz_get(&body, "executionRequests");
   for (uint8_t type = 0; type < sizeof(request_lists) / sizeof(request_lists[0]); type++) {
     ssz_ob_t list = ssz_get(&execution_requests, request_lists[type]);
     if (list.def == NULL || list.bytes.len == 0) continue; // empty requests are excluded per EIP-7685
@@ -129,9 +132,8 @@ static void get_requests_hash(bytes32_t out_hash, eth_el_header_ctx_t* ctx) {
 // all withdrawals of the execution payload. The key for withdrawal i is the RLP-encoded
 // index (same encoding as the transactions trie), the value is the RLP-encoded list
 // [index, validatorIndex, address, amount] (all uint64 except address which is 20 bytes).
-static void get_withdrawals_root(bytes32_t out_hash, eth_el_header_ctx_t* ctx) {
-  ssz_ob_t withdrawals = ssz_get(&ctx->execution_payload, "withdrawals");
-  uint32_t len         = ssz_len(withdrawals);
+void eth_get_withdrawals_root(bytes32_t out_hash, ssz_ob_t withdrawals) {
+  uint32_t len = ssz_len(withdrawals);
 
   if (len == 0) {
     memcpy(out_hash, EMPTY_ROOT_HASH, 32);
@@ -145,8 +147,8 @@ static void get_withdrawals_root(bytes32_t out_hash, eth_el_header_ctx_t* ctx) {
   node_t*   root      = NULL;
 
   for (uint32_t i = 0; i < len; i++) {
-    ssz_ob_t w       = ssz_at(withdrawals, i);
-    ssz_ob_t address = ssz_get(&w, "address");
+    ssz_ob_t w         = ssz_at(withdrawals, i);
+    ssz_ob_t address   = ssz_get(&w, "address");
     value_buf.data.len = 0;
     rlp_add_uint64(&value_buf, ssz_get_uint64(&w, "index"));
     rlp_add_uint64(&value_buf, ssz_get_uint64(&w, "validatorIndex"));
@@ -164,9 +166,8 @@ static void get_withdrawals_root(bytes32_t out_hash, eth_el_header_ctx_t* ctx) {
 // all withdrawals of the execution payload. The key for withdrawal i is the RLP-encoded
 // index (same encoding as the transactions trie), the value is the RLP-encoded list
 // [index, validatorIndex, address, amount] (all uint64 except address which is 20 bytes).
-static void get_transactions_root(bytes32_t out_hash, eth_el_header_ctx_t* ctx) {
-  ssz_ob_t txs = ssz_get(&ctx->execution_payload, "transactions");
-  uint32_t len         = ssz_len(txs);
+void eth_get_transactions_root(bytes32_t out_hash, ssz_ob_t txs) {
+  uint32_t len = ssz_len(txs);
 
   if (len == 0) {
     memcpy(out_hash, EMPTY_ROOT_HASH, 32);
@@ -175,10 +176,10 @@ static void get_transactions_root(bytes32_t out_hash, eth_el_header_ctx_t* ctx) 
 
   bytes32_t path_tmp = {0};
   buffer_t  path_buf = stack_buffer(path_tmp);
-  node_t*   root      = NULL;
+  node_t*   root     = NULL;
 
   for (uint32_t i = 0; i < len; i++) {
-    ssz_ob_t tx       = ssz_at(txs, i);
+    ssz_ob_t tx = ssz_at(txs, i);
     patricia_set_value(&root, c4_eth_create_tx_path(i, &path_buf), tx.bytes);
   }
 
@@ -190,27 +191,27 @@ static bytes_t get_from_ep(void* data, buffer_t* buffer, char* name) {
   eth_el_header_ctx_t* ctx = (eth_el_header_ctx_t*) data;
   if (strcmp(name, "parentBeaconBlockRoot") == 0)
     return bytes(ctx->parent_root, 32);
-    if (strcmp(name, "requestsHash") == 0) {
-      buffer_reset(buffer);
-      buffer_grow(buffer, 32);
-      buffer->data.len = 32;
-      get_requests_hash(buffer->data.data, ctx);
-      return buffer->data;
-    }
-    if (strcmp(name, "withdrawalsRoot") == 0) {
-      buffer_reset(buffer);
-      buffer_grow(buffer, 32);
-      buffer->data.len = 32;
-      get_withdrawals_root(buffer->data.data, ctx);
-      return buffer->data;
-    }
-    if (strcmp(name, "transactionsRoot") == 0) {
-      buffer_reset(buffer);
-      buffer_grow(buffer, 32);
-      buffer->data.len = 32;
-      get_transactions_root(buffer->data.data, ctx);
-      return buffer->data;
-    }
+  if (strcmp(name, "requestsHash") == 0) {
+    buffer_reset(buffer);
+    buffer_grow(buffer, 32);
+    buffer->data.len = 32;
+    get_requests_hash(buffer->data.data, ctx);
+    return buffer->data;
+  }
+  if (strcmp(name, "withdrawalsRoot") == 0) {
+    buffer_reset(buffer);
+    buffer_grow(buffer, 32);
+    buffer->data.len = 32;
+    eth_get_withdrawals_root(buffer->data.data, ssz_get(&ctx->execution_payload, "withdrawals"));
+    return buffer->data;
+  }
+  if (strcmp(name, "transactionsRoot") == 0) {
+    buffer_reset(buffer);
+    buffer_grow(buffer, 32);
+    buffer->data.len = 32;
+    eth_get_transactions_root(buffer->data.data, ssz_get(&ctx->execution_payload, "transactions"));
+    return buffer->data;
+  }
 
   ssz_ob_t field = ssz_get(&ctx->execution_payload, name);
   if (field.def == NULL) return NULL_BYTES;
@@ -264,6 +265,6 @@ bytes_t eth_el_header_get(bytes_t header, char* name) {
 
 uint64_t eth_el_header_get_uint64(bytes_t header, char* name) {
   bytes_t value = eth_el_header_get(header, name);
-  if (value.len ==0) return 0;
+  if (value.len == 0) return 0;
   return bytes_as_be(value);
 }

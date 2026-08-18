@@ -35,55 +35,25 @@
 #include <stdlib.h>
 #include <string.h>
 
-static c4_status_t create_hybrid_header_data_proof(prover_ctx_t* ctx, eth_ssz_type_t type, bytes_t header_data) {
-  ssz_builder_t proof_builder = ssz_builder_for_type(type);
-  ssz_add_bytes(&proof_builder, "header_data", header_data);
-  ctx->proof = eth_create_proof_request(ctx->chain_id, NULL_SSZ_BUILDER, proof_builder, NULL_SSZ_BUILDER);
-  return C4_SUCCESS;
-}
-
-static c4_status_t create_hybrid_block_proof(prover_ctx_t* ctx, beacon_block_t* block) {
-  ssz_builder_t proof_builder = ssz_builder_for_type(ETH_SSZ_VERIFY_HYBRID_BLOCK_PROOF);
-  ssz_add_ob(&proof_builder, "executionPayload", block->execution);
-  ctx->proof = eth_create_proof_request(ctx->chain_id, NULL_SSZ_BUILDER, proof_builder, NULL_SSZ_BUILDER);
-  return C4_SUCCESS;
-}
-
 c4_status_t c4_proof_block(prover_ctx_t* ctx) {
   beacon_block_t    block          = {0};
-  bytes32_t         body_root      = {0};
-  ssz_builder_t     block_proof    = ssz_builder_for_type(ETH_SSZ_VERIFY_BLOCK_PROOF);
+  ssz_builder_t     block_proof   = ssz_builder_for_type(ETH_SSZ_VERIFY_BLOCK_PROOF);
   blockroot_proof_t historic_proof = {0};
   ssz_builder_t     sync_proof     = NULL_SSZ_BUILDER;
+  json_t            block_arg      = json_len(ctx->params) > 0 ? json_at(ctx->params, 0) : json_parse("\"latest\"");
 
-  if (ctx->flags & C4_PROVER_FLAG_HYBRID) {
-    TRY_ASYNC(c4_beacon_get_execution_for_eth(ctx, json_at(ctx->params, 0), &block));
-    return create_hybrid_block_proof(ctx, &block);
-  }
-
-  // fetch the block
-  TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, json_at(ctx->params, 0), &block));
-
+  // fetch the block (default to "latest" if no params given, e.g. for eth_blobBaseFee)
+  TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, block_arg, &block));
   TRY_ASYNC(c4_check_blockroot_proof(ctx, &historic_proof, &block));
   TRY_ASYNC(c4_get_syncdata_proof(ctx, &historic_proof.sync, &sync_proof));
 
-  // create merkle proof
-  gindex_t ep_gindex              = ssz_gindex(block.body.def, 1, "executionPayload");
-  bytes_t  execution_payload_proof = NULL_BYTES;
-  eth_cu_add_proof(ctx);
-#ifdef PROVER_CACHE
-  if (block.merkle_cache.valid)
-    execution_payload_proof = ssz_create_multi_proof_from_body_cache(&block.merkle_cache, body_root, &ep_gindex, 1);
-  if (!execution_payload_proof.data)
-#endif
-    execution_payload_proof = ssz_create_proof(block.body, body_root, ep_gindex);
+  if (block.execution.def == NULL) THROW_ERROR("execution payload is null");
 
-  // build the proof
-  ssz_add_builders(&block_proof, "executionPayload", (ssz_builder_t) {.def = block.execution.def, .fixed = {.data = bytes_dup(block.execution.bytes)}});
-  ssz_add_bytes(&block_proof, "proof", execution_payload_proof);
-  safe_free(execution_payload_proof.data);
-  ssz_add_builders(&block_proof, "header", c4_proof_add_header(block.header, body_root));
-  ssz_add_header_proof(&block_proof, &block, historic_proof);
+  ssz_builder_t content_proof = ssz_builder_for_def( ssz_get_def( ssz_get_def(block_proof.def, "body"),"content"));
+  ssz_add_ob(&content_proof, "transactions", ssz_get(&block.execution,"transaction"));
+  ssz_add_ob(&content_proof, "withdrawals", ssz_get(&block.execution,"withdrawals"));
+  ssz_add_builders(&block_proof, "body", content_proof);
+  eth_add_block_proof(ctx, &block_proof, &block, &historic_proof);
 
   ctx->proof = eth_create_proof_request(
       ctx->chain_id,
@@ -92,7 +62,6 @@ c4_status_t c4_proof_block(prover_ctx_t* ctx) {
       sync_proof);
 
   c4_free_block_proof(&historic_proof);
-
   return C4_SUCCESS;
 }
 

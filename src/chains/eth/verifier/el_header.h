@@ -51,6 +51,8 @@ typedef struct {
     bytes32_t parent_root;
     ssz_ob_t beacon_block;
 } eth_el_header_ctx_t;
+void eth_get_withdrawals_root(bytes32_t out_hash, ssz_ob_t withdrawals);
+void eth_get_transactions_root(bytes32_t out_hash, ssz_ob_t txs);
 
 bytes_t     eth_el_header_get(bytes_t header, char* name);
 uint64_t    eth_el_header_get_uint64(bytes_t header, char* name);

@@ -22,6 +22,7 @@
  */
 
 #include "beacon_types.h"
+#include "el_header.h"
 #include "bytes.h"
 #include "chains.h"
 #include "crypto.h"
@@ -291,7 +292,17 @@ bool op_verify_block(verify_ctx_t* ctx) {
   }
   else {
     ssz_hash_tree_root(ssz_get(&execution_payload, "withdrawals"), withdrawel_root);
-    eth_set_block_data(ctx, ETH_BLOCK_DATA_MASK_ALL, execution_payload, parent_root, withdrawel_root, include_txs);
+    eth_el_header_ctx_t ectx={0};
+    ectx.chain_id=ctx->chain_id;
+    ectx.execution_payload = execution_payload;
+    ectx.fork = C4_FORK_DENEB;
+    memcpy(ectx.parent_root, parent_root, 32);
+    bytes_t el_header = {0};
+    // TODO set beacon-block
+    eth_el_header_build_from_ep(&el_header,&ectx);
+    bool success =eth_set_block_data(ctx,el_header,include_txs,&execution_payload,ETH_BLOCK_DATA_MASK_ALL);
+    safe_free(el_header.data);
+    if (!success) return false;
   }
   ctx->success = true;
   return true;

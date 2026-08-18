@@ -59,7 +59,6 @@ typedef enum {
   ETH_SSZ_VERIFY_CALL_PROOF         = 13,
   ETH_SSZ_VERIFY_SYNC_PROOF         = 14,
   ETH_SSZ_VERIFY_BLOCK_PROOF        = 15,
-  ETH_SSZ_VERIFY_BLOCK_NUMBER_PROOF = 16,
   ETH_SSZ_VERIFY_WITNESS_PROOF      = 17,
   // data types
   ETH_SSZ_DATA_NONE       = 18,

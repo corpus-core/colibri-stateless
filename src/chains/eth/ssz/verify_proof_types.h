@@ -778,21 +778,21 @@ static const ssz_def_t ETH_EXECUTION_PAYLOAD_UNION[] = {
 // The **Block Proof** thus establishes full trustless verification of an execution-layer block
 // by cryptographically linking it to the verified consensus layer.
 
-// The stateRoot proof is used as part of different other types since it contains all relevant
+// The content of a Execution Block Body
+static const ssz_def_t ETH_BLOCK_BODY_CONTENT[] = {
+    SSZ_PROG_LIST("transactions", ssz_transactions_bytes),     // the raw transactions of the block
+    SSZ_PROG_LIST("withdrawals", DENEP_WITHDRAWAL_CONTAINER)}; // the list of withdrawels
+
+// the union defining hte option for the body
+static const ssz_def_t ETH_BLOCK_BODY_UNION[] = {
+    SSZ_NONE,                                          // no body, just header
+    SSZ_CONTAINER("content", ETH_BLOCK_BODY_CONTENT)}; // the Block Body Content
+
+// The Block Proof. The stateRoot proof is used as part of different other types since it contains all relevant
 // proofs to validate the stateRoot of the execution layer
 static const ssz_def_t ETH_BLOCK_PROOF[] = {
-    SSZ_UNION("executionPayload", ETH_EXECUTION_PAYLOAD_UNION), // the union holding the execution payload to be proven
-    SSZ_LIST("proof", ssz_bytes32, 256),                        // the merkle proof from the executionPayload root down to the blockBodyRoot hash
-    SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),               // the header of the beacon block
-    SSZ_UNION("header_proof", ETH_HEADER_PROOFS_UNION)};        // the proof for the correctness of the header
-
-// for `eth_blockNumber` we need to proof the blocknumber and the timestamp of the latest block.
-static const ssz_def_t ETH_BLOCK_NUMBER_PROOF[] = {
-    SSZ_UINT64("blockNumber"),                           // the block number of the latest block
-    SSZ_UINT64("timestamp"),                             // the timestamp of the latest block
-    SSZ_LIST("proof", ssz_bytes32, 256),                 // the multi merkle proof from the executionPayload.blockNumber and executionPayload.timestamp down to the blockBodyRoot hash
-    SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),        // the header of the beacon block
-    SSZ_UNION("header_proof", ETH_HEADER_PROOFS_UNION)}; // the proof for the correctness of the header
+    SSZ_UNION("body", ETH_BLOCK_BODY_UNION),
+    SSZ_UNION("block", ETH_BLOCK_PROOF_UNION)}; // the proof for the correctness of the header
 
 // for `eth_getBlockHeader` we prove selected fields of the execution payload using a multi-merkle proof.
 // The actual field values are carried in the data union (ETH_BLOCK_HEADER_DATA), not in this proof container.

@@ -87,7 +87,6 @@ static const ssz_def_t C4_REQUEST_PROOFS_UNION[] = {
     SSZ_CONTAINER("CallProof", ETH_CALL_PROOF),                          //  5: a Proof of a Call like eth_call
     SSZ_CONTAINER("SyncProof", ETH_SYNC_PROOF),                          //  6: Proof as input data for the sync committee transition used by zk
     SSZ_CONTAINER("BlockProof", ETH_BLOCK_PROOF),                        //  7: Proof for BlockData
-    SSZ_CONTAINER("BlockNumberProof", ETH_BLOCK_NUMBER_PROOF),           //  8: Proof for BlockNumber
     SSZ_CONTAINER("WitnessProof", C4_WITNESS_SIGNED),                    //  9: Proof for Witness
     SSZ_CONTAINER("BlockHeaderProof", ETH_BLOCK_HEADER_PROOF),           // 10: Proof for compact BlockHeader
     SSZ_CONTAINER("BlockReceiptsProof", ETH_BLOCK_RECEIPTS_PROOF),       // 11: Proof for all block receipts
@@ -280,8 +279,6 @@ const ssz_def_t* eth_ssz_verification_type(eth_ssz_type_t type) {
       return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, ETH_SYNC_PROOF);
     case ETH_SSZ_VERIFY_BLOCK_PROOF:
       return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, ETH_BLOCK_PROOF);
-    case ETH_SSZ_VERIFY_BLOCK_NUMBER_PROOF:
-      return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, ETH_BLOCK_NUMBER_PROOF);
     case ETH_SSZ_VERIFY_WITNESS_PROOF:
       return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, C4_WITNESS_SIGNED);
     case ETH_SSZ_VERIFY_STATE_PROOF:
