@@ -137,13 +137,13 @@ ssz_builder_t eth_ssz_create_state_proof(prover_ctx_t* ctx, json_t block_number,
       proof = ssz_create_multi_proof_from_body_cache(&block->merkle_cache, body_root, gi, CALL_BLOCK_CONTEXT_FIELD_COUNT);
     if (!proof.data)
 #endif
-      proof = ssz_create_multi_proof(block->body, body_root, CALL_BLOCK_CONTEXT_FIELD_COUNT,
+      proof = ssz_create_multi_proof(block->cl_body, body_root, CALL_BLOCK_CONTEXT_FIELD_COUNT,
                                      gi[0], gi[1], gi[2], gi[3], gi[4], gi[5], gi[6], gi[7], gi[8]);
     ssz_add_block_proof(&state_proof, block, 0, true, false);
   }
   else if (use_timestamp) {
-    gindex_t state_index = ssz_gindex(block->body.def, 2, "executionPayload", "stateRoot");
-    gindex_t ts_index    = ssz_gindex(block->body.def, 2, "executionPayload", "timestamp");
+    gindex_t state_index = ssz_gindex(block->cl_body.def, 2, "executionPayload", "stateRoot");
+    gindex_t ts_index    = ssz_gindex(block->cl_body.def, 2, "executionPayload", "timestamp");
     eth_cu_add_multi_proof(ctx, 2);
 #ifdef PROVER_CACHE
     if (block->merkle_cache.valid) {
@@ -152,11 +152,11 @@ ssz_builder_t eth_ssz_create_state_proof(prover_ctx_t* ctx, json_t block_number,
     }
     if (!proof.data)
 #endif
-      proof = ssz_create_multi_proof(block->body, body_root, 2, state_index, ts_index);
+      proof = ssz_create_multi_proof(block->cl_body, body_root, 2, state_index, ts_index);
     ssz_add_block_proof(&state_proof, block, 0, false, true);
   }
   else {
-    gindex_t state_index = ssz_gindex(block->body.def, 2, "executionPayload", "stateRoot");
+    gindex_t state_index = ssz_gindex(block->cl_body.def, 2, "executionPayload", "stateRoot");
     if (block_index == 0)
       eth_cu_add_proof(ctx);
     else
@@ -170,8 +170,8 @@ ssz_builder_t eth_ssz_create_state_proof(prover_ctx_t* ctx, json_t block_number,
     if (!proof.data)
 #endif
       proof = block_index == 0
-                  ? ssz_create_proof(block->body, body_root, state_index)
-                  : ssz_create_multi_proof(block->body, body_root, 2, block_index, state_index);
+                  ? ssz_create_proof(block->cl_body, body_root, state_index)
+                  : ssz_create_multi_proof(block->cl_body, body_root, 2, block_index, state_index);
     ssz_add_block_proof(&state_proof, block, block_index, false, false);
   }
 

@@ -166,14 +166,14 @@ static c4_status_t proof_create_multiproof(prover_ctx_t* ctx, proof_logs_block_t
 
   int       i      = 0;
   gindex_t* gindex = safe_calloc(3 + block->tx_count, sizeof(gindex_t));
-  gindex[0]        = ssz_gindex(block->beacon_block.body.def, 2, "executionPayload", "blockNumber");
-  gindex[1]        = ssz_gindex(block->beacon_block.body.def, 2, "executionPayload", "blockHash");
-  gindex[2]        = ssz_gindex(block->beacon_block.body.def, 2, "executionPayload", "receiptsRoot");
+  gindex[0]        = ssz_gindex(block->beacon_block.cl_body.def, 2, "executionPayload", "blockNumber");
+  gindex[1]        = ssz_gindex(block->beacon_block.cl_body.def, 2, "executionPayload", "blockHash");
+  gindex[2]        = ssz_gindex(block->beacon_block.cl_body.def, 2, "executionPayload", "receiptsRoot");
   for (proof_logs_tx_t* tx = block->txs; tx; tx = tx->next, i++)
-    gindex[i + 3] = ssz_gindex(block->beacon_block.body.def, 3, "executionPayload", "transactions", tx->tx_index);
+    gindex[i + 3] = ssz_gindex(block->beacon_block.cl_body.def, 3, "executionPayload", "transactions", tx->tx_index);
 
   eth_cu_add_multi_proof(ctx, 3 + block->tx_count);
-  block->proof = ssz_create_multi_proof_for_gindexes(block->beacon_block.body, block->body_root, gindex, 3 + block->tx_count);
+  block->proof = ssz_create_multi_proof_for_gindexes(block->beacon_block.cl_body, block->body_root, gindex, 3 + block->tx_count);
   safe_free(gindex);
 
   return C4_SUCCESS;

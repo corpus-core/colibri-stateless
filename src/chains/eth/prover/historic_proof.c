@@ -243,7 +243,7 @@ static c4_status_t check_historic_proof_direct(prover_ctx_t* ctx, blockroot_proo
       buffer_append(&full_proof, json_as_bytes(entry, &buf)); // as provided by lodestar
 
   // calc header
-  ssz_hash_tree_root(block.body, body_root);
+  ssz_hash_tree_root(block.cl_body, body_root);
   block_proof->historic_proof = full_proof.data;
   block_proof->gindex         = ssz_add_gindex(ssz_add_gindex(summaries_gidx, period_gidx), block_gidx);
   block_proof->sync_aggregate = block.sync_aggregate;

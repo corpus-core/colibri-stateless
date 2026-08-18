@@ -121,7 +121,7 @@ void c4_beacon_compute_merkle_cache(beacon_block_t* block) {
   beacon_body_merkle_cache_t* cache = &block->merkle_cache;
   memset(cache, 0, sizeof(*cache));
 
-  ssz_ob_t body = block->body;
+  ssz_ob_t body = block->cl_body;
   if (!body.def || body.def->type != SSZ_TYPE_CONTAINER) return;
 
   cache->body_field_count = body.def->def.container.len;
@@ -206,7 +206,7 @@ void c4_beacon_cache_update_blockdata(prover_ctx_t* ctx, beacon_block_t* beacon_
   block->sync_aggregate.bytes.data = (uint8_t*) cached + sizeof(beacon_block_t) + beacon_block->header.bytes.len;
   block->el_header.data            = (uint8_t*) cached + sizeof(beacon_block_t) + beacon_block->header.bytes.len + beacon_block->sync_aggregate.bytes.len;
   block->block_hash_branch.data    = (uint8_t*) cached + sizeof(beacon_block_t) + beacon_block->header.bytes.len + beacon_block->sync_aggregate.bytes.len + beacon_block->el_header.len;
-  block->body.bytes.data           = block->header.bytes.data + (beacon_block->body.bytes.data - beacon_block->header.bytes.data);
+  block->cl_body.bytes.data           = block->header.bytes.data + (beacon_block->cl_body.bytes.data - beacon_block->header.bytes.data);
   block->execution.bytes.data      = block->header.bytes.data + (beacon_block->execution.bytes.data - beacon_block->header.bytes.data);
   c4_prover_cache_set(ctx, key, block, full_size, ttl, free); // keep it for 1 day
 
@@ -563,13 +563,13 @@ c4_status_t c4_beacon_fill_becaon_block_from_eth(prover_ctx_t*   ctx,
   ssz_ob_t sig_body            = ssz_get(&sig_block, "body");
   beacon_block->slot           = ssz_get_uint64(&data_block, "slot");
   beacon_block->header         = data_block;
-  beacon_block->body           = ssz_get(&data_block, "body");
-  beacon_block->execution      = ssz_get(&beacon_block->body, "executionPayload");
+  beacon_block->cl_body           = ssz_get(&data_block, "body");
+  beacon_block->execution      = ssz_get(&beacon_block->cl_body, "executionPayload");
   beacon_block->sync_aggregate = ssz_get(&sig_body, "syncAggregate");
   memcpy(beacon_block->sign_parent_root, ssz_get(&sig_block, "parentRoot").bytes.data, 32);
   memcpy(beacon_block->data_block_root, data_root, 32);
   keccak(beacon_block->el_header, beacon_block->el_block_hash);
-  ssz_hash_tree_root(beacon_block->body, beacon_block->body_root); // TODO: we are already calculating the body_root when creating the branch, why not reuse it?
+  ssz_hash_tree_root(beacon_block->cl_body, beacon_block->body_root); // TODO: we are already calculating the body_root when creating the branch, why not reuse it?
 
   return C4_SUCCESS;
 }

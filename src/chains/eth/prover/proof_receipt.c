@@ -228,11 +228,11 @@ c4_status_t c4_proof_receipt(prover_ctx_t* ctx) {
   REQUEST_WORKER_THREAD_CATCH(ctx, c4_free_block_proof(&block_proof));
   TRACE_START(ctx, "multiproof");
   eth_cu_add_multi_proof(ctx, 4);
-  bytes_t state_proof = ssz_create_multi_proof(block.body, body_root, 4,
-                                               ssz_gindex(block.body.def, 2, "executionPayload", "blockNumber"),
-                                               ssz_gindex(block.body.def, 2, "executionPayload", "blockHash"),
-                                               ssz_gindex(block.body.def, 2, "executionPayload", "receiptsRoot"),
-                                               ssz_gindex(block.body.def, 3, "executionPayload", "transactions", tx_index)
+  bytes_t state_proof = ssz_create_multi_proof(block.cl_body, body_root, 4,
+                                               ssz_gindex(block.cl_body.def, 2, "executionPayload", "blockNumber"),
+                                               ssz_gindex(block.cl_body.def, 2, "executionPayload", "blockHash"),
+                                               ssz_gindex(block.cl_body.def, 2, "executionPayload", "receiptsRoot"),
+                                               ssz_gindex(block.cl_body.def, 3, "executionPayload", "transactions", tx_index)
 
   );
   TRACE_START(ctx, "finalize_proof");

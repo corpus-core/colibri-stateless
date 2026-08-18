@@ -117,11 +117,11 @@ c4_status_t c4_proof_block_receipts(prover_ctx_t* ctx) {
   ssz_add_bytes(&proof_builder, "baseFeePerGas", ssz_get(&block.execution, "baseFeePerGas").bytes);
 
   // create multi-merkle proof for blockNumber, blockHash, receiptsRoot, transactions, baseFeePerGas
-  gindex_t br_gi[5] = {ssz_gindex(block.body.def, 2, "executionPayload", "blockNumber"),
-                        ssz_gindex(block.body.def, 2, "executionPayload", "blockHash"),
-                        ssz_gindex(block.body.def, 2, "executionPayload", "receiptsRoot"),
-                        ssz_gindex(block.body.def, 2, "executionPayload", "transactions"),
-                        ssz_gindex(block.body.def, 2, "executionPayload", "baseFeePerGas")};
+  gindex_t br_gi[5] = {ssz_gindex(block.cl_body.def, 2, "executionPayload", "blockNumber"),
+                        ssz_gindex(block.cl_body.def, 2, "executionPayload", "blockHash"),
+                        ssz_gindex(block.cl_body.def, 2, "executionPayload", "receiptsRoot"),
+                        ssz_gindex(block.cl_body.def, 2, "executionPayload", "transactions"),
+                        ssz_gindex(block.cl_body.def, 2, "executionPayload", "baseFeePerGas")};
   bytes_t multi_proof = NULL_BYTES;
   eth_cu_add_multi_proof(ctx, 5);
 #ifdef PROVER_CACHE
@@ -129,7 +129,7 @@ c4_status_t c4_proof_block_receipts(prover_ctx_t* ctx) {
     multi_proof = ssz_create_multi_proof_from_body_cache(&block.merkle_cache, body_root, br_gi, 5);
   if (!multi_proof.data)
 #endif
-    multi_proof = ssz_create_multi_proof(block.body, body_root, 5, br_gi[0], br_gi[1], br_gi[2], br_gi[3], br_gi[4]);
+    multi_proof = ssz_create_multi_proof(block.cl_body, body_root, 5, br_gi[0], br_gi[1], br_gi[2], br_gi[3], br_gi[4]);
   ssz_add_bytes(&proof_builder, "block_proof", multi_proof);
   safe_free(multi_proof.data);
 

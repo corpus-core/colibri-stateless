@@ -74,11 +74,11 @@ static void serialize_negative_block(prover_ctx_t* ctx, ssz_builder_t* blist, ui
   ssz_ob_t exec   = block->beacon.execution;
   bytes_t  bloom  = ssz_get(&exec, "logsBloom").bytes;
   gindex_t gindex[2];
-  gindex[0] = ssz_gindex(block->beacon.body.def, 2, "executionPayload", "blockNumber");
-  gindex[1] = ssz_gindex(block->beacon.body.def, 2, "executionPayload", "logsBloom");
+  gindex[0] = ssz_gindex(block->beacon.cl_body.def, 2, "executionPayload", "blockNumber");
+  gindex[1] = ssz_gindex(block->beacon.cl_body.def, 2, "executionPayload", "logsBloom");
 
   bytes32_t tmp_root = {0};
-  bytes_t   proof    = ssz_create_multi_proof_for_gindexes(block->beacon.body, tmp_root, gindex, 2);
+  bytes_t   proof    = ssz_create_multi_proof_for_gindexes(block->beacon.cl_body, tmp_root, gindex, 2);
   eth_cu_add_multi_proof(ctx, 2);
 
   ssz_builder_t v = ssz_builder_for_def(union_def->def.container.elements + COMPLETENESS_BLOCK_NEGATIVE);
@@ -118,14 +118,14 @@ static void serialize_full_block(prover_ctx_t* ctx, ssz_builder_t* blist, uint32
   // multi proof: blockNumber, blockHash, receiptsRoot, matched transactions
   uint32_t  gcount = 3 + match_count;
   gindex_t* gindex = safe_calloc(gcount, sizeof(gindex_t));
-  gindex[0]        = ssz_gindex(block->beacon.body.def, 2, "executionPayload", "blockNumber");
-  gindex[1]        = ssz_gindex(block->beacon.body.def, 2, "executionPayload", "blockHash");
-  gindex[2]        = ssz_gindex(block->beacon.body.def, 2, "executionPayload", "receiptsRoot");
+  gindex[0]        = ssz_gindex(block->beacon.cl_body.def, 2, "executionPayload", "blockNumber");
+  gindex[1]        = ssz_gindex(block->beacon.cl_body.def, 2, "executionPayload", "blockHash");
+  gindex[2]        = ssz_gindex(block->beacon.cl_body.def, 2, "executionPayload", "receiptsRoot");
   for (uint32_t i = 0; i < match_count; i++)
-    gindex[3 + i] = ssz_gindex(block->beacon.body.def, 3, "executionPayload", "transactions", match_idx[i]);
+    gindex[3 + i] = ssz_gindex(block->beacon.cl_body.def, 3, "executionPayload", "transactions", match_idx[i]);
 
   bytes32_t tmp_root = {0};
-  bytes_t   proof    = ssz_create_multi_proof_for_gindexes(block->beacon.body, tmp_root, gindex, gcount);
+  bytes_t   proof    = ssz_create_multi_proof_for_gindexes(block->beacon.cl_body, tmp_root, gindex, gcount);
   safe_free(gindex);
   eth_cu_add_multi_proof(ctx, gcount);
   eth_cu_add(ctx, receipt_len * CU_PATRICIA_INSERT);
@@ -198,9 +198,9 @@ static void serialize_tag_proof(prover_ctx_t* ctx, ssz_builder_t* proof, compl_b
   memcpy(tag + 1, ssz_get(&anchor->beacon.execution, "timestamp").bytes.data, 8);
   ssz_add_bytes(proof, "tag_proof", bytes(tag, sizeof(tag)));
 
-  gindex_t  gindex[1] = {ssz_gindex(anchor->beacon.body.def, 2, "executionPayload", "timestamp")};
+  gindex_t  gindex[1] = {ssz_gindex(anchor->beacon.cl_body.def, 2, "executionPayload", "timestamp")};
   bytes32_t tmp_root  = {0};
-  bytes_t   branch    = ssz_create_multi_proof_for_gindexes(anchor->beacon.body, tmp_root, gindex, 1);
+  bytes_t   branch    = ssz_create_multi_proof_for_gindexes(anchor->beacon.cl_body, tmp_root, gindex, 1);
   eth_cu_add_multi_proof(ctx, 1);
   ssz_add_bytes(proof, "tag_proof_branch", branch);
   safe_free(branch.data);
@@ -216,7 +216,7 @@ static c4_status_t serialize_completeness_proof(prover_ctx_t* ctx, compl_block_t
 
   // compute the body roots for the whole range
   for (uint32_t i = 0; i < count; i++)
-    ssz_hash_tree_root(blocks[i].beacon.body, blocks[i].body_root);
+    ssz_hash_tree_root(blocks[i].beacon.cl_body, blocks[i].body_root);
 
   // full header of the oldest block; parentRoot anchors the ascending chain
   ssz_add_builders(&proof, "header", c4_proof_add_header(first->beacon.header, first->body_root));

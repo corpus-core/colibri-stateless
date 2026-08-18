@@ -84,13 +84,14 @@ typedef struct {
   uint64_t  slot;                     // slot of the block
   bytes32_t body_root;                // the body root of the block
   ssz_ob_t  header;                   // block header
-  ssz_ob_t  execution;                // execution payload or SSZ-encoded header data (14 fields) when header_only
-  ssz_ob_t  body;                     // body of the block (empty in hybrid mode)
+  ssz_ob_t  execution;                // execution payload
+  ssz_ob_t  cl_body;                     // body of the block (empty in hybrid mode)
   ssz_ob_t  sync_aggregate;           // sync aggregate with the signature of the block (empty in hybrid mode)
   bytes32_t sign_parent_root;         // the parentRoot of the block containing the signature
   bytes32_t data_block_root;          // the blockroot used for the data block
   bytes_t   block_hash_branch;        // the branch of the block hash, used for the block proof
   uint64_t  block_hash_branch_gindex; // the gindex of the block hash branch, used for the block proof
+  ssz_ob_t  el_body;                  // the body containing either the full execution paylod or at least the transaction and withdrawal fields
   bool      header_only;              // true when only header data is available (hybrid mode)
 #ifdef PROVER_CACHE
   beacon_body_merkle_cache_t merkle_cache; /**< pre-computed body/EP Merkle trees */
@@ -236,8 +237,8 @@ bytes_t ssz_create_multi_proof_from_body_cache(
 void c4_beacon_cache_update_blockdata(prover_ctx_t* ctx, beacon_block_t* beacon_block, uint64_t latest_timestamp, bytes32_t block_root);
 
 #endif
-c4_status_t c4_beacon_fill_becaon_block_from_eth(prover_ctx_t* ctx,
-  beacon_block_t* beacon_block, bytes32_t data_root, ssz_ob_t data_block, ssz_ob_t sig_block);
+c4_status_t c4_beacon_fill_becaon_block_from_eth(prover_ctx_t*   ctx,
+                                                 beacon_block_t* beacon_block, bytes32_t data_root, ssz_ob_t data_block, ssz_ob_t sig_block);
 
 #ifdef __cplusplus
 }
