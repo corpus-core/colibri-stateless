@@ -73,7 +73,7 @@ c4_status_t c4_proof_block_receipts(prover_ctx_t* ctx) {
   bool              hybrid         = (ctx->flags & C4_PROVER_FLAG_HYBRID) != 0;
 
   TRY_ASYNC(hybrid
-                ? c4_beacon_get_execution_for_eth(ctx, block_param, &block)
+                ? c4_beacon_get_block_for_eth_with_body(ctx, block_param, &block)
                 : c4_beacon_get_block_for_eth(ctx, block_param, &block));
 
   // use the resolved block number for fetching receipts to avoid race conditions with "latest"

@@ -85,7 +85,7 @@ typedef struct {
   bytes32_t body_root;                // the body root of the block
   ssz_ob_t  header;                   // block header
   ssz_ob_t  execution;                // execution payload
-  ssz_ob_t  cl_body;                     // body of the block (empty in hybrid mode)
+  ssz_ob_t  cl_body;                  // body of the block (empty in hybrid mode)
   ssz_ob_t  sync_aggregate;           // sync aggregate with the signature of the block (empty in hybrid mode)
   bytes32_t sign_parent_root;         // the parentRoot of the block containing the signature
   bytes32_t data_block_root;          // the blockroot used for the data block
@@ -109,6 +109,7 @@ typedef struct {
 // get the beacon block for the given eth block number or hash
 c4_status_t c4_eth_get_signblock_and_parent(prover_ctx_t* ctx, bytes32_t sig_root, bytes32_t data_root, ssz_ob_t* sig_block, ssz_ob_t* data_block, bytes32_t data_root_result);
 c4_status_t c4_beacon_get_block_for_eth(prover_ctx_t* ctx, json_t block, beacon_block_t* beacon_block);
+c4_status_t c4_beacon_get_block_for_eth_with_body(prover_ctx_t* ctx, json_t block, beacon_block_t* beacon_block);
 
 // :: Hybrid Mode (beacon_header.c)
 
@@ -126,34 +127,7 @@ c4_status_t c4_beacon_get_block_for_eth(prover_ctx_t* ctx, json_t block, beacon_
  * @param beacon_block output: populated with header-only data
  * @return `C4_SUCCESS` when header is ready, `C4_PENDING` while waiting, `C4_ERROR` on failure
  */
-c4_status_t c4_hybrid_get_block_for_eth(prover_ctx_t* ctx, json_t block, beacon_block_t* beacon_block);
-
-/**
- * Fetches the full SSZ execution payload for the given block in hybrid mode.
- * Checks the header cache for a cached execution payload first. On miss,
- * fetches `eth_getBlockByNumber` from the remote prover, verifies the response,
- * and caches both the header data and execution payload.
- *
- * In non-hybrid mode, delegates to `c4_beacon_get_block_for_eth`.
- *
- * @param ctx prover context
- * @param block JSON block identifier
- * @param beacon_block output: populated with execution payload (`header_only = false`)
- * @return `C4_SUCCESS` when ready, `C4_PENDING` while waiting, `C4_ERROR` on failure
- */
-c4_status_t c4_beacon_get_execution_for_eth(prover_ctx_t* ctx, json_t block, beacon_block_t* beacon_block);
-
-/**
- * Internal hybrid implementation: fetches the full execution payload from the
- * remote prover via `eth_getBlockByNumber`, verifies it, and populates
- * `beacon_block->execution` with the full SSZ execution payload.
- *
- * @param ctx prover context (must have `C4_PROVER_FLAG_HYBRID` set)
- * @param block JSON block identifier
- * @param beacon_block output: populated with full execution payload
- * @return `C4_SUCCESS` when ready, `C4_PENDING` while waiting, `C4_ERROR` on failure
- */
-c4_status_t c4_hybrid_get_execution_for_eth(prover_ctx_t* ctx, json_t block, beacon_block_t* beacon_block);
+c4_status_t c4_hybrid_get_block_for_eth(prover_ctx_t* ctx, json_t block, beacon_block_t* beacon_block, bool with_body);
 
 /**
  * Builds an SSZ-encoded `ETH_BLOCK_HEADER_DATA` (14 fields) from a full execution payload.

@@ -72,8 +72,7 @@ static verified_header_entry_t* find_by_hash(chain_id_t chain_id, const uint8_t*
 
 static void entry_reset(verified_header_entry_t* entry) {
   safe_free(entry->el_header.data);
-  safe_free(entry->header_data.bytes.data);
-  safe_free(entry->execution.bytes.data);
+  safe_free(entry->el_body.bytes.data);
   memset(entry, 0, sizeof(*entry));
 }
 
@@ -112,7 +111,7 @@ static verified_header_entry_t* acquire_entry(chain_id_t chain_id, uint64_t bloc
 const verified_header_entry_t* c4_header_cache_get_by_number(chain_id_t chain_id, uint64_t block_number) {
   CACHE_LOCK();
   verified_header_entry_t* entry = find_by_number(chain_id, block_number);
-  entry                          = (entry && entry->header_data.bytes.data) ? touch(entry) : NULL;
+  entry                          = (entry && entry->el_header.data) ? touch(entry) : NULL;
   CACHE_UNLOCK();
   return entry;
 }
@@ -120,46 +119,27 @@ const verified_header_entry_t* c4_header_cache_get_by_number(chain_id_t chain_id
 const verified_header_entry_t* c4_header_cache_get_by_hash(chain_id_t chain_id, const uint8_t* block_hash) {
   CACHE_LOCK();
   verified_header_entry_t* entry = find_by_hash(chain_id, block_hash);
-  entry                          = (entry && entry->header_data.bytes.data) ? touch(entry) : NULL;
+  entry                          = (entry && entry->el_header.data) ? touch(entry) : NULL;
   CACHE_UNLOCK();
   return entry;
 }
 
-void c4_header_cache_put(chain_id_t chain_id, uint64_t block_number, const uint8_t* block_hash, ssz_ob_t header_data) {
-  if (!block_hash || !header_data.bytes.data) return;
+void c4_header_cache_put(chain_id_t chain_id, uint64_t block_number, const uint8_t* block_hash, bytes_t el_header, ssz_ob_t* el_body) {
+  if (!block_hash || !el_header.data) return;
   CACHE_LOCK();
   verified_header_entry_t* entry = acquire_entry(chain_id, block_number, block_hash);
-  safe_free(entry->header_data.bytes.data);
-  entry->header_data.bytes = bytes_dup(header_data.bytes);
-  entry->header_data.def   = header_data.def;
-  CACHE_UNLOCK();
-}
-
-void c4_header_cache_set_execution(chain_id_t chain_id, uint64_t block_number, const uint8_t* block_hash, ssz_ob_t execution) {
-  if (!block_hash || !execution.bytes.data) return;
-  CACHE_LOCK();
-  verified_header_entry_t* entry = find_by_number(chain_id, block_number);
-  // require a hash match: after a same-height reorg the stale entry must not receive
-  // the new block's payload (mixing blocks would corrupt the entry).
-  if (entry && memcmp(entry->block_hash, block_hash, 32) == 0) {
-    safe_free(entry->execution.bytes.data);
-    entry->execution.bytes = bytes_dup(execution.bytes);
-    entry->execution.def   = execution.def;
-    touch(entry);
+  safe_free(entry->el_header.data);
+  safe_free(entry->el_body.bytes.data);
+  entry->el_header = bytes_dup(el_header);
+  if (el_body) {
+    entry->el_body = *el_body;
+    entry->el_body.bytes = bytes_dup(el_body->bytes);
   }
   CACHE_UNLOCK();
 }
 
-void c4_header_cache_put_el_header(chain_id_t chain_id, uint64_t block_number, const uint8_t* block_hash, bytes_t el_header) {
-  if (!block_hash || !el_header.data || !el_header.len) return;
-  CACHE_LOCK();
-  verified_header_entry_t* entry = acquire_entry(chain_id, block_number, block_hash);
-  safe_free(entry->el_header.data);
-  entry->el_header = bytes_dup(el_header);
-  CACHE_UNLOCK();
-}
 
-bytes_t c4_header_cache_get_el_header(chain_id_t chain_id, const uint8_t* block_hash) {
+bytes_t c4_header_cache_get_el_header(chain_id_t chain_id, const uint8_t* block_hash, ssz_ob_t* el_body) {
   bytes_t result = NULL_BYTES;
   CACHE_LOCK();
   verified_header_entry_t* entry = find_by_hash(chain_id, block_hash);
@@ -167,10 +147,15 @@ bytes_t c4_header_cache_get_el_header(chain_id_t chain_id, const uint8_t* block_
     touch(entry);
     // copy-out: the returned bytes must survive concurrent eviction/reorg resets
     result = bytes_dup(entry->el_header);
+    if (el_body && entry->el_body.bytes.data) {
+      *el_body = entry->el_body;
+      el_body->bytes = bytes_dup(entry->el_body.bytes);
+    }
   }
   CACHE_UNLOCK();
   return result;
 }
+
 
 bool c4_header_cache_latest_block_hash(chain_id_t chain_id, bytes32_t block_hash) {
   CACHE_LOCK();

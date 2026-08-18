@@ -73,10 +73,9 @@ typedef struct {
   chain_id_t chain_id;
   uint64_t   block_number;
   bytes32_t  block_hash;
-  bytes_t    el_header;   // RLP-encoded EL header (empty when not cached)
-  ssz_ob_t   header_data; // optional SSZ `ETH_BLOCK_HEADER_DATA`
-  ssz_ob_t   execution;   // optional full SSZ execution payload
-  uint64_t   last_used;   // monotonic LRU counter (0 = slot unused), updated on every hit
+  bytes_t    el_header; // RLP-encoded EL header (empty when not cached)
+  ssz_ob_t   el_body;   // optional full SSZ execution payload or at least the body with transactions and withdrawals
+  uint64_t   last_used; // monotonic LRU counter (0 = slot unused), updated on every hit
 } verified_header_entry_t;
 
 #ifdef EL_HEADER_CACHE
@@ -109,36 +108,10 @@ const verified_header_entry_t* c4_header_cache_get_by_hash(chain_id_t chain_id, 
  * @param chain_id the chain ID
  * @param block_number the block number
  * @param block_hash 32-byte block hash
- * @param header_data SSZ-encoded `ETH_BLOCK_HEADER_DATA` (will be copied)
+ * @param el_header rlp-encoded el header (will be copied)
+ * @param el_body optional SSZ-encoded execution payload or at least the body with transactions and withdrawals (will be copied)
  */
-void c4_header_cache_put(chain_id_t chain_id, uint64_t block_number, const uint8_t* block_hash, ssz_ob_t header_data);
-
-/**
- * Attaches a full SSZ execution payload to an existing cache entry. The entry must
- * match both block number and block hash: after a same-height reorg the stale entry
- * carries a different hash and must not receive the new block's payload (this also
- * prevents a use-after-free chain when the mismatching entry gets reset later).
- * No-op if no matching entry exists. The `execution.bytes` are duplicated.
- *
- * @param chain_id the chain ID
- * @param block_number the block number of the entry to update
- * @param block_hash 32-byte block hash of the block the execution payload belongs to
- * @param execution full SSZ execution payload (will be copied)
- */
-void c4_header_cache_set_execution(chain_id_t chain_id, uint64_t block_number, const uint8_t* block_hash, ssz_ob_t execution);
-
-/**
- * Stores a **verified** RLP-encoded execution layer header. The caller must have
- * established `keccak(el_header) == block_hash` through verification before calling.
- * Merges into an existing entry for the same (chain, block number, hash); evicts
- * the least recently used slot when the cache is full. The bytes are duplicated.
- *
- * @param chain_id the chain ID
- * @param block_number the block number
- * @param block_hash 32-byte execution block hash (`keccak` of the RLP header)
- * @param el_header RLP-encoded EL header (will be copied)
- */
-void c4_header_cache_put_el_header(chain_id_t chain_id, uint64_t block_number, const uint8_t* block_hash, bytes_t el_header);
+void c4_header_cache_put(chain_id_t chain_id, uint64_t block_number, const uint8_t* block_hash, bytes_t el_header, ssz_ob_t* el_body) ;
 
 /**
  * Returns the verified RLP-encoded EL header for a block hash, or `NULL_BYTES` on miss.
@@ -151,7 +124,7 @@ void c4_header_cache_put_el_header(chain_id_t chain_id, uint64_t block_number, c
  * @param block_hash 32-byte execution block hash
  * @return heap-allocated copy of the cached RLP header (caller frees), or `NULL_BYTES` on miss
  */
-bytes_t c4_header_cache_get_el_header(chain_id_t chain_id, const uint8_t* block_hash);
+bytes_t c4_header_cache_get_el_header(chain_id_t chain_id, const uint8_t* block_hash, ssz_ob_t* el_body);
 
 /**
  * Checks whether a verified RLP EL header is cached for the block hash without
@@ -193,27 +166,17 @@ static inline const verified_header_entry_t* c4_header_cache_get_by_hash(chain_i
   (void) block_hash;
   return NULL;
 }
-static inline void c4_header_cache_put(chain_id_t chain_id, uint64_t block_number, const uint8_t* block_hash, ssz_ob_t header_data) {
+static inline void c4_header_cache_put(chain_id_t chain_id, uint64_t block_number, const uint8_t* block_hash, bytes_t el_header, ssz_ob_t* el_body) {
   (void) chain_id;
   (void) block_number;
   (void) block_hash;
-  (void) header_data;
-}
-static inline void c4_header_cache_set_execution(chain_id_t chain_id, uint64_t block_number, const uint8_t* block_hash, ssz_ob_t execution) {
-  (void) chain_id;
-  (void) block_number;
-  (void) block_hash;
-  (void) execution;
-}
-static inline void c4_header_cache_put_el_header(chain_id_t chain_id, uint64_t block_number, const uint8_t* block_hash, bytes_t el_header) {
-  (void) chain_id;
-  (void) block_number;
-  (void) block_hash;
+  (void) el_body;
   (void) el_header;
 }
-static inline bytes_t c4_header_cache_get_el_header(chain_id_t chain_id, const uint8_t* block_hash) {
+static inline bytes_t c4_header_cache_get_el_header(chain_id_t chain_id, const uint8_t* block_hash, ssz_ob_t* el_body) {
   (void) chain_id;
   (void) block_hash;
+  (void) el_body;
   return NULL_BYTES;
 }
 static inline bool c4_header_cache_has_el_header(chain_id_t chain_id, const uint8_t* block_hash) {

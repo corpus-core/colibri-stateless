@@ -50,6 +50,18 @@ typedef enum {
   HEADER_TAG_COUNT     = 3
 } header_tag_t;
 
+typedef struct {
+  bytes32_t block_hash;
+  bytes_t   el_header;
+  ssz_ob_t  el_body;
+} local_cache_entry_t;
+
+static void free_local_cache_entry(local_cache_entry_t* local) {
+  safe_free(local->el_header.data);
+  if (local->el_body.def)
+    safe_free(local->el_body.bytes.data);
+  safe_free(local);
+}
 /**
  * Maps a block tag (latest/safe/finalized) to a cached block hash with a timestamp for TTL checks.
  *
@@ -123,18 +135,17 @@ typedef enum {
   HYBRID_FETCH_EXECUTION
 } hybrid_fetch_type_t;
 
-static c4_status_t hybrid_fetch_and_verify(prover_ctx_t* ctx, json_t block, hybrid_fetch_type_t type, ssz_ob_t* result_out) {
+static c4_status_t hybrid_fetch_and_verify(prover_ctx_t* ctx, json_t block, hybrid_fetch_type_t type, bytes_t* el_header, ssz_ob_t* el_body) {
   const char* method          = type == HYBRID_FETCH_EXECUTION ? "eth_getBlockByNumber" : "eth_getBlockHeader";
-  char        arg_buffer[100] = {0};
+  char        arg_buffer[200] = {0};
+  char        pl_buffer[200]  = {0};
   bytes32_t   id              = {0};
-  buffer_t    id_buffer       = {0};
-  // The trailing ",false" (includeTx) for eth_getBlockByNumber is irrelevant for the proof itself
-  // (the full execution payload is always included). It is only kept here so the local dedup id
-  // stays stable and unambiguous per method+block.
-  sbprintf(arg_buffer, "[%J%s]", block, type == HYBRID_FETCH_EXECUTION ? ",false" : "");
-  bprintf(&id_buffer, "{\"method\":\"%s\",\"params\":%s}", method, arg_buffer);
-  sha256(id_buffer.data, id); // id derives from method+params only; version/client_state/flags go into the URL, not the id.
-  buffer_free(&id_buffer);
+  buffer_t    args            = stack_buffer(arg_buffer);
+  buffer_t    pl              = stack_buffer(pl_buffer);
+
+  bprintf(&args, "[%J%s]", block, type == HYBRID_FETCH_EXECUTION ? ",false" : "");
+  bprintf(&pl, "{\"method\":\"%s\",\"params\":%s}", method, buffer_as_string(args));
+  sha256(pl.data, id); // id derives from method+params only; version/client_state/flags go into the URL, not the id.
   data_request_t* data_request = c4_state_get_data_request_by_id(&ctx->state, id);
 
   if (data_request) {
@@ -142,12 +153,19 @@ static c4_status_t hybrid_fetch_and_verify(prover_ctx_t* ctx, json_t block, hybr
     if (data_request->error) THROW_ERROR(data_request->error);
     if (!data_request->response.data) THROW_ERROR_WITH("empty response from remote prover for %s", method);
 
-    const ssz_def_t* def = type == HYBRID_FETCH_EXECUTION
-                               ? c4_eth_execution_payload_def(ctx->chain_id)
-                               : eth_ssz_verification_type(ETH_SSZ_DATA_BLOCK_HEADER);
-
     if (data_request->validated) {
-      *result_out = (ssz_ob_t) {.def = def, .bytes = data_request->response};
+      ssz_ob_t response = {.def = c4_get_request_type(c4_chain_type(ctx->chain_id)), .bytes = data_request->response};
+      ssz_ob_t proof    = ssz_get(&response, "proof");
+      ssz_ob_t block    = ssz_get(&proof, "block");
+      ssz_ob_t body     = ssz_get(&proof, "body");
+
+      if (body.def && body.def->type == SSZ_TYPE_CONTAINER && el_body)
+        *el_body = body;
+
+      if (strcmp(block.def->name, "blockHash") == 0) // this should not happens since the prover thought we already have the header.
+        *el_header = NULL_BYTES;
+      else if (block.def && block.def->type == SSZ_TYPE_CONTAINER && el_header)
+        *el_header = ssz_get(&block, "elHeader").bytes;
       return C4_SUCCESS;
     }
 
@@ -178,23 +196,16 @@ static c4_status_t hybrid_fetch_and_verify(prover_ctx_t* ctx, json_t block, hybr
     switch (status) {
       case C4_SUCCESS: {
         data_request->validated = true;
-        bytes_t result;
-        if (type == HYBRID_FETCH_EXECUTION) {
-          ssz_ob_t ep = ssz_get(&verify_ctx.proof, "executionPayload");
-          if (!ep.bytes.data) {
-            status = c4_state_add_error(&ctx->state, "no executionPayload in proof");
-            break;
-          }
-          else
-            result = bytes_dup(ep.bytes);
-        }
-        else
-          result = bytes_dup(verify_ctx.data.bytes);
+        ssz_ob_t block          = ssz_get(&verify_ctx.proof, "block");
+        ssz_ob_t body           = ssz_get(&verify_ctx.proof, "body");
 
-        // after we have verified the proof, we replace the response with the verified result, so it will be freed by the prover_ctx.
-        safe_free(data_request->response.data);
-        data_request->response = result;
-        *result_out            = (ssz_ob_t) {.def = def, .bytes = result};
+        if (body.def && body.def->type == SSZ_TYPE_CONTAINER && el_body)
+          *el_body = body;
+
+        if (strcmp(block.def->name, "blockHash") == 0) // this should not happens since the prover thought we already have the header.
+          *el_header = NULL_BYTES;
+        else if (block.def && block.def->type == SSZ_TYPE_CONTAINER && el_header)
+          *el_header = ssz_get(&block, "elHeader").bytes;
         break;
       }
       case C4_PENDING:
@@ -219,8 +230,8 @@ static c4_status_t hybrid_fetch_and_verify(prover_ctx_t* ctx, json_t block, hybr
 
   data_request = safe_calloc(1, sizeof(data_request_t));
   memcpy(data_request->id, id, 32);
-  data_request->type          = C4_DATA_TYPE_PROVER;
-  data_request->chain_id      = ctx->chain_id;
+  data_request->type     = C4_DATA_TYPE_PROVER;
+  data_request->chain_id = ctx->chain_id;
   data_request->method   = C4_DATA_METHOD_GET;
   data_request->encoding = C4_DATA_ENCODING_SSZ;
   data_request->url      = c4_eth_build_delegated_block_get_url(method, block, c4_current_version_number(),
@@ -234,81 +245,24 @@ static c4_status_t hybrid_fetch_and_verify(prover_ctx_t* ctx, json_t block, hybr
 
 // -- Hybrid: Resolve Block Identifier and Return Header-Only beacon_block_t --
 
-c4_status_t c4_hybrid_get_block_for_eth(prover_ctx_t* ctx, json_t block, beacon_block_t* beacon_block) {
-  ssz_ob_t                       header_data = {0};
-  const verified_header_entry_t* cached      = NULL;
-  header_tag_t                   tag         = HEADER_TAG_COUNT;
-
-  if (strncmp(block.start, "\"latest\"", 8) == 0)
-    tag = HEADER_TAG_LATEST;
-  else if (strncmp(block.start, "\"safe\"", 6) == 0 || strncmp(block.start, "\"justified\"", 11) == 0)
-    tag = HEADER_TAG_SAFE;
-  else if (strncmp(block.start, "\"finalized\"", 11) == 0)
-    tag = HEADER_TAG_FINALIZED;
-
-  if (tag < HEADER_TAG_COUNT) {
-    tag_cache_entry_t* tc  = &g_header_tags[tag];
-    uint64_t           now = current_ms();
-    if (tc->cached_at_ms && !bytes_all_zero(bytes(tc->block_hash, 32))) {
-      uint64_t ttl                    = header_tag_ttl_ms(ctx->chain_id, tag, ctx->flags);
-      bool     within_ttl             = (now - tc->cached_at_ms < ttl);
-      bool     stale_while_revalidate = !within_ttl && tc->fetching_since_ms && tc->fetching_ctx != (uintptr_t) ctx && (now - tc->fetching_since_ms < TAG_FETCH_TIMEOUT_MS);
-      if (within_ttl || stale_while_revalidate)
-        cached = c4_header_cache_get_by_hash(ctx->chain_id, tc->block_hash);
-    }
-  }
-  else if (block.type == JSON_TYPE_STRING && block.len == 68) {
-    bytes32_t hash_buf = {0};
-    hex_to_bytes(block.start + 1, 66, bytes(hash_buf, 32));
-    cached = c4_header_cache_get_by_hash(ctx->chain_id, hash_buf);
-  }
-  else if (block.type == JSON_TYPE_STRING && block.len > 4 && block.start[1] == '0' && block.start[2] == 'x') {
-    uint64_t bn = json_as_uint64(block);
-    if (bn) cached = c4_header_cache_get_by_number(ctx->chain_id, bn);
-  }
-
-  if (cached) {
-    header_data.def   = cached->header_data.def;
-    header_data.bytes = bytes_dup(cached->header_data.bytes);
-  }
-  else {
-    if (tag < HEADER_TAG_COUNT && !g_header_tags[tag].fetching_since_ms) {
-      g_header_tags[tag].fetching_since_ms = current_ms();
-      g_header_tags[tag].fetching_ctx      = (uintptr_t) ctx;
-    }
-    c4_status_t status = hybrid_fetch_and_verify(ctx, block, HYBRID_FETCH_HEADER, &header_data);
-    if (status != C4_SUCCESS) {
-      if (status == C4_ERROR && tag < HEADER_TAG_COUNT) {
-        g_header_tags[tag].fetching_since_ms = 0;
-        g_header_tags[tag].fetching_ctx      = 0;
-      }
-      return status;
-    }
-    uint64_t hdr_bn = ssz_get_uint64(&header_data, "blockNumber");
-    bytes_t  bh     = ssz_get(&header_data, "blockHash").bytes;
-    c4_header_cache_put(ctx->chain_id, hdr_bn, bh.data, header_data);
-    if (tag < HEADER_TAG_COUNT && bh.data && bh.len == 32) {
-      memcpy(g_header_tags[tag].block_hash, bh.data, 32);
-      g_header_tags[tag].cached_at_ms      = current_ms();
-      g_header_tags[tag].fetching_since_ms = 0;
-      g_header_tags[tag].fetching_ctx      = 0;
-    }
-  }
-
+static c4_status_t create_beacon_block(prover_ctx_t* ctx, beacon_block_t* beacon_block, local_cache_entry_t* local) {
   memset(beacon_block, 0, sizeof(beacon_block_t));
   beacon_block->header_only = true;
-  beacon_block->execution   = header_data;
-  beacon_block->slot        = ssz_get_uint64(&header_data, "blockNumber");
-  bytes_t bh                = ssz_get(&header_data, "blockHash").bytes;
-  if (bh.data && bh.len == 32) memcpy(beacon_block->data_block_root, bh.data, 32);
+  memcpy(beacon_block->el_block_hash, local->block_hash, 32);
+  beacon_block->el_header = local->el_header;
+  if (local->el_body.def)
+    beacon_block->el_body = local->el_body;
+  beacon_block->slot = eth_el_header_get_uint64(local->el_header, EL_BLOCK_NUMBER);
   return C4_SUCCESS;
 }
 
-// -- Hybrid: Resolve Block + Fetch Full Execution Payload --
-
-c4_status_t c4_hybrid_get_execution_for_eth(prover_ctx_t* ctx, json_t block, beacon_block_t* beacon_block) {
-  const verified_header_entry_t* cached = NULL;
-  header_tag_t                   tag    = HEADER_TAG_COUNT;
+c4_status_t c4_hybrid_get_block_for_eth(prover_ctx_t* ctx, json_t block, beacon_block_t* beacon_block, bool with_body) {
+  header_tag_t tag          = HEADER_TAG_COUNT;
+  bytes_t      el_header    = NULL_BYTES;
+  ssz_ob_t     el_body      = {0};
+  bytes32_t    cache_key    = {0};
+  uint64_t     block_number = 0;
+  bytes32_t    block_hash   = {0};
 
   if (strncmp(block.start, "\"latest\"", 8) == 0)
     tag = HEADER_TAG_LATEST;
@@ -318,6 +272,8 @@ c4_status_t c4_hybrid_get_execution_for_eth(prover_ctx_t* ctx, json_t block, bea
     tag = HEADER_TAG_FINALIZED;
 
   if (tag < HEADER_TAG_COUNT) {
+    memcpy(cache_key, "tag", 3);
+    memcpy(cache_key + 3, &tag, 4);
     tag_cache_entry_t* tc  = &g_header_tags[tag];
     uint64_t           now = current_ms();
     if (tc->cached_at_ms && !bytes_all_zero(bytes(tc->block_hash, 32))) {
@@ -325,35 +281,59 @@ c4_status_t c4_hybrid_get_execution_for_eth(prover_ctx_t* ctx, json_t block, bea
       bool     within_ttl             = (now - tc->cached_at_ms < ttl);
       bool     stale_while_revalidate = !within_ttl && tc->fetching_since_ms && tc->fetching_ctx != (uintptr_t) ctx && (now - tc->fetching_since_ms < TAG_FETCH_TIMEOUT_MS);
       if (within_ttl || stale_while_revalidate)
-        cached = c4_header_cache_get_by_hash(ctx->chain_id, tc->block_hash);
+        memcpy(block_hash, tc->block_hash, 32);
     }
   }
   else if (block.type == JSON_TYPE_STRING && block.len == 68) {
-    bytes32_t hash_buf = {0};
-    hex_to_bytes(block.start + 1, 66, bytes(hash_buf, 32));
-    cached = c4_header_cache_get_by_hash(ctx->chain_id, hash_buf);
+    hex_to_bytes(block.start + 1, 66, bytes(block_hash, 32));
+    memcpy(cache_key, block_hash, 32);
+    memcpy(cache_key, "hash", 4);
   }
   else if (block.type == JSON_TYPE_STRING && block.len > 4 && block.start[1] == '0' && block.start[2] == 'x') {
-    uint64_t bn = json_as_uint64(block);
-    if (bn) cached = c4_header_cache_get_by_number(ctx->chain_id, bn);
+    block_number = json_as_uint64(block);
+    memcpy(cache_key, "number", 6);
+    memcpy(cache_key + 6, &block_number, 8);
+  }
+#ifdef PROVER_CACHE
+  // check local cache first
+  local_cache_entry_t* local = c4_prover_cache_get_local(ctx, cache_key);
+  if (local)
+    return create_beacon_block(ctx, beacon_block, local);
+#endif
+
+  // now check header_cache
+  verified_header_entry_t* cached = NULL;
+  if (block_number)
+    cached = c4_header_cache_get_by_number(ctx->chain_id, block_number);
+  else if (!bytes_all_zero(bytes(block_hash, 32)))
+    cached = c4_header_cache_get_by_hash(ctx->chain_id, block_hash);
+
+  if (cached && (!with_body || cached->el_body.def)) {
+#ifdef PROVER_CACHE
+    // check local cache first
+    uint32_t             size  = sizeof(local_cache_entry_t) + cached->el_header.len + (cached->el_body.def ? cached->el_body.bytes.len : 0);
+    local_cache_entry_t* local = safe_calloc(1, sizeof(local_cache_entry_t));
+    memcpy(local->block_hash, cached->block_hash, 32);
+    local->el_header = bytes_dup(cached->el_header);
+    if (cached->el_body.def) {
+      local->el_body.def   = cached->el_body.def;
+      local->el_body.bytes = bytes_dup(cached->el_body.bytes);
+    }
+    c4_prover_cache_set(ctx, cache_key, local, size, 0, free_local_cache_entry);
+    return create_beacon_block(ctx, beacon_block, local);
+#else
+    THROW_ERROR("PROVER_CACHE is not enabled, but needed for hybrid");
+#endif
   }
 
-  if (cached && cached->execution.bytes.data) {
-    memset(beacon_block, 0, sizeof(beacon_block_t));
-    beacon_block->execution = cached->execution;
-    beacon_block->slot      = cached->block_number;
-    memcpy(beacon_block->data_block_root, cached->block_hash, 32);
-    memcpy(beacon_block->el_block_hash, cached->block_hash, 32);
-    return C4_SUCCESS;
-  }
+  // no cached entry yet, we need a request.
 
   if (tag < HEADER_TAG_COUNT && !g_header_tags[tag].fetching_since_ms) {
     g_header_tags[tag].fetching_since_ms = current_ms();
     g_header_tags[tag].fetching_ctx      = (uintptr_t) ctx;
   }
+  c4_status_t status = hybrid_fetch_and_verify(ctx, block, with_body ? HYBRID_FETCH_EXECUTION : HYBRID_FETCH_HEADER, &el_header, with_body ? &el_body : NULL);
 
-  ssz_ob_t    execution = {0};
-  c4_status_t status    = hybrid_fetch_and_verify(ctx, block, HYBRID_FETCH_EXECUTION, &execution);
   if (status != C4_SUCCESS) {
     if (status == C4_ERROR && tag < HEADER_TAG_COUNT) {
       g_header_tags[tag].fetching_since_ms = 0;
@@ -362,77 +342,20 @@ c4_status_t c4_hybrid_get_execution_for_eth(prover_ctx_t* ctx, json_t block, bea
     return status;
   }
 
-  uint64_t ep_bn = ssz_get_uint64(&execution, "blockNumber");
-  bytes_t  bh    = ssz_get(&execution, "blockHash").bytes;
+  local_cache_entry_t result = {
+      .el_body   = el_body,
+      .el_header = el_header};
+  memcpy(result.block_hash, block_hash, 32);
 
-  const verified_header_entry_t* hdr_cached = c4_header_cache_get_by_number(ctx->chain_id, ep_bn);
-  if (!hdr_cached) {
-    ssz_ob_t header_data = c4_build_header_data_from_execution(execution);
-    c4_header_cache_put(ctx->chain_id, ep_bn, bh.data, header_data);
-    safe_free(header_data.bytes.data);
-  }
-  c4_header_cache_set_execution(ctx->chain_id, ep_bn, bh.data, execution);
-
-  if (tag < HEADER_TAG_COUNT && bh.data && bh.len == 32) {
-    memcpy(g_header_tags[tag].block_hash, bh.data, 32);
+  block_number = eth_el_header_get_uint64(el_header, EL_BLOCK_NUMBER);
+  keccak(el_header, result.block_hash);
+  c4_header_cache_put(ctx->chain_id, block_number, result.block_hash, el_header, with_body ? &result.el_body : NULL);
+  if (tag < HEADER_TAG_COUNT && !bytes_all_zero(bytes(block_hash, 32))) {
+    memcpy(g_header_tags[tag].block_hash, result.block_hash, 32);
     g_header_tags[tag].cached_at_ms      = current_ms();
     g_header_tags[tag].fetching_since_ms = 0;
     g_header_tags[tag].fetching_ctx      = 0;
   }
 
-  memset(beacon_block, 0, sizeof(beacon_block_t));
-  beacon_block->execution = execution;
-  beacon_block->slot      = ep_bn;
-  if (bh.data && bh.len == 32) {
-    memcpy(beacon_block->data_block_root, bh.data, 32);
-    memcpy(beacon_block->el_block_hash, bh.data, 32);
-  }
-  return C4_SUCCESS;
-}
-
-// -- Hybrid: Ensure the verified RLP EL header is in the verifier cache --
-
-c4_status_t c4_hybrid_ensure_el_header(prover_ctx_t* ctx, ssz_ob_t execution) {
-#ifdef EL_HEADER_CACHE
-  bytes_t block_hash = ssz_get(&execution, "blockHash").bytes;
-  if (block_hash.len != 32) THROW_ERROR("execution payload has no blockHash!");
-  if (c4_header_cache_has_el_header(ctx->chain_id, block_hash.data)) return C4_SUCCESS;
-
-  // Fetch the block from the user's RPC (untrusted) and rebuild the RLP header from the
-  // JSON fields. Trust comes solely from the keccak check against the verified blockHash.
-  // TODO: this bridge becomes obsolete once the remote block proofs deliver the RLP
-  // elHeader directly (migration of eth_getBlockHeader / eth_getBlockByNumber).
-  char     params[80] = {0};
-  buffer_t params_buf = stack_buffer(params);
-  json_t   rpc_block  = {0};
-  bprintf(&params_buf, "[\"0x%x\",false]", block_hash);
-  TRY_ASYNC(c4_send_eth_rpc(ctx, "eth_getBlockByHash", params, DEFAULT_TTL, &rpc_block, NULL));
-  if (rpc_block.type != JSON_TYPE_OBJECT) THROW_ERROR("block not found on the execution layer!");
-
-  // The fork only controls how many RLP fields the header has. Detecting it from the
-  // presence of the fork-specific JSON fields is safe: any mismatch (missing or bogus
-  // fields) changes the RLP encoding and is caught by the keccak check below.
-  fork_id_t fork = json_get(rpc_block, "blockAccessListHash").type == JSON_TYPE_STRING ? C4_FORK_GLOAS
-                   : json_get(rpc_block, "requestsHash").type == JSON_TYPE_STRING      ? C4_FORK_ELECTRA
-                                                                                       : C4_FORK_DENEB;
-
-  bytes_t el_header = {0};
-  TRY_ASYNC(eth_el_header_build_from_json(&ctx->state, &el_header, fork, rpc_block));
-
-  bytes32_t computed_hash = {0};
-  keccak(el_header, computed_hash);
-  if (memcmp(computed_hash, block_hash.data, 32) != 0) {
-    safe_free(el_header.data);
-    THROW_ERROR("RPC block header does not match the verified block hash!");
-  }
-
-  c4_header_cache_put_el_header(ctx->chain_id, ssz_get_uint64(&execution, "blockNumber"), block_hash.data, el_header);
-  safe_free(el_header.data);
-  return C4_SUCCESS;
-#else
-  // without the cache the verifier cannot resolve the blockHash union variant,
-  // so hybrid proofs referencing a block by hash only are not possible.
-  (void) execution;
-  THROW_ERROR("hybrid proofs require the EL_HEADER_CACHE build option!");
-#endif
+  return create_beacon_block(ctx, beacon_block, &result);
 }

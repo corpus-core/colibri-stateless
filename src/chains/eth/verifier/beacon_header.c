@@ -219,7 +219,7 @@ static c4_status_t verify_block_by_blockhash(verify_ctx_t* ctx, ssz_ob_t block, 
   }
 
 #ifdef EL_HEADER_CACHE
-  bytes_t cached = c4_header_cache_get_el_header(ctx->chain_id, block.bytes.data);
+  bytes_t cached = c4_header_cache_get_el_header(ctx->chain_id, block.bytes.data, NULL);
   if (cached.data) {
     // hand the copy over to the state as a C4_DATA_TYPE_CACHE snapshot: it stays valid
     // for the lifetime of the verify_ctx and is freed automatically by c4_state_free().
@@ -271,8 +271,8 @@ static c4_status_t verify_block_by_blockproof(verify_ctx_t* ctx, ssz_ob_t block,
   // the header is now fully verified: cache it so follow-up proofs can reference
   // this block by hash only (blockHash variant of ETH_BLOCK_PROOF_UNION).
   // A block number of 0 indicates an unparsable header field, do not key the cache on it.
-  uint64_t block_number = eth_el_header_get_uint64(raw_header, "blockNumber");
-  if (block_number) c4_header_cache_put_el_header(ctx->chain_id, block_number, block_hash, raw_header);
+  uint64_t block_number = eth_el_header_get_uint64(raw_header, EL_BLOCK_NUMBER);
+  if (block_number) c4_header_cache_put(ctx->chain_id, block_number, block_hash, raw_header, NULL);
 #endif
   *el_header = raw_header; // borrowed from the proof, valid for the lifetime of the ctx
   return C4_SUCCESS;
