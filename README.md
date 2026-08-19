@@ -266,4 +266,4 @@ This project (everything _except_ `src/server/`) is licensed under the MIT Licen
   Free for non-commercial use only. See [src/server/LICENSE.POLYFORM](src/server/LICENSE.POLYFORM) or the official text at [polyformproject.org/licenses/noncommercial/1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0/).
 
 - **Commercial License**  
-  Required for any commercial or revenue-generating use of the server. Please contact [jork@corpus.io](mailto:jork@corpus.io) to arrange an individual license agreement.
+  Required for any commercial or revenue-generating use of the server. Please contact [jork@corpuscore.tech](mailto:jork@corpuscore.tech) to arrange an individual license agreement.
