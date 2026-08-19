@@ -59,7 +59,7 @@
                 "WASM_EMBED": "0",
                 "CHAIN_OP": "0",
                 "HTTP_SERVER": "0",
-                "PROVER_CACHE": "0",
+                "PROVER_CACHE": "1",
                 "CMAKE_EXPORT_COMPILE_COMMANDS": "1",
                 "CMAKE_TOOLCHAIN_FILE": "$env{EMSDK}/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake"
             }

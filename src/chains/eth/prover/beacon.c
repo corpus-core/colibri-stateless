@@ -47,7 +47,7 @@ static inline void create_cache_block_key(bytes32_t key, json_t block) {
   buffer_t buffer = {.allocated = -32, .data = {.data = key, .len = 0}};
   if (strncmp(block.start, "\"latest\"", 8) == 0)
     memcpy((char*) key + 1, "latest", 7);
-  else if (strncmp(block.start, "\"safe\"", 6) == 0 || strncmp(block.start, "\"finalized\"", 12) == 0) {
+  else if (strncmp(block.start, "\"safe\"", 6) == 0 || strncmp(block.start, "\"finalized\"", 11) == 0) {
     memcpy((char*) key, FINALITY_KEY, sizeof(FINALITY_KEY));
     return;
   }
@@ -66,7 +66,7 @@ static beacon_head_t* c4_beacon_cache_get_slot(prover_ctx_t* ctx, json_t block) 
   //  if (strncmp(block.start, "\"latest\"", 8) == 0 && !cached) {
   //    log_warn("Slatest block not found in cache, but it is requested! This should not happen!");
   //  }
-  if (cached && strncmp(block.start, "\"finalized\"", 12) == 0) return cached + 1;
+  if (cached && strncmp(block.start, "\"finalized\"", 11) == 0) return cached + 1;
   return cached;
 }
 static bool c4_beacon_cache_get_blockdata(prover_ctx_t* ctx, bytes32_t block_root, beacon_block_t* beacon_block) {
@@ -535,7 +535,7 @@ static inline c4_status_t eth_get_block_roots(prover_ctx_t* ctx, json_t block, b
     return C4_SUCCESS; // latest -  we do nothing since 2 empty root_hashes are returned, which will trigger head-requests
   else if (strncmp(block.start, "\"safe\"", 6) == 0)
     TRY_ASYNC(eth_get_final_hash(ctx, true, data_root, NULL));
-  else if (strncmp(block.start, "\"finalized\"", 12) == 0)
+  else if (strncmp(block.start, "\"finalized\"", 11) == 0)
     TRY_ASYNC(eth_get_final_hash(ctx, false, data_root, NULL));
   else if (block.type == JSON_TYPE_STRING && block.len == 68) // blockhash
     TRY_ASYNC(eth_get_by_hash(ctx, block, data_root));

@@ -82,7 +82,7 @@ c4_status_t c4_eth_get_tx_proof(prover_ctx_t* ctx, bytes32_t block_hash, ssz_ob_
   *tx_proof = create_tx_proof(execution_payload, tx_index, &tx_tree);
   if (!cache_hit) c4_prover_cache_set(ctx, cachekey, tx_tree, 100000, 200000, (cache_free_cb) patricia_node_free);
 #else
-  *tx_proof = create_receipts_proof(execution_payload, tx_index, NULL);
+  *tx_proof = create_tx_proof(execution_payload, tx_index, NULL);
 #endif
   return C4_SUCCESS;
 }
