@@ -69,7 +69,7 @@ static bool verify_args(verify_ctx_t* ctx, bytes_t raw, uint32_t tx_index, bytes
     if (json_as_uint32(json_at(ctx->args, 1)) != tx_index) RETURN_VERIFY_ERROR(ctx, "invalid tx index!");
   }
   else if (strcmp(ctx->method, "eth_getTransactionByBlockNumberAndIndex") == 0) {
-    uint64_t block_number = eth_el_header_get_uint64(el_header, "blockNumber");
+    uint64_t block_number  = eth_el_header_get_uint64(el_header, "blockNumber");
     uint64_t req_block_num = json_as_uint64(json_at(ctx->args, 0));
     if (!req_block_num) RETURN_VERIFY_ERROR(ctx, "invalid block number!");
     if (req_block_num != block_number) RETURN_VERIFY_ERROR(ctx, "invalid block number!");
@@ -88,13 +88,12 @@ bool verify_tx_proof(verify_ctx_t* ctx) {
 
   // verify the blockheader (el_header stays valid for the lifetime of the ctx)
   if (c4_verify_block(ctx, ssz_get(&ctx->proof, "block"), &el_header, block_hash) != C4_SUCCESS) return false;
-  if (!c4_tx_verify_receipt_proof(ctx,
-                                  ssz_get(&ctx->proof, "transactionProof"), idx,
-                                  eth_el_header_get(el_header, EL_TRANSACTIONS_ROOT).data, &raw_tx)) return false;
+  if (!c4_verify_mpt_proof(ctx, ssz_get(&ctx->proof, "transactionProof"), idx,
+                           eth_el_header_get(el_header, EL_TRANSACTIONS_ROOT).data, &raw_tx)) return false;
 
   if (!verify_args(ctx, raw_tx, idx, el_header)) return false;
-  if (!create_eth_tx_data(ctx, raw_tx, block_hash, eth_el_header_get_uint64(el_header, "blockNumber"),
-                          eth_el_header_get_uint64(el_header, "baseFeePerGas"), idx)) return false;
+  if (!create_eth_tx_data(ctx, raw_tx, block_hash, eth_el_header_get_uint64(el_header, EL_BLOCK_NUMBER),
+                          eth_el_header_get_uint64(el_header, EL_BASE_FEE_PER_GAS), idx)) return false;
 
   ctx->success = true;
   return true;

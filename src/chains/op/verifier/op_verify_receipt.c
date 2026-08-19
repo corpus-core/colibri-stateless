@@ -70,7 +70,7 @@ bool op_verify_receipt_proof(verify_ctx_t* ctx) {
 
   if (!c4_tx_verify_tx_hash(ctx, raw_tx.bytes))
     c4_state_add_error(&ctx->state, "invalid tx hash!");
-  else if (!c4_tx_verify_receipt_proof(ctx, receipt_proof, tx_index, receipt_root_calculated, &raw_receipt))
+  else if (!c4_verify_mpt_proof(ctx, receipt_proof, tx_index, receipt_root_calculated, &raw_receipt))
     c4_state_add_error(&ctx->state, "invalid receipt proof!");
   else if (memcmp(receipt_root_calculated, receipts_root_expected.bytes.data, 32) != 0)
     c4_state_add_error(&ctx->state, "invalid receipt root!");
