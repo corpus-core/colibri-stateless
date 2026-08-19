@@ -124,7 +124,7 @@ INTERNAL c4_status_t c4_verify_checkpoint_proof(verify_ctx_t* ctx, ssz_ob_t chec
   // 4. Anchor the header itself against the canonical chain via checkpointz. Wrap ERROR
   //    in RETURN_VERIFY_ERROR_STATUS so callers that inspect `ctx->success` see a uniform
   //    signal regardless of which step failed.
-  bytes32_t   header_root = {0};
+  bytes32_t header_root = {0};
   ssz_hash_tree_root(header, header_root);
   c4_status_t anchor_status = c4_verify_checkpointz_root(ctx, slot, header_root);
   if (anchor_status == C4_ERROR)
@@ -436,13 +436,13 @@ static c4_status_t update_from_zk_sync_data(verify_ctx_t* ctx) {
         // `period_store_zk_ssz.c`), NOT the attested header (typically mid-epoch);
         // checkpointz only serves epoch-boundary blocks. `historic_proof` carries the
         // same `header` field as `header_proof`, so both share the anchor logic.
-        bool     have_header_field = checkpoint.def && (strcmp(checkpoint.def->name, "headerProof") == 0 ||
-                                                        strcmp(checkpoint.def->name, "historic_proof") == 0);
-        ssz_ob_t anchor_header     = have_header_field
-                                         ? ssz_get(&checkpoint, "header")
-                                         : header; // signature_proof has no embedded anchor header; falls back to attested
-        uint64_t  anchor_slot  = ssz_get_uint64(&anchor_header, "slot");
-        bytes32_t anchor_root  = {0};
+        bool      have_header_field = checkpoint.def && (strcmp(checkpoint.def->name, "headerProof") == 0 ||
+                                                    strcmp(checkpoint.def->name, "historic_proof") == 0);
+        ssz_ob_t  anchor_header     = have_header_field
+                                          ? ssz_get(&checkpoint, "header")
+                                          : header; // signature_proof has no embedded anchor header; falls back to attested
+        uint64_t  anchor_slot       = ssz_get_uint64(&anchor_header, "slot");
+        bytes32_t anchor_root       = {0};
         ssz_hash_tree_root(anchor_header, anchor_root);
         c4_status_t wsp_status = c4_verify_checkpointz_root(ctx, anchor_slot, anchor_root);
         if (wsp_status == C4_PENDING) return C4_PENDING;

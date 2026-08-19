@@ -127,7 +127,7 @@ ssz_builder_t eth_ssz_create_state_proof(prover_ctx_t* ctx, json_t block_number,
   // timestamp leaf alongside the stateRoot so the verifier can run a freshness
   // gate on `latest`. Requires client version 1.1.27+ -- older clients still see
   // the legacy `none` variant.
-  bool          use_timestamp     = !is_call && block_index == 0 && ctx->version >= c4_version_number(1, 1, 27);
+  bool use_timestamp = !is_call && block_index == 0 && ctx->version >= c4_version_number(1, 1, 27);
 
   if (use_block_context) {
     const gindex_t* gi = c4_call_block_context_gindexes();
@@ -165,7 +165,7 @@ ssz_builder_t eth_ssz_create_state_proof(prover_ctx_t* ctx, json_t block_number,
     if (block->merkle_cache.valid) {
       gindex_t gi_arr[2] = {state_index, block_index};
       int      gi_len    = block_index == 0 ? 1 : 2;
-      proof               = ssz_create_multi_proof_from_body_cache(&block->merkle_cache, body_root, gi_arr, gi_len);
+      proof              = ssz_create_multi_proof_from_body_cache(&block->merkle_cache, body_root, gi_arr, gi_len);
     }
     if (!proof.data)
 #endif
@@ -182,7 +182,6 @@ ssz_builder_t eth_ssz_create_state_proof(prover_ctx_t* ctx, json_t block_number,
   safe_free(proof.data);
   return state_proof;
 }
-
 
 void eth_add_block_proof(prover_ctx_t* ctx, ssz_builder_t* builder, beacon_block_t* block_data, blockroot_proof_t* historic_block_proof) {
   // the blockHash-only variant is safe whenever the verifier already holds the verified
@@ -206,7 +205,7 @@ void eth_add_block_proof(prover_ctx_t* ctx, ssz_builder_t* builder, beacon_block
   else {
     ssz_builder_t block_proof = ssz_builder_for_type(ETH_SSZ_CL_BLOCK_PROOF);
     ssz_add_bytes(&block_proof, "elHeader", block_data->el_header);
-    ssz_add_builders(&block_proof, "clHeader", c4_proof_add_header(block_data->header,  block_data->body_root));
+    ssz_add_builders(&block_proof, "clHeader", c4_proof_add_header(block_data->header, block_data->body_root));
     ssz_add_bytes(&block_proof, "blockhashBranch", block_data->block_hash_branch);
     ssz_add_uint64(&block_proof, block_data->block_hash_branch_gindex);
     ssz_add_header_proof(&block_proof, block_data, *historic_block_proof);

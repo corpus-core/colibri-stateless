@@ -154,7 +154,7 @@ typedef struct {
   int   tracing_sample_percent; // 0..100
 
   /** If 1, `/proof` may accept client `rpc` / `beacon` JSON arrays (proxy mode). */
-  int   proxy_enabled;
+  int proxy_enabled;
   /** Comma-separated domain patterns allowed for proxy URLs (e.g. `*.alchemy.com,infura.io`). */
   char* proxy_allowed_domains;
 } http_server_t;
@@ -290,8 +290,8 @@ typedef struct request_t {
   client_t*         client; // client request
   void*             ctx;    // prover
   single_request_t* requests;
-  size_t            request_count;  // count of handles
-  size_t            batch_started;  // how many requests have been dispatched so far (for throttled dispatch)
+  size_t            request_count; // count of handles
+  size_t            batch_started; // how many requests have been dispatched so far (for throttled dispatch)
   uint64_t          start_time;
   http_client_cb    cb;          // callback function to call when all requests are done
   void*             parent_ctx;  // pointer to parent context or parent caller
@@ -361,8 +361,8 @@ const config_param_t* c4_get_config_params(int* count);
 const char*           c4_get_config_file_path();
 int                   c4_save_config_file(const char* updates);
 // Handlers
-bool           c4_handle_verify_request(client_t* client);
-bool           c4_handle_proof_request(client_t* client);
+bool c4_handle_verify_request(client_t* client);
+bool c4_handle_proof_request(client_t* client);
 /**
  * Shared dispatch for direct `/proof` requests (POST and GET variants).
  *
@@ -414,15 +414,15 @@ int c4_select_best_server(server_list_t* servers, uint32_t exclude_mask, uint32_
 int c4_select_best_server_for_method(server_list_t* servers, uint32_t exclude_mask, uint32_t preferred_client_type, const char* method, uint64_t requested_block, bool has_block);
 
 // Method support tracking functions
-void               c4_mark_method_unsupported(server_list_t* servers, int server_index, const char* method);
-bool               c4_is_method_supported(server_list_t* servers, int server_index, const char* method);
-void               c4_cleanup_method_support(server_health_t* health);
-void               c4_update_server_health(server_list_t* servers, int server_index, uint64_t response_time, bool success);
-void               c4_calculate_server_weights(server_list_t* servers);
-bool               c4_should_reset_health_stats(server_list_t* servers);
-void               c4_reset_server_health_stats(server_list_t* servers);
-bool               c4_has_available_servers(server_list_t* servers, uint32_t exclude_mask);
-void               c4_attempt_server_recovery(server_list_t* servers);
+void c4_mark_method_unsupported(server_list_t* servers, int server_index, const char* method);
+bool c4_is_method_supported(server_list_t* servers, int server_index, const char* method);
+void c4_cleanup_method_support(server_health_t* health);
+void c4_update_server_health(server_list_t* servers, int server_index, uint64_t response_time, bool success);
+void c4_calculate_server_weights(server_list_t* servers);
+bool c4_should_reset_health_stats(server_list_t* servers);
+void c4_reset_server_health_stats(server_list_t* servers);
+bool c4_has_available_servers(server_list_t* servers, uint32_t exclude_mask);
+void c4_attempt_server_recovery(server_list_t* servers);
 
 // Concurrency hooks for request lifecycle
 bool c4_on_request_start(server_list_t* servers, int idx, bool allow_overflow);
@@ -447,7 +447,7 @@ char*                   c4_request_fix_url(char* url, single_request_t* r, beaco
 data_request_encoding_t c4_request_fix_encoding(data_request_encoding_t encoding, single_request_t* r, beacon_client_type_t client_type);
 bytes_t                 c4_request_fix_response(bytes_t response, single_request_t* r, beacon_client_type_t client_type);
 c4_response_type_t      c4_classify_response(long http_code, const char* url, bytes_t response_body, data_request_t* req,
-                                               server_list_t* servers_opt);
+                                             server_list_t* servers_opt);
 bool                    c4_error_indicates_not_found(long http_code, data_request_t* req, bytes_t response_body);
 
 // Internal call handlers

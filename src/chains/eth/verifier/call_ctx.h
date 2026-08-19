@@ -60,18 +60,18 @@ typedef enum {
 // :: Execution trace entry (captured during simulation)
 
 typedef struct trace_entry {
-  uint8_t              type;          // EVMONE_CALL, EVMONE_DELEGATECALL, etc.
-  address_t            from;
-  address_t            to;
-  uint64_t             gas;
-  uint64_t             gas_used;
-  bytes_t              input;
-  bytes_t              output;
-  bytes32_t            value;
-  uint32_t             subtraces;
-  uint32_t*            trace_address;
-  uint32_t             trace_depth;
-  struct trace_entry*  next;
+  uint8_t             type; // EVMONE_CALL, EVMONE_DELEGATECALL, etc.
+  address_t           from;
+  address_t           to;
+  uint64_t            gas;
+  uint64_t            gas_used;
+  bytes_t             input;
+  bytes_t             output;
+  bytes32_t           value;
+  uint32_t            subtraces;
+  uint32_t*           trace_address;
+  uint32_t            trace_depth;
+  struct trace_entry* next;
 } trace_entry_t;
 
 // :: Emitted log (captured during EVM execution for simulation)
@@ -93,16 +93,16 @@ typedef struct emitted_log {
  * it may be stack-allocated with a single-pass lifetime.
  */
 typedef struct evm_call_ctx {
-  call_account_t*  accounts;
-  bytes_t          call_result;
-  emitted_log_t*   logs;
-  keccak_entry_t*  keccak_entries;
-  trace_entry_t*   traces;
-  uint64_t         gas_used;
-  bytes32_t        state_root;
-  bool             pap_mode;
-  bool             evm_done;
-  bool             reverted; // set to true when the EVM execution reverted; `call_result` then holds the revert data
+  call_account_t* accounts;
+  bytes_t         call_result;
+  emitted_log_t*  logs;
+  keccak_entry_t* keccak_entries;
+  trace_entry_t*  traces;
+  uint64_t        gas_used;
+  bytes32_t       state_root;
+  bool            pap_mode;
+  bool            evm_done;
+  bool            reverted; // set to true when the EVM execution reverted; `call_result` then holds the revert data
 } evm_call_ctx_t;
 
 /**
@@ -116,9 +116,9 @@ typedef struct evm_call_ctx {
  * Linked list keyed by (address, key).
  */
 typedef struct transient_slot {
-  address_t             address;
-  bytes32_t             key;
-  bytes32_t             value;
+  address_t              address;
+  bytes32_t              key;
+  bytes32_t              value;
   struct transient_slot* next;
 } transient_slot_t;
 
@@ -152,14 +152,14 @@ typedef struct evmone_context {
 
 /** Block context extracted from call proof when state_proof.block is the blockContext union variant (selector 3). */
 typedef struct eth_call_block_context {
-  uint64_t   block_number;
-  uint64_t   timestamp;
-  address_t  coinbase;
-  bytes32_t  prev_randao;
-  bytes32_t  base_fee_per_gas;
-  bytes32_t  block_hash;
-  uint64_t   gas_limit;
-  uint64_t   excess_blob_gas;
+  uint64_t  block_number;
+  uint64_t  timestamp;
+  address_t coinbase;
+  bytes32_t prev_randao;
+  bytes32_t base_fee_per_gas;
+  bytes32_t block_hash;
+  uint64_t  gas_limit;
+  uint64_t  excess_blob_gas;
 } eth_call_block_context_t;
 
 /**
@@ -214,8 +214,8 @@ c4_status_t call_apply_state_overrides(verify_ctx_t* ctx, call_account_t** accou
 
 // :: Emitted log helpers
 
-void           free_keccak_entries(keccak_entry_t* entries);
-void           free_emitted_logs(emitted_log_t* logs);
+void free_keccak_entries(keccak_entry_t* entries);
+void free_emitted_logs(emitted_log_t* logs);
 
 // :: Trace helpers
 

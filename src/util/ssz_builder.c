@@ -127,9 +127,9 @@ void ssz_add_bytes(ssz_builder_t* buffer, const char* name, bytes_t data) {
     fbprintf(stderr, "ssz_add_bytes: name %s not found in %s\n", name, buffer->def->name);
     return;
   }
-  const ssz_def_t* elements = ssz_container_elements(buffer->def);
-  uint32_t         count    = ssz_container_len(buffer->def);
-  buffer_t*        bytes    = &(buffer->fixed);
+  const ssz_def_t* elements     = ssz_container_elements(buffer->def);
+  uint32_t         count        = ssz_container_len(buffer->def);
+  buffer_t*        bytes        = &(buffer->fixed);
   size_t           fixed_length = 0;
 
   // check offset

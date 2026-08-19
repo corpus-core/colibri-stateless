@@ -260,9 +260,9 @@ static bool bind_range_endpoint(verify_ctx_t* ctx, json_t tag, uint64_t proof_va
 // the `timestamp` variant for them would let a prover anchor at an arbitrary older canonical block
 // (no freshness enforced for non-`latest` tags) and silently omit newer logs.
 static bool verify_tag_proof_freshness(verify_ctx_t* ctx, ssz_ob_t proof, json_t filter, bytes32_t anchor_body_root) {
-  json_t   to_tag    = json_get(filter, "toBlock");
-  bool     is_latest = to_tag.type == JSON_TYPE_NOT_FOUND || eth_json_is_latest(to_tag);
-  bool     is_pinned = to_tag.type == JSON_TYPE_STRING && to_tag.len > 2 && to_tag.start[1] == '0' && to_tag.start[2] == 'x';
+  json_t to_tag    = json_get(filter, "toBlock");
+  bool   is_latest = to_tag.type == JSON_TYPE_NOT_FOUND || eth_json_is_latest(to_tag);
+  bool   is_pinned = to_tag.type == JSON_TYPE_STRING && to_tag.len > 2 && to_tag.start[1] == '0' && to_tag.start[2] == 'x';
   if (!is_latest && !is_pinned)
     RETURN_VERIFY_ERROR(ctx, "toBlock tag not yet supported for completeness (only a pinned block or 'latest')");
 
@@ -309,9 +309,9 @@ bool verify_logs_completeness(verify_ctx_t* ctx) {
   if ((uint64_t) ssz_len(blocks) != count) RETURN_VERIFY_ERROR(ctx, "completeness proof block count mismatch!");
 
   // reconstruct the parentRoot chain -> per-block bodyRoots + the reconstructed anchor (newest) header
-  bytes32_t* body_roots       = safe_calloc((size_t) count, sizeof(bytes32_t));
+  bytes32_t* body_roots        = safe_calloc((size_t) count, sizeof(bytes32_t));
   uint8_t    anchor_bytes[112] = {0};
-  ssz_ob_t   anchor           = {0};
+  ssz_ob_t   anchor            = {0};
   if (reconstruct_chain(ctx, header, headers, body_roots, (uint32_t) count, anchor_bytes, &anchor) != C4_SUCCESS) {
     safe_free(body_roots);
     return false;
@@ -338,24 +338,36 @@ bool verify_logs_completeness(verify_ctx_t* ctx) {
   for (uint64_t i = 0; i < count; i++) {
     ssz_ob_t union_ob = ssz_at(blocks, (uint32_t) i);
     ssz_ob_t block    = ssz_union(union_ob);
-    if (!block.def) { success = false; break; }
+    if (!block.def) {
+      success = false;
+      break;
+    }
 
     // blockNumber is bound to this block's bodyRoot by the per-block multi proof, so from_num/to_num
     // become cryptographically trusted once the block is verified.
     uint64_t bn = ssz_get_uint64(&block, "blockNumber");
     if (i == 0) from_num = bn;
     // the gap-free blockNumber sequence together with the parentRoot chain rules out skipped blocks
-    if (bn != from_num + i) { success = false; break; }
+    if (bn != from_num + i) {
+      success = false;
+      break;
+    }
     if (i + 1 == count) {
       to_num = bn;
       memcpy(anchor_body_root, body_roots[i], 32); // keep the anchor bodyRoot for the tag_proof below
     }
 
     if (strcmp(block.def->name, "FullReceipts") == 0) {
-      if (!verify_full_block(ctx, block, body_roots[i], &data_builder, query_blooms, &log_count)) { success = false; break; }
+      if (!verify_full_block(ctx, block, body_roots[i], &data_builder, query_blooms, &log_count)) {
+        success = false;
+        break;
+      }
     }
     else if (strcmp(block.def->name, "BloomNegative") == 0) {
-      if (!verify_negative_block(ctx, block, body_roots[i], query_blooms)) { success = false; break; }
+      if (!verify_negative_block(ctx, block, body_roots[i], query_blooms)) {
+        success = false;
+        break;
+      }
     }
     else {
       success = false;

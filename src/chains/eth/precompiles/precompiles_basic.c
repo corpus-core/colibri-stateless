@@ -126,8 +126,8 @@ static pre_result_t pre_p256verify(bytes_t input, buffer_t* output, uint64_t* ga
   pub[0] = 0x04;
   memcpy(pub + 1, input.data + 96, 64); // qx || qy
 
-  const uint8_t* sig    = input.data + 32;  // r || s
-  const uint8_t* digest = input.data;       // 32-byte message digest
+  const uint8_t* sig    = input.data + 32; // r || s
+  const uint8_t* digest = input.data;      // 32-byte message digest
 
   if (ecdsa_verify_digest(&nist256p1, pub, sig, digest) != 0) return PRE_SUCCESS;
 

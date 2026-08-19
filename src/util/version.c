@@ -35,11 +35,11 @@ const char* c4_client_version = C4_VERSION;
 
 /** Parse decimal digits from *s, advance *s past them. Returns value (0 if no digit). */
 static unsigned parse_component(const char** s) {
-  if (**s == '.')   (*s)++;
+  if (**s == '.') (*s)++;
   const char* p = *s;
-  unsigned   n = 0;
+  unsigned    n = 0;
   while (*p >= '0' && *p <= '9') {
-    n = n * 10u + (unsigned)(*p - '0');
+    n = n * 10u + (unsigned) (*p - '0');
     p++;
   }
   *s = p;
@@ -54,8 +54,6 @@ C4_VERSION_PURE uint32_t c4_current_version_number(void) {
   while (*s == 'v' || *s == 'V') s++;
   return parse_component(&s) << 16 | parse_component(&s) << 8 | parse_component(&s);
 }
-
-
 
 void c4_print_version(FILE* out, const char* program_name) {
   fprintf(out, "%s version %s\n", program_name, c4_client_version);

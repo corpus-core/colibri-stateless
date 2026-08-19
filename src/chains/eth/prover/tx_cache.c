@@ -120,7 +120,7 @@ static size_t table_find_index(const bytes32_t key) {
 // After removing the entry at `pos`, scan forward and shift back any entry whose
 // home bucket is not reachable without crossing the gap.
 static void table_delete_at(size_t pos) {
-  size_t gap = pos;
+  size_t gap        = pos;
   g_table[gap].used = false;
   for (size_t j = (gap + 1u) & (TABLE_CAPACITY - 1u); g_table[j].used; j = (j + 1u) & (TABLE_CAPACITY - 1u)) {
     size_t home = table_index(hash_bytes32(g_table[j].key));
@@ -218,7 +218,6 @@ static void free_block_node(block_node_t* node) {
   free(node);
 }
 
-
 // remove as many entries as needed, so the number_of_entries_to_add can be added.
 static void clean_up_cache(int number_of_entries_to_add) {
   // Evict whole blocks from the head until there is enough room
@@ -226,7 +225,7 @@ static void clean_up_cache(int number_of_entries_to_add) {
     if (!g_head) break; // nothing to evict
     block_node_t* victim = g_head;
     log_debug("tx_cache evicting block %l (%d txs), entries=%d max=%d to_add=%d",
-              victim->block_number, victim->count, (uint32_t)g_size, (uint32_t)g_max_tx_cache_size, (uint32_t)number_of_entries_to_add);
+              victim->block_number, victim->count, (uint32_t) g_size, (uint32_t) g_max_tx_cache_size, (uint32_t) number_of_entries_to_add);
     // remove all txs of this block from the table
     for (uint32_t i = 0; i < victim->count; i++) {
       table_remove(victim->items[i]);

@@ -113,12 +113,13 @@ static c4_status_t eth_el_header_build(c4_state_t* state, bytes_t* el_header, fo
 static void get_requests_hash(bytes32_t out_hash, eth_el_header_ctx_t* ctx) {
   if (ctx->beacon_block.def == NULL) {
     memcpy(out_hash, EMPTY_HASH, 32);
-    return;}
+    return;
+  }
   ssz_ob_t           body               = ssz_get(&ctx->beacon_block, "body");
   ssz_ob_t           execution_requests = ssz_get(&body, "executionRequests");
-  static const char* request_lists[] = {"deposits", "withdrawals", "consolidations"};
+  static const char* request_lists[]    = {"deposits", "withdrawals", "consolidations"};
   uint8_t            hashes[sizeof(request_lists) / sizeof(request_lists[0]) * 32]; // one intermediate hash per non-empty request list
-  uint32_t           hashes_len         = 0;
+  uint32_t           hashes_len = 0;
   for (uint8_t type = 0; type < sizeof(request_lists) / sizeof(request_lists[0]); type++) {
     ssz_ob_t list = ssz_get(&execution_requests, request_lists[type]);
     if (list.def == NULL || list.bytes.len == 0) continue; // empty requests are excluded per EIP-7685

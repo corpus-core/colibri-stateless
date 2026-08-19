@@ -44,7 +44,7 @@
  * @return pointer to next non-whitespace character, or NULL if end of string
  */
 static const char* next_non_whitespace_token(const char* data) {
-  while (*data && isspace((unsigned char)*data)) data++;
+  while (*data && isspace((unsigned char) *data)) data++;
   return *data ? data : NULL;
 }
 
@@ -87,7 +87,7 @@ static const char* find_end(const char* pos, char start, char end) {
 static json_t parse_number(const char* start) {
   json_t json = json(JSON_TYPE_NUMBER, start, 0);
   for (; *start; start++) {
-    if (isdigit((unsigned char)*start) || *start == '.' || *start == '-' || *start == 'e' || *start == 'E')
+    if (isdigit((unsigned char) *start) || *start == '.' || *start == '-' || *start == 'e' || *start == 'E')
       json.len++;
     else
       break;
@@ -349,8 +349,8 @@ char* json_as_string(json_t value, buffer_t* buffer) {
       buffer->data.data[buffer->data.len] = '\0';
       buffer->data.len++;
     }
-    else if (buffer->data.len > 0)                             // fixed buffer is full: no room for the terminator,
-      buffer->data.data[buffer->data.len - 1] = '\0';          // so overwrite the last byte to keep the string valid
+    else if (buffer->data.len > 0)                    // fixed buffer is full: no room for the terminator,
+      buffer->data.data[buffer->data.len - 1] = '\0'; // so overwrite the last byte to keep the string valid
     json_deescape_string(buffer);
   }
   else {
@@ -358,7 +358,7 @@ char* json_as_string(json_t value, buffer_t* buffer) {
     if (buffer_grow(buffer, buffer->data.len + 1) > buffer->data.len) // room for the NULL-Terminator?
       buffer->data.data[buffer->data.len] = '\0';                     // then add it
     else if (buffer->data.len > 0) {                                  // fixed buffer is full: drop the last byte
-      buffer->data.len--;                                            // to make room for the terminator
+      buffer->data.len--;                                             // to make room for the terminator
       buffer->data.data[buffer->data.len] = '\0';
     }
   }

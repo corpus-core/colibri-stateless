@@ -46,14 +46,14 @@
 static const char* SHA3_UNCLUES = "\x1d\xcc\x4d\xe8\xde\xc7\x5d\x7a\xab\x85\xb5\x67\xb6\xcc\xd4\x1a\xd3\x12\x45\x1b\x94\x8a\x74\x13\xf0\xa1\x42\xfd\x40\xd4\x93\x47";
 static const char* EMPTY_SHA256 = "\xe3\xb0\xc4\x42\x98\xfc\x1c\x14\x9a\xfb\xf4\xc8\x99\x6f\xb9\x24\x27\xae\x41\xe4\x64\x9b\x93\x4c\xa4\x95\x99\x1b\x78\x52\xb8\x55";
 
-static ssz_builder_t create_txs_builder(verify_ctx_t* ctx, const ssz_def_t* tx_union_def, bool include_txs, ssz_ob_t txs,  bytes_t el_header, bytes32_t block_hash) {
-  ssz_builder_t txs_builder = ssz_builder_for_def(tx_union_def->def.container.elements + ((int) include_txs));
-  node_t*       root        = NULL;
-  bytes32_t     tmp         = {0};
-  buffer_t      buf         = stack_buffer(tmp);
-  ssz_builder_t tx_builder  = ssz_builder_for_def(txs_builder.def->def.vector.type);
-  uint64_t block_number = eth_el_header_get_uint64(el_header, EL_BLOCK_NUMBER);
-  uint64_t base_fee = eth_el_header_get_uint64(el_header, EL_BASE_FEE_PER_GAS);
+static ssz_builder_t create_txs_builder(verify_ctx_t* ctx, const ssz_def_t* tx_union_def, bool include_txs, ssz_ob_t txs, bytes_t el_header, bytes32_t block_hash) {
+  ssz_builder_t txs_builder  = ssz_builder_for_def(tx_union_def->def.container.elements + ((int) include_txs));
+  node_t*       root         = NULL;
+  bytes32_t     tmp          = {0};
+  buffer_t      buf          = stack_buffer(tmp);
+  ssz_builder_t tx_builder   = ssz_builder_for_def(txs_builder.def->def.vector.type);
+  uint64_t      block_number = eth_el_header_get_uint64(el_header, EL_BLOCK_NUMBER);
+  uint64_t      base_fee     = eth_el_header_get_uint64(el_header, EL_BASE_FEE_PER_GAS);
 
   int len = ssz_len(txs);
   for (int i = 0; i < len; i++) {
@@ -196,28 +196,28 @@ bool eth_set_block_data(verify_ctx_t* ctx, bytes_t el_header, bool include_txs, 
     ssz_add_uint64(&data, eth_el_header_get_uint64(el_header, EL_BLOCK_NUMBER));
     ssz_add_bytes(&data, "hash", bytes(block_hash, 32));
     ssz_add_builders(&data, "transactions", create_txs_builder(ctx, ssz_get_def(data.def, "transactions"), include_txs, ssz_get(body, "transactions"), el_header, block_hash));
-    ssz_add_bytes(&data, "logsBloom", eth_el_header_get (el_header, EL_LOGS_BLOOM));
-    ssz_add_bytes(&data, "receiptsRoot", eth_el_header_get (el_header, EL_RECEIPTS_ROOT));
-    ssz_add_bytes(&data, "extraData", eth_el_header_get (el_header, EL_EXTRA_DATA));
-    ssz_add_bytes(&data, "withdrawalsRoot", eth_el_header_get (el_header, EL_WITHDRAWALS_ROOT));
-    ssz_add_uint256(&data, eth_el_header_get (el_header, EL_BASE_FEE_PER_GAS));
-    ssz_add_uint64(&data, eth_el_header_get_uint64 (el_header, EL_NONCE));
-    ssz_add_bytes(&data, "miner", eth_el_header_get (el_header, EL_FEE_RECIPIENT));
+    ssz_add_bytes(&data, "logsBloom", eth_el_header_get(el_header, EL_LOGS_BLOOM));
+    ssz_add_bytes(&data, "receiptsRoot", eth_el_header_get(el_header, EL_RECEIPTS_ROOT));
+    ssz_add_bytes(&data, "extraData", eth_el_header_get(el_header, EL_EXTRA_DATA));
+    ssz_add_bytes(&data, "withdrawalsRoot", eth_el_header_get(el_header, EL_WITHDRAWALS_ROOT));
+    ssz_add_uint256(&data, eth_el_header_get(el_header, EL_BASE_FEE_PER_GAS));
+    ssz_add_uint64(&data, eth_el_header_get_uint64(el_header, EL_NONCE));
+    ssz_add_bytes(&data, "miner", eth_el_header_get(el_header, EL_FEE_RECIPIENT));
     ssz_add_bytes(&data, "withdrawals", ssz_get(body, "withdrawals").bytes);
-    ssz_add_uint64(&data, eth_el_header_get_uint64 (el_header, EL_EXCESS_BLOB_GAS));
+    ssz_add_uint64(&data, eth_el_header_get_uint64(el_header, EL_EXCESS_BLOB_GAS));
     ssz_add_bytes(&data, "difficulty", NULL_BYTES);
-    ssz_add_uint64(&data,  eth_el_header_get_uint64 (el_header, EL_GAS_LIMIT));
-    ssz_add_uint64(&data,  eth_el_header_get_uint64 (el_header, EL_GAS_USED));
-    ssz_add_uint64(&data,  eth_el_header_get_uint64 (el_header, EL_TIMESTAMP));
-    ssz_add_bytes(&data, "mixHash", eth_el_header_get (el_header, EL_PREV_RANDAO));
-    ssz_add_bytes(&data, "parentHash", eth_el_header_get (el_header, EL_PARENT_HASH));
+    ssz_add_uint64(&data, eth_el_header_get_uint64(el_header, EL_GAS_LIMIT));
+    ssz_add_uint64(&data, eth_el_header_get_uint64(el_header, EL_GAS_USED));
+    ssz_add_uint64(&data, eth_el_header_get_uint64(el_header, EL_TIMESTAMP));
+    ssz_add_bytes(&data, "mixHash", eth_el_header_get(el_header, EL_PREV_RANDAO));
+    ssz_add_bytes(&data, "parentHash", eth_el_header_get(el_header, EL_PARENT_HASH));
     ssz_add_bytes(&data, "uncles", NULL_BYTES);
-    ssz_add_bytes(&data, "parentBeaconBlockRoot", eth_el_header_get (el_header, EL_PARENT_BEACON_BLOCK_ROOT));
+    ssz_add_bytes(&data, "parentBeaconBlockRoot", eth_el_header_get(el_header, EL_PARENT_BEACON_BLOCK_ROOT));
     ssz_add_bytes(&data, "sha3Uncles", bytes(SHA3_UNCLUES, 32));
-    ssz_add_bytes(&data, "transactionsRoot", eth_el_header_get (el_header, EL_TRANSACTIONS_ROOT));
-    ssz_add_bytes(&data, "stateRoot",  eth_el_header_get (el_header, EL_STATE_ROOT));
-    ssz_add_uint64(&data, eth_el_header_get_uint64 (el_header, EL_BLOB_GAS_USED));
-    ssz_add_bytes(&data, "requestsHash", eth_el_header_get (el_header, EL_REQUESTS_HASH));
+    ssz_add_bytes(&data, "transactionsRoot", eth_el_header_get(el_header, EL_TRANSACTIONS_ROOT));
+    ssz_add_bytes(&data, "stateRoot", eth_el_header_get(el_header, EL_STATE_ROOT));
+    ssz_add_uint64(&data, eth_el_header_get_uint64(el_header, EL_BLOB_GAS_USED));
+    ssz_add_bytes(&data, "requestsHash", eth_el_header_get(el_header, EL_REQUESTS_HASH));
     ctx->data = ssz_builder_to_bytes(&data);
   }
   else

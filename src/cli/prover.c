@@ -124,13 +124,13 @@ int main(int argc, char* argv[]) {
   }
 
   // Initialize variables for argument parsing
-  char*      method     = NULL;                                                        // RPC method name (e.g., "eth_getBlockByNumber")
-  buffer_t   buffer     = {0};                                                         // Buffer for building JSON parameter array
-  char*      outputfile = NULL;                                                        // Output file path (NULL = stdout)
+  char*      method     = NULL;                        // RPC method name (e.g., "eth_getBlockByNumber")
+  buffer_t   buffer     = {0};                         // Buffer for building JSON parameter array
+  char*      outputfile = NULL;                        // Output file path (NULL = stdout)
   uint32_t   flags      = C4_PROVER_FLAG_INCLUDE_CODE; // Prover flags (access list is the default; e.g. C4_PROVER_FLAG_INCLUDE_CODE)
-  chain_id_t chain_id   = C4_CHAIN_MAINNET;                                            // Default to Ethereum mainnet
-  buffer_add_chars(&buffer, "[");                                                      // Start building JSON array for parameters
-  bytes_t client_state = {0};                                                          // Client state data (loaded from chain_store if -d is used)
+  chain_id_t chain_id   = C4_CHAIN_MAINNET;            // Default to Ethereum mainnet
+  buffer_add_chars(&buffer, "[");                      // Start building JSON array for parameters
+  bytes_t client_state = {0};                          // Client state data (loaded from chain_store if -d is used)
 
   // Parse command-line arguments
   // Options start with '-' and can be combined (e.g., "-co" = "-c -o")

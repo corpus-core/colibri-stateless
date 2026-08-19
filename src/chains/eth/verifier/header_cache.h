@@ -111,7 +111,7 @@ const verified_header_entry_t* c4_header_cache_get_by_hash(chain_id_t chain_id, 
  * @param el_header rlp-encoded el header (will be copied)
  * @param el_body optional SSZ-encoded execution payload or at least the body with transactions and withdrawals (will be copied)
  */
-void c4_header_cache_put(chain_id_t chain_id, uint64_t block_number, const uint8_t* block_hash, bytes_t el_header, ssz_ob_t* el_body) ;
+void c4_header_cache_put(chain_id_t chain_id, uint64_t block_number, const uint8_t* block_hash, bytes_t el_header, ssz_ob_t* el_body);
 
 /**
  * Returns the verified RLP-encoded EL header for a block hash, or `NULL_BYTES` on miss.

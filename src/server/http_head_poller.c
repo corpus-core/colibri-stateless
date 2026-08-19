@@ -1,7 +1,7 @@
 #include "chain_props.h"
+#include "logger.h"
 #include "server.h"
 #include "util/json.h"
-#include "logger.h"
 #include <string.h>
 
 // Local write callback (like detection_write_callback) for head polling

@@ -95,9 +95,9 @@ bool verify_block_receipts_proof_for(verify_ctx_t* ctx, ssz_ob_t receipts_proof)
   ssz_hash_tree_root(transactions, tx_root);
 
   if (is_hybrid) {
-    if (!(ctx->flags & VERIFY_FLAG_HYBRID))  RETURN_VERIFY_ERROR(ctx, "hybrid proof requires hybrid mode!");
+    if (!(ctx->flags & VERIFY_FLAG_HYBRID)) RETURN_VERIFY_ERROR(ctx, "hybrid proof requires hybrid mode!");
     uint8_t* header_receipts_root = ssz_get(&exec_header, "receiptsRoot").bytes.data;
-    uint8_t* header_tx_root = ssz_get(&exec_header, "transactionsRoot").bytes.data;
+    uint8_t* header_tx_root       = ssz_get(&exec_header, "transactionsRoot").bytes.data;
     if (memcmp(tx_root, header_tx_root, 32) != 0)
       RETURN_VERIFY_ERROR(ctx, "transactionsRoot mismatch!");
     if (memcmp(receipt_root, header_receipts_root, 32) != 0)
@@ -175,7 +175,7 @@ bool verify_block_receipts_proof(verify_ctx_t* ctx) {
   uint64_t         prev_cumulative = 0;
   uint32_t         next_log_index  = 0;
   ssz_ob_t         receipts        = ssz_get(&ctx->proof, "receipts");
-  bytes_t          block_hash      =  ssz_get(&ctx->proof, "blockHash").bytes;
+  bytes_t          block_hash      = ssz_get(&ctx->proof, "blockHash").bytes;
   ssz_ob_t         transactions    = ssz_get(&ctx->proof, "transactions");
   uint64_t         blk_num         = ssz_get_uint64(&ctx->proof, "blockNumber");
   uint32_t         num_receipts    = ssz_len(receipts);

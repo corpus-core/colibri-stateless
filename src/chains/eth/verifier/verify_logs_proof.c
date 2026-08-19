@@ -21,7 +21,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-
 #include "beacon_types.h"
 #include "bytes.h"
 #include "crypto.h"
@@ -42,10 +41,10 @@
 #define GINDEX_TX_IN_LOGS_LIST_BASE 2097152L
 
 static bool verify_hybrid_tx_multi_proof(verify_ctx_t* ctx, ssz_ob_t block, bytes32_t receipt_root) {
-  ssz_ob_t  header_data = ssz_get(&block, "header_data");
-  ssz_ob_t  tx_proof_ob = ssz_get(&block, "txProof");
-  ssz_ob_t  txs         = ssz_get(&block, "txs");
-  int       tx_count    = ssz_len(txs);
+  ssz_ob_t header_data = ssz_get(&block, "header_data");
+  ssz_ob_t tx_proof_ob = ssz_get(&block, "txProof");
+  ssz_ob_t txs         = ssz_get(&block, "txs");
+  int      tx_count    = ssz_len(txs);
 
   bytes_t receipts_root = ssz_get(&header_data, "receiptsRoot").bytes;
   bytes_t tx_root       = ssz_get(&header_data, "transactionsRoot").bytes;
@@ -186,8 +185,8 @@ static bool verify_hybrid_tx(verify_ctx_t* ctx, ssz_ob_t block, ssz_ob_t tx, byt
 
 static c4_status_t verif_hybrid_block(verify_ctx_t* ctx, ssz_ob_t block) {
   ssz_ob_t  txs          = ssz_get(&block, "txs");
-  bytes32_t receipt_root  = {0};
-  uint32_t  tx_count      = ssz_len(txs);
+  bytes32_t receipt_root = {0};
+  uint32_t  tx_count     = ssz_len(txs);
 
   for (int i = 0; i < tx_count; i++) {
     if (!verify_hybrid_tx(ctx, block, ssz_at(txs, i), receipt_root)) THROW_ERROR("invalid receipt proof!");
@@ -199,7 +198,7 @@ static c4_status_t verif_hybrid_block(verify_ctx_t* ctx, ssz_ob_t block) {
 static bool has_proof(verify_ctx_t* ctx, bytes_t block_number, bytes_t tx_index, uint32_t block_count) {
   for (int i = 0; i < block_count; i++) {
     ssz_ob_t block    = ssz_at(ctx->proof, i);
-    bytes_t  block_bn =  ssz_get(&block, "blockNumber").bytes;
+    bytes_t  block_bn = ssz_get(&block, "blockNumber").bytes;
     if (bytes_eq(block_number, block_bn)) {
       ssz_ob_t txs      = ssz_get(&block, "txs");
       uint32_t tx_count = ssz_len(txs);
@@ -215,12 +214,11 @@ static bool has_proof(verify_ctx_t* ctx, bytes_t block_number, bytes_t tx_index,
 }
 
 bool verify_logs_proof(verify_ctx_t* ctx) {
-  uint32_t log_count    = ssz_len(ctx->data);
-  uint32_t block_count  = ssz_len(ctx->proof);
-
+  uint32_t log_count   = ssz_len(ctx->data);
+  uint32_t block_count = ssz_len(ctx->proof);
 
   for (int i = 0; i < block_count; i++) {
-   if (verif_block(ctx, ssz_at(ctx->proof, i)) != C4_SUCCESS) return false;
+    if (verif_block(ctx, ssz_at(ctx->proof, i)) != C4_SUCCESS) return false;
   }
 
   for (int i = 0; i < log_count; i++) {

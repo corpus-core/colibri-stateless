@@ -26,8 +26,8 @@
 
 #ifdef PAP
 
-#include "verify.h"
 #include "ssz.h"
+#include "verify.h"
 
 #ifdef __cplusplus
 extern "C" {

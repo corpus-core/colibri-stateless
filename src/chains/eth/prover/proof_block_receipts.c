@@ -65,8 +65,8 @@ c4_status_t c4_proof_block_receipts(prover_ctx_t* ctx) {
   // serialize all receipts to RLP and build the receipts list (single pass to avoid repeated json parsing)
   const ssz_def_t* receipts_list_def = ssz_get_def(proof_builder.def, "receipts");
   ssz_builder_t    receipts_builder  = ssz_builder_for_def(receipts_list_def);
-  buffer_t         rbuf             = {0};
-  uint32_t         num_receipts     = 0;
+  buffer_t         rbuf              = {0};
+  uint32_t         num_receipts      = 0;
 
   json_for_each_value(block_receipts, receipt) {
     bytes_t serialized = c4_serialize_receipt(receipt, &rbuf);
@@ -84,12 +84,12 @@ c4_status_t c4_proof_block_receipts(prover_ctx_t* ctx) {
   ssz_add_bytes(&proof_builder, "baseFeePerGas", ssz_get(&block.execution, "baseFeePerGas").bytes);
 
   // create multi-merkle proof for blockNumber, blockHash, receiptsRoot, transactions, baseFeePerGas
-  gindex_t br_gi[5] = {ssz_gindex(block.cl_body.def, 2, "executionPayload", "blockNumber"),
-                        ssz_gindex(block.cl_body.def, 2, "executionPayload", "blockHash"),
-                        ssz_gindex(block.cl_body.def, 2, "executionPayload", "receiptsRoot"),
-                        ssz_gindex(block.cl_body.def, 2, "executionPayload", "transactions"),
-                        ssz_gindex(block.cl_body.def, 2, "executionPayload", "baseFeePerGas")};
-  bytes_t multi_proof = NULL_BYTES;
+  gindex_t br_gi[5]    = {ssz_gindex(block.cl_body.def, 2, "executionPayload", "blockNumber"),
+                          ssz_gindex(block.cl_body.def, 2, "executionPayload", "blockHash"),
+                          ssz_gindex(block.cl_body.def, 2, "executionPayload", "receiptsRoot"),
+                          ssz_gindex(block.cl_body.def, 2, "executionPayload", "transactions"),
+                          ssz_gindex(block.cl_body.def, 2, "executionPayload", "baseFeePerGas")};
+  bytes_t  multi_proof = NULL_BYTES;
   eth_cu_add_multi_proof(ctx, 5);
 #ifdef PROVER_CACHE
   if (block.merkle_cache.valid)

@@ -49,11 +49,11 @@ typedef struct {
 // -- Known event descriptor --
 
 typedef struct {
-  const char*            hash;            // 32-byte keccak256 of the event signature (as string literal)
-  const char*            name;            // event name (e.g. "Transfer")
-  uint8_t                param_count;     // number of parameters
-  uint8_t                expected_topics; // expected topic count including signature hash
-  const event_param_def_t* params;        // pointer to static parameter definitions
+  const char*              hash;            // 32-byte keccak256 of the event signature (as string literal)
+  const char*              name;            // event name (e.g. "Transfer")
+  uint8_t                  param_count;     // number of parameters
+  uint8_t                  expected_topics; // expected topic count including signature hash
+  const event_param_def_t* params;          // pointer to static parameter definitions
 } known_event_t;
 
 // -- ERC20 / ERC721 --
@@ -196,7 +196,7 @@ const char* eth_decode_known_event(const emitted_log_t* log, ssz_builder_t* inpu
   }
   if (!event) return NULL;
 
-  uint8_t topic_idx  = 1; // topics[0] is the signature hash, indexed params start at 1
+  uint8_t topic_idx   = 1; // topics[0] is the signature hash, indexed params start at 1
   size_t  data_offset = 0; // non-indexed params are read from data in 32-byte ABI slots
 
   for (uint8_t i = 0; i < event->param_count; i++) {
@@ -211,7 +211,7 @@ const char* eth_decode_known_event(const emitted_log_t* log, ssz_builder_t* inpu
     ssz_add_bytes(&param_builder, "type", bytes((uint8_t*) param->type, strlen(param->type)));
 
     // value - format as hex string
-    char    tmp[68]; // "0x" + max 64 hex chars + null
+    char     tmp[68]; // "0x" + max 64 hex chars + null
     uint8_t* src;
 
     if (param->indexed) {

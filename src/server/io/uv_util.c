@@ -14,10 +14,10 @@
 
 #ifndef _WIN32
 #define C4_MKDIR(path, mode) mkdir((path), (mode_t) (mode))
-#define C4_DIR_MODE 0777
+#define C4_DIR_MODE          0777
 #else
 #define C4_MKDIR(path, mode) (_mkdir(path))
-#define C4_DIR_MODE 0
+#define C4_DIR_MODE          0
 #endif
 
 typedef struct read_one_ctx_s  read_one_ctx_t;
@@ -261,7 +261,7 @@ static void write_ctx_finish(write_one_ctx_t* ctx) {
 static void write_on_close(uv_fs_t* req) {
   write_one_ctx_t* ctx = (write_one_ctx_t*) req->data;
   uv_fs_req_cleanup(req);
-  ctx->fd                = -1;
+  ctx->fd = -1;
   // one file finished
   write_ctx_finish(ctx);
 }

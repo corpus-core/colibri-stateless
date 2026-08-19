@@ -54,9 +54,9 @@ static bool verify_merkle_proof(verify_ctx_t* ctx, ssz_ob_t proof, bytes_t block
 }
 
 bool op_verify_receipt_proof(verify_ctx_t* ctx) {
-  uint32_t  tx_index          = ssz_get_uint32(&ctx->proof, "transactionIndex");
-  ssz_ob_t  receipt_proof     = ssz_get(&ctx->proof, "receipt_proof");
-  ssz_ob_t  block_proof       = ssz_get(&ctx->proof, "block_proof");
+  uint32_t tx_index          = ssz_get_uint32(&ctx->proof, "transactionIndex");
+  ssz_ob_t receipt_proof     = ssz_get(&ctx->proof, "receipt_proof");
+  ssz_ob_t block_proof       = ssz_get(&ctx->proof, "block_proof");
   ssz_ob_t execution_payload = op_extract_verified_execution_payload(ctx, block_proof, NULL, NULL);
   if (!execution_payload.def) return false;
 

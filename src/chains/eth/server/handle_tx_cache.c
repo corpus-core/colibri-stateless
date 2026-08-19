@@ -142,7 +142,7 @@ bool c4_handle_tx_cache(client_t* client) {
   if (strncmp(client->request.path, "/tx_cache", 9) != 0) return false;
   char next = client->request.path[9];
   if (next && next != '?' && next != '/') return false;
-  buffer_t    body = {0};
+  buffer_t body = {0};
   bprintf(&body, "{\"error\":\"%s\"}", "Transaction cache not available (PROVER_CACHE disabled)");
   const char* hdr = "Cache-Control: no-store\r\n";
   c4_http_respond_ex(client, 503, "application/json", body.data, bytes((uint8_t*) hdr, (uint32_t) strlen(hdr)));

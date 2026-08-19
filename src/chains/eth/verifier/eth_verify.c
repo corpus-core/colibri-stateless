@@ -74,7 +74,7 @@ bool eth_is_oblivious_unavailable(json_t response) {
   if (message.type != JSON_TYPE_STRING) return false;
   // message.start/len spans the JSON string token (incl. quotes); a substring
   // search is sufficient to recognise the oblivious node's availability signal.
-  static const char marker[] = "data non availability";
+  static const char marker[]   = "data non availability";
   const uint32_t    marker_len = sizeof(marker) - 1;
   for (uint32_t i = 0; i + marker_len <= message.len; i++) {
     if (strncmp(message.start + i, marker, marker_len) == 0) return true;

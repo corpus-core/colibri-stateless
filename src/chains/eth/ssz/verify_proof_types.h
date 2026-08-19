@@ -140,7 +140,7 @@ static const ssz_def_t ETH_CHECKPOINT_PROOF[] = {
 static const ssz_def_t ETH_HEADER_PROOFS_UNION[] = {
     SSZ_CONTAINER("signature_proof", ETH_SIGNATURE_BLOCK_PROOF), // proof by providing the signature of the sync committee
     SSZ_CONTAINER("historic_proof", ETH_HISTORIC_BLOCK_PROOF),   // proof for a historic block using the state_root of a current block
-    SSZ_CONTAINER("headerProof", ETH_HEADERS_BLOCK_PROOF),      // proof block giving a chain of headers up to a verifiable header
+    SSZ_CONTAINER("headerProof", ETH_HEADERS_BLOCK_PROOF),       // proof block giving a chain of headers up to a verifiable header
     SSZ_CONTAINER("CheckpointProof", ETH_CHECKPOINT_PROOF)       // WSP anchor via LightClientBootstrap (currentSyncCommittee branch)
 };
 
@@ -174,12 +174,12 @@ static const ssz_def_t ETH_LOGS_TX_CONTAINER = SSZ_CONTAINER("LogsTx", ETH_LOGS_
 
 // A single Block with its proof containing all the receipts or txs required to prove the logs.
 static const ssz_def_t ETH_LOGS_BLOCK[] = {
-    SSZ_UINT64("blockNumber"),                          // the number of the execution block containing the transaction
-    SSZ_BYTES32("blockHash"),                           // the blockHash of the execution block containing the transaction
-    SSZ_LIST("proof", ssz_bytes32, 1024),               // the multi proof of the transaction, receipt_root,blockNumber and blockHash
-    SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),       // the header of the beacon block
+    SSZ_UINT64("blockNumber"),                         // the number of the execution block containing the transaction
+    SSZ_BYTES32("blockHash"),                          // the blockHash of the execution block containing the transaction
+    SSZ_LIST("proof", ssz_bytes32, 1024),              // the multi proof of the transaction, receipt_root,blockNumber and blockHash
+    SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),      // the header of the beacon block
     SSZ_UNION("headerProof", ETH_HEADER_PROOFS_UNION), // the proof for the correctness of the header
-    SSZ_LIST("txs", ETH_LOGS_TX_CONTAINER, 256)};       // the transactions of the block
+    SSZ_LIST("txs", ETH_LOGS_TX_CONTAINER, 256)};      // the transactions of the block
 
 static const ssz_def_t ETH_LOGS_BLOCK_CONTAINER = SSZ_CONTAINER("LogsBlock", ETH_LOGS_BLOCK);
 
@@ -252,12 +252,12 @@ static const ssz_def_t ETH_COMPLETENESS_BLOCK = SSZ_UNION("block", ETH_COMPLETEN
 // gates the `latest` freshness, while the `checkpoint_proof` variant is reserved for `safe`/`finalized`
 // (structurally prepared; verification pending). For a pinned `toBlock` the `none` variant is used.
 static const ssz_def_t ETH_LOGS_COMPLETENESS_PROOF[] = {
-    SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),       // full beacon header of the oldest block (parentRoot anchors the chain)
-    SSZ_LIST("headers", PROOF_HEADER_CONTAINER, 4096),  // ProofHeaders ascending, one per block after the first (last == anchor)
+    SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),      // full beacon header of the oldest block (parentRoot anchors the chain)
+    SSZ_LIST("headers", PROOF_HEADER_CONTAINER, 4096), // ProofHeaders ascending, one per block after the first (last == anchor)
     SSZ_UNION("headerProof", ETH_HEADER_PROOFS_UNION), // proof for the correctness of the reconstructed anchor header
-    SSZ_UNION("tag_proof", ETH_STATE_BLOCK_UNION),      // anchor block-tag proof (timestamp for `latest`, checkpoint_proof for `safe`/`finalized`, none for pinned)
-    SSZ_LIST("tag_proof_branch", ssz_bytes32, 256),     // multi proof of the tag_proof leaf (timestamp) to the anchor's bodyRoot
-    SSZ_LIST("blocks", ETH_COMPLETENESS_BLOCK, 4096),   // per-block payload ascending fromBlock..toBlock
+    SSZ_UNION("tag_proof", ETH_STATE_BLOCK_UNION),     // anchor block-tag proof (timestamp for `latest`, checkpoint_proof for `safe`/`finalized`, none for pinned)
+    SSZ_LIST("tag_proof_branch", ssz_bytes32, 256),    // multi proof of the tag_proof leaf (timestamp) to the anchor's bodyRoot
+    SSZ_LIST("blocks", ETH_COMPLETENESS_BLOCK, 4096),  // per-block payload ascending fromBlock..toBlock
 };
 static const ssz_def_t ETH_LOGS_COMPLETENESS_PROOF_CONTAINER = SSZ_CONTAINER("LogsCompletenessProof", ETH_LOGS_COMPLETENESS_PROOF);
 
@@ -322,7 +322,6 @@ static const ssz_def_t ETH_TRANSACTION_PROOF[] = {
     SSZ_UNION("block", ETH_BLOCK_PROOF_UNION),         // the proof for the execution block containing the transaction
 };
 
-
 // :: Receipt Proof
 //
 // A **Receipt Proof** represents the cryptographic verification of a transaction receipt and its inclusion within the canonical blockchain structure.
@@ -375,8 +374,7 @@ static const ssz_def_t ETH_RECEIPT_PROOF[] = {
     SSZ_PROG_LIST("transactionProof", ssz_bytes_list), // the Patricia Merkle Proof of the transaction, the leaf contains the raw transaction.
     SSZ_LIST("receiptProof", ssz_bytes_1024, 64),      // the Patricia Merkle Proof of the receipt, the leaf contains the raw receipt.
     SSZ_UNION("block", ETH_BLOCK_PROOF_UNION),         // the proof for the execution block containing the transaction
-}; 
-
+};
 
 // :: Account Proof
 //
@@ -477,9 +475,9 @@ static const ssz_def_t ETH_STATE_BLOCK_UNION[] = {
 // The stateRoot proof is used as part of different other types since it contains all relevant
 // proofs to validate the stateRoot of the execution layer.
 static const ssz_def_t ETH_STATE_PROOF[] = {
-    SSZ_UNION("block", ETH_STATE_BLOCK_UNION),         // the block to be proven
-    SSZ_LIST("proof", ssz_bytes32, 256),               // the merkle proof from the executionPayload.state down to the blockBodyRoot hash
-    SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),      // the header of the beacon block
+    SSZ_UNION("block", ETH_STATE_BLOCK_UNION),        // the block to be proven
+    SSZ_LIST("proof", ssz_bytes32, 256),              // the merkle proof from the executionPayload.state down to the blockBodyRoot hash
+    SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),     // the header of the beacon block
     SSZ_UNION("headerProof", ETH_HEADER_PROOFS_UNION) // the proof for the correctness of the header
 };
 static const ssz_def_t ETH_STATE_PROOF_CONTAINER = SSZ_CONTAINER("StateProof", ETH_STATE_PROOF);
@@ -826,4 +824,4 @@ static const ssz_def_t ETH_BLOCK_RECEIPTS_PROOF[] = {
     SSZ_UINT256("baseFeePerGas"),                              // for effectiveGasPrice when building receipt data in verifier
     SSZ_LIST("block_proof", ssz_bytes32, 64),                  // the multi proof of transactions, receiptsRoot, blockNumber, blockHash and baseFeePerGas
     SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),              // the header of the beacon block
-    SSZ_UNION("headerProof", ETH_HEADER_PROOFS_UNION)};       // the proof for the correctness of the header
+    SSZ_UNION("headerProof", ETH_HEADER_PROOFS_UNION)};        // the proof for the correctness of the header

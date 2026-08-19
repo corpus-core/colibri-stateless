@@ -523,8 +523,8 @@ bytes_t ssz_create_multi_proof_for_gindexes(ssz_ob_t root, bytes32_t root_hash, 
 bytes_t ssz_create_multi_proof_from_tree_cache(
     const bytes32_t* body_tree, uint32_t body_tree_size,
     const bytes32_t* ep_tree, uint32_t ep_tree_size,
-    gindex_t ep_body_gindex,
-    bytes32_t root_hash,
+    gindex_t        ep_body_gindex,
+    bytes32_t       root_hash,
     const gindex_t* gindex, int gindex_len);
 
 /**
@@ -595,7 +595,7 @@ extern const ssz_def_t ssz_secp256k1_signature; // Vector<uint8> of length 65
 extern const ssz_def_t ssz_bls_pubky;           // Vector<uint8> of length 48
 extern const ssz_def_t ssz_bytes_list;          // List<uint8> displayed as hex in JSON
 extern const ssz_def_t ssz_string_def;          // List<uint8> displayed as string in JSON
-extern const ssz_def_t ssz_json_def;            // List<uint8> displayed as raw json 
+extern const ssz_def_t ssz_json_def;            // List<uint8> displayed as raw json
 extern const ssz_def_t ssz_none;                // special value for none in uions.
 
 /**
@@ -798,12 +798,12 @@ extern const ssz_def_t ssz_none;                // special value for none in uio
  * const ssz_def_t CIRCLE = SSZ_PROG_CONTAINER("Circle", SHAPE_CONTAINER, 0b110);
  * ```
  */
-#define SSZ_PROG_CONTAINER(propname, base_container, active_mask)  \
-  {                                                                \
-    .name = propname,                                              \
-    .type = SSZ_TYPE_PROG_CONTAINER,                               \
+#define SSZ_PROG_CONTAINER(propname, base_container, active_mask)     \
+  {                                                                   \
+    .name                      = propname,                            \
+    .type                      = SSZ_TYPE_PROG_CONTAINER,             \
     .def.progressive_container = {.container     = &(base_container), \
-                                  .active_fields = (active_mask) } \
+                                  .active_fields = (active_mask) }    \
   }
 
 /**
@@ -820,9 +820,9 @@ extern const ssz_def_t ssz_none;                // special value for none in uio
  * SSZ_PROG_LIST("transactions", Transaction)
  * ```
  */
-#define SSZ_PROG_LIST(property, typePtr)                                       \
-  {                                                                            \
-    .name = property, .type = SSZ_TYPE_PROG_LIST, .def.vector = {.len  = 0,   \
+#define SSZ_PROG_LIST(property, typePtr)                                            \
+  {                                                                                 \
+    .name = property, .type = SSZ_TYPE_PROG_LIST, .def.vector = {.len  = 0,         \
                                                                  .type = &typePtr } \
   }
 
@@ -839,9 +839,9 @@ extern const ssz_def_t ssz_none;                // special value for none in uio
  * SSZ_PROG_BIT_LIST("aggregation_bits")
  * ```
  */
-#define SSZ_PROG_BIT_LIST(property)                                            \
-  {                                                                            \
-    .name = property, .type = SSZ_TYPE_PROG_BIT_LIST, .def.vector = {.len  = 0,    \
+#define SSZ_PROG_BIT_LIST(property)                                                 \
+  {                                                                                 \
+    .name = property, .type = SSZ_TYPE_PROG_BIT_LIST, .def.vector = {.len  = 0,     \
                                                                      .type = NULL } \
   }
 

@@ -21,10 +21,10 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include "op_prover.h"
 #include "../../eth/prover/eth_prover.h"
 #include "beacon_types.h"
 #include "json.h"
-#include "op_prover.h"
 #include "state.h"
 #include <stdlib.h>
 #include <string.h>

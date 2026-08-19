@@ -20,7 +20,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <uv.h>
-#define SLOTS_PER_PERIOD 8192u
+#define SLOTS_PER_PERIOD  8192u
 #define MAX_REORG_RETRIES 32u
 // Macro to log libuv errors, perform cleanup and return with a custom statement
 #define UVX_CHECK(op, expr, cleanup, retstmt)                                                  \
@@ -131,10 +131,10 @@ static void       fetch_timer_cb(uv_timer_t* h) {
     req->url = strdup("eth/v1/beacon/headers/head");
   else
     req->url = bprintf(NULL, "eth/v1/beacon/headers/0x%x", bytes(fc->root, 32));
-  req->method               = C4_DATA_METHOD_GET;
-  req->chain_id             = http_server.chain_id;
-  req->type                 = C4_DATA_TYPE_BEACON_API;
-  req->encoding             = C4_DATA_ENCODING_JSON;
+  req->method   = C4_DATA_METHOD_GET;
+  req->chain_id = http_server.chain_id;
+  req->type     = C4_DATA_TYPE_BEACON_API;
+  req->encoding = C4_DATA_ENCODING_JSON;
   c4_add_request(&bf_client, req, fc->target, fc->use_slot ? reorg_recovery_cb : fetch_header_cb);
   uv_timer_stop(h);
   safe_free(fc);
@@ -558,7 +558,7 @@ static void reorg_recovery_cb(client_t* client, void* data, data_request_t* r) {
     return;
   }
 
-  reorg_retries = 0;
+  reorg_retries  = 0;
   bf_ctx.current = block;
   memcpy(bf_ctx.current.parent_root, bf_ctx.current.header + 16, 32);
   c4_ps_set_block(&bf_ctx.current, true);
@@ -580,10 +580,10 @@ static void fetch_header_by_slot(uint64_t slot, block_t* target) {
       }
     }
     if (delay_ms > 0) {
-      fetch_ctx_t* fc = (fetch_ctx_t*) safe_calloc(1, sizeof(fetch_ctx_t));
-      fc->target      = target;
-      fc->use_slot    = true;
-      fc->slot        = slot;
+      fetch_ctx_t* fc  = (fetch_ctx_t*) safe_calloc(1, sizeof(fetch_ctx_t));
+      fc->target       = target;
+      fc->use_slot     = true;
+      fc->slot         = slot;
       fetch_timer.data = fc;
       int rc           = uv_timer_start(&fetch_timer, fetch_timer_cb, (uint64_t) delay_ms, 0);
       if (rc < 0) {
@@ -625,7 +625,7 @@ static void fetch_header_cb(client_t* client, void* data, data_request_t* r) {
     backfill_done();
     return;
   }
-  reorg_retries = 0;
+  reorg_retries   = 0;
   block_t* target = (block_t*) data;
   *target         = block;
 

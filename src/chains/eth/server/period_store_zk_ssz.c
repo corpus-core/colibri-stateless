@@ -134,7 +134,7 @@ static void files_read_cb(void* user_data, file_data_t* files, int num_files) {
 static void build_zk_sync_proof_variant(uint64_t period, bool v6) {
   const char* ssz_name = v6 ? "zk_proof_v6.ssz" : "zk_proof.ssz";
   const char* g16_name = v6 ? "zk_proof_g16_v6.bin" : "zk_proof_g16.bin";
-  if (c4_ps_file_exists(period, ssz_name)) return; // already packed
+  if (c4_ps_file_exists(period, ssz_name)) return;  // already packed
   if (!c4_ps_file_exists(period, g16_name)) return; // no proof of this variant yet
 
   zk_pack_ctx_t* ctx = safe_calloc(1, sizeof(zk_pack_ctx_t));

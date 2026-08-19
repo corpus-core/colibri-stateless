@@ -64,16 +64,16 @@ static const ssz_def_t C4_ETH_ZK_SYNCDATA_V6[6];
 // A List of possible types of data matching the Proofs
 const ssz_def_t C4_ETH_REQUEST_DATA_UNION[12] = {
     SSZ_NONE,
-    SSZ_BYTES32("hash"),                                        // the blockhash  which is used for blockhash proof
-    SSZ_BYTES("bytes", 1073741824),                             // the bytes of the data
-    SSZ_UINT256("value"),                                       // the balance of an account
-    SSZ_CONTAINER("EthTransactionData", ETH_TX_DATA),           // the transaction data
-    SSZ_CONTAINER("EthReceiptData", ETH_RECEIPT_DATA),          // the transaction receipt
-    SSZ_LIST("EthLogs", ETH_RECEIPT_DATA_LOG_CONTAINER, 1024),  // result of eth_getLogs
-    SSZ_CONTAINER("EthBlockData", ETH_BLOCK_DATA),              // the block data
-    SSZ_CONTAINER("EthProofData", ETH_PROOF_DATA),              // the result of an eth_getProof
-    SSZ_CONTAINER("SimulationResult", ETH_SIMULATION_RESULT),   // the result of an colibri_simulateTransaction
-    SSZ_CONTAINER("EthBlockHeaderData", ETH_BLOCK_HEADER_DATA), // compact block header data
+    SSZ_BYTES32("hash"),                                            // the blockhash  which is used for blockhash proof
+    SSZ_BYTES("bytes", 1073741824),                                 // the bytes of the data
+    SSZ_UINT256("value"),                                           // the balance of an account
+    SSZ_CONTAINER("EthTransactionData", ETH_TX_DATA),               // the transaction data
+    SSZ_CONTAINER("EthReceiptData", ETH_RECEIPT_DATA),              // the transaction receipt
+    SSZ_LIST("EthLogs", ETH_RECEIPT_DATA_LOG_CONTAINER, 1024),      // result of eth_getLogs
+    SSZ_CONTAINER("EthBlockData", ETH_BLOCK_DATA),                  // the block data
+    SSZ_CONTAINER("EthProofData", ETH_PROOF_DATA),                  // the result of an eth_getProof
+    SSZ_CONTAINER("SimulationResult", ETH_SIMULATION_RESULT),       // the result of an colibri_simulateTransaction
+    SSZ_CONTAINER("EthBlockHeaderData", ETH_BLOCK_HEADER_DATA),     // compact block header data
     SSZ_LIST("EthBlockReceipts", ETH_RECEIPT_DATA_CONTAINER, 2048), // all receipts of a block
 };
 
@@ -105,17 +105,17 @@ static const ssz_def_t C4_ETH_SYNCDATA_BOOTSTRAP_UNION[] = {
 
 // A List of LightClient Updates as returned from light_client/updates endpoint.
 static const ssz_def_t C4_ETH_SYNCDATA_UPDATE_UNION[] = {
-    SSZ_CONTAINER("DenepLightClientUpdate", DENEP_LIGHT_CLIENT_UPDATE),      // 0: Deneb-fork structured LightClient Update
-    SSZ_CONTAINER("ElectraLightClientUpdate", ELECTRA_LIGHT_CLIENT_UPDATE),  // 1: Electra-fork structured LightClient Update
-    SSZ_CONTAINER("GloasLightClientUpdate", GLOAS_LIGHT_CLIENT_UPDATE)       // 2: Gloas-fork structured LightClient Update
+    SSZ_CONTAINER("DenepLightClientUpdate", DENEP_LIGHT_CLIENT_UPDATE),     // 0: Deneb-fork structured LightClient Update
+    SSZ_CONTAINER("ElectraLightClientUpdate", ELECTRA_LIGHT_CLIENT_UPDATE), // 1: Electra-fork structured LightClient Update
+    SSZ_CONTAINER("GloasLightClientUpdate", GLOAS_LIGHT_CLIENT_UPDATE)      // 2: Gloas-fork structured LightClient Update
 };
 
 // A Union of possible types of sync data used to update the sync state by verifying the transition from the last period to the required.
 const ssz_def_t C4_ETH_REQUEST_SYNCDATA_UNION[] = {
     SSZ_NONE,
-    SSZ_CONTAINER("LCSyncData", C4_ETH_LC_SYNCDATA),       // Light Client Sync Data
-    SSZ_CONTAINER("ZKSyncData", C4_ETH_ZK_SYNCDATA),       // ZK Proof Sync Data (legacy SP1 v5, 260-byte groth16 proof)
-    SSZ_CONTAINER("ZKSyncDataV6", C4_ETH_ZK_SYNCDATA_V6),  // ZK Proof Sync Data (SP1 v6 "Hypercube", 356-byte groth16 proof)
+    SSZ_CONTAINER("LCSyncData", C4_ETH_LC_SYNCDATA),      // Light Client Sync Data
+    SSZ_CONTAINER("ZKSyncData", C4_ETH_ZK_SYNCDATA),      // ZK Proof Sync Data (legacy SP1 v5, 260-byte groth16 proof)
+    SSZ_CONTAINER("ZKSyncDataV6", C4_ETH_ZK_SYNCDATA_V6), // ZK Proof Sync Data (SP1 v6 "Hypercube", 356-byte groth16 proof)
 };
 
 // the main container defining the incoming data processed by the verifier

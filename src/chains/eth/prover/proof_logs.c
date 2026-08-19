@@ -145,7 +145,7 @@ static c4_status_t get_receipts(prover_ctx_t* ctx, proof_logs_block_t* blocks) {
   for (proof_logs_block_t* block = blocks; block; block = block->next) {
     buffer_reset(&buf);
     json_t block_number = json_parse(bprintf(&buf, "\"0x%lx\"", block->block_number));
-      TRY_ADD_ASYNC(status, c4_beacon_get_block_for_eth_with_body(ctx, block_number, &block->beacon_block));
+    TRY_ADD_ASYNC(status, c4_beacon_get_block_for_eth_with_body(ctx, block_number, &block->beacon_block));
 #ifdef PROVER_CACHE
     // we get the merkle tree from the cache if available now so we can use it later in the worker thread
     bytes32_t cachekey;
@@ -282,7 +282,7 @@ static c4_status_t proof_block_hybrid(prover_ctx_t* ctx, proof_logs_block_t* blo
     gindex[i] = ssz_gindex(transactions.def, 1, tx->tx_index);
 
   bytes32_t tx_root = {0};
-  block->proof = ssz_create_multi_proof_for_gindexes(transactions, tx_root, gindex, block->tx_count);
+  block->proof      = ssz_create_multi_proof_for_gindexes(transactions, tx_root, gindex, block->tx_count);
   safe_free(gindex);
 
 #ifndef PROVER_CACHE

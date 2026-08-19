@@ -114,9 +114,9 @@ uint32_t c4_eth_tx_cache_block_count(void);
  * @param count number of entries in `tx_hashes`
  * @param user_data opaque pointer forwarded from the caller
  */
-typedef void (*tx_cache_block_visitor_t)(uint64_t block_number,
-                                        const bytes32_t* tx_hashes,
-                                        uint32_t count, void* user_data);
+typedef void (*tx_cache_block_visitor_t)(uint64_t         block_number,
+                                         const bytes32_t* tx_hashes,
+                                         uint32_t count, void* user_data);
 
 /**
  * Iterates all cached blocks from oldest to newest, invoking the visitor

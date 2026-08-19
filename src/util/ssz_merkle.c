@@ -722,7 +722,10 @@ static const uint8_t* resolve_cached_node(
   uint32_t ep_body_depth = 0;
   {
     gindex_t tmp = ep_body_gindex;
-    while (tmp > 1) { tmp >>= 1; ep_body_depth++; }
+    while (tmp > 1) {
+      tmp >>= 1;
+      ep_body_depth++;
+    }
   }
 
   gindex_t probe = gi;
@@ -733,7 +736,10 @@ static const uint8_t* resolve_cached_node(
     uint32_t gi_depth = 0;
     {
       gindex_t tmp = gi;
-      while (tmp > 1) { tmp >>= 1; gi_depth++; }
+      while (tmp > 1) {
+        tmp >>= 1;
+        gi_depth++;
+      }
     }
     if (gi_depth < ep_body_depth || (gi_depth - ep_body_depth) >= 64)
       return NULL;
@@ -753,8 +759,8 @@ static const uint8_t* resolve_cached_node(
 bytes_t ssz_create_multi_proof_from_tree_cache(
     const bytes32_t* body_tree, uint32_t body_tree_size,
     const bytes32_t* ep_tree, uint32_t ep_tree_size,
-    gindex_t ep_body_gindex,
-    bytes32_t root_hash,
+    gindex_t        ep_body_gindex,
+    bytes32_t       root_hash,
     const gindex_t* gindex, int gindex_len) {
 
   buffer_t witnesses  = {0};
@@ -791,9 +797,9 @@ typedef struct {
   gindex_t* witnesses_gindex;
   uint32_t  witnesses_len;
 
-  bytes_t   leafes_data;
+  bytes_t         leafes_data;
   const gindex_t* leafes_gindex;
-  uint32_t  leafes_len;
+  uint32_t        leafes_len;
 } merkle_proof_data_t;
 
 static bytes_t merkle_get_data(merkle_proof_data_t* proof, gindex_t idx) {

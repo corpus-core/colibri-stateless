@@ -18,8 +18,8 @@
  */
 
 #include "../util/json.h"
-#include "server.h"
 #include "logger.h"
+#include "server.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

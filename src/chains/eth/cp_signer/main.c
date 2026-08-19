@@ -413,13 +413,13 @@ static bool checkpoint_is_finalized_by_slot(uint64_t slot) {
 }
 
 int main(int argc, char** argv) {
-  const char* server              = NULL;
-  const char* key_hex             = NULL;
-  const char* key_file            = NULL;
-  bool        once                = false;
-  const char* status_file         = NULL;
-  const char* metrics_file        = NULL;
-  const char* chain               = NULL;
+  const char* server       = NULL;
+  const char* key_hex      = NULL;
+  const char* key_file     = NULL;
+  bool        once         = false;
+  const char* status_file  = NULL;
+  const char* metrics_file = NULL;
+  const char* chain        = NULL;
   // A new signable checkpoint appears only once per sync-committee period
   // (256 epochs * 32 slots * 12 s = 98304 s, ~27.3 h). The previous default of
   // 27 h (97200 s) was *below* one period, so the idle alarm could fire at the

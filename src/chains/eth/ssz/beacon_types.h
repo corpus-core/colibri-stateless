@@ -55,11 +55,11 @@ typedef enum {
   ETH_SSZ_VERIFY_LOGS_PROOF        = 9,
   //  ETH_SSZ_VERIFY_LIGHT_CLIENT_UPDATE_LIST = 10,
   //  ETH_SSZ_VERIFY_LIGHT_CLIENT_UPDATE      = 11,
-  ETH_SSZ_VERIFY_STATE_PROOF        = 12,
-  ETH_SSZ_VERIFY_CALL_PROOF         = 13,
-  ETH_SSZ_VERIFY_SYNC_PROOF         = 14,
-  ETH_SSZ_VERIFY_BLOCK_PROOF        = 15,
-  ETH_SSZ_VERIFY_WITNESS_PROOF      = 17,
+  ETH_SSZ_VERIFY_STATE_PROOF   = 12,
+  ETH_SSZ_VERIFY_CALL_PROOF    = 13,
+  ETH_SSZ_VERIFY_SYNC_PROOF    = 14,
+  ETH_SSZ_VERIFY_BLOCK_PROOF   = 15,
+  ETH_SSZ_VERIFY_WITNESS_PROOF = 17,
   // data types
   ETH_SSZ_DATA_NONE       = 18,
   ETH_SSZ_DATA_HASH32     = 19,
@@ -79,7 +79,6 @@ typedef enum {
 
   ETH_SSZ_VERIFY_BLOCK_RECEIPTS_PROOF = 31,
   ETH_SSZ_DATA_BLOCK_RECEIPTS         = 32,
-
 
   // beacon container types (chain- and fork-aware, resolved via eth_ssz_type_for_fork)
   ETH_SSZ_EXECUTION_PAYLOAD_CONTAINER = 42,

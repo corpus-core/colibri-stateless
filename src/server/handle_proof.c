@@ -16,7 +16,7 @@
 #include "../util/win_compat.h"
 #endif
 
-#define HANDLE_PROOF_PROXY_MAX_URLS   32
+#define HANDLE_PROOF_PROXY_MAX_URLS    32
 #define HANDLE_PROOF_PROXY_MAX_URL_LEN 2048
 
 static bool proxy_pattern_matches_host(const char* pattern, const char* host) {
@@ -39,8 +39,8 @@ static bool proxy_host_allowed_by_config(const char* host) {
   if (!cfg || !*cfg) return false;
   char* copy = strdup(cfg);
   if (!copy) return false;
-  bool  ok    = false;
-  char* save  = NULL;
+  bool  ok   = false;
+  char* save = NULL;
   for (char* tok = c4_strtok_r(copy, ",", &save); tok && !ok; tok = c4_strtok_r(NULL, ",", &save)) {
     while (*tok && isspace((unsigned char) *tok)) tok++;
     char* end = tok + strlen(tok);
@@ -472,8 +472,8 @@ void c4_proof_request_dispatch(client_t* client, char* method_str, char* params_
   prover_flags_t flags = C4_PROVER_FLAG_UV_SERVER_CTX | http_server.prover_flags | extra_flags;
   if (proxy_rpc || proxy_beacon) flags |= C4_PROVER_FLAG_PROXY;
 
-  request_t*    req = (request_t*) safe_calloc(1, sizeof(request_t));
-  prover_ctx_t* ctx = c4_prover_create(method_str, params_str, (chain_id_t) http_server.chain_id, flags);
+  request_t*    req         = (request_t*) safe_calloc(1, sizeof(request_t));
+  prover_ctx_t* ctx         = c4_prover_create(method_str, params_str, (chain_id_t) http_server.chain_id, flags);
   req->start_time           = current_ms();
   req->client               = client;
   req->cb                   = c4_prover_handle_request;
@@ -499,7 +499,7 @@ void c4_proof_request_dispatch(client_t* client, char* method_str, char* params_
     sbprintf(name_tmp, "proof/%s", method_str ? method_str : "unknown");
     bool force_debug = (client->trace_level == TRACE_LEVEL_DEBUG && tracing_debug_quota_try_consume());
     if (client->b3_trace_id) {
-      int sampled = force_debug ? 1 : (client->b3_sampled == 0 ? 0 : 1);
+      int sampled     = force_debug ? 1 : (client->b3_sampled == 0 ? 0 : 1);
       req->trace_root = tracing_start_root_with_b3(name_tmp, client->b3_trace_id,
                                                    client->b3_span_id ? client->b3_span_id : client->b3_parent_span_id,
                                                    sampled);

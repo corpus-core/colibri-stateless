@@ -39,7 +39,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-static c4_status_t create_eth_receipt_proof(prover_ctx_t* ctx, beacon_block_t* block_data,ssz_ob_t tx_proof, ssz_ob_t receipt_proof, json_t receipt,  blockroot_proof_t block_proof) {
+static c4_status_t create_eth_receipt_proof(prover_ctx_t* ctx, beacon_block_t* block_data, ssz_ob_t tx_proof, ssz_ob_t receipt_proof, json_t receipt, blockroot_proof_t block_proof) {
   ssz_builder_t eth_tx_proof = ssz_builder_for_type(ETH_SSZ_VERIFY_RECEIPT_PROOF);
   uint32_t      tx_index     = json_get_uint32(receipt, "transactionIndex");
   ssz_builder_t sync_proof   = NULL_SSZ_BUILDER;
@@ -173,8 +173,7 @@ c4_status_t c4_proof_receipt(prover_ctx_t* ctx) {
   eth_cu_add_multi_proof(ctx, 4);
   TRACE_START(ctx, "finalize_proof");
 
-  TRY_ASYNC_CATCH(c4_eth_get_tx_proof(ctx,block.el_block_hash,block.el_body, tx_index,&tx_proof),c4_free_block_proof(&block_proof));
-
+  TRY_ASYNC_CATCH(c4_eth_get_tx_proof(ctx, block.el_block_hash, block.el_body, tx_index, &tx_proof), c4_free_block_proof(&block_proof));
 
   TRY_ASYNC_FINAL(
       create_eth_receipt_proof(ctx, &block, tx_proof, receipt_proof, receipt, block_proof),

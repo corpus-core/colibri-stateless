@@ -129,8 +129,8 @@ static c4_status_t handle_head(prover_ctx_t* ctx, beacon_head_t* b) {
 #endif
   // Persist current head for period store (if enabled)
   if (eth_config.period_store && !eth_config.period_master_url) {
-    ssz_ob_t data_body = ssz_get(&data_block, "body");
-    uint8_t header112[112] = {0};
+    ssz_ob_t data_body      = ssz_get(&data_block, "body");
+    uint8_t  header112[112] = {0};
     // Direkt 80 Bytes der fixen Container-Felder kopieren (slot, proposerIndex, parentRoot, stateRoot)
     memcpy(header112, ssz_get(&data_block, "slot").bytes.data, 80);
     // body_root = hash_tree_root(body)

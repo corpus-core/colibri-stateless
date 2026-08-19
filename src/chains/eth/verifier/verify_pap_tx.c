@@ -38,7 +38,7 @@
 #include <string.h>
 #include <time.h>
 
-#define EXECUTION_PAYLOAD_ROOT_GINDEX 25
+#define EXECUTION_PAYLOAD_ROOT_GINDEX  25
 #define PAP_TX_CACHE_STALE_THRESHOLD_S 12
 
 /* ── tx cache fetch ── */
@@ -237,7 +237,7 @@ static bool pap_tx_receipt(verify_ctx_t* ctx) {
   ssz_ob_t receipt_proof   = ssz_get(&proof, "proof");
   ssz_ob_t receipts        = ssz_get(&receipt_proof, "receipts");
   ssz_ob_t transactions    = ssz_get(&receipt_proof, "transactions");
-  ssz_ob_t header          = strcmp(receipt_proof.def->name,"HybridBlockReceiptsProof") == 0 ? ssz_get(&receipt_proof, "header_data") : receipt_proof;
+  ssz_ob_t header          = strcmp(receipt_proof.def->name, "HybridBlockReceiptsProof") == 0 ? ssz_get(&receipt_proof, "header_data") : receipt_proof;
   ssz_ob_t block_hash      = ssz_get(&header, "blockHash");
   uint64_t blk_num         = ssz_get_uint64(&header, "blockNumber");
   uint64_t base_fee        = ssz_get_uint64(&header, "baseFeePerGas");
@@ -246,11 +246,11 @@ static bool pap_tx_receipt(verify_ctx_t* ctx) {
   uint32_t next_log_index  = 0;
   if (tx_index > num_receipts) RETURN_VERIFY_ERROR(ctx, "PAP: invalid transaction index");
   if (c4_update_from_sync_data(ctx) != C4_SUCCESS) return false;
-  #ifdef ETH_RECEIPT
-    if (!verify_block_receipts_proof_for(ctx, receipt_proof)) return false;
-  #else
-    RETURN_VERIFY_ERROR(ctx, "PAP: ETH_RECEIPT is not enabled");
-  #endif
+#ifdef ETH_RECEIPT
+  if (!verify_block_receipts_proof_for(ctx, receipt_proof)) return false;
+#else
+  RETURN_VERIFY_ERROR(ctx, "PAP: ETH_RECEIPT is not enabled");
+#endif
 
   ssz_builder_t builder = ssz_builder_for_def(eth_ssz_verification_type(ETH_SSZ_DATA_RECEIPT));
   for (uint32_t i = 0; i <= tx_index; i++) {

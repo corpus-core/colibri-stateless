@@ -317,11 +317,11 @@ static bool req_bootstrap(c4_state_t* state, bytes32_t block_root, chain_id_t ch
 c4_status_t c4_handle_bootstrap(verify_ctx_t* ctx, bytes_t bootstrap_data, bytes32_t trusted_checkpoint) {
   // Parse bootstrap data as SSZ. The bootstrap container layout differs by fork
   // (branch depth changes), so we resolve it via the central helper.
-  fork_id_t        fork                  = c4_eth_get_fork_for_lcu(ctx->chain_id, bootstrap_data);
-  const ssz_def_t* bootstrap_def         = eth_get_light_client_bootstrap(fork);
+  fork_id_t        fork          = c4_eth_get_fork_for_lcu(ctx->chain_id, bootstrap_data);
+  const ssz_def_t* bootstrap_def = eth_get_light_client_bootstrap(fork);
   if (!bootstrap_def) THROW_ERROR("Bootstrap data: unsupported fork");
-  ssz_ob_t         bootstrap             = {.bytes = bootstrap_data, .def = bootstrap_def};
-  bytes32_t        previous_pubkeys_hash = {0}; // in case of a bootstrap, there is no previous pubkey hash, so we set it to 0
+  ssz_ob_t  bootstrap             = {.bytes = bootstrap_data, .def = bootstrap_def};
+  bytes32_t previous_pubkeys_hash = {0}; // in case of a bootstrap, there is no previous pubkey hash, so we set it to 0
 
   // Validate SSZ structure (checks offsets and ensures all properties exist)
   if (!ssz_is_valid(bootstrap, true, &ctx->state))
@@ -535,7 +535,6 @@ static c4_status_t init_sync_state(verify_ctx_t* ctx) {
   }
 }
 
-
 /**
  * Clear all sync committee state for a chain on critical errors.
  * Called when weak subjectivity validation fails or corruption is detected.
@@ -613,7 +612,7 @@ static c4_sync_validators_t get_validators_from_cache(verify_ctx_t* ctx, uint32_
 
     // this is a corrupted state, we need to clear it
     clear_sync_state(ctx->chain_id);
-    return (c4_sync_validators_t){.current_period = period };
+    return (c4_sync_validators_t) {.current_period = period};
   }
   log_debug("fetch from cache %s : %d bytes)", name, validators.data.len);
   if (validators.data.len % 48 == 32)

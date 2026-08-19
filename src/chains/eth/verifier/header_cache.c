@@ -132,12 +132,11 @@ void c4_header_cache_put(chain_id_t chain_id, uint64_t block_number, const uint8
   safe_free(entry->el_body.bytes.data);
   entry->el_header = bytes_dup(el_header);
   if (el_body) {
-    entry->el_body = *el_body;
+    entry->el_body       = *el_body;
     entry->el_body.bytes = bytes_dup(el_body->bytes);
   }
   CACHE_UNLOCK();
 }
-
 
 bytes_t c4_header_cache_get_el_header(chain_id_t chain_id, const uint8_t* block_hash, ssz_ob_t* el_body) {
   bytes_t result = NULL_BYTES;
@@ -148,14 +147,13 @@ bytes_t c4_header_cache_get_el_header(chain_id_t chain_id, const uint8_t* block_
     // copy-out: the returned bytes must survive concurrent eviction/reorg resets
     result = bytes_dup(entry->el_header);
     if (el_body && entry->el_body.bytes.data) {
-      *el_body = entry->el_body;
+      *el_body       = entry->el_body;
       el_body->bytes = bytes_dup(entry->el_body.bytes);
     }
   }
   CACHE_UNLOCK();
   return result;
 }
-
 
 bool c4_header_cache_latest_block_hash(chain_id_t chain_id, bytes32_t block_hash) {
   CACHE_LOCK();

@@ -60,16 +60,16 @@ typedef struct {
   bool     resolved;
   uint8_t  hit_counted;
   uint8_t  miss_counted;
-  bool     bloom_only;               // true when bloomFilter was provided (PAP mode): skip event-level filtering
+  bool     bloom_only; // true when bloomFilter was provided (PAP mode): skip event-level filtering
   // Prepared filter
-  bytes_t filter_blooms;             // n*256 bytes (n variants) or len=0 => bloom disabled
-  bytes_t filter_addresses;          // m*20 bytes or len=0 => wildcard
+  bytes_t filter_blooms;                        // n*256 bytes (n variants) or len=0 => bloom disabled
+  bytes_t filter_addresses;                     // m*20 bytes or len=0 => wildcard
   bytes_t filter_topics[C4_ETH_LOG_MAX_TOPICS]; // per position: k*32 bytes or len=0 => wildcard
   // Backfill state (loading older blocks into cache on demand)
-  uint64_t backfill_from;            // first block number to backfill
-  uint32_t backfill_count;           // number of blocks to backfill
-  json_t*  backfill_receipts;        // array of json_t for loaded receipts (one per backfill block)
-  bool     backfill_done;            // true after backfill blocks have been inserted into the cache
+  uint64_t backfill_from;     // first block number to backfill
+  uint32_t backfill_count;    // number of blocks to backfill
+  json_t*  backfill_receipts; // array of json_t for loaded receipts (one per backfill block)
+  bool     backfill_done;     // true after backfill blocks have been inserted into the cache
   // Results
   json_t          result;       // final logs array
   char*           result_owner; // owning pointer to result JSON string
@@ -81,10 +81,10 @@ typedef struct {
  * Data is not stored; it is retrieved from receipts when assembling results.
  */
 typedef struct {
-  address_t address;            // address emitted the event
-  uint32_t  tx_index;           // transaction index in the block
-  uint32_t  log_index;          // log index in the transaction
-  uint8_t   topics_count;       // number of topics in the event
+  address_t address;                       // address emitted the event
+  uint32_t  tx_index;                      // transaction index in the block
+  uint32_t  log_index;                     // log index in the transaction
+  uint8_t   topics_count;                  // number of topics in the event
   bytes32_t topics[C4_ETH_LOG_MAX_TOPICS]; // topics of the event
 } cached_event_t;
 
@@ -409,11 +409,11 @@ static void build_match_index(log_cache_state_t* st) {
         if (!topics_matches(st->filter_topics, ev->topics, ev->topics_count)) continue;
       }
       if (!block_res) block_res = add_block_result(&st->blocks, e->block_number);
-      tx_result_t* txr = ensure_tx_result(block_res, ev->tx_index);
-      event_result_t* er = (event_result_t*) safe_calloc(1, sizeof(event_result_t));
-      er->log_idx        = ev->log_index;
-      er->next           = txr->events;
-      txr->events        = er;
+      tx_result_t*    txr = ensure_tx_result(block_res, ev->tx_index);
+      event_result_t* er  = (event_result_t*) safe_calloc(1, sizeof(event_result_t));
+      er->log_idx         = ev->log_index;
+      er->next            = txr->events;
+      txr->events         = er;
     }
   }
 }
@@ -496,8 +496,8 @@ static c4_status_t get_exec_blocknumber(prover_ctx_t* ctx, json_t block, uint64_
  */
 static void compute_block_bloom_from_receipts(json_t receipts, uint8_t out[256]) {
   C4_ALIGN8 uint64_t bloom64[32] = {0};
-  uint8_t             tmp[256]    = {0};
-  buffer_t            buf         = stack_buffer(tmp);
+  uint8_t            tmp[256]    = {0};
+  buffer_t           buf         = stack_buffer(tmp);
   json_for_each_value(receipts, r) {
     buffer_reset(&buf);
     bytes_t rb = json_get_bytes(r, "logsBloom", &buf);
@@ -530,7 +530,7 @@ static void prepend_blocks(uint64_t from_block, uint32_t count) {
   block_entry_t* linear = (block_entry_t*) safe_malloc(new_count * sizeof(block_entry_t));
   memset(linear, 0, (size_t) count * sizeof(block_entry_t));
   for (uint32_t i = 0; i < old_count; i++) {
-    uint32_t src = (g_cache.start_idx + i) % old_count;
+    uint32_t src      = (g_cache.start_idx + i) % old_count;
     linear[count + i] = g_cache.blocks[src];
   }
 
@@ -540,7 +540,6 @@ static void prepend_blocks(uint64_t from_block, uint32_t count) {
   g_cache.start_idx    = 0;
   g_cache.start_number = from_block;
 }
-
 
 /**
  * Parses a `bloomFilter` JSON array of hex strings into a flat bloom buffer.
@@ -554,8 +553,8 @@ static int parse_bloom_filter_array(json_t bloom_json, bytes_t* out_blooms) {
   if (bloom_json.type != JSON_TYPE_ARRAY) return 0;
   int count = json_len(bloom_json);
   if (count <= 0 || count > C4_ETH_BLOOM_MAX_VARIANTS) return 0;
-  uint8_t* buf = (uint8_t*) safe_calloc((size_t) count, 256);
-  int      n   = 0;
+  uint8_t* buf      = (uint8_t*) safe_calloc((size_t) count, 256);
+  int      n        = 0;
   uint8_t  tmp[256] = {0};
   buffer_t b        = stack_buffer(tmp);
   json_for_each_value(bloom_json, entry) {

@@ -44,7 +44,7 @@ c4_status_t c4_verify_init(verify_ctx_t* ctx, bytes_t request_bytes, char* metho
   // Input validation
   if (!ctx) return C4_ERROR;
   if (!method) THROW_ERROR("method cannot be NULL");
-  if (args.type== JSON_TYPE_INVALID) THROW_ERROR("args must be a valid JSON object");
+  if (args.type == JSON_TYPE_INVALID) THROW_ERROR("args must be a valid JSON object");
   if (args.type != JSON_TYPE_ARRAY) THROW_ERROR("args must be a JSON array");
 
   memset(ctx, 0, sizeof(verify_ctx_t));

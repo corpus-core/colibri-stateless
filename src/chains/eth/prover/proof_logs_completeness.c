@@ -71,8 +71,8 @@ static json_t block_id_json(uint64_t block_number, buffer_t* buf) {
 
 // Serializes one bloom-negative block (blockNumber + logsBloom proven to bodyRoot).
 static void serialize_negative_block(prover_ctx_t* ctx, ssz_builder_t* blist, uint32_t count, compl_block_t* block, const ssz_def_t* union_def) {
-  ssz_ob_t exec   = block->beacon.execution;
-  bytes_t  bloom  = ssz_get(&exec, "logsBloom").bytes;
+  ssz_ob_t exec  = block->beacon.execution;
+  bytes_t  bloom = ssz_get(&exec, "logsBloom").bytes;
   gindex_t gindex[2];
   gindex[0] = ssz_gindex(block->beacon.cl_body.def, 2, "executionPayload", "blockNumber");
   gindex[1] = ssz_gindex(block->beacon.cl_body.def, 2, "executionPayload", "logsBloom");
@@ -305,8 +305,8 @@ c4_status_t c4_proof_logs_completeness(prover_ctx_t* ctx) {
   bytes_t query_blooms = c4_eth_filter_query_blooms(filter);
   status               = C4_SUCCESS;
   for (uint64_t i = 0; i < count; i++) {
-    bytes_t bloom      = ssz_get(&blocks[i].beacon.execution, "logsBloom").bytes;
-    blocks[i].is_full  = !c4_eth_bloom_negative(query_blooms, bloom);
+    bytes_t bloom     = ssz_get(&blocks[i].beacon.execution, "logsBloom").bytes;
+    blocks[i].is_full = !c4_eth_bloom_negative(query_blooms, bloom);
     if (blocks[i].is_full)
       TRY_ADD_ASYNC(status, eth_getBlockReceipts(ctx, block_id_json(blocks[i].block_number, &ib), &blocks[i].receipts));
   }

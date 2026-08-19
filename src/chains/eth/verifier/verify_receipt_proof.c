@@ -83,8 +83,8 @@ bool verify_receipt_proof(verify_ctx_t* ctx) {
 
   if (c4_verify_block(ctx, ssz_get(&ctx->proof, "block"), &el_header, block_hash) != C4_SUCCESS) return false;
   if (!c4_verify_mpt_proof(ctx,
-                                  tx_proof, tx_index,
-                                  eth_el_header_get(el_header, EL_TRANSACTIONS_ROOT).data, &raw_tx)) return false;
+                           tx_proof, tx_index,
+                           eth_el_header_get(el_header, EL_TRANSACTIONS_ROOT).data, &raw_tx)) return false;
   if (!c4_tx_verify_tx_hash(ctx, raw_tx)) RETURN_VERIFY_ERROR(ctx, "invalid tx hash!");
   if (!c4_verify_mpt_proof(ctx, receipt_proof, tx_index, eth_el_header_get(el_header, EL_RECEIPTS_ROOT).data, &raw_receipt)) RETURN_VERIFY_ERROR(ctx, "invalid receipt proof!");
   if (!c4_tx_verify_receipt_data(ctx, ctx->data,

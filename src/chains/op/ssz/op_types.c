@@ -92,7 +92,7 @@ static inline size_t array_idx(const ssz_def_t* array, size_t len, const ssz_def
   return 0;
 }
 // Macro to get the index of a target definition in an array
-#define ARRAY_IDX(a, target)  array_idx(a, sizeof(a) / sizeof(ssz_def_t), target)
+#define ARRAY_IDX(a, target) array_idx(a, sizeof(a) / sizeof(ssz_def_t), target)
 // Macro to get a pointer to the definition at the index of the target in an array
 #define ARRAY_TYPE(a, target) a + array_idx(a, sizeof(a) / sizeof(ssz_def_t), target)
 

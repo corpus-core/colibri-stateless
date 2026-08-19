@@ -3,9 +3,9 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include "../bn254/bn254.h"
 #include "bytes.h"
 #include "precompiles.h"
-#include "../bn254/bn254.h"
 #include <string.h>
 
 // ECADD (0x06)
@@ -20,7 +20,7 @@ pre_result_t pre_ec_add(bytes_t input, buffer_t* output, uint64_t* gas_used) {
   }
 
   bn254_g1_t p1, p2, p3;
-  
+
   if (!bn254_g1_from_bytes_be(&p1, input_buf)) return PRE_INVALID_INPUT;
   if (!bn254_g1_from_bytes_be(&p2, input_buf + 64)) return PRE_INVALID_INPUT;
 
@@ -39,13 +39,13 @@ pre_result_t pre_ec_mul(bytes_t input, buffer_t* output, uint64_t* gas_used) {
   *gas_used = 6000; // Gas cost of EC mul operation (EIP-1108)
 
   // Input: x, y, scalar (96 bytes minimum effectively, usually padded)
-  // If input < 96 bytes, treated as zero padded? 
+  // If input < 96 bytes, treated as zero padded?
   // Standard says input is padded to 96 bytes (32x3) if shorter.
-  
+
   uint8_t input_buf[96];
   memset(input_buf, 0, 96);
   if (input.len > 0) {
-      memcpy(input_buf, input.data, input.len < 96 ? input.len : 96);
+    memcpy(input_buf, input.data, input.len < 96 ? input.len : 96);
   }
 
   bn254_g1_t p;

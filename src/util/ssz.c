@@ -100,7 +100,7 @@ size_t ssz_fixed_length(const ssz_def_t* def) {
  * Prints error message and returns false.
  */
 static bool failure(const char* fnt) {
-  //fbprintf(stderr, "Invalid %s\n", fnt);
+  // fbprintf(stderr, "Invalid %s\n", fnt);
   (void) fnt;
   return false;
 }
@@ -123,7 +123,7 @@ static bool failure(const char* fnt) {
 
 static bool add_error_prefix(c4_state_t* state, const char* prefix) {
   if (state && state->error) {
-    char* error = bprintf(NULL, *state->error=='.' ? ".%s%s" : ".%s: %s", prefix, state->error);
+    char* error = bprintf(NULL, *state->error == '.' ? ".%s%s" : ".%s: %s", prefix, state->error);
     safe_free(state->error);
     state->error = error;
   }

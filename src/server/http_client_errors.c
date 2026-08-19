@@ -359,7 +359,10 @@ c4_response_type_t c4_classify_response(long http_code, const char* url, bytes_t
                   "eth_getTransactionByHash", "eth_getTransactionReceipt", "eth_getBlockReceipts", NULL};
               const char* method = NULL;
               for (const char** m = prunable_methods; *m; m++) {
-                if (req_is_method(req, *m)) { method = *m; break; }
+                if (req_is_method(req, *m)) {
+                  method = *m;
+                  break;
+                }
               }
               if (method) {
                 server_health_t* h = &servers->health_stats[req->response_node_index];

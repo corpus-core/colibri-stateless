@@ -5,8 +5,8 @@
 
 #include "configure.h"
 #include "chains.h"
-#include "logger.h"
 #include "compat.h"
+#include "logger.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>

@@ -40,16 +40,16 @@
 
 #include "patricia.h"
 static ssz_ob_t create_tx_proof(ssz_ob_t execution_payload, uint32_t tx_index, node_t** root_var) {
-  node_t*   root         = NULL;
-  bytes32_t tmp          = {0};
+  node_t*   root   = NULL;
+  bytes32_t tmp    = {0};
   buffer_t  tx_buf = {0};
-  buffer_t  buf          = stack_buffer(tmp);
-  if (root_var && *root_var) 
-    root     = *root_var;
+  buffer_t  buf    = stack_buffer(tmp);
+  if (root_var && *root_var)
+    root = *root_var;
   else {
     ssz_ob_t transactions = ssz_get(&execution_payload, "transactions");
-    uint32_t len = ssz_len(transactions);
-    for (uint32_t i = 0; i < len; i++) 
+    uint32_t len          = ssz_len(transactions);
+    for (uint32_t i = 0; i < len; i++)
       patricia_set_value(&root, c4_eth_create_tx_path(i, &buf), ssz_at(transactions, i).bytes);
   }
 
@@ -64,7 +64,7 @@ static ssz_ob_t create_tx_proof(ssz_ob_t execution_payload, uint32_t tx_index, n
   return proof;
 }
 
-c4_status_t c4_eth_get_tx_proof(prover_ctx_t* ctx, bytes32_t block_hash, ssz_ob_t execution_payload, uint32_t tx_index,  ssz_ob_t* tx_proof) {
+c4_status_t c4_eth_get_tx_proof(prover_ctx_t* ctx, bytes32_t block_hash, ssz_ob_t execution_payload, uint32_t tx_index, ssz_ob_t* tx_proof) {
 
   // Account for Patricia trie work: one insertion per receipt plus one proof.
   // When the trie is served from the prover cache the linear part is essentially
@@ -76,8 +76,8 @@ c4_status_t c4_eth_get_tx_proof(prover_ctx_t* ctx, bytes32_t block_hash, ssz_ob_
 #ifdef PROVER_CACHE
   bytes32_t cachekey;
   c4_eth_tx_cachekey(cachekey, block_hash);
-  node_t* tx_tree = (node_t*) c4_prover_cache_get(ctx, cachekey);
-  bool    cache_hit    = tx_tree != NULL;
+  node_t* tx_tree   = (node_t*) c4_prover_cache_get(ctx, cachekey);
+  bool    cache_hit = tx_tree != NULL;
   if (!cache_hit) REQUEST_WORKER_THREAD(ctx);
   *tx_proof = create_tx_proof(execution_payload, tx_index, &tx_tree);
   if (!cache_hit) c4_prover_cache_set(ctx, cachekey, tx_tree, 100000, 200000, (cache_free_cb) patricia_node_free);
@@ -86,7 +86,6 @@ c4_status_t c4_eth_get_tx_proof(prover_ctx_t* ctx, bytes32_t block_hash, ssz_ob_
 #endif
   return C4_SUCCESS;
 }
-
 
 static c4_status_t create_eth_tx_proof(prover_ctx_t* ctx, uint32_t tx_index, beacon_block_t* block_data, bytes32_t body_root, ssz_ob_t tx_proof, blockroot_proof_t block_proof) {
 
@@ -118,7 +117,7 @@ c4_status_t c4_proof_transaction(prover_ctx_t* ctx) {
   uint32_t          tx_index     = 0;
   json_t            block_number = {0};
   blockroot_proof_t block_proof  = {0};
-  ssz_ob_t tx_proof = {0};
+  ssz_ob_t          tx_proof     = {0};
   c4_status_t       status       = C4_SUCCESS;
 #ifdef PROVER_CACHE
   uint8_t  block_buffer[32] = {0};
@@ -155,11 +154,12 @@ c4_status_t c4_proof_transaction(prover_ctx_t* ctx) {
   // get the beacon-block with signature
   TRY_ADD_ASYNC(status, c4_beacon_get_block_for_eth_with_body(ctx, block_number, &block));
 
-
   // check if we need historical proofs
   if (block.slot) TRY_ADD_ASYNC(status, c4_check_blockroot_proof(ctx, &block_proof, &block));
-  if (!block.el_body.bytes.data && status == C4_SUCCESS) status = c4_state_add_error(&ctx->state, "block execution is missing");
-  else if (status == C4_SUCCESS) TRY_ADD_ASYNC(status, c4_eth_get_tx_proof(ctx,block.el_block_hash,block.el_body, tx_index,&tx_proof));
+  if (!block.el_body.bytes.data && status == C4_SUCCESS)
+    status = c4_state_add_error(&ctx->state, "block execution is missing");
+  else if (status == C4_SUCCESS)
+    TRY_ADD_ASYNC(status, c4_eth_get_tx_proof(ctx, block.el_block_hash, block.el_body, tx_index, &tx_proof));
 
   TRY_ASYNC_CATCH(status, safe_free(block_proof.historic_proof.data));
   TRACE_START(ctx, "proof_data");

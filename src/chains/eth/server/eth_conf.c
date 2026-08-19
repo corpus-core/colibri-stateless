@@ -9,12 +9,12 @@
 #endif
 
 eth_config_t eth_config = {
-    .stream_beacon_events        = 0,
-    .period_store                = NULL,
-    .period_backfill_delay_ms    = 100, // default 100ms to be gentle with public APIs,
-    .period_backfill_max_periods = 2,   // default backfill up to 2 periods,
-    .period_full_sync            = 0,
-    .eth_logs_cache_blocks       = 0,
+    .stream_beacon_events         = 0,
+    .period_store                 = NULL,
+    .period_backfill_delay_ms     = 100, // default 100ms to be gentle with public APIs,
+    .period_backfill_max_periods  = 2,   // default backfill up to 2 periods,
+    .period_full_sync             = 0,
+    .eth_logs_cache_blocks        = 0,
     .logs_completeness_max_blocks = 0,
 
 };

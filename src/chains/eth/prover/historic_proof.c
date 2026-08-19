@@ -177,8 +177,8 @@ static c4_status_t check_historic_proof_direct(prover_ctx_t* ctx, blockroot_proo
   if (!(ctx->flags & C4_PROVER_FLAG_CHAIN_STORE)) return C4_SUCCESS;
   uint64_t state_period = block_proof->sync.post_sync_period ? block_proof->sync.post_sync_period : block_proof->sync.oldest_period; // the newest period the client will hold after syncing
   uint64_t block_period = block_proof->sync.block_period ? block_proof->sync.block_period : block_proof->sync.required_period;       // the period of the target block
-  if (!state_period) return C4_SUCCESS;        // the client does not have a state yet, so he might as well get the head and verify the block.
-  if (block_period >= state_period) return C4_SUCCESS; // the target block is within the current range of the client
+  if (!state_period) return C4_SUCCESS;                                                                                              // the client does not have a state yet, so he might as well get the head and verify the block.
+  if (block_period >= state_period) return C4_SUCCESS;                                                                               // the target block is within the current range of the client
 
   // Historic-direct path: the actual sub-requests below are billed via their
   // respective helpers; this constant covers the server-side composition work
@@ -190,18 +190,18 @@ static c4_status_t check_historic_proof_direct(prover_ctx_t* ctx, blockroot_proo
   TRY_ADD_ASYNC(status, c4_send_internal_request(ctx, bprintf(&buf2, "period_store/%d/blocks.ssz", block_period), NULL, 0, &blocks)); // get the blockd
   TRY_ASYNC(status);                                                                                                                  // finish requests before continuing
 
-  uint32_t  offset_period  = (uint32_t) (chain->fork_epochs[C4_FORK_BELLATRIX] >> chain->epochs_per_period_bits);
-  fork_id_t fork           = c4_chain_fork_id(ctx->chain_id, epoch_for_slot(block.slot, chain)); // current fork for the state
-  json_t    data           = json_get(history_proof, "data");                                    // the the main json-object
-  uint32_t  summary_idx    = block_period - offset_period;                                       // the index starting from the  cappella fork, where we got zhe first Summary entry.
-  uint32_t  block_idx      = slot % 8192;                                                        // idx within the period
+  uint32_t  offset_period = (uint32_t) (chain->fork_epochs[C4_FORK_BELLATRIX] >> chain->epochs_per_period_bits);
+  fork_id_t fork          = c4_chain_fork_id(ctx->chain_id, epoch_for_slot(block.slot, chain)); // current fork for the state
+  json_t    data          = json_get(history_proof, "data");                                    // the the main json-object
+  uint32_t  summary_idx   = block_period - offset_period;                                       // the index starting from the  cappella fork, where we got zhe first Summary entry.
+  uint32_t  block_idx     = slot % 8192;                                                        // idx within the period
   // TODO(gloas): Gloas turns `BeaconState` into a `ProgressiveContainer` (EIP-7688),
   //              so the classical `2^depth + field_index` chunking no longer matches
   //              the spec merkleization. This branch keeps the Electra layout for
   //              Fulu (unchanged for the sync-committee/historical fields) and must
   //              be revisited before `C4_FORK_GLOAS` gets an activation epoch.
-  gindex_t  summaries_gidx = (fork >= C4_FORK_ELECTRA ? 64 : 32) + 27;                           // the gindex of the field for the summaries in the state. summaries have the index 27 in the state.
-  gindex_t  period_gidx    = ssz_gindex(&SUMMARIES, 2, summary_idx, "block_summary_root");       // the gindex of the single summary-object we need to proof
+  gindex_t  summaries_gidx = (fork >= C4_FORK_ELECTRA ? 64 : 32) + 27;                     // the gindex of the field for the summaries in the state. summaries have the index 27 in the state.
+  gindex_t  period_gidx    = ssz_gindex(&SUMMARIES, 2, summary_idx, "block_summary_root"); // the gindex of the single summary-object we need to proof
   gindex_t  block_gidx     = ssz_gindex(&BLOCKS, 1, block_idx);
   ssz_ob_t  blocks_ob      = {.bytes = blocks, .def = &BLOCKS};
   buffer_t  full_proof     = {0};
@@ -423,7 +423,7 @@ c4_status_t c4_get_syncdata_proof(prover_ctx_t* ctx, syncdata_state_t* sync_data
     //
     // The CheckpointProof anchor can only be processed by clients from version 1.1.28
     // onwards, so only request/embed it when the consumer is new enough.
-    bool     need_checkpoint_proof = ctx->witness_key.len == 0 && ctx->version >= c4_version_number(1, 1, 28);      
+    bool     need_checkpoint_proof = ctx->witness_key.len == 0 && ctx->version >= c4_version_number(1, 1, 28);
     ssz_ob_t checkpoint_ob         = {0};
     if (need_checkpoint_proof)
       TRY_ASYNC(fetch_finalized_checkpoint_proof(ctx, &checkpoint_ob));
