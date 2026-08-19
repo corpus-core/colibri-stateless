@@ -266,6 +266,8 @@ bool c4_req_checkpointz_status(c4_state_t* state, chain_id_t chain_id, uint64_t*
       c4_state_add_error(state, req->error);
       return false;
     }
+    else
+      return false; // still pending, but weird
   }
   data_request_t* new_req = safe_calloc(1, sizeof(data_request_t));
   new_req->chain_id       = chain_id;

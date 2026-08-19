@@ -24,6 +24,7 @@
 #include "beacon_types.h"
 #include "bytes.h"
 #include "crypto.h"
+#include "el_header.h"
 #include "eth_bloom.h"
 #include "eth_tx.h"
 #include "eth_verify.h"
@@ -40,158 +41,52 @@
 
 #define GINDEX_TX_IN_LOGS_LIST_BASE 2097152L
 
-static bool verify_hybrid_tx_multi_proof(verify_ctx_t* ctx, ssz_ob_t block, bytes32_t receipt_root) {
-  ssz_ob_t header_data = ssz_get(&block, "header_data");
-  ssz_ob_t tx_proof_ob = ssz_get(&block, "txProof");
-  ssz_ob_t txs         = ssz_get(&block, "txs");
-  int      tx_count    = ssz_len(txs);
+static bool verify_tx(verify_ctx_t* ctx, ssz_ob_t block, ssz_ob_t tx, bytes32_t receipt_root, bytes32_t tx_root, uint64_t block_number, bytes32_t block_hash) {
+  bytes_t  raw_receipt = {0};
+  bytes_t  raw_tx      = {0};
+  uint32_t log_len     = ssz_len(ctx->data);
+  uint32_t tidx        = ssz_get_uint32(&tx, "transactionIndex");
 
-  bytes_t receipts_root = ssz_get(&header_data, "receiptsRoot").bytes;
-  bytes_t tx_root       = ssz_get(&header_data, "transactionsRoot").bytes;
-
-  if (!receipts_root.data || receipts_root.len != 32) RETURN_VERIFY_ERROR(ctx, "invalid receiptsRoot in header_data");
-  if (!tx_root.data || tx_root.len != 32) RETURN_VERIFY_ERROR(ctx, "invalid transactionsRoot in header_data");
-  if (memcmp(receipt_root, receipts_root.data, 32) != 0) RETURN_VERIFY_ERROR(ctx, "receiptsRoot mismatch!");
-
-  if (!tx_proof_ob.bytes.data || !tx_proof_ob.bytes.len) RETURN_VERIFY_ERROR(ctx, "missing txProof in hybrid logs block");
-
-  uint8_t*  leafes   = safe_calloc(tx_count, 32);
-  gindex_t* gindexes = safe_calloc(tx_count, sizeof(gindex_t));
-
-  for (int i = 0; i < tx_count; i++) {
-    ssz_ob_t tx = ssz_at(txs, i);
-    ssz_hash_tree_root(ssz_ob(ssz_transactions_bytes, ssz_get(&tx, "transaction").bytes), leafes + 32 * i);
-    gindexes[i] = GINDEX_TX_IN_LOGS_LIST_BASE + ssz_get_uint64(&tx, "transactionIndex");
-  }
-
-  bytes32_t computed_root = {0};
-  bool      valid         = ssz_verify_multi_merkle_proof(tx_proof_ob.bytes, bytes(leafes, tx_count * 32), gindexes, computed_root);
-  safe_free(leafes);
-  safe_free(gindexes);
-
-  if (!valid) RETURN_VERIFY_ERROR(ctx, "invalid txProof in hybrid logs block!");
-  if (memcmp(computed_root, tx_root.data, 32) != 0) RETURN_VERIFY_ERROR(ctx, "transactionsRoot mismatch in hybrid logs block!");
-  return true;
-}
-
-static bool verify_merkle_proof(verify_ctx_t* ctx, ssz_ob_t block, bytes32_t receipt_root) {
-  ssz_ob_t  txs          = ssz_get(&block, "txs");
-  int       tx_count     = ssz_len(txs);
-  uint8_t*  leafes       = safe_calloc(3 + tx_count, 32);
-  gindex_t* gindexes     = safe_calloc(3 + tx_count, sizeof(gindex_t));
-  bytes_t   block_number = ssz_get(&block, "blockNumber").bytes;
-  bytes_t   block_hash   = ssz_get(&block, "blockHash").bytes;
-  ssz_ob_t  header       = ssz_get(&block, "header");
-  ssz_ob_t  proof        = ssz_get(&block, "proof");
-  bytes32_t root_hash    = {0}; // calculated body root hash
-  bytes_t   body_root    = ssz_get(&header, "bodyRoot").bytes;
-
-  // copy data to leafes and gindexes
-  memcpy(leafes, block_number.data, block_number.len);
-  memcpy(leafes + 32, block_hash.data, block_hash.len);
-  memcpy(leafes + 64, receipt_root, 32);
-
-  gindexes[0] = GINDEX_BLOCKUMBER;
-  gindexes[1] = GINDEX_BLOCHASH;
-  gindexes[2] = GINDEX_RECEIPT_ROOT;
-
-  for (int i = 0; i < tx_count; i++) {
-    ssz_ob_t tx = ssz_at(txs, i);
-    ssz_hash_tree_root(ssz_get(&tx, "transaction"), leafes + 96 + 32 * i);
-    gindexes[3 + i] = GINDEX_TXINDEX_G + ssz_get_uint64(&tx, "transactionIndex");
-  }
-
-  bool merkle_proof_match = ssz_verify_multi_merkle_proof(proof.bytes, bytes(leafes, (3 + tx_count) * 32), gindexes, root_hash);
-  safe_free(leafes);
-  safe_free(gindexes);
-
-  if (!merkle_proof_match)
-    RETURN_VERIFY_ERROR(ctx, "invalid tx proof, missing nodes!");
-  if (memcmp(root_hash, body_root.data, 32) != 0) RETURN_VERIFY_ERROR(ctx, "invalid tx proof, body root mismatch!");
-  return true;
-}
-
-static bool verify_tx(verify_ctx_t* ctx, ssz_ob_t block, ssz_ob_t tx, bytes32_t receipt_root) {
-  bytes_t   raw_receipt  = {0};
-  bytes32_t root_hash    = {0};
-  uint32_t  log_len      = ssz_len(ctx->data);
-  ssz_ob_t  tidx         = ssz_get(&tx, "transactionIndex");
-  bytes_t   block_hash   = ssz_get(&block, "blockHash").bytes;
-  ssz_ob_t  block_number = ssz_get(&block, "blockNumber");
-
+  // in case we just proof the tx, we copy the arg as data, so data ia always set.
   if (ctx->data.def->type == SSZ_TYPE_NONE && ctx->method && strcmp(ctx->method, "eth_verifyLogs") == 0) {
     ctx->data = ssz_from_json(ctx->args, eth_ssz_verification_type(ETH_SSZ_DATA_LOGS), &ctx->state);
     ctx->flags |= VERIFY_FLAG_FREE_DATA;
   }
 
   // verify receipt proof
-  if (!c4_verify_mpt_proof(ctx, ssz_get(&tx, "proof"), ssz_uint32(tidx), root_hash, &raw_receipt)) RETURN_VERIFY_ERROR(ctx, "invalid receipt proof!");
-  if (bytes_all_zero(bytes(receipt_root, 32)))
-    memcpy(receipt_root, root_hash, 32);
-  else if (memcmp(receipt_root, root_hash, 32) != 0)
-    RETURN_VERIFY_ERROR(ctx, "invalid receipt proof, receipt root mismatch!");
+  if (!c4_verify_mpt_proof(ctx, ssz_get(&tx, "receiptProof"), tidx, receipt_root, &raw_receipt)) RETURN_VERIFY_ERROR(ctx, "invalid receipt proof!");
+  if (!c4_verify_mpt_proof(ctx, ssz_get(&tx, "transactionProof"), tidx, tx_root, &raw_tx)) RETURN_VERIFY_ERROR(ctx, "invalid transaction proof!");
 
   for (int i = 0; i < log_len; i++) {
     ssz_ob_t log = ssz_at(ctx->data, i);
-    if (bytes_eq(block_number.bytes, ssz_get(&log, "blockNumber").bytes) && bytes_eq(tidx.bytes, ssz_get(&log, "transactionIndex").bytes)) {
-      if (!c4_tx_verify_log_data(ctx, log, block_hash.data, ssz_uint64(block_number), ssz_uint32(tidx), ssz_get(&tx, "transaction").bytes, raw_receipt)) RETURN_VERIFY_ERROR(ctx, "invalid log data!");
+    if (block_number == ssz_get_uint64(&log, "blockNumber") && tidx == ssz_get_uint32(&log, "transactionIndex")) {
+      if (!c4_tx_verify_log_data(ctx, log, block_hash, block_number, tidx, raw_tx, raw_receipt)) RETURN_VERIFY_ERROR(ctx, "invalid log data!");
     }
   }
   return true;
 }
 
-static c4_status_t verif_block(verify_ctx_t* ctx, ssz_ob_t block) {
-  ssz_ob_t  header       = ssz_get(&block, "header");
+static c4_status_t verify_block(verify_ctx_t* ctx, ssz_ob_t block) {
+
+  ssz_ob_t  block_proof  = ssz_get(&block, "block");
   ssz_ob_t  txs          = ssz_get(&block, "txs");
-  bytes32_t receipt_root = {0};
+  uint64_t  block_number = 0;
+  uint8_t*  receipt_root = NULL;
+  uint8_t*  tx_root      = NULL;
   uint32_t  tx_count     = ssz_len(txs);
+  bytes_t   el_header    = {0};
+  bytes32_t block_hash   = {0};
+
+  TRY_ASYNC(c4_verify_block(ctx, block_proof, &el_header, block_hash));
+  receipt_root = eth_el_header_get(el_header, EL_RECEIPTS_ROOT).data;
+  tx_root      = eth_el_header_get(el_header, EL_TRANSACTIONS_ROOT).data;
+  block_number = eth_el_header_get_uint64(el_header, EL_BLOCK_NUMBER);
+  if (block_number != ssz_get_uint64(&block, "blockNumber")) THROW_ERROR("invalid block number!");
 
   // verify each tx and get the receipt root
   for (int i = 0; i < tx_count; i++) {
-    if (!verify_tx(ctx, block, ssz_at(txs, i), receipt_root)) THROW_ERROR("invalid receipt proof!");
+    if (!verify_tx(ctx, block, ssz_at(txs, i), receipt_root, tx_root, block_number, block_hash)) THROW_ERROR("invalid receipt proof!");
   }
-  if (!verify_merkle_proof(ctx, block, receipt_root)) THROW_ERROR("invalid tx proof!");
-  return c4_verify_header(ctx, header, block);
-}
-
-static bool verify_hybrid_tx(verify_ctx_t* ctx, ssz_ob_t block, ssz_ob_t tx, bytes32_t receipt_root) {
-  bytes_t   raw_receipt  = {0};
-  bytes32_t root_hash    = {0};
-  uint32_t  log_len      = ssz_len(ctx->data);
-  ssz_ob_t  tidx         = ssz_get(&tx, "transactionIndex");
-  ssz_ob_t  header_data  = ssz_get(&block, "header_data");
-  bytes_t   block_hash   = ssz_get(&header_data, "blockHash").bytes;
-  ssz_ob_t  block_number = ssz_get(&header_data, "blockNumber");
-
-  if (ctx->data.def->type == SSZ_TYPE_NONE && ctx->method && strcmp(ctx->method, "eth_verifyLogs") == 0) {
-    ctx->data = ssz_from_json(ctx->args, eth_ssz_verification_type(ETH_SSZ_DATA_LOGS), &ctx->state);
-    ctx->flags |= VERIFY_FLAG_FREE_DATA;
-  }
-
-  if (!c4_verify_mpt_proof(ctx, ssz_get(&tx, "proof"), ssz_uint32(tidx), root_hash, &raw_receipt)) RETURN_VERIFY_ERROR(ctx, "invalid receipt proof!");
-  if (bytes_all_zero(bytes(receipt_root, 32)))
-    memcpy(receipt_root, root_hash, 32);
-  else if (memcmp(receipt_root, root_hash, 32) != 0)
-    RETURN_VERIFY_ERROR(ctx, "invalid receipt proof, receipt root mismatch!");
-
-  for (int i = 0; i < log_len; i++) {
-    ssz_ob_t log = ssz_at(ctx->data, i);
-    if (bytes_eq(block_number.bytes, ssz_get(&log, "blockNumber").bytes) && bytes_eq(tidx.bytes, ssz_get(&log, "transactionIndex").bytes)) {
-      if (!c4_tx_verify_log_data(ctx, log, block_hash.data, ssz_uint64(block_number), ssz_uint32(tidx), ssz_get(&tx, "transaction").bytes, raw_receipt)) RETURN_VERIFY_ERROR(ctx, "invalid log data!");
-    }
-  }
-  return true;
-}
-
-static c4_status_t verif_hybrid_block(verify_ctx_t* ctx, ssz_ob_t block) {
-  ssz_ob_t  txs          = ssz_get(&block, "txs");
-  bytes32_t receipt_root = {0};
-  uint32_t  tx_count     = ssz_len(txs);
-
-  for (int i = 0; i < tx_count; i++) {
-    if (!verify_hybrid_tx(ctx, block, ssz_at(txs, i), receipt_root)) THROW_ERROR("invalid receipt proof!");
-  }
-  if (!verify_hybrid_tx_multi_proof(ctx, block, receipt_root)) THROW_ERROR("invalid tx proof!");
   return C4_SUCCESS;
 }
 
@@ -218,7 +113,7 @@ bool verify_logs_proof(verify_ctx_t* ctx) {
   uint32_t block_count = ssz_len(ctx->proof);
 
   for (int i = 0; i < block_count; i++) {
-    if (verif_block(ctx, ssz_at(ctx->proof, i)) != C4_SUCCESS) return false;
+    if (verify_block(ctx, ssz_at(ctx->proof, i)) != C4_SUCCESS) return false;
   }
 
   for (int i = 0; i < log_count; i++) {

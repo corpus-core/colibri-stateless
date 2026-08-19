@@ -144,6 +144,21 @@ static const ssz_def_t ETH_HEADER_PROOFS_UNION[] = {
     SSZ_CONTAINER("CheckpointProof", ETH_CHECKPOINT_PROOF)       // WSP anchor via LightClientBootstrap (currentSyncCommittee branch)
 };
 
+// The proof data for a Execution block header.
+static const ssz_def_t ETH_CL_BLOCK_PROOF[] = {
+    SSZ_PROG_BYTES("elHeader"),                       // the rlp serialized execution layer header
+    SSZ_CONTAINER("clHeader", BEACON_BLOCK_HEADER),   // the header of the beacon block
+    SSZ_PROG_LIST("blockhashBranch", ssz_bytes32),    // the multi proof of the transaction, blockNumber and blockHash
+    SSZ_UINT64("gindex"),                             // the gindex of the blockhash branch could be message.block_hash or message.parent_block_hash
+    SSZ_UNION("headerProof", ETH_HEADER_PROOFS_UNION) // the proof for the correctness of the header
+};
+
+// the union for different types of block proofs.
+static const ssz_def_t ETH_BLOCK_PROOF_UNION[] = {
+    SSZ_BYTES32("blockHash"),                     // the blockHash of the execution block, if only the hash is provided, it means the header is already verified in the cache.
+    SSZ_CONTAINER("clProof", ETH_CL_BLOCK_PROOF), // the block will be proven by the CL-Proof
+};
+
 // :: Logs Proof
 //
 // A **Logs Proof** verifies that specific log entries, returned by `eth_getLogs`, are correctly included within transaction receipts of a verified execution block.
@@ -166,20 +181,18 @@ static const ssz_def_t ETH_HEADER_PROOFS_UNION[] = {
 // Represents one single transaction receipt with the required transaction and receipt-proof.
 // The proof contains the raw receipt as part of its last leaf.
 static const ssz_def_t ETH_LOGS_TX[] = {
-    SSZ_BYTES("transaction", 1073741824),   // the raw transaction payload
-    SSZ_UINT32("transactionIndex"),         // the index of the transaction in the block
-    SSZ_LIST("proof", ssz_bytes_1024, 256), // the Merkle Patricia Proof of the transaction receipt ending in the receipt root
+    SSZ_UINT32("transactionIndex"),                    // the index of the transaction in the block
+    SSZ_PROG_LIST("transactionProof", ssz_bytes_list), // the Patricia Merkle Proof of the transaction, the leaf contains the raw transaction.
+    SSZ_LIST("receiptProof", ssz_bytes_1024, 64),      // the Patricia Merkle Proof of the receipt, the leaf contains the raw receipt.
 };
 static const ssz_def_t ETH_LOGS_TX_CONTAINER = SSZ_CONTAINER("LogsTx", ETH_LOGS_TX);
 
 // A single Block with its proof containing all the receipts or txs required to prove the logs.
 static const ssz_def_t ETH_LOGS_BLOCK[] = {
-    SSZ_UINT64("blockNumber"),                         // the number of the execution block containing the transaction
-    SSZ_BYTES32("blockHash"),                          // the blockHash of the execution block containing the transaction
-    SSZ_LIST("proof", ssz_bytes32, 1024),              // the multi proof of the transaction, receipt_root,blockNumber and blockHash
-    SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),      // the header of the beacon block
-    SSZ_UNION("headerProof", ETH_HEADER_PROOFS_UNION), // the proof for the correctness of the header
-    SSZ_LIST("txs", ETH_LOGS_TX_CONTAINER, 256)};      // the transactions of the block
+    SSZ_UINT64("blockNumber"),                   // the execution block number
+    SSZ_LIST("txs", ETH_LOGS_TX_CONTAINER, 256), // the transactions of the block
+    SSZ_UNION("block", ETH_BLOCK_PROOF_UNION)    // the proof for the execution block containing the transaction
+};
 
 static const ssz_def_t ETH_LOGS_BLOCK_CONTAINER = SSZ_CONTAINER("LogsBlock", ETH_LOGS_BLOCK);
 
@@ -260,21 +273,6 @@ static const ssz_def_t ETH_LOGS_COMPLETENESS_PROOF[] = {
     SSZ_LIST("blocks", ETH_COMPLETENESS_BLOCK, 4096),  // per-block payload ascending fromBlock..toBlock
 };
 static const ssz_def_t ETH_LOGS_COMPLETENESS_PROOF_CONTAINER = SSZ_CONTAINER("LogsCompletenessProof", ETH_LOGS_COMPLETENESS_PROOF);
-
-// The proof data for a Execution block header.
-static const ssz_def_t ETH_CL_BLOCK_PROOF[] = {
-    SSZ_PROG_BYTES("elHeader"),                       // the rlp serialized execution layer header
-    SSZ_CONTAINER("clHeader", BEACON_BLOCK_HEADER),   // the header of the beacon block
-    SSZ_PROG_LIST("blockhashBranch", ssz_bytes32),    // the multi proof of the transaction, blockNumber and blockHash
-    SSZ_UINT64("gindex"),                             // the gindex of the blockhash branch could be message.block_hash or message.parent_block_hash
-    SSZ_UNION("headerProof", ETH_HEADER_PROOFS_UNION) // the proof for the correctness of the header
-};
-
-// the union for different types of block proofs.
-static const ssz_def_t ETH_BLOCK_PROOF_UNION[] = {
-    SSZ_BYTES32("blockHash"),                     // the blockHash of the execution block, if only the hash is provided, it means the header is already verified in the cache.
-    SSZ_CONTAINER("clProof", ETH_CL_BLOCK_PROOF), // the block will be proven by the CL-Proof
-};
 
 // :: Transaction Proof
 //
