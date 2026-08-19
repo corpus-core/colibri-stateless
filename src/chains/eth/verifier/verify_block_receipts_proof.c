@@ -161,31 +161,23 @@ static bool verify_hybrid_block_receipts(verify_ctx_t* ctx) {
 }
 
 bool verify_block_receipts_proof(verify_ctx_t* ctx) {
-  bool is_hybrid = ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_HYBRID_BLOCK_RECEIPTS_PROOF));
-
   if (ctx->data.def->type != SSZ_TYPE_NONE)
     RETURN_VERIFY_ERROR(ctx, "data must be empty; verifier builds receipt data from RLP!");
 
-  if (is_hybrid) {
-    if (!verify_hybrid_block_receipts(ctx))
-      RETURN_VERIFY_ERROR(ctx, "invalid hybrid block receipts proof!");
-  }
-  else {
-    if (!verify_block_receipts_proof_for(ctx, ctx->proof))
-      RETURN_VERIFY_ERROR(ctx, "invalid block receipts proof!");
-  }
+  if (!verify_block_receipts_proof_for(ctx, ctx->proof))
+    RETURN_VERIFY_ERROR(ctx, "invalid block receipts proof!");
 
-  ssz_ob_t header_data = is_hybrid ? ssz_get(&ctx->proof, "header_data") : (ssz_ob_t) {0};
+  ssz_ob_t header_data = {0};
 
   const ssz_def_t* list_def        = eth_ssz_verification_type(ETH_SSZ_DATA_BLOCK_RECEIPTS);
   ssz_builder_t    data_builder    = ssz_builder_for_def(list_def);
-  uint64_t         base_fee        = is_hybrid ? ssz_get_uint64(&header_data, "baseFeePerGas") : ssz_get_uint64(&ctx->proof, "baseFeePerGas");
+  uint64_t         base_fee        = ssz_get_uint64(&ctx->proof, "baseFeePerGas");
   uint64_t         prev_cumulative = 0;
   uint32_t         next_log_index  = 0;
   ssz_ob_t         receipts        = ssz_get(&ctx->proof, "receipts");
-  bytes_t          block_hash      = is_hybrid ? ssz_get(&header_data, "blockHash").bytes : ssz_get(&ctx->proof, "blockHash").bytes;
+  bytes_t          block_hash      =  ssz_get(&ctx->proof, "blockHash").bytes;
   ssz_ob_t         transactions    = ssz_get(&ctx->proof, "transactions");
-  uint64_t         blk_num         = is_hybrid ? ssz_get_uint64(&header_data, "blockNumber") : ssz_get_uint64(&ctx->proof, "blockNumber");
+  uint64_t         blk_num         = ssz_get_uint64(&ctx->proof, "blockNumber");
   uint32_t         num_receipts    = ssz_len(receipts);
 
   for (uint32_t i = 0; i < num_receipts; i++) {

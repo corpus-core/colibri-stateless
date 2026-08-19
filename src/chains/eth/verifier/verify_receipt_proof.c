@@ -21,10 +21,10 @@
  * SPDX-License-Identifier: MIT
  */
 
-
 #include "beacon_types.h"
 #include "bytes.h"
 #include "crypto.h"
+#include "el_header.h"
 #include "eth_tx.h"
 #include "eth_verify.h"
 #include "json.h"
@@ -73,48 +73,23 @@ static bool verify_hybrid_tx_merkle_proof(verify_ctx_t* ctx, ssz_ob_t tx_proof, 
 }
 
 bool verify_receipt_proof(verify_ctx_t* ctx) {
-  bool     is_hybrid     = ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_HYBRID_RECEIPT_PROOF));
-  ssz_ob_t raw_tx        = ssz_get(&ctx->proof, "transaction");
-  ssz_ob_t receipt_proof = ssz_get(&ctx->proof, "receipt_proof");
-  uint32_t tx_index      = ssz_get_uint32(&ctx->proof, "transactionIndex");
+  ssz_ob_t  tx_proof      = ssz_get(&ctx->proof, "transactionProof");
+  ssz_ob_t  receipt_proof = ssz_get(&ctx->proof, "receiptProof");
+  uint32_t  tx_index      = ssz_get_uint32(&ctx->proof, "transactionIndex");
+  bytes_t   raw_receipt   = {0};
+  bytes_t   el_header     = {0};
+  bytes32_t block_hash    = {0};
+  bytes_t   raw_tx        = {0};
 
-  if (is_hybrid && !(ctx->flags & VERIFY_FLAG_HYBRID))
-    RETURN_VERIFY_ERROR(ctx, "hybrid receipt proof requires VERIFY_FLAG_HYBRID");
-
-  bytes32_t receipt_root = {0};
-  bytes_t   raw_receipt  = {0};
-
-  if (!c4_tx_verify_tx_hash(ctx, raw_tx.bytes)) RETURN_VERIFY_ERROR(ctx, "invalid tx hash!");
-  if (!c4_tx_verify_receipt_proof(ctx, receipt_proof, tx_index, receipt_root, &raw_receipt)) RETURN_VERIFY_ERROR(ctx, "invalid receipt proof!");
-
-  if (is_hybrid) {
-    ssz_ob_t header_data = ssz_get(&ctx->proof, "header_data");
-    ssz_ob_t tx_proof    = ssz_get(&ctx->proof, "txProof");
-    if (!header_data.bytes.data) RETURN_VERIFY_ERROR(ctx, "missing header_data in hybrid receipt proof");
-
-    bytes_t  tx_root_bytes    = ssz_get(&header_data, "transactionsRoot").bytes;
-    bytes_t  receipts_root    = ssz_get(&header_data, "receiptsRoot").bytes;
-    bytes_t  bh               = ssz_get(&header_data, "blockHash").bytes;
-    uint64_t bn               = ssz_get_uint64(&header_data, "blockNumber");
-
-    if (!tx_root_bytes.data || tx_root_bytes.len != 32) RETURN_VERIFY_ERROR(ctx, "invalid transactionsRoot in header_data");
-    if (!receipts_root.data || receipts_root.len != 32) RETURN_VERIFY_ERROR(ctx, "invalid receiptsRoot in header_data");
-    if (!bh.data || bh.len != 32) RETURN_VERIFY_ERROR(ctx, "invalid blockHash in header_data");
-    if (memcmp(receipt_root, receipts_root.data, 32) != 0) RETURN_VERIFY_ERROR(ctx, "receiptsRoot mismatch!");
-    if (!verify_hybrid_tx_merkle_proof(ctx, tx_proof, raw_tx.bytes, tx_index, tx_root_bytes.data)) return false;
-    if (!c4_tx_verify_receipt_data(ctx, ctx->data, bh.data, bn, tx_index, raw_tx.bytes, raw_receipt)) RETURN_VERIFY_ERROR(ctx, "invalid receipt data!");
-  }
-  else {
-    ssz_ob_t block_proof  = ssz_get(&ctx->proof, "block_proof");
-    ssz_ob_t header       = ssz_get(&ctx->proof, "header");
-    ssz_ob_t block_hash   = ssz_get(&ctx->proof, "blockHash");
-    ssz_ob_t block_number = ssz_get(&ctx->proof, "blockNumber");
-    ssz_ob_t body_root    = ssz_get(&header, "bodyRoot");
-
-    if (!c4_tx_verify_receipt_data(ctx, ctx->data, block_hash.bytes.data, ssz_uint64(block_number), tx_index, raw_tx.bytes, raw_receipt)) RETURN_VERIFY_ERROR(ctx, "invalid tx data!");
-    if (!verify_merkle_proof(ctx, block_proof, block_hash.bytes, block_number.bytes, raw_tx.bytes, tx_index, receipt_root, body_root.bytes.data)) RETURN_VERIFY_ERROR(ctx, "invalid tx proof!");
-    if (c4_verify_header(ctx, header, ctx->proof) != C4_SUCCESS) return false;
-  }
+  if (c4_verify_block(ctx, ssz_get(&ctx->proof, "block"), &el_header, block_hash) != C4_SUCCESS) return false;
+  if (!c4_tx_verify_receipt_proof(ctx,
+                                  tx_proof, tx_index,
+                                  eth_el_header_get(el_header, EL_TRANSACTIONS_ROOT).data, &raw_tx)) return false;
+  if (!c4_tx_verify_tx_hash(ctx, raw_tx)) RETURN_VERIFY_ERROR(ctx, "invalid tx hash!");
+  if (!c4_tx_verify_receipt_proof(ctx, receipt_proof, tx_index, eth_el_header_get(el_header, EL_RECEIPTS_ROOT).data, &raw_receipt)) RETURN_VERIFY_ERROR(ctx, "invalid receipt proof!");
+  if (!c4_tx_verify_receipt_data(ctx, ctx->data,
+                                 block_hash, eth_el_header_get_uint64(el_header, EL_BLOCK_NUMBER),
+                                 tx_index, raw_tx, raw_receipt)) RETURN_VERIFY_ERROR(ctx, "invalid tx data!");
 
   ctx->success = true;
   return true;

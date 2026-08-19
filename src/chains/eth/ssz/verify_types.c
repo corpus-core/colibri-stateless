@@ -89,13 +89,6 @@ static const ssz_def_t C4_REQUEST_PROOFS_UNION[] = {
     SSZ_CONTAINER("BlockProof", ETH_BLOCK_PROOF),                        //  7: Proof for BlockData (body union: NONE = header-only proof)
     SSZ_CONTAINER("WitnessProof", C4_WITNESS_SIGNED),                    //  8: Proof for Witness
     SSZ_CONTAINER("BlockReceiptsProof", ETH_BLOCK_RECEIPTS_PROOF),       //  9: Proof for all block receipts
-    SSZ_CONTAINER("HybridAccountProof", ETH_HYBRID_ACCOUNT_PROOF),       // 10: Hybrid account proof with embedded header_data
-    SSZ_CONTAINER("HybridReceiptProof", ETH_HYBRID_RECEIPT_PROOF),       // 11: Hybrid receipt proof (Patricia + header_data)
-    SSZ_LIST("HybridLogsProof", ETH_HYBRID_LOGS_BLOCK_CONTAINER, 256),   // 12: Hybrid logs proof with embedded header_data per block
-    SSZ_CONTAINER("HybridCallProof", ETH_HYBRID_CALL_PROOF),             // 13: Hybrid call proof with embedded header_data
-    SSZ_CONTAINER("HybridBlockProof", ETH_HYBRID_BLOCK_PROOF),           // 14: Hybrid block proof (EP only)
-    SSZ_CONTAINER("HybridBlockHeaderProof", ETH_HYBRID_BLOCK_HEADER_PROOF),     // 15: Hybrid block header/number proof (header_data only)
-    SSZ_CONTAINER("HybridBlockReceiptsProof", ETH_HYBRID_BLOCK_RECEIPTS_PROOF), // 16: Hybrid block receipts proof (header_data only)
     SSZ_CONTAINER("LogsCompletenessProof", ETH_LOGS_COMPLETENESS_PROOF), // 17: Completeness proof for eth_getLogs over a contiguous block range
 };
 
@@ -312,20 +305,6 @@ const ssz_def_t* eth_ssz_verification_type(eth_ssz_type_t type) {
       return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, ETH_BLOCK_RECEIPTS_PROOF);
     case ETH_SSZ_DATA_BLOCK_RECEIPTS:
       return C4_ETH_REQUEST_DATA_UNION + 11;
-    case ETH_SSZ_VERIFY_HYBRID_ACCOUNT_PROOF:
-      return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, ETH_HYBRID_ACCOUNT_PROOF);
-    case ETH_SSZ_VERIFY_HYBRID_RECEIPT_PROOF:
-      return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, ETH_HYBRID_RECEIPT_PROOF);
-    case ETH_SSZ_VERIFY_HYBRID_LOGS_PROOF:
-      return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, &ETH_HYBRID_LOGS_BLOCK_CONTAINER);
-    case ETH_SSZ_VERIFY_HYBRID_CALL_PROOF:
-      return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, ETH_HYBRID_CALL_PROOF);
-    case ETH_SSZ_VERIFY_HYBRID_BLOCK_PROOF:
-      return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, ETH_HYBRID_BLOCK_PROOF);
-    case ETH_SSZ_VERIFY_HYBRID_BLOCK_HEADER_PROOF:
-      return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, ETH_HYBRID_BLOCK_HEADER_PROOF);
-    case ETH_SSZ_VERIFY_HYBRID_BLOCK_RECEIPTS_PROOF:
-      return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, ETH_HYBRID_BLOCK_RECEIPTS_PROOF);
     case ETH_SSZ_VERIFY_LOGS_COMPLETENESS_PROOF:
       return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, ETH_LOGS_COMPLETENESS_PROOF);
     case ETH_SSZ_VERIFY_CHECKPOINT_PROOF:

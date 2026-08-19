@@ -138,17 +138,14 @@ static inline void add_blocks(proof_logs_block_t** blocks, json_t logs) {
   }
 }
 
-static c4_status_t get_receipts(prover_ctx_t* ctx, proof_logs_block_t* blocks, bool hybrid) {
+static c4_status_t get_receipts(prover_ctx_t* ctx, proof_logs_block_t* blocks) {
   c4_status_t status   = C4_SUCCESS;
   uint8_t     tmp[100] = {0};
   buffer_t    buf      = stack_buffer(tmp);
   for (proof_logs_block_t* block = blocks; block; block = block->next) {
     buffer_reset(&buf);
     json_t block_number = json_parse(bprintf(&buf, "\"0x%lx\"", block->block_number));
-    if (hybrid)
       TRY_ADD_ASYNC(status, c4_beacon_get_block_for_eth_with_body(ctx, block_number, &block->beacon_block));
-    else
-      TRY_ADD_ASYNC(status, c4_beacon_get_block_for_eth(ctx, block_number, &block->beacon_block));
 #ifdef PROVER_CACHE
     // we get the merkle tree from the cache if available now so we can use it later in the worker thread
     bytes32_t cachekey;
@@ -297,42 +294,6 @@ static c4_status_t proof_block_hybrid(prover_ctx_t* ctx, proof_logs_block_t* blo
   return C4_SUCCESS;
 }
 
-static c4_status_t serialize_hybrid_log_proof(prover_ctx_t* ctx, proof_logs_block_t* blocks, json_t logs) {
-  ssz_builder_t    block_list  = ssz_builder_for_type(ETH_SSZ_VERIFY_HYBRID_LOGS_PROOF);
-  uint32_t         block_count = get_block_count(blocks);
-  const ssz_def_t* block_def   = block_list.def->def.vector.type;
-  const ssz_def_t* txs_def     = ssz_get_def(block_def, "txs");
-
-  for (proof_logs_block_t* block = blocks; block; block = block->next) {
-    ssz_builder_t block_ssz = ssz_builder_for_def(block_def);
-
-    ssz_ob_t header_data = c4_build_header_data_from_execution(block->beacon_block.execution);
-    ssz_add_bytes(&block_ssz, "header_data", header_data.bytes);
-    safe_free(header_data.bytes.data);
-
-    ssz_add_bytes(&block_ssz, "txProof", block->proof);
-
-    ssz_builder_t tx_list = ssz_builder_for_def(txs_def);
-    for (proof_logs_tx_t* tx = block->txs; tx; tx = tx->next) {
-      ssz_builder_t tx_ssz = ssz_builder_for_def(txs_def->def.vector.type);
-      ssz_add_bytes(&tx_ssz, "transaction", tx->raw_tx);
-      ssz_add_uint32(&tx_ssz, tx->tx_index);
-      ssz_add_bytes(&tx_ssz, "proof", tx->proof.bytes);
-      ssz_add_dynamic_list_builders(&tx_list, block->tx_count, tx_ssz);
-    }
-    ssz_add_builders(&block_ssz, "txs", tx_list);
-    ssz_add_dynamic_list_builders(&block_list, block_count, block_ssz);
-  }
-
-  ctx->proof = eth_create_proof_request(
-      ctx->chain_id,
-      proof_logs_block_proof_type(ctx) == ETH_GET_LOGS ? FROM_JSON(logs, ETH_SSZ_DATA_LOGS) : NULL_SSZ_BUILDER,
-      block_list,
-      NULL_SSZ_BUILDER);
-
-  return C4_SUCCESS;
-}
-
 static c4_status_t serialize_log_proof(prover_ctx_t* ctx, proof_logs_block_t* blocks, json_t logs, ssz_builder_t sync_proof) {
 
   buffer_t         tmp         = {0};
@@ -407,16 +368,7 @@ c4_status_t c4_proof_logs(prover_ctx_t* ctx) {
   TRACE_START(ctx, "get_receipts");
 
   add_blocks(&blocks, logs); // find which blocks do we need
-  TRY_ASYNC_CATCH(get_receipts(ctx, blocks, hybrid), free_blocks(blocks));
-
-  if (hybrid) {
-    for (proof_logs_block_t* block = blocks; block; block = block->next)
-      TRY_ASYNC_CATCH(proof_block_hybrid(ctx, block), free_blocks(blocks));
-
-    serialize_hybrid_log_proof(ctx, blocks, logs);
-    free_blocks(blocks);
-    return C4_SUCCESS;
-  }
+  TRY_ASYNC_CATCH(get_receipts(ctx, blocks), free_blocks(blocks));
 
   // now we have all the blockreceipts and the beaconblock.
   if (ctx->flags & C4_PROVER_FLAG_INCLUDE_SYNC && ctx->client_state.data && ctx->client_state.len) {

@@ -144,63 +144,6 @@ static const ssz_def_t ETH_HEADER_PROOFS_UNION[] = {
     SSZ_CONTAINER("CheckpointProof", ETH_CHECKPOINT_PROOF)       // WSP anchor via LightClientBootstrap (currentSyncCommittee branch)
 };
 
-// :: Receipt Proof
-//
-// A **Receipt Proof** represents the cryptographic verification of a transaction receipt and its inclusion within the canonical blockchain structure.
-//
-// 1. **Receipt Merkle Proof:**
-//    All transaction receipts of an execution block are serialized into a **Patricia Merkle Trie**.
-//    A Merkle proof is generated for the requested receipt, demonstrating its inclusion in the block’s `receiptsRoot`.
-// 2. **Transaction–Receipt Association:**
-//    The **payload of the transaction** is used to compute its **SSZ hash tree root** derived from the corresponding **BeaconBlock**.
-//    This step ensures that the receipt is cryptographically linked to the correct transaction hash.
-// 3. **Execution Payload Proof:**
-//    An **SSZ multi–Merkle proof** is then created, connecting the `transactions`, `receipts`, `blockNumber`, and `blockHash` fields within the **ExecutionPayload** to the `blockBodyRoot`.
-//    The total proof depth for this structure is **29**.
-// 4. **Consensus Reference:**
-//    The **BeaconBlockHeader** is included in the proof to provide the `slot` information.
-//    This slot determines which sync committee is responsible for signing the corresponding block root.
-// 5. **Sync Committee Signature:**
-//    Finally, the **BLS aggregate signature** from the sync committee of the **following block** is verified.
-//    The signature covers the block root as part of the `SignData`, with the signing domain derived from the fork version and the **Genesis Validator Root**.
-//    Successful signature verification confirms that the block—and thus the contained receipt—is part of the canonical chain.
-//
-// ```mermaid
-// flowchart TB
-//     subgraph "ExecutionPayload"
-//         transactions
-//         receipts
-//         blockNumber
-//         blockHash
-//     end
-//     Receipt --PM--> receipts
-//     TX --SSZ D:21--> transactions
-//     subgraph "BeaconBlockBody"
-//         transactions  --SSZ D:5--> executionPayload
-//         blockNumber --SSZ D:5--> executionPayload
-//         blockHash --SSZ D:5--> executionPayload
-//         m[".."]
-//     end
-//     subgraph "BeaconBlockHeader"
-//         slot
-//         proposerIndex
-//         parentRoot
-//         s[stateRoot]
-//         executionPayload  --SSZ D:4--> bodyRoot
-//     end
-// ```
-
-// The main proof data for a receipt.
-static const ssz_def_t ETH_RECEIPT_PROOF[] = {
-    SSZ_BYTES("transaction", 1073741824),                // the raw transaction payload
-    SSZ_UINT32("transactionIndex"),                      // the index of the transaction in the block
-    SSZ_UINT64("blockNumber"),                           // the number of the execution block containing the transaction
-    SSZ_BYTES32("blockHash"),                            // the blockHash of the execution block containing the transaction
-    SSZ_LIST("receipt_proof", ssz_bytes_1024, 64),       // the Merkle Patricia Proof of the transaction receipt ending in the receipt root
-    SSZ_LIST("block_proof", ssz_bytes32, 64),            // the multi proof of the transaction, receipt_root,blockNumber and blockHash
-    SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),        // the header of the beacon block
-    SSZ_UNION("headerProof", ETH_HEADER_PROOFS_UNION)}; // the proof for the correctness of the header
-
 // :: Logs Proof
 //
 // A **Logs Proof** verifies that specific log entries, returned by `eth_getLogs`, are correctly included within transaction receipts of a verified execution block.
@@ -378,6 +321,62 @@ static const ssz_def_t ETH_TRANSACTION_PROOF[] = {
     SSZ_PROG_LIST("transactionProof", ssz_bytes_list), // the Patricia Merkle Proof of the transaction, the leaf contains the raw transaction.
     SSZ_UNION("block", ETH_BLOCK_PROOF_UNION),         // the proof for the execution block containing the transaction
 };
+
+
+// :: Receipt Proof
+//
+// A **Receipt Proof** represents the cryptographic verification of a transaction receipt and its inclusion within the canonical blockchain structure.
+//
+// 1. **Receipt Merkle Proof:**
+//    All transaction receipts of an execution block are serialized into a **Patricia Merkle Trie**.
+//    A Merkle proof is generated for the requested receipt, demonstrating its inclusion in the block’s `receiptsRoot`.
+// 2. **Transaction–Receipt Association:**
+//    The **payload of the transaction** is used to compute its **SSZ hash tree root** derived from the corresponding **BeaconBlock**.
+//    This step ensures that the receipt is cryptographically linked to the correct transaction hash.
+// 3. **Execution Payload Proof:**
+//    An **SSZ multi–Merkle proof** is then created, connecting the `transactions`, `receipts`, `blockNumber`, and `blockHash` fields within the **ExecutionPayload** to the `blockBodyRoot`.
+//    The total proof depth for this structure is **29**.
+// 4. **Consensus Reference:**
+//    The **BeaconBlockHeader** is included in the proof to provide the `slot` information.
+//    This slot determines which sync committee is responsible for signing the corresponding block root.
+// 5. **Sync Committee Signature:**
+//    Finally, the **BLS aggregate signature** from the sync committee of the **following block** is verified.
+//    The signature covers the block root as part of the `SignData`, with the signing domain derived from the fork version and the **Genesis Validator Root**.
+//    Successful signature verification confirms that the block—and thus the contained receipt—is part of the canonical chain.
+//
+// ```mermaid
+// flowchart TB
+//     subgraph "ExecutionPayload"
+//         transactions
+//         receipts
+//         blockNumber
+//         blockHash
+//     end
+//     Receipt --PM--> receipts
+//     TX --SSZ D:21--> transactions
+//     subgraph "BeaconBlockBody"
+//         transactions  --SSZ D:5--> executionPayload
+//         blockNumber --SSZ D:5--> executionPayload
+//         blockHash --SSZ D:5--> executionPayload
+//         m[".."]
+//     end
+//     subgraph "BeaconBlockHeader"
+//         slot
+//         proposerIndex
+//         parentRoot
+//         s[stateRoot]
+//         executionPayload  --SSZ D:4--> bodyRoot
+//     end
+// ```
+
+// The main proof data for a receipt.
+static const ssz_def_t ETH_RECEIPT_PROOF[] = {
+    SSZ_UINT32("transactionIndex"),                    // the index of the transaction in the block
+    SSZ_PROG_LIST("transactionProof", ssz_bytes_list), // the Patricia Merkle Proof of the transaction, the leaf contains the raw transaction.
+    SSZ_LIST("receiptProof", ssz_bytes_1024, 64),      // the Patricia Merkle Proof of the receipt, the leaf contains the raw receipt.
+    SSZ_UNION("block", ETH_BLOCK_PROOF_UNION),         // the proof for the execution block containing the transaction
+}; 
+
 
 // :: Account Proof
 //
@@ -828,59 +827,3 @@ static const ssz_def_t ETH_BLOCK_RECEIPTS_PROOF[] = {
     SSZ_LIST("block_proof", ssz_bytes32, 64),                  // the multi proof of transactions, receiptsRoot, blockNumber, blockHash and baseFeePerGas
     SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),              // the header of the beacon block
     SSZ_UNION("headerProof", ETH_HEADER_PROOFS_UNION)};       // the proof for the correctness of the header
-
-// :: Hybrid Proof Types
-//
-// Hybrid proofs embed verified `ETH_BLOCK_HEADER_DATA` (14 fields, ~540 bytes)
-// directly instead of full consensus-layer proofs. The verifier trusts this data
-// because the local prover already verified it (hybrid mode = same process).
-// These proofs are significantly smaller than their full counterparts.
-
-// Hybrid account proof: MPT proof + verified header data (stateRoot from header_data)
-static const ssz_def_t ETH_HYBRID_ACCOUNT_PROOF[] = {
-    SSZ_LIST("accountProof", ssz_bytes_1024, 256),
-    SSZ_ADDRESS("address"),
-    SSZ_LIST("storageProof", ETH_STORAGE_PROOF_CONTAINER, 256),
-    SSZ_CONTAINER("header_data", ETH_BLOCK_HEADER_DATA),
-};
-
-// Hybrid call proof: accounts + verified header data (stateRoot, feeRecipient, etc.)
-static const ssz_def_t ETH_HYBRID_CALL_PROOF[] = {
-    SSZ_LIST("accounts", ETH_CALL_ACCOUNT_CONTAINER, 256),
-    SSZ_CONTAINER("header_data", ETH_BLOCK_HEADER_DATA),
-};
-
-// Hybrid receipt proof: raw tx + SSZ Merkle proof for tx + Patricia proof for receipt + header_data
-static const ssz_def_t ETH_HYBRID_RECEIPT_PROOF[] = {
-    SSZ_BYTES("transaction", 1073741824),
-    SSZ_UINT32("transactionIndex"),
-    SSZ_LIST("txProof", ssz_bytes32, 64),
-    SSZ_LIST("receipt_proof", ssz_bytes_1024, 64),
-    SSZ_CONTAINER("header_data", ETH_BLOCK_HEADER_DATA),
-};
-
-// Hybrid logs block: header_data + SSZ multi-merkle proof for txs + Patricia receipt proofs
-static const ssz_def_t ETH_HYBRID_LOGS_BLOCK[] = {
-    SSZ_CONTAINER("header_data", ETH_BLOCK_HEADER_DATA),
-    SSZ_LIST("txProof", ssz_bytes32, 256),
-    SSZ_LIST("txs", ETH_LOGS_TX_CONTAINER, 256),
-};
-
-static const ssz_def_t ETH_HYBRID_LOGS_BLOCK_CONTAINER = SSZ_CONTAINER("HybridLogsBlock", ETH_HYBRID_LOGS_BLOCK);
-
-// Hybrid block receipts proof: transactions + receipts + header_data (no multi-merkle proof needed)
-static const ssz_def_t ETH_HYBRID_BLOCK_RECEIPTS_PROOF[] = {
-    SSZ_LIST("transactions", ssz_transactions_bytes, 1048576),
-    SSZ_LIST("receipts", ssz_bytes_list, 65536),
-    SSZ_CONTAINER("header_data", ETH_BLOCK_HEADER_DATA),
-};
-
-// Hybrid block proof: full execution payload (no merkle proof against bodyRoot needed)
-static const ssz_def_t ETH_HYBRID_BLOCK_PROOF[] = {
-    SSZ_UNION("executionPayload", ETH_EXECUTION_PAYLOAD_UNION),
-};
-
-// Hybrid block header proof: header_data alone serves as trusted proof for eth_getBlockHeader / eth_blobBaseFee / eth_blockNumber
-static const ssz_def_t ETH_HYBRID_BLOCK_HEADER_PROOF[] = {
-    SSZ_CONTAINER("header_data", ETH_BLOCK_HEADER_DATA),
-};

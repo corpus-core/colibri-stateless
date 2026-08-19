@@ -319,19 +319,16 @@ bool c4_eth_verify(verify_ctx_t* ctx) {
   else
 #endif
 #ifdef ETH_RECEIPT
-      if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_HYBRID_RECEIPT_PROOF)) ||
-          ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_RECEIPT_PROOF)))
+      if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_RECEIPT_PROOF)))
     verify_receipt_proof(ctx);
-  else if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_BLOCK_RECEIPTS_PROOF)) ||
-          ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_HYBRID_BLOCK_RECEIPTS_PROOF)))
+  else if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_BLOCK_RECEIPTS_PROOF)))
     verify_block_receipts_proof(ctx);
   else
 #endif
 #ifdef ETH_LOGS
       if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_LOGS_COMPLETENESS_PROOF)))
     verify_logs_completeness(ctx);
-  else if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_LOGS_PROOF)) ||
-           ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_HYBRID_LOGS_PROOF))) {
+  else if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_LOGS_PROOF))) {
     // When completeness is required, a plain (per-log) logs proof is not sufficient.
     if (ctx->flags & VERIFY_FLAG_LOGS_COMPLETENESS) {
       ctx->state.error = strdup("logs completeness required, but the proof is a plain logs proof");
@@ -345,20 +342,16 @@ bool c4_eth_verify(verify_ctx_t* ctx) {
 #ifdef ETH_ACCOUNT
       if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_ACCOUNT_PROOF)))
     verify_account_proof(ctx);
-  else if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_HYBRID_ACCOUNT_PROOF)))
-    verify_hybrid_account_proof(ctx);
   else
 #endif
 #ifdef ETH_CALL
-      if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_HYBRID_CALL_PROOF)) ||
-          ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_CALL_PROOF)) ||
+      if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_CALL_PROOF)) ||
           (no_proof(ctx) && is_call_method(ctx->method)))
     verify_call_proof(ctx);
   else
 #endif
 #ifdef ETH_BLOCK
-      if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_HYBRID_BLOCK_PROOF)) ||
-          ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_BLOCK_PROOF)))
+      if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_BLOCK_PROOF)))
     verify_block_proof(ctx);
   else
 #endif

@@ -196,12 +196,10 @@ static c4_status_t verif_hybrid_block(verify_ctx_t* ctx, ssz_ob_t block) {
   return C4_SUCCESS;
 }
 
-static bool has_proof(verify_ctx_t* ctx, bytes_t block_number, bytes_t tx_index, uint32_t block_count, bool hybrid) {
+static bool has_proof(verify_ctx_t* ctx, bytes_t block_number, bytes_t tx_index, uint32_t block_count) {
   for (int i = 0; i < block_count; i++) {
     ssz_ob_t block    = ssz_at(ctx->proof, i);
-    bytes_t  block_bn = hybrid
-                             ? ssz_get(&(ssz_ob_t) {.bytes = ssz_get(&block, "header_data").bytes, .def = ssz_get(&block, "header_data").def}, "blockNumber").bytes
-                             : ssz_get(&block, "blockNumber").bytes;
+    bytes_t  block_bn =  ssz_get(&block, "blockNumber").bytes;
     if (bytes_eq(block_number, block_bn)) {
       ssz_ob_t txs      = ssz_get(&block, "txs");
       uint32_t tx_count = ssz_len(txs);
@@ -217,25 +215,17 @@ static bool has_proof(verify_ctx_t* ctx, bytes_t block_number, bytes_t tx_index,
 }
 
 bool verify_logs_proof(verify_ctx_t* ctx) {
-  bool     is_hybrid    = ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_HYBRID_LOGS_PROOF));
   uint32_t log_count    = ssz_len(ctx->data);
   uint32_t block_count  = ssz_len(ctx->proof);
 
-  if (is_hybrid && !(ctx->flags & VERIFY_FLAG_HYBRID))
-    RETURN_VERIFY_ERROR(ctx, "hybrid logs proof requires hybrid mode!");
 
   for (int i = 0; i < block_count; i++) {
-    if (is_hybrid) {
-      if (verif_hybrid_block(ctx, ssz_at(ctx->proof, i)) != C4_SUCCESS) return false;
-    }
-    else {
-      if (verif_block(ctx, ssz_at(ctx->proof, i)) != C4_SUCCESS) return false;
-    }
+   if (verif_block(ctx, ssz_at(ctx->proof, i)) != C4_SUCCESS) return false;
   }
 
   for (int i = 0; i < log_count; i++) {
     ssz_ob_t log = ssz_at(ctx->data, i);
-    if (!has_proof(ctx, ssz_get(&log, "blockNumber").bytes, ssz_get(&log, "transactionIndex").bytes, block_count, is_hybrid)) RETURN_VERIFY_ERROR(ctx, "missing log proof!");
+    if (!has_proof(ctx, ssz_get(&log, "blockNumber").bytes, ssz_get(&log, "transactionIndex").bytes, block_count)) RETURN_VERIFY_ERROR(ctx, "missing log proof!");
   }
 
 #ifdef PAP

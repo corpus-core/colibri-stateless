@@ -123,29 +123,13 @@ static bool extract_tx_from_block_proof(verify_ctx_t* ctx, ssz_ob_t proof_req,
                                         uint32_t        target_tx_index,
                                         const bytes32_t expected_tx_hash) {
   ssz_ob_t block_proof = ssz_get(&proof_req, "proof");
-  bool     is_hybrid   = ssz_is_type(&block_proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_HYBRID_BLOCK_PROOF));
 
 #ifdef ETH_BLOCK
-  if (is_hybrid) {
-    // In hybrid mode a co-located, trusted prover has already verified the block header
-    // against the sync committee and cached it, so the executionPayload is trusted here.
-    // The VERIFY_FLAG_HYBRID gate prevents accepting such a proof when no local trusted
-    // prover exists (e.g. pure remote mode), mirroring `verify_block_proof`.
-    if (!(ctx->flags & VERIFY_FLAG_HYBRID))
-      RETURN_VERIFY_ERROR(ctx, "PAP: hybrid block proof requires hybrid mode");
-    ssz_ob_t hb_exec = ssz_get(&block_proof, "executionPayload");
-    if (!hb_exec.bytes.data)
-      RETURN_VERIFY_ERROR(ctx, "PAP: missing executionPayload in hybrid block proof");
-    if (!c4_eth_matches_blocknumber(ctx, hb_exec, req_block)) return false;
-  }
-  else {
-    ctx->sync_data = ssz_get(&proof_req, "sync_data");
-    if (c4_update_from_sync_data(ctx) != C4_SUCCESS) return false;
-    if (!verify_block_proof_for_block(ctx, block_proof, req_block, NULL))
-      return false;
-  }
+  ctx->sync_data = ssz_get(&proof_req, "sync_data");
+  if (c4_update_from_sync_data(ctx) != C4_SUCCESS) return false;
+  if (!verify_block_proof_for_block(ctx, block_proof, req_block, NULL))
+    return false;
 #else
-  (void) is_hybrid;
   RETURN_VERIFY_ERROR(ctx, "PAP: block proof verification requires ETH_BLOCK");
 #endif
 
