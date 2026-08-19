@@ -279,6 +279,7 @@ static c4_status_t verify_block_by_blockproof(verify_ctx_t* ctx, ssz_ob_t block,
 }
 
 c4_status_t c4_verify_block(verify_ctx_t* ctx, ssz_ob_t block, bytes_t* el_header, bytes32_t block_hash) {
+  if (!block.def) THROW_ERROR("invalid block type!");
   if (strcmp(block.def->name, "blockHash") == 0)
     return verify_block_by_blockhash(ctx, block, el_header, block_hash);
 
