@@ -75,12 +75,12 @@ static void serialize_negative_block(ssz_builder_t* blist, uint32_t count) {
 // Serializes one full-receipts block (all receipts + Patricia proofs of matching txs).
 static void serialize_full_block(prover_ctx_t* ctx, ssz_builder_t* blist, uint32_t count, compl_block_t* block, const ssz_def_t* union_def, bytes_t query_blooms) {
   ssz_ob_t transactions = ssz_get(&block->beacon.el_body, "transactions");
-  uint32_t receipt_len  = (uint32_t) json_len(block->receipts);
-  uint32_t tx_count     = ssz_len(transactions);
+  //  uint32_t receipt_len  = (uint32_t) json_len(block->receipts);
+  uint32_t tx_count = ssz_len(transactions);
 
   // Collect the transaction indices whose receipt could contain a matching log
   // (bloom-positive). These provide the transaction hashes for matched logs.
-  uint32_t* match_idx   = safe_calloc(receipt_len ? receipt_len : 1, sizeof(uint32_t));
+  uint32_t* match_idx   = safe_calloc(tx_count, sizeof(uint32_t));
   uint32_t  match_count = 0;
   uint8_t   bloom_tmp[256];
   buffer_t  bloom_buf = stack_buffer(bloom_tmp);
@@ -108,22 +108,26 @@ static void serialize_full_block(prover_ctx_t* ctx, ssz_builder_t* blist, uint32
   buffer_t         rbuf         = {0};
   json_for_each_value(block->receipts, r) {
     buffer_reset(&rbuf);
-    ssz_add_dynamic_list_bytes(&rlist, receipt_len, c4_serialize_receipt(r, &rbuf));
+    ssz_add_dynamic_list_bytes(&rlist, tx_count, c4_serialize_receipt(r, &rbuf));
   }
   buffer_free(&rbuf);
   ssz_add_builders(&v, "receipts", rlist);
 
-  const ssz_def_t* txs_def = ssz_get_def(union_def->def.container.elements + COMPLETENESS_BLOCK_FULL, "txs");
-  ssz_builder_t    tx_list = ssz_builder_for_def(txs_def);
+  uint8_t*      tx_idxs    = safe_malloc(match_count * 4);
+  mpt_builder_t tx_builder = {0};
+  mpt_builder_init(&tx_builder, tx_root);
+
   for (uint32_t i = 0; i < match_count; i++) {
-    ssz_builder_t tx_ssz   = ssz_builder_for_def(txs_def->def.vector.type);
-    ssz_ob_t      tx_proof = patricia_create_merkle_proof(tx_root, c4_eth_create_tx_path(match_idx[i], &path_buf));
-    ssz_add_uint32(&tx_ssz, match_idx[i]);
-    ssz_add_bytes(&tx_ssz, "transactionProof", tx_proof.bytes);
-    safe_free(tx_proof.bytes.data);
-    ssz_add_dynamic_list_builders(&tx_list, match_count, tx_ssz);
+    uint32_to_le(tx_idxs + 4 * i, match_idx[i]);
+    mpt_builder_add_proof(&tx_builder, c4_eth_create_tx_path(match_idx[i], &path_buf));
   }
-  ssz_add_builders(&v, "txs", tx_list);
+  ssz_ob_t tx_proof = mpt_builder_finish(&tx_builder);
+  ssz_add_bytes(&v, "transactionProof", tx_proof.bytes);
+  ssz_add_bytes(&v, "txs", bytes(tx_idxs, match_count * 4));
+
+  // clean up
+  safe_free(tx_proof.bytes.data);
+  safe_free(tx_idxs);
   patricia_node_free(tx_root);
   safe_free(match_idx);
 

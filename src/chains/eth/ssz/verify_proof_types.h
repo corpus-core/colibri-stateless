@@ -227,16 +227,12 @@ static const ssz_def_t ETH_LOGS_BLOCK_CONTAINER = SSZ_CONTAINER("LogsBlock", ETH
 //
 // CompletenessTx is LogsTx without `receiptProof`: receipts are delivered in full.
 // The Patricia leaf of `transactionProof` is the raw transaction (for transactionHash).
-static const ssz_def_t ETH_COMPLETENESS_TX[] = {
-    SSZ_UINT32("transactionIndex"),                    // the index of the transaction in the block
-    SSZ_PROG_LIST("transactionProof", ssz_bytes_list), // Patricia Merkle Proof; the leaf contains the raw transaction
-};
-static const ssz_def_t ETH_COMPLETENESS_TX_CONTAINER = SSZ_CONTAINER("CompletenessTx", ETH_COMPLETENESS_TX);
 
 // Full-receipts block: all receipts are delivered so the verifier rebuilds the receipts trie.
 static const ssz_def_t ETH_COMPLETENESS_FULL_RECEIPTS[] = {
-    SSZ_PROG_LIST("receipts", ssz_bytes_list),          // all RLP-serialized receipts of the block
-    SSZ_PROG_LIST("txs", ETH_COMPLETENESS_TX_CONTAINER) // matching txs, bound via Patricia proofs against transactionsRoot
+    SSZ_PROG_LIST("receipts", ssz_bytes_list),         // all RLP-serialized receipts of the block
+    SSZ_PROG_LIST("transactionProof", ssz_bytes_list), // Multi Patricia Merkle Proof which contains all nodes of the tries used by all the txs.
+    SSZ_PROG_LIST("txs", ssz_uint32_def)               // index of the matching txs, bound via Multi Patricia proofs against transactionsRoot
 };
 
 // Per-block union: a block is either proven bloom-negative (header only) or delivered with all receipts.

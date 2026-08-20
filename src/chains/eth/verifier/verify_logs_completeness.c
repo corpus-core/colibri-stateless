@@ -91,15 +91,75 @@ static bool verify_negative_block(verify_ctx_t* ctx, bytes_t el_header, bytes_t 
   return true;
 }
 
-// Finds the CompletenessTx entry for the given index in the block's matched-tx list.
-static ssz_ob_t find_tx(ssz_ob_t txs, uint32_t tx_index) {
+// True if `tx_index` is present in the block's matched-tx index list.
+static bool has_tx(ssz_ob_t txs, uint32_t tx_index) {
   uint32_t n = ssz_len(txs);
   for (uint32_t i = 0; i < n; i++) {
-    ssz_ob_t tx = ssz_at(txs, i);
-    if (ssz_get_uint32(&tx, "transactionIndex") == tx_index)
-      return tx;
+    if (ssz_uint32(ssz_at(txs, i)) == tx_index) return true;
   }
-  return (ssz_ob_t) {0};
+  return false;
+}
+
+static bool receipt_get_bloom(verify_ctx_t* ctx, bytes_t receipt, bytes_t* bloom, int* num_logs, bytes_t* logs_rlp) {
+  if (receipt.len && receipt.data[0] < 0x80) { // strip the (optional) EIP-2718 type byte
+    receipt.data++;
+    receipt.len--;
+  }
+  if (rlp_decode(&receipt, 0, &receipt) != RLP_LIST) RETURN_VERIFY_ERROR(ctx, "invalid receipt encoding in completeness proof!");
+  if (rlp_decode(&receipt, 2, bloom) != RLP_ITEM || bloom->len != 256) RETURN_VERIFY_ERROR(ctx, "invalid receipt logsBloom!");
+  if (rlp_decode(&receipt, 3, logs_rlp) != RLP_LIST) RETURN_VERIFY_ERROR(ctx, "invalid receipt logs!");
+  *num_logs = rlp_decode(logs_rlp, -1, logs_rlp);
+  if (*num_logs < 0) RETURN_VERIFY_ERROR(ctx, "invalid receipt logs count!");
+  return true;
+}
+
+// Decodes every log of one receipt and appends it to `data_builder`.
+// On failure the current log's builders are freed and ctx already holds the error;
+// the caller must free `mpt_proof_t`. Partial appends stay in `data_builder`.
+static bool append_receipt_logs(verify_ctx_t* ctx, bytes_t logs_rlp, int num_logs,
+                                bytes32_t block_hash, uint64_t blk_num,
+                                bytes32_t tx_hash, uint32_t tx_index,
+                                uint32_t* block_log_index, ssz_builder_t* data_builder,
+                                uint32_t* out_count) {
+  const ssz_def_t* log_def = data_builder->def->def.vector.type;
+
+  for (int l = 0; l < num_logs; l++, (*block_log_index)++) {
+    bytes_t log_rlp = {0}, addr = {0}, topics_rlp = {0}, data = {0};
+    if (rlp_decode(&logs_rlp, l, &log_rlp) != RLP_LIST) RETURN_VERIFY_ERROR(ctx, "invalid log encoding!");
+    if (rlp_decode(&log_rlp, 0, &addr) != RLP_ITEM) RETURN_VERIFY_ERROR(ctx, "invalid log address!");
+    if (rlp_decode(&log_rlp, 1, &topics_rlp) != RLP_LIST) RETURN_VERIFY_ERROR(ctx, "invalid log topics!");
+    if (rlp_decode(&log_rlp, 2, &data) != RLP_ITEM) RETURN_VERIFY_ERROR(ctx, "invalid log data!");
+    int num_topics = rlp_decode(&topics_rlp, -1, &topics_rlp);
+    if (num_topics < 0) RETURN_VERIFY_ERROR(ctx, "invalid log topics count!");
+
+    ssz_builder_t log_builder = ssz_builder_for_def(log_def);
+    ssz_add_bytes(&log_builder, "blockHash", bytes(block_hash, 32));
+    ssz_add_uint64(&log_builder, blk_num);
+    ssz_add_bytes(&log_builder, "transactionHash", bytes(tx_hash, 32));
+    ssz_add_uint32(&log_builder, tx_index);
+    uint8_t addr20[20] = {0};
+    if (addr.len <= 20) memcpy(addr20 + (20 - addr.len), addr.data, addr.len);
+    ssz_add_bytes(&log_builder, "address", bytes(addr20, 20));
+    ssz_add_uint32(&log_builder, *block_log_index);
+    ssz_add_uint8(&log_builder, 0);
+    ssz_builder_t topics_builder = ssz_builder_for_def(ssz_get_def(log_def, "topics"));
+    for (int t = 0; t < num_topics; t++) {
+      bytes_t topic       = {0};
+      uint8_t topic32[32] = {0};
+      if (rlp_decode(&topics_rlp, t, &topic) != RLP_ITEM) {
+        ssz_builder_free(&topics_builder);
+        ssz_builder_free(&log_builder);
+        RETURN_VERIFY_ERROR(ctx, "invalid topic!");
+      }
+      if (topic.len <= 32) memcpy(topic32 + (32 - topic.len), topic.data, topic.len);
+      ssz_add_dynamic_list_bytes(&topics_builder, num_topics, bytes(topic32, 32));
+    }
+    ssz_add_builders(&log_builder, "topics", topics_builder);
+    ssz_add_bytes(&log_builder, "data", data);
+    ssz_add_dynamic_list_builders(data_builder, 0, log_builder);
+    (*out_count)++;
+  }
+  return true;
 }
 
 // Rebuilds the receipts trie, verifies matching txs against transactionsRoot and appends
@@ -141,26 +201,23 @@ static bool verify_full_block(verify_ctx_t* ctx, ssz_ob_t block, bytes_t el_head
   if (memcmp(receipt_root, expected_receipt_root.data, 32) != 0)
     RETURN_VERIFY_ERROR(ctx, "invalid full-receipts proof, receiptsRoot mismatch!");
 
-  const ssz_def_t* log_def         = data_builder->def->def.vector.type;
-  uint32_t         block_log_index = 0; // block-wide log index across all receipts
+  mpt_proof_t tx_proof;
+  uint32_t    block_log_index = 0; // block-wide log index across all receipts
+  mpt_proof_init(&tx_proof, ssz_get(&block, "transactionProof"), expected_tx_root.data);
 
   // walk every receipt in tx order; a matching log can only exist in a bloom-positive receipt,
   // so the prover legitimately omits transactions of bloom-negative receipts. Independently
   // re-checking each receipt's (authenticated) logsBloom is what makes the proof complete.
   for (uint32_t r = 0; r < num_receipts; r++) {
     bytes_t receipt  = ssz_at(receipts, r).bytes;
+    int     num_logs = 0;
     bytes_t logs_rlp = {0};
     bytes_t bloom    = {0};
 
-    if (receipt.len && receipt.data[0] < 0x80) { // strip the (optional) EIP-2718 type byte
-      receipt.data++;
-      receipt.len--;
+    if (!receipt_get_bloom(ctx, receipt, &bloom, &num_logs, &logs_rlp)) {
+      mpt_proof_free(&tx_proof);
+      return false;
     }
-    if (rlp_decode(&receipt, 0, &receipt) != RLP_LIST) RETURN_VERIFY_ERROR(ctx, "invalid receipt encoding in completeness proof!");
-    if (rlp_decode(&receipt, 2, &bloom) != RLP_ITEM || bloom.len != 256) RETURN_VERIFY_ERROR(ctx, "invalid receipt logsBloom!");
-    if (rlp_decode(&receipt, 3, &logs_rlp) != RLP_LIST) RETURN_VERIFY_ERROR(ctx, "invalid receipt logs!");
-    int num_logs = rlp_decode(&logs_rlp, -1, &logs_rlp);
-    if (num_logs < 0) RETURN_VERIFY_ERROR(ctx, "invalid receipt logs count!");
 
     // bloom-negative receipts cannot contain a matching log -> skip, but keep the log index in sync
     if (c4_eth_bloom_negative(query_blooms, bloom)) {
@@ -168,51 +225,26 @@ static bool verify_full_block(verify_ctx_t* ctx, ssz_ob_t block, bytes_t el_head
       continue;
     }
 
-    ssz_ob_t tx = find_tx(txs, r);
-    if (!tx.def) RETURN_VERIFY_ERROR(ctx, "bloom-positive receipt without provided transaction (incomplete proof)!");
+    if (!has_tx(txs, r)) {
+      mpt_proof_free(&tx_proof);
+      RETURN_VERIFY_ERROR(ctx, "bloom-positive receipt without provided transaction (incomplete proof)!");
+    }
     bytes_t raw_tx = {0};
-    if (!c4_verify_mpt_proof(ctx, ssz_get(&tx, "transactionProof"), r, expected_tx_root.data, &raw_tx))
+    if (patricia_verify_multi(&tx_proof, c4_eth_create_tx_path(r, &path_buf), &raw_tx) != PATRICIA_FOUND) {
+      mpt_proof_free(&tx_proof);
       RETURN_VERIFY_ERROR(ctx, "invalid transaction proof in completeness full-receipts block!");
+    }
     bytes32_t tx_hash = {0};
     keccak(raw_tx, tx_hash);
 
-    for (int l = 0; l < num_logs; l++, block_log_index++) {
-      bytes_t log_rlp = {0}, addr = {0}, topics_rlp = {0}, data = {0};
-      if (rlp_decode(&logs_rlp, l, &log_rlp) != RLP_LIST) RETURN_VERIFY_ERROR(ctx, "invalid log encoding!");
-      if (rlp_decode(&log_rlp, 0, &addr) != RLP_ITEM) RETURN_VERIFY_ERROR(ctx, "invalid log address!");
-      if (rlp_decode(&log_rlp, 1, &topics_rlp) != RLP_LIST) RETURN_VERIFY_ERROR(ctx, "invalid log topics!");
-      if (rlp_decode(&log_rlp, 2, &data) != RLP_ITEM) RETURN_VERIFY_ERROR(ctx, "invalid log data!");
-      int num_topics = rlp_decode(&topics_rlp, -1, &topics_rlp);
-      if (num_topics < 0) RETURN_VERIFY_ERROR(ctx, "invalid log topics count!");
-
-      ssz_builder_t log_builder = ssz_builder_for_def(log_def);
-      ssz_add_bytes(&log_builder, "blockHash", bytes(block_hash, 32));
-      ssz_add_uint64(&log_builder, blk_num);
-      ssz_add_bytes(&log_builder, "transactionHash", bytes(tx_hash, 32));
-      ssz_add_uint32(&log_builder, r);
-      uint8_t addr20[20] = {0};
-      if (addr.len <= 20) memcpy(addr20 + (20 - addr.len), addr.data, addr.len);
-      ssz_add_bytes(&log_builder, "address", bytes(addr20, 20));
-      ssz_add_uint32(&log_builder, block_log_index);
-      ssz_add_uint8(&log_builder, 0);
-      ssz_builder_t topics_builder = ssz_builder_for_def(ssz_get_def(log_def, "topics"));
-      for (int t = 0; t < num_topics; t++) {
-        bytes_t topic       = {0};
-        uint8_t topic32[32] = {0};
-        if (rlp_decode(&topics_rlp, t, &topic) != RLP_ITEM) {
-          ssz_builder_free(&topics_builder);
-          ssz_builder_free(&log_builder);
-          RETURN_VERIFY_ERROR(ctx, "invalid topic!");
-        }
-        if (topic.len <= 32) memcpy(topic32 + (32 - topic.len), topic.data, topic.len);
-        ssz_add_dynamic_list_bytes(&topics_builder, num_topics, bytes(topic32, 32));
-      }
-      ssz_add_builders(&log_builder, "topics", topics_builder);
-      ssz_add_bytes(&log_builder, "data", data);
-      ssz_add_dynamic_list_builders(data_builder, 0, log_builder);
-      (*out_count)++;
+    if (!append_receipt_logs(ctx, logs_rlp, num_logs, block_hash, blk_num, tx_hash, r,
+                             &block_log_index, data_builder, out_count)) {
+      mpt_proof_free(&tx_proof);
+      return false;
     }
   }
+  mpt_proof_free(&tx_proof);
+
   return true;
 }
 
