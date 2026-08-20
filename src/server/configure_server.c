@@ -29,6 +29,7 @@ http_server_t http_server = {
     .rpc_nodes         = "https://nameless-sly-reel.quiknode.pro/5937339c28c09a908994b74e2514f0f6cfdac584/,https://eth-mainnet.g.alchemy.com/v2/B8W2IZrDkCkkjKxQOl70XNIy4x4PT20S,https://rpc.ankr.com/eth/33d0414ebb46bda32a461ecdbd201f9cf5141a0acb8f95c718c23935d6febfcd",
     .beacon_nodes      = "https://lodestar-mainnet.chainsafe.io/",
     .prover_nodes      = "",
+    .v2_prover         = "",
     .checkpointz_nodes = "https://sync-mainnet.beaconcha.in,https://beaconstate.info,https://sync.invis.tools,https://beaconstate.ethstaker.cc",
 
     // preconf_use_gossip removed - now using automatic HTTP fallback,
@@ -118,6 +119,7 @@ static void config() {
   conf_string(&http_server.rpc_nodes, "RPC", "rpc", 'r', "list of rpc endpoints");
   conf_string(&http_server.beacon_nodes, "BEACON", "beacon", 'b', "list of beacon nodes api endpoints");
   conf_string(&http_server.prover_nodes, "PROVER", "prover", 'R', "list of remote prover endpoints");
+  conf_string(&http_server.v2_prover, "V2_PROVER", "v2_prover", 0, "base URL of a legacy 2.x prover for clients requesting version < 3.0.0 (empty = disabled)");
   conf_string(&http_server.checkpointz_nodes, "CHECKPOINTZ", "checkpointz", 'z', "list of checkpointz server endpoints");
   conf_int(&http_server.req_timeout, "REQUEST_TIMEOUT", "req_timeout", 't', "request timeout", 1, 300);
 

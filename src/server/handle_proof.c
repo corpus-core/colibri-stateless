@@ -8,6 +8,7 @@
 #include "server.h"
 #include "util/compat.h"
 #include "verify.h"
+#include "version.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -464,6 +465,82 @@ void c4_prover_handle_request(request_t* req) {
   }
 }
 
+// Response callback for legacy 2.x proof forwarding. Streams the upstream body back to the
+// original client as `application/octet-stream` (SSZ) or reports a `502 Bad Gateway` if the
+// forwarded request failed. Upstream error bodies are logged but never leaked to the client,
+// so internal state from the legacy prover (hostnames, stack traces, ...) cannot escape.
+static void v2_forward_callback(client_t* client, void* data, data_request_t* req) {
+  (void) data;
+  if (!client || client->being_closed)
+    log_warn("Client is no longer valid or is being closed - discarding v2 proof forward response");
+  else if (req->response.data && req->response.len)
+    c4_http_respond(client, 200, "application/octet-stream", req->response);
+  else {
+    if (req->error) log_warn("   [v2fwd] upstream error: %s", req->error);
+    c4_write_error_response(client, 502, "legacy prover forwarding failed");
+  }
+  if (req) {
+    safe_free(req->url);
+    safe_free(req->response.data);
+    safe_free(req->error);
+    safe_free(req);
+  }
+}
+
+bool c4_try_forward_legacy_proof(client_t* client, uint32_t version, const char* sub_path) {
+  // Version 0 (unknown) is treated as legacy: 3.x clients always send a version >= 3.0.0,
+  // so an unknown or below-3 version must not receive a 3.x proof.
+  if (version >= c4_version_number(3, 0, 0)) return false;
+
+  const char* origin = http_server.v2_prover;
+  if (!origin || !*origin) {
+    c4_write_error_response(client, 503, "Legacy prover is not configured on this server");
+    return true;
+  }
+
+  if (!sub_path || sub_path[0] != '/') {
+    log_error("   [v2fwd] invalid sub_path passed to c4_try_forward_legacy_proof");
+    c4_write_error_response(client, 500, "Internal forwarding error");
+    return true;
+  }
+
+  // Normalize the origin: strip trailing slashes so we never produce `//proof`. bprintf does not
+  // support printf-style width specifiers (e.g. `%.*s`), so copy into a stack-local buffer first.
+  size_t olen = strlen(origin);
+  while (olen > 0 && origin[olen - 1] == '/') olen--;
+  if (olen == 0 || olen >= 512) {
+    c4_write_error_response(client, 500, "v2_prover URL is empty or too long");
+    return true;
+  }
+  // Minimal schema sanity check: `http://` or `https://` prefix expected. This is not a strict
+  // URL validator (curl will complain otherwise), just a safety net against config typos.
+  if (strncasecmp(origin, "http://", 7) != 0 && strncasecmp(origin, "https://", 8) != 0) {
+    c4_write_error_response(client, 500, "v2_prover URL must start with http:// or https://");
+    return true;
+  }
+  char origin_buf[512];
+  memcpy(origin_buf, origin, olen);
+  origin_buf[olen] = '\0';
+
+  data_request_t* req = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
+  req->url            = bprintf(NULL, "%s%s", origin_buf, sub_path);
+  req->chain_id       = http_server.chain_id;
+  req->method         = client->request.method;
+  req->type           = C4_DATA_TYPE_REST_API;
+  // POST bodies from the client are JSON (JSON-RPC proof request); use JSON encoding so the
+  // outgoing `Content-Type` header matches. Legacy proof responses are SSZ but the http_client
+  // does not filter by Accept, so this pick is safe for both directions.
+  req->encoding = C4_DATA_ENCODING_JSON;
+  if (client->request.method == C4_DATA_METHOD_POST && client->request.payload && client->request.payload_len > 0)
+    req->payload = bytes(client->request.payload, (uint32_t) client->request.payload_len);
+
+  log_info("   [v2fwd] forwarding legacy proof request (client version=%d) to %s",
+           (uint32_t) version, req->url);
+
+  c4_add_request(client, req, NULL, v2_forward_callback);
+  return true;
+}
+
 void c4_proof_request_dispatch(client_t* client, char* method_str, char* params_str,
                                uint32_t version, prover_flags_t extra_flags,
                                bytes_t client_state, bytes_t witness_key, bytes_t last_block_hash,
@@ -553,6 +630,9 @@ bool c4_handle_proof_request(client_t* client) {
     return true;
   }
 
+  // Validate client-supplied rpc/beacon proxy fields BEFORE deciding whether to forward the
+  // request to a legacy prover: otherwise a legacy client could smuggle these fields past the
+  // `proxy_enabled=false` gate by relying on the v2 backend to interpret them.
   json_t rpc_proxy_j    = json_get(rpc_req, "rpc");
   json_t beacon_proxy_j = json_get(rpc_req, "beacon");
   if (rpc_proxy_j.type != JSON_TYPE_NOT_FOUND && rpc_proxy_j.type != JSON_TYPE_STRING) {
@@ -564,12 +644,20 @@ bool c4_handle_proof_request(client_t* client) {
     return true;
   }
 
-  // Parse proxy CSVs up front (before allocating the prover ctx) so cleanup on error is trivial.
   bool wants_rpc_proxy    = rpc_proxy_j.type == JSON_TYPE_STRING && rpc_proxy_j.len > 2;
   bool wants_beacon_proxy = beacon_proxy_j.type == JSON_TYPE_STRING && beacon_proxy_j.len > 2;
   if ((wants_rpc_proxy || wants_beacon_proxy) && !http_server.proxy_enabled) {
     c4_write_error_response(client, 403, "Client rpc/beacon URL lists are disabled on this server");
     return true;
+  }
+
+  // If the client requests a proof format from before the 3.x breaking change, forward the
+  // request to the configured legacy prover (or reject with 503 if not configured). We forward
+  // only the fixed `/proof` path, never `client->request.path`, so a legacy client cannot use
+  // path traversal (e.g. `POST /proof/../metrics`) to reach unrelated endpoints on the v2 host.
+  {
+    uint32_t v = version.type == JSON_TYPE_NUMBER ? (uint32_t) json_as_uint32(version) : 0;
+    if (c4_try_forward_legacy_proof(client, v, "/proof")) return true;
   }
 
   server_list_t* proxy_rpc    = NULL;

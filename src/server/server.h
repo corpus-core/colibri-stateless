@@ -112,6 +112,7 @@ typedef struct {
   int            chain_id;
   char*          rpc_nodes;
   char*          prover_nodes;
+  char*          v2_prover; // base URL of a legacy 2.x prover to forward proof requests for clients with version < 3.0.0 (empty = disabled)
   char*          beacon_nodes;
   char*          checkpointz_nodes;
   bytes32_t      witness_key;
@@ -386,11 +387,31 @@ bool c4_handle_proof_request(client_t* client);
  * @param proxy_beacon per-request Beacon proxy list (ownership transferred, may be NULL)
  * @param cache_control optional `Cache-Control` header value for the direct response (copied, may be NULL)
  */
-void           c4_proof_request_dispatch(client_t* client, char* method_str, char* params_str,
-                                         uint32_t version, prover_flags_t extra_flags,
-                                         bytes_t client_state, bytes_t witness_key, bytes_t last_block_hash,
-                                         server_list_t* proxy_rpc, server_list_t* proxy_beacon,
-                                         const char* cache_control);
+void c4_proof_request_dispatch(client_t* client, char* method_str, char* params_str,
+                               uint32_t version, prover_flags_t extra_flags,
+                               bytes_t client_state, bytes_t witness_key, bytes_t last_block_hash,
+                               server_list_t* proxy_rpc, server_list_t* proxy_beacon,
+                               const char* cache_control);
+/**
+ * Forwards a proof request to a legacy 2.x prover server when the client version is below 3.0.0.
+ *
+ * Uses `http_server.v2_prover` (base URL / origin, without `/proof`) and appends a caller-supplied,
+ * pre-validated sub-path (starts with `/`, e.g. `/proof` or `/proof/<method>/<block>/...`). The
+ * request body (for POST) and method are forwarded 1:1; the response is streamed back as
+ * `application/octet-stream`.
+ *
+ * Rationale: callers must not pass `client->request.path` unfiltered here to avoid path traversal
+ * on the legacy prover (e.g. `POST /proof/../metrics`). Instead, callers pass a fixed or freshly
+ * rebuilt sub-path.
+ *
+ * @param client   the HTTP client (used for reading request payload/method and writing the response)
+ * @param version  the version number requested by the client (`0` if not provided)
+ * @param sub_path pre-validated sub-path to append to the configured v2_prover origin (e.g. `/proof`)
+ *
+ * @return `true` if the request was handled here (either forwarded or rejected with an HTTP error),
+ *         `false` if `version >= 3.0.0` and the caller should continue with the local prover.
+ */
+bool           c4_try_forward_legacy_proof(client_t* client, uint32_t version, const char* sub_path);
 bool           c4_handle_status(client_t* client);
 bool           c4_handle_health_check(client_t* client);
 bool           c4_handle_metrics(client_t* client);

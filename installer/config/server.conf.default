@@ -33,6 +33,12 @@ BEACON=https://lodestar-mainnet.chainsafe.io/
 # Comma-separated list of remote prover servers
 PROVER=https://mainnet1.colibri-proof.tech/proof
 
+# Legacy 2.x Prover URL (optional)
+# Base URL (origin, without /proof) of a Colibri 2.x prover server. When a client
+# sends a proof request with version < 3.0.0, the request is forwarded to this
+# server 1:1. Leave empty to reject legacy clients with HTTP 503.
+V2_PROVER=
+
 # Checkpointz Endpoints
 # Comma-separated list of checkpointz servers for initial sync
 CHECKPOINTZ=https://sync-mainnet.beaconcha.in,https://beaconstate.info,https://sync.invis.tools,https://beaconstate.ethstaker.cc
