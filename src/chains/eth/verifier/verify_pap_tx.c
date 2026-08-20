@@ -217,6 +217,8 @@ static bool get_tx_index_and_block(verify_ctx_t* ctx, bytes32_t requested_hash, 
 }
 
 static bool pap_tx_receipt(verify_ctx_t* ctx) {
+  bytes_t   el_header      = {0};
+  bytes32_t block_hash     = {0};
   bytes32_t requested_hash = {0};
   buffer_t  hbuf           = stack_buffer(requested_hash);
   bytes_t   h              = json_as_bytes(json_at(ctx->args, 0), &hbuf);
@@ -233,12 +235,12 @@ static bool pap_tx_receipt(verify_ctx_t* ctx) {
   if (pap_request_proof(ctx, "eth_getBlockReceipts", bprintf(&buf, "[\"0x%lx\"]", block_number), &proof) != C4_SUCCESS)
     return false;
 
-  ctx->sync_data           = ssz_get(&proof, "sync_data");
-  ssz_ob_t receipt_proof   = ssz_get(&proof, "proof");
-  ssz_ob_t receipts        = ssz_get(&receipt_proof, "receipts");
-  ssz_ob_t transactions    = ssz_get(&receipt_proof, "transactions");
-  ssz_ob_t header          = strcmp(receipt_proof.def->name, "HybridBlockReceiptsProof") == 0 ? ssz_get(&receipt_proof, "header_data") : receipt_proof;
-  ssz_ob_t block_hash      = ssz_get(&header, "blockHash");
+  ctx->sync_data         = ssz_get(&proof, "sync_data");
+  ssz_ob_t receipt_proof = ssz_get(&proof, "proof");
+  ssz_ob_t receipts      = ssz_get(&receipt_proof, "receipts");
+  ssz_ob_t transactions  = ssz_get(&receipt_proof, "transactions");
+  ssz_ob_t header        = strcmp(receipt_proof.def->name, "HybridBlockReceiptsProof") == 0 ? ssz_get(&receipt_proof, "header_data") : receipt_proof;
+  //  ssz_ob_t block_hash      = ssz_get(&header, "blockHash");
   uint64_t blk_num         = ssz_get_uint64(&header, "blockNumber");
   uint64_t base_fee        = ssz_get_uint64(&header, "baseFeePerGas");
   uint32_t num_receipts    = ssz_len(ssz_get(&receipt_proof, "receipts"));
@@ -247,7 +249,7 @@ static bool pap_tx_receipt(verify_ctx_t* ctx) {
   if (tx_index > num_receipts) RETURN_VERIFY_ERROR(ctx, "PAP: invalid transaction index");
   if (c4_update_from_sync_data(ctx) != C4_SUCCESS) return false;
 #ifdef ETH_RECEIPT
-  if (!verify_block_receipts_proof_for(ctx, receipt_proof)) return false;
+  if (!verify_block_receipts_proof_for(ctx, receipt_proof, &el_header, block_hash)) return false;
 #else
   RETURN_VERIFY_ERROR(ctx, "PAP: ETH_RECEIPT is not enabled");
 #endif
@@ -258,7 +260,7 @@ static bool pap_tx_receipt(verify_ctx_t* ctx) {
     buffer_reset(&builder.fixed);
     bytes_t raw_tx      = ssz_at(transactions, i).bytes;
     bytes_t raw_receipt = ssz_at(receipts, i).bytes;
-    if (!c4_write_receipt_data_from_raw(ctx, &builder, raw_tx, raw_receipt, block_hash.bytes.data, blk_num, i, base_fee, &prev_cumulative, &next_log_index))
+    if (!c4_write_receipt_data_from_raw(ctx, &builder, raw_tx, raw_receipt, block_hash, blk_num, i, base_fee, &prev_cumulative, &next_log_index))
       RETURN_VERIFY_ERROR(ctx, "invalid receipt data from RLP!");
   }
 

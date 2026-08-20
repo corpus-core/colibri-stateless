@@ -60,7 +60,7 @@ bool        eth_calculate_domain(chain_id_t chain_id, uint64_t slot, bytes32_t d
 bool        c4_eth_verify_accounts(verify_ctx_t* ctx, ssz_ob_t accounts, bytes32_t state_root);
 bool        verify_block_proof_for_block(verify_ctx_t* ctx, ssz_ob_t block_proof, json_t block_number, bytes32_t execution_payload_root);
 bool        c4_eth_matches_blocknumber(verify_ctx_t* ctx, ssz_ob_t block, json_t req_block);
-bool        verify_block_receipts_proof_for(verify_ctx_t* ctx, ssz_ob_t receipts_proof);
+bool        verify_block_receipts_proof_for(verify_ctx_t* ctx, ssz_ob_t receipts_proof, bytes_t* el_header, bytes32_t block_hash);
 
 typedef struct evm_call_ctx evm_call_ctx_t;
 
