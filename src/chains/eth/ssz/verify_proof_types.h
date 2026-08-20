@@ -181,17 +181,18 @@ static const ssz_def_t ETH_BLOCK_PROOF_UNION[] = {
 // Represents one single transaction receipt with the required transaction and receipt-proof.
 // The proof contains the raw receipt as part of its last leaf.
 static const ssz_def_t ETH_LOGS_TX[] = {
-    SSZ_UINT32("transactionIndex"),                    // the index of the transaction in the block
-    SSZ_PROG_LIST("transactionProof", ssz_bytes_list), // the Patricia Merkle Proof of the transaction, the leaf contains the raw transaction.
-    SSZ_LIST("receiptProof", ssz_bytes_1024, 64),      // the Patricia Merkle Proof of the receipt, the leaf contains the raw receipt.
+    SSZ_UINT32("logIndex"),         // the logIndex within the block for the first event of the tx ( can only be verified with all previous receipts being contained in the proof, whioch ist not the case today)
+    SSZ_UINT32("transactionIndex"), // the index of the transaction in the block
 };
 static const ssz_def_t ETH_LOGS_TX_CONTAINER = SSZ_CONTAINER("LogsTx", ETH_LOGS_TX);
 
 // A single Block with its proof containing all the receipts or txs required to prove the logs.
 static const ssz_def_t ETH_LOGS_BLOCK[] = {
-    SSZ_UINT64("blockNumber"),                   // the execution block number
-    SSZ_LIST("txs", ETH_LOGS_TX_CONTAINER, 256), // the transactions of the block
-    SSZ_UNION("block", ETH_BLOCK_PROOF_UNION)    // the proof for the execution block containing the transaction
+    SSZ_UINT64("blockNumber"),                         // the execution block number
+    SSZ_PROG_LIST("transactionProof", ssz_bytes_list), // the Patricia Merkle Proof of the transaction, the leaf contains the raw transaction.
+    SSZ_PROG_LIST("receiptProof", ssz_bytes_1024),     // the Multi Patricia Merkle Proof of the receipt, the leaf contains the raw receipt.
+    SSZ_PROG_LIST("txs", ETH_LOGS_TX_CONTAINER),       // the transactions used by the resulting events
+    SSZ_UNION("block", ETH_BLOCK_PROOF_UNION)          // the proof for the execution block containing the transaction
 };
 
 static const ssz_def_t ETH_LOGS_BLOCK_CONTAINER = SSZ_CONTAINER("LogsBlock", ETH_LOGS_BLOCK);

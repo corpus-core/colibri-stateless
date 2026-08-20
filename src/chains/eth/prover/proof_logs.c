@@ -47,8 +47,7 @@ typedef struct proof_logs_tx {
   uint64_t              block_number;
   bytes32_t             tx_hash;
   uint32_t              tx_index;
-  ssz_ob_t              receipt_proof;
-  ssz_ob_t              tx_proof;
+  uint32_t              log_index;
   struct proof_logs_tx* next;
 } proof_logs_tx_t;
 
@@ -63,6 +62,8 @@ typedef struct proof_logs_block {
   beacon_block_t           beacon_block;
   bytes32_t                body_root;
   blockroot_proof_t        block_proof;
+  ssz_ob_t                 receipt_proof;
+  ssz_ob_t                 tx_proof;
 } proof_logs_block_t;
 
 typedef enum {
@@ -88,12 +89,12 @@ static inline uint32_t get_block_count(proof_logs_block_t* blocks) {
 static void free_blocks(proof_logs_block_t* blocks) {
   while (blocks) {
     while (blocks->txs) {
-      if (blocks->txs->receipt_proof.bytes.data) safe_free(blocks->txs->receipt_proof.bytes.data);
-      if (blocks->txs->tx_proof.bytes.data) safe_free(blocks->txs->tx_proof.bytes.data);
       proof_logs_tx_t* next = blocks->txs->next;
       safe_free(blocks->txs);
       blocks->txs = next;
     }
+    if (blocks->receipt_proof.bytes.data) safe_free(blocks->receipt_proof.bytes.data);
+    if (blocks->tx_proof.bytes.data) safe_free(blocks->tx_proof.bytes.data);
     if (blocks->proof.data) safe_free(blocks->proof.data);
     c4_free_block_proof(&blocks->block_proof);
     proof_logs_block_t* next = blocks->next;
@@ -221,14 +222,20 @@ static c4_status_t proof_block(prover_ctx_t* ctx, proof_logs_block_t* block) {
   TRACE_START(ctx, "create_receipt_proofs");
   TRACE_ADD_UINT64(ctx, "block", block->block_number);
   TRACE_ADD_UINT64(ctx, "tx_count", block->tx_count);
+  mpt_builder_t receipt_builder = {0};
+  mpt_builder_t tx_builder      = {0};
+  mpt_builder_init(&receipt_builder, receipt_root);
+  mpt_builder_init(&tx_builder, tx_root);
 
   proof_logs_tx_t* next_tx = NULL;
   for (proof_logs_tx_t* tx = block->txs; tx; tx = next_tx) {
-    bytes_t path      = c4_eth_create_tx_path(tx->tx_index, &buf);
-    next_tx           = tx->next;
-    tx->receipt_proof = patricia_create_merkle_proof(receipt_root, path);
-    tx->tx_proof      = patricia_create_merkle_proof(tx_root, path);
+    bytes_t path = c4_eth_create_tx_path(tx->tx_index, &buf);
+    next_tx      = tx->next;
+    mpt_builder_add_proof(&receipt_builder, path);
+    mpt_builder_add_proof(&tx_builder, path);
   }
+  block->receipt_proof = mpt_builder_finish(&receipt_builder);
+  block->tx_proof      = mpt_builder_finish(&tx_builder);
 
 #ifndef PROVER_CACHE
   patricia_node_free(receipt_root);
@@ -253,12 +260,14 @@ static c4_status_t serialize_log_proof(prover_ctx_t* ctx, proof_logs_block_t* bl
     ssz_builder_t tx_list   = ssz_builder_for_def(txs_def);
     for (proof_logs_tx_t* tx = block->txs; tx; tx = tx->next) {
       ssz_builder_t tx_ssz = ssz_builder_for_def(txs_def->def.vector.type);
-      ssz_add_uint32(&tx_ssz, tx->tx_index);
-      ssz_add_bytes(&tx_ssz, "transactionProof", tx->tx_proof.bytes);
-      ssz_add_bytes(&tx_ssz, "receiptProof", tx->receipt_proof.bytes);
+      // TODO: fill in the logIndex and gasUsed
+      ssz_add_uint32(&tx_ssz, tx->log_index); // logIndex
+      ssz_add_uint32(&tx_ssz, tx->tx_index);  // transactionIndex
       ssz_add_dynamic_list_builders(&tx_list, block->tx_count, tx_ssz);
     }
     ssz_add_uint64(&block_ssz, block->block_number);
+    ssz_add_bytes(&block_ssz, "transactionProof", block->tx_proof.bytes);
+    ssz_add_bytes(&block_ssz, "receiptProof", block->receipt_proof.bytes);
     ssz_add_builders(&block_ssz, "txs", tx_list);
     eth_add_block_proof(ctx, &block_ssz, &block->beacon_block, &block->block_proof);
 
