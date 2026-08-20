@@ -63,7 +63,7 @@ static c4_status_t create_eth_call_proof(prover_ctx_t* ctx, ssz_builder_t accoun
   TRY_ASYNC(c4_get_syncdata_proof(ctx, &historic_proof->sync, &sync_proof));
 
   ssz_add_builders(&eth_call_proof, "accounts", account_proofs);
-  ssz_add_builders(&eth_call_proof, "state_proof", eth_ssz_create_state_proof(ctx, block_number, block_data, historic_proof, true));
+  eth_add_block_proof(ctx, &eth_call_proof, block_data, historic_proof);
 
   ctx->proof = eth_create_proof_request(
       ctx->chain_id,

@@ -446,16 +446,6 @@ static const ssz_def_t ETH_STATE_BLOCK_UNION[] = {
     SSZ_CONTAINER("checkpoint_proof", ETH_STATE_CHECKPOINT_PROOF) // proof for `finalized` or `safe` checkpoints
 };
 
-// The stateRoot proof is used as part of different other types since it contains all relevant
-// proofs to validate the stateRoot of the execution layer.
-static const ssz_def_t ETH_STATE_PROOF[] = {
-    SSZ_UNION("block", ETH_STATE_BLOCK_UNION),        // the block to be proven
-    SSZ_LIST("proof", ssz_bytes32, 256),              // the merkle proof from the executionPayload.state down to the blockBodyRoot hash
-    SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),     // the header of the beacon block
-    SSZ_UNION("headerProof", ETH_HEADER_PROOFS_UNION) // the proof for the correctness of the header
-};
-static const ssz_def_t ETH_STATE_PROOF_CONTAINER = SSZ_CONTAINER("StateProof", ETH_STATE_PROOF);
-
 // Represents the storage proof of a key. The value can be taken from the last entry, which is the leaf of the proof.
 static const ssz_def_t ETH_STORAGE_PROOF[] = {
     SSZ_BYTES32("key"),                      // the key to be proven
@@ -469,7 +459,7 @@ static const ssz_def_t ETH_ACCOUNT_PROOF[] = {
     SSZ_LIST("accountProof", ssz_bytes_1024, 256),              // Patricia merkle proof
     SSZ_ADDRESS("address"),                                     // the address of the account
     SSZ_LIST("storageProof", ETH_STORAGE_PROOF_CONTAINER, 256), // the storage proofs of the selected
-    SSZ_CONTAINER("state_proof", ETH_STATE_PROOF)};             // the state proof of the account
+    SSZ_UNION("block", ETH_BLOCK_PROOF_UNION)};                 // the block proof of the account
 
 static const ssz_def_t ETH_CODE_UNION[] = {
     SSZ_BOOLEAN("code_used"),   // no code delivered
@@ -560,7 +550,7 @@ static const ssz_def_t ETH_CALL_ACCOUNT_CONTAINER = SSZ_CONTAINER("EthCallAccoun
 // The main proof data for a call.
 static const ssz_def_t ETH_CALL_PROOF[] = {
     SSZ_LIST("accounts", ETH_CALL_ACCOUNT_CONTAINER, 256), // used accounts
-    SSZ_CONTAINER("state_proof", ETH_STATE_PROOF)};        // the state proof of the account
+    SSZ_UNION("block", ETH_BLOCK_PROOF_UNION)};            // the block proof of the accounts
 
 // :: Sync Proof
 //

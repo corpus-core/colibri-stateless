@@ -565,8 +565,9 @@ static bool pap_verify_proof_response(verify_ctx_t* ctx, call_account_t* call_ac
     }
   }
   else {
-    ssz_ob_t state_proof = ssz_get(&proof_ctx.proof, "state_proof");
-    if (!eth_verify_state_proof(&proof_ctx, state_proof, state_root)) {
+    bytes_t   el_header  = {0};
+    bytes32_t block_hash = {0};
+    if (c4_verify_block(&proof_ctx, ssz_get(&proof_ctx.proof, "block"), &el_header, block_hash) != C4_SUCCESS) {
       if (proof_ctx.state.error)
         c4_state_add_error(&ctx->state, proof_ctx.state.error);
       else
@@ -597,10 +598,6 @@ static bool pap_verify_proof_response(verify_ctx_t* ctx, call_account_t* call_ac
       if (proof_ctx.state.error) c4_state_add_error(&ctx->state, proof_ctx.state.error);
       goto cleanup;
     }
-
-    c4_status_t hdr_status = c4_verify_header(ctx, ssz_get(&state_proof, "header"), state_proof);
-    if (hdr_status == C4_ERROR && !ctx->state.error) c4_state_add_error(&ctx->state, "header verification failed");
-    if (hdr_status != C4_SUCCESS) goto cleanup;
   }
 
   // Freshness gate for PAP: in PAP mode there is no usable proof when
@@ -795,12 +792,9 @@ bool verify_call_proof(verify_ctx_t* ctx) {
   if (!evm->accounts && has_proof) {
     ssz_ob_t accounts = ssz_get(&ctx->proof, "accounts");
     if (!c4_eth_verify_accounts(ctx, accounts, evm->state_root)) return false;
-
-    ssz_ob_t state_proof = ssz_get(&ctx->proof, "state_proof");
-    ssz_ob_t header      = ssz_get(&state_proof, "header");
-    if (!bytes_all_zero(bytes(evm->state_root, 32)) &&
-        (!eth_verify_state_proof(ctx, state_proof, evm->state_root) || c4_verify_header(ctx, header, state_proof) != C4_SUCCESS))
-      return false;
+    bytes_t   el_header  = {0};
+    bytes32_t block_hash = {0};
+    if (c4_verify_block(ctx, ssz_get(&ctx->proof, "block"), &el_header, block_hash) != C4_SUCCESS) return false;
     evm->accounts = call_accounts_from_ssz(accounts);
   }
   if (!prepare_evm_call(ctx, evm, has_overrides)) return false;
