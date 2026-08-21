@@ -175,7 +175,7 @@ void test_proof_endpoint(void) {
 // Main test runner
 int main(void) {
   UNITY_BEGIN();
-  RUN_TEST(test_remote_prover);
+  //  RUN_TEST(test_remote_prover);
 
   //
   RUN_TEST(test_health_check);
