@@ -55,7 +55,17 @@ extern "C" {
 // `get_by_hash`) return borrowed pointers that are only valid until the next cache
 // write; they are intended for the prover's hybrid flow, where the borrow is consumed
 // within the same request iteration (same semantics as the previous prover-local cache).
-// Poisoning is not possible since only verified data is written.
+//
+// Trust model:
+// - In-process writes via `c4_header_cache_put` only happen after verification, so
+//   entries populated this way are trust anchors.
+// - `c4_header_cache_load` reads back a snapshot from an (untrusted) storage backend.
+//   `el_header` / `block_hash` pairs are re-verified via `keccak(el_header) == block_hash`
+//   before insertion, so poisoning of headers requires a keccak preimage. The optional
+//   `body` payload is *not* cryptographically bound at load time; consumers that rely
+//   on `transactions` / `withdrawals` must treat them as an optimization hint and
+//   re-check the corresponding roots (`transactionsRoot`, `withdrawalsRoot`) before
+//   using them as authoritative data.
 
 #ifndef HEADER_CACHE_SIZE
 #define HEADER_CACHE_SIZE 256
@@ -154,6 +164,35 @@ bool c4_header_cache_latest_block_hash(chain_id_t chain_id, bytes32_t block_hash
  */
 void c4_header_cache_clear(void);
 
+/**
+ * Serializes all cached entries for `chain_id` and persists the snapshot via the
+ * configured `storage_plugin_t` under the key `headers_<chain_id>`.
+ *
+ * The serialization only preserves the payload fields (`block_number`, `block_hash`,
+ * `el_header` and — if present — the body reduced to its `transactions` and
+ * `withdrawals` lists). The LRU counter itself is not persisted; entries are
+ * written oldest-first so that a subsequent `c4_header_cache_load()` restores the
+ * relative order.
+ *
+ * No-op when no storage backend is configured or no entries exist for the chain.
+ *
+ * @param chain_id the chain whose entries should be persisted
+ */
+void c4_header_cache_save(chain_id_t chain_id);
+
+/**
+ * Loads a previously persisted snapshot for `chain_id` from the configured
+ * `storage_plugin_t` (key `headers_<chain_id>`) and populates the cache.
+ *
+ * Entries are inserted via `c4_header_cache_put()`, so existing entries with the
+ * same `(chain, block_number, block_hash)` are updated and LRU bookkeeping stays
+ * consistent. On any parse or validation failure the cache is left untouched.
+ *
+ * @param chain_id the chain to load
+ * @return true if a valid snapshot was found and at least the header was decoded
+ */
+bool c4_header_cache_load(chain_id_t chain_id);
+
 #else // !EL_HEADER_CACHE: no-op stubs so callers compile without the cache (embedded targets)
 
 static inline const verified_header_entry_t* c4_header_cache_get_by_number(chain_id_t chain_id, uint64_t block_number) {
@@ -190,6 +229,13 @@ static inline bool c4_header_cache_latest_block_hash(chain_id_t chain_id, bytes3
   return false;
 }
 static inline void c4_header_cache_clear(void) {}
+static inline void c4_header_cache_save(chain_id_t chain_id) {
+  (void) chain_id;
+}
+static inline bool c4_header_cache_load(chain_id_t chain_id) {
+  (void) chain_id;
+  return false;
+}
 
 #endif // EL_HEADER_CACHE
 

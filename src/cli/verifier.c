@@ -26,6 +26,7 @@
 #include "bytes.h"
 #include "config.h"
 #include "crypto.h"
+#include "header_cache.h"
 #include "logger.h"
 #include "plugin.h"
 #include "ssz.h"
@@ -298,6 +299,9 @@ int main(int argc, char* argv[]) {
   }
   buffer_add_chars(&args, "]");
   json_t default_config = json_parse(get_default_config(chain_name, &chain_id, NULL));
+#ifdef EL_HEADER_CACHE
+  c4_header_cache_load(chain_id);
+#endif
 
   if (prover_url)
     set_config("prover", prover_url);
@@ -416,6 +420,9 @@ int main(int argc, char* argv[]) {
     else
       fprintf(stderr, "revert data: (empty)\n");
     c4_rpc_ctx_free(ctx);
+#ifdef EL_HEADER_CACHE
+    c4_header_cache_save(chain_id);
+#endif
     return EXIT_FAILURE;
   }
 
@@ -437,6 +444,10 @@ int main(int argc, char* argv[]) {
       ssz_dump_to_file_no_quotes(stdout, ctx->verifier.data);
     fflush(stdout);
     c4_rpc_ctx_free(ctx);
+#ifdef EL_HEADER_CACHE
+    c4_header_cache_save(chain_id);
+#endif
+
     return EXIT_SUCCESS;
   }
 
