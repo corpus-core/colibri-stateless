@@ -534,7 +534,17 @@ cat >> "$GENERATED_TESTS_FILE" << 'EOF'
                     }
                 }
             } else if !request.url.isEmpty {
-                name = request.url
+                // Mirror `c4_req_mockname`: `proof/<method>/<block>/<version>/<zk|std>/<c4>`
+                // is compressed to `proof/<method>/<block>` so fixtures stay stable.
+                var url = request.url
+                if url.hasPrefix("proof/") {
+                    let rest = url.dropFirst("proof/".count)
+                    if let first = rest.firstIndex(of: "/"),
+                       let second = rest[rest.index(after: first)...].firstIndex(of: "/") {
+                        url = "proof/" + String(rest[..<second])
+                    }
+                }
+                name = url
             }
             
             // Sanitize filename (replace forbidden characters - same as JS)
@@ -602,6 +612,8 @@ cat >> "$GENERATED_TESTS_FILE" << 'EOF'
         // Only tests with remote_prover:true use a mock prover URL;
         // all others use an empty provers list to force local proof creation.
         colibri.provers = remoteProver ? ["http://mock-prover"] : []
+        // Recorded fixtures are older than the default 60s freshness window.
+        colibri.maxLatestAgeSeconds = 0
         
         // 🗄️ Register mock storage for this test (reads state/sync files from test directory)
         let mockStorage = MockFileStorage(testDirectory: testDirectory)
