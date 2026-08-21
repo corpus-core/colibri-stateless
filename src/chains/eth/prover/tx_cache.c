@@ -308,4 +308,38 @@ void c4_eth_tx_cache_visit_blocks(tx_cache_block_visitor_t visitor, void* user_d
     visitor(node->block_number, node->items, node->count, user_data);
 }
 
+#else
+
+void c4_eth_tx_cache_set(bytes32_t tx_hash, uint64_t block_number, uint32_t tx_index) {
+  (void) tx_hash;
+  (void) block_number;
+  (void) tx_index;
+}
+
+bool c4_eth_tx_cache_get(bytes32_t tx_hash, uint64_t* block_number, uint32_t* tx_index) {
+  (void) tx_hash;
+  (void) block_number;
+  (void) tx_index;
+  return false;
+}
+
+void c4_eth_tx_cache_reset(void) {}
+
+size_t c4_eth_tx_cache_size(void) { return 0; }
+
+void c4_eth_tx_cache_reserve(uint32_t number_of_entries_to_add) {
+  (void) number_of_entries_to_add;
+}
+
+void c4_eth_tx_cache_set_max_size(uint32_t max) { (void) max; }
+
+size_t c4_eth_tx_cache_capacity(void) { return 0; }
+
+uint32_t c4_eth_tx_cache_block_count(void) { return 0; }
+
+void c4_eth_tx_cache_visit_blocks(tx_cache_block_visitor_t visitor, void* user_data) {
+  (void) visitor;
+  (void) user_data;
+}
+
 #endif
