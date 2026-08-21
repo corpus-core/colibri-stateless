@@ -638,7 +638,6 @@ static c4_status_t backfill_cache(prover_ctx_t* ctx, log_cache_state_t* st) {
 
   // Re-validate preconditions: cache may have changed during async receipt fetch
   cache_start = g_cache.start_number;
-  cache_end   = g_cache.start_number + g_cache.blocks_count;
   if (st->backfill_from + st->backfill_count != cache_start ||
       st->backfill_count > g_cache.blocks_limit - g_cache.blocks_count)
     THROW_ERROR_WITH("logs_cache: cache changed during backfill (expected start %l, got %l)", st->backfill_from + st->backfill_count, cache_start);

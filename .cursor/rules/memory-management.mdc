@@ -19,12 +19,14 @@ Always use safe allocation wrappers (defined in `src/util/bytes.h`). They abort 
 Use Clang static analyzer annotations for ownership tracking:
 
 - `M_RET` -- function returns newly allocated memory (caller owns it)
-- `M_TAKE(n)` -- function takes ownership of parameter n (will free it)
 
 ```c
-prover_ctx_t* c4_prover_create(...) M_RET;     // Caller must free
-void c4_prover_free(prover_ctx_t* ctx) M_TAKE(1); // Takes ownership
+prover_ctx_t* c4_prover_create(...) M_RET; // Caller must free
 ```
+
+Do not use `ownership_takes` / `M_TAKE`: the clang malloc checker treats it as
+an immediate free and reports false use-after-free when the callee only holds
+the pointer (cache, request lists).
 
 ## bytes_t (Fat Pointer)
 

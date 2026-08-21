@@ -33,7 +33,7 @@ You MUST enforce these project-specific conventions:
 - Use `safe_malloc()`, `safe_calloc()`, `safe_realloc()` (abort on OOM).
 - Use `safe_free()` for deallocation.
 - `buffer_t` for growable buffers. `allocated > 0` = heap; `allocated < 0` = fixed/stack.
-- Ownership annotations: `M_RET` (returns allocated memory), `M_TAKE(n)` (takes ownership of param n).
+- Ownership annotations: `M_RET` (returns allocated memory).
 
 ### Error Handling
 

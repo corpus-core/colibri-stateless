@@ -379,7 +379,7 @@ bool c4_state_retry_after(data_request_t* req, uint32_t delay_ms, uint16_t max_r
  * @param state Pointer to the state object
  * @param data_request Pointer to the request to add (ownership transfers to state)
  */
-void c4_state_add_request(c4_state_t* state, data_request_t* data_request) M_TAKE(2);
+void c4_state_add_request(c4_state_t* state, data_request_t* data_request);
 
 /**
  * Gets the first pending request from the state.
