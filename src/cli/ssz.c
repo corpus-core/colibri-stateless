@@ -26,6 +26,7 @@
 #include "bytes.h"
 #include "chains.h"
 #include "crypto.h"
+#include "header_cache.h"
 #include "pap_tx_cache_types.h"
 #include "verify.h"
 #include "version.h"
@@ -44,6 +45,7 @@ const ssz_def_t* get_definition(char* typename, chain_id_t chain_id) {
   if (strcmp(typename, "zk5") == 0) return eth_ssz_verification_type(ETH_SSZ_VERIFY_ZK_SYNCDATA);   // legacy SP1 v5 ZKSyncData (260-byte proof)
   if (strcmp(typename, "txcache") == 0) return &PAP_TX_CACHE_SNAPSHOT;
   if (strcmp(typename, "txpending") == 0) return &PAP_PENDING_TX_LIST;
+  if (strcmp(typename, "headers") == 0) return c4_header_cache_snapshot_def();
   fprintf(stderr, "Unknown type : %s \n", typename);
   exit(EXIT_FAILURE);
 }

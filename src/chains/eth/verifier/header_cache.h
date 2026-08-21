@@ -193,6 +193,15 @@ void c4_header_cache_save(chain_id_t chain_id);
  */
 bool c4_header_cache_load(chain_id_t chain_id);
 
+/**
+ * Returns the SSZ definition of the persisted snapshot list (`HEADER_CACHE_SNAPSHOT`).
+ * Useful for CLI / debug tools that want to decode a `headers_<chain_id>` blob
+ * without duplicating the (private) type definition. Never NULL.
+ *
+ * @return pointer to the snapshot SSZ definition (owned by the header cache)
+ */
+const ssz_def_t* c4_header_cache_snapshot_def(void);
+
 #else // !EL_HEADER_CACHE: no-op stubs so callers compile without the cache (embedded targets)
 
 static inline const verified_header_entry_t* c4_header_cache_get_by_number(chain_id_t chain_id, uint64_t block_number) {
@@ -235,6 +244,9 @@ static inline void c4_header_cache_save(chain_id_t chain_id) {
 static inline bool c4_header_cache_load(chain_id_t chain_id) {
   (void) chain_id;
   return false;
+}
+static inline const ssz_def_t* c4_header_cache_snapshot_def(void) {
+  return NULL;
 }
 
 #endif // EL_HEADER_CACHE

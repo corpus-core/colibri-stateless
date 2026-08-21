@@ -74,7 +74,8 @@ typedef enum {
   // (28 was ETH_SSZ_VERIFY_BLOCK_HEADER_PROOF: header-only proofs now use
   //  ETH_SSZ_VERIFY_BLOCK_PROOF with the NONE variant of ETH_BLOCK_BODY_UNION)
   ETH_SSZ_DATA_BLOCK_HEADER       = 29,
-  ETH_SSZ_DATA_CALL_BLOCK_CONTEXT = 30,
+  // 30 was ETH_SSZ_DATA_CALL_BLOCK_CONTEXT (compact EVM header via SSZ multi-proof;
+  // eth_call now reads block context from the verified RLP EL header)
 
   ETH_SSZ_VERIFY_BLOCK_RECEIPTS_PROOF = 31,
   ETH_SSZ_DATA_BLOCK_RECEIPTS         = 32,
@@ -88,10 +89,8 @@ typedef enum {
   // a CheckpointProof SSZ blob using the same definition the verifier reads.
   ETH_SSZ_VERIFY_CHECKPOINT_PROOF = 43,
 
-  // Resolves to the `timestamp` variant of `ETH_STATE_BLOCK_UNION` (UINT64). Used
-  // by the verifier to distinguish the new account-`latest` freshness leaf from
-  // the `blockNumber` variant (both are 8 bytes long).
-  ETH_SSZ_DATA_STATE_BLOCK_TIMESTAMP = 44,
+  // 44 was ETH_SSZ_DATA_STATE_BLOCK_TIMESTAMP (timestamp-only variant of the
+  // removed ETH_STATE_BLOCK_UNION; freshness now reads timestamp from the RLP EL header)
 
   // `C4_ETH_REQUEST_SYNCDATA_UNION` variants (named to avoid raw pointer arithmetic
   // on the union array at the call sites).

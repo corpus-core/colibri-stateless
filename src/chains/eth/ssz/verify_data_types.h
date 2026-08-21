@@ -178,7 +178,8 @@ static const ssz_def_t ETH_BLOCK_DATA_TRANSACTION_UNION[] = {
 
 // :: Block Proof
 
-// Display the block data, which is based on the execution payload
+// Display the block data reconstructed from the verified RLP execution header
+// (and, for full-block methods, the proven transactions / withdrawals).
 static const ssz_def_t ETH_BLOCK_DATA[] = {
     SSZ_OPT_MASK("_optmask", 4),
     SSZ_UINT64("number"),                                        // the blocknumber
@@ -209,7 +210,7 @@ static const ssz_def_t ETH_BLOCK_DATA[] = {
 
 };
 
-// Compact block header data containing selected fields from the ExecutionPayload.
+// Compact block header data reconstructed from the verified RLP execution header.
 // Used by eth_getBlockHeader, eth_gasPrice, eth_blobBaseFee, eth_maxPriorityFeePerGas,
 // and as a lightweight verified header cache for eth_call privacy mode and log filters.
 static const ssz_def_t ETH_BLOCK_HEADER_DATA[] = {

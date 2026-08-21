@@ -22,6 +22,7 @@
  */
 
 #include "../../bindings/colibri_common.h"
+#include "beacon.h"
 #include "beacon_types.h"
 #include "bytes.h"
 #include "config.h"
@@ -301,6 +302,7 @@ int main(int argc, char* argv[]) {
   json_t default_config = json_parse(get_default_config(chain_name, &chain_id, NULL));
 #ifdef EL_HEADER_CACHE
   c4_header_cache_load(chain_id);
+  c4_prover_header_tags_load(chain_id);
 #endif
 
   if (prover_url)
@@ -422,6 +424,7 @@ int main(int argc, char* argv[]) {
     c4_rpc_ctx_free(ctx);
 #ifdef EL_HEADER_CACHE
     c4_header_cache_save(chain_id);
+    c4_prover_header_tags_save(chain_id);
 #endif
     return EXIT_FAILURE;
   }
@@ -446,6 +449,7 @@ int main(int argc, char* argv[]) {
     c4_rpc_ctx_free(ctx);
 #ifdef EL_HEADER_CACHE
     c4_header_cache_save(chain_id);
+    c4_prover_header_tags_save(chain_id);
 #endif
 
     return EXIT_SUCCESS;

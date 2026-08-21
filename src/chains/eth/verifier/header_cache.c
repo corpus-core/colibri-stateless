@@ -333,6 +333,10 @@ void c4_header_cache_save(chain_id_t chain_id) {
   safe_free(snapshot.bytes.data);
 }
 
+const ssz_def_t* c4_header_cache_snapshot_def(void) {
+  return &HEADER_CACHE_SNAPSHOT;
+}
+
 bool c4_header_cache_load(chain_id_t chain_id) {
   storage_plugin_t plugin = {0};
   c4_get_storage_config(&plugin);

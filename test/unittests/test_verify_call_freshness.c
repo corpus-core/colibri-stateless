@@ -258,13 +258,12 @@ void test_freshness_pap_disabled_passes(void) {
                      EXPECT_SUCCESS);
 }
 
-// :: Account methods (timestamp union variant)
+// :: Account methods (EL header timestamp)
 //
 // `eth_getBalance`, `eth_getCode` (via getBalance flow), `eth_getStorageAt`,
 // `eth_getTransactionCount` and `eth_getProof` all share the
-// `verify_account_proof` path. For non-pinned tags the prover (>= 1.1.27)
-// emits the `timestamp` variant of `ETH_STATE_BLOCK_UNION` so the verifier
-// can run the freshness gate without a full block-context multi-proof.
+// `verify_account_proof` path. Freshness is taken from the verified RLP EL header
+// (`timestamp` field), which is always present after `c4_verify_block`.
 // We only assert the stale-path for each method (fresh-path is implicitly
 // covered by the existing `test_eth_verify_*` integration tests, which run
 // with `min_latest_block_ts == 0`).

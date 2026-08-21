@@ -67,55 +67,6 @@ uint8_t* c4_eth_tx_cachekey(bytes32_t target, bytes32_t blockhash) {
 }
 #endif
 
-// Union variant selectors for ETH_STATE_BLOCK_UNION (see verify_proof_types.h).
-#define ETH_STATE_BLOCK_UNION_NONE         0
-#define ETH_STATE_BLOCK_UNION_BLOCKHASH    1
-#define ETH_STATE_BLOCK_UNION_BLOCKNUMBER  2
-#define ETH_STATE_BLOCK_UNION_BLOCKCONTEXT 3
-#define ETH_STATE_BLOCK_UNION_TIMESTAMP    4
-
-static void ssz_add_block_proof(ssz_builder_t* builder, beacon_block_t* block_data, gindex_t block_index, bool use_block_context, bool use_timestamp) {
-  if (use_block_context) {
-    ssz_builder_t bc   = ssz_builder_for_type(ETH_SSZ_DATA_CALL_BLOCK_CONTEXT);
-    ssz_ob_t      exec = block_data->execution;
-    ssz_add_bytes(&bc, "blockNumber", ssz_get(&exec, "blockNumber").bytes);
-    ssz_add_bytes(&bc, "timestamp", ssz_get(&exec, "timestamp").bytes);
-    ssz_add_bytes(&bc, "coinbase", ssz_get(&exec, "feeRecipient").bytes);
-    ssz_add_bytes(&bc, "prevRandao", ssz_get(&exec, "prevRandao").bytes);
-    ssz_add_bytes(&bc, "baseFeePerGas", ssz_get(&exec, "baseFeePerGas").bytes);
-    ssz_add_bytes(&bc, "blockHash", ssz_get(&exec, "blockHash").bytes);
-    ssz_add_bytes(&bc, "gasLimit", ssz_get(&exec, "gasLimit").bytes);
-    ssz_add_bytes(&bc, "excessBlobGas", ssz_get(&exec, "excessBlobGas").bytes);
-    ssz_add_builders(builder, "block", bc);
-    return;
-  }
-
-  if (use_timestamp) {
-    // Timestamp-only variant for account `latest` freshness gate. The verifier
-    // proves {stateRoot, timestamp} against the body root in one multi-proof,
-    // so the block payload here only carries the timestamp leaf (8 bytes LE).
-    uint8_t buffer[9] = {0};
-    buffer[0]         = ETH_STATE_BLOCK_UNION_TIMESTAMP;
-    memcpy(buffer + 1, ssz_get(&block_data->execution, "timestamp").bytes.data, 8);
-    ssz_add_bytes(builder, "block", bytes(buffer, 9));
-    return;
-  }
-
-  uint8_t  buffer[33] = {0};
-  uint32_t l          = 1;
-  if (block_index == GINDEX_BLOCHASH) {
-    l         = 33;
-    buffer[0] = ETH_STATE_BLOCK_UNION_BLOCKHASH;
-    memcpy(buffer + 1, ssz_get(&block_data->execution, "blockHash").bytes.data, 32);
-  }
-  else if (block_index == GINDEX_BLOCKUMBER) {
-    l         = 9;
-    buffer[0] = ETH_STATE_BLOCK_UNION_BLOCKNUMBER;
-    memcpy(buffer + 1, ssz_get(&block_data->execution, "blockNumber").bytes.data, 8);
-  }
-  ssz_add_bytes(builder, "block", bytes(buffer, l));
-}
-
 void eth_add_block_proof(prover_ctx_t* ctx, ssz_builder_t* builder, beacon_block_t* block_data, blockroot_proof_t* historic_block_proof) {
   // the blockHash-only variant is safe whenever the verifier already holds the verified
   // header: either the client advertised it as its last verified block (remote mode) or

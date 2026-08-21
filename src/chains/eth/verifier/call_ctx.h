@@ -152,7 +152,7 @@ typedef struct evmone_context {
   bool                   storage_miss;
 } evmone_context_t;
 
-/** Block context extracted from call proof when state_proof.block is the blockContext union variant (selector 3). */
+/** Block context extracted from the verified RLP execution header of a call proof. */
 typedef struct eth_call_block_context {
   uint64_t  block_number;
   uint64_t  timestamp;
@@ -167,9 +167,9 @@ typedef struct eth_call_block_context {
 /**
  * Extracts the block context from a call/estimate/simulate proof.
  *
- * Handles both hybrid call proofs (`header_data`) and standard proofs
- * (`state_proof.block` blockContext union variant). Returns `false` when
- * no block context is available (e.g. PAP-only proof or legacy format),
+ * Handles both a previously verified `el_header` on the call context and a
+ * `block` field of `ETH_BLOCK_PROOF_UNION` (verified via `c4_verify_block`).
+ * Returns `false` when no block context is available (e.g. PAP-only proof),
  * in which case `out` is left untouched.
  *
  * @param ctx verification context (must have `proof` set)
@@ -236,9 +236,8 @@ void context_apply(evmone_context_t* ctx);
  * extracted from the verification context.
  *
  * Populates `block_number`, `timestamp`, `block_coinbase`, `block_prev_randao`,
- * `block_base_fee`, `blob_base_fee`, and `block_gas_limit` from the call proof's
- * state_proof (when using `ETH_CALL_STATE_PROOF`) or leaves them at zero/defaults
- * for PAP mode.
+ * `block_base_fee`, `blob_base_fee`, and `block_gas_limit` from the verified
+ * RLP execution header, or leaves them at zero/defaults for PAP mode.
  *
  * @param out      context to initialize (zeroed by caller)
  * @param ctx      verification context

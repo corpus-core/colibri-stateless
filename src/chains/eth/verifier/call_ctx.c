@@ -442,7 +442,7 @@ void init_evmone_context(evmone_context_t* out, verify_ctx_t* ctx, evm_call_ctx_
   out->capture_events  = capture_events;
   out->pap_mode        = evm->pap_mode;
 
-  // extract block context from state_proof.block when union selector is 3 (blockContext)
+  // extract EVM block context from the verified RLP EL header (via ETH_BLOCK_PROOF_UNION)
   eth_call_block_context_t bctx = {0};
   if (eth_get_call_block_context_from_proof(ctx, &bctx)) {
     out->block_number    = bctx.block_number;
