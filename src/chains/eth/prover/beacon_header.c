@@ -297,8 +297,9 @@ c4_status_t c4_hybrid_get_block_for_eth(prover_ctx_t* ctx, json_t block, beacon_
 #ifdef PROVER_CACHE
   // check local cache first
   local_cache_entry_t* local = c4_prover_cache_get_local(ctx, cache_key);
-  if (local)
+  if (local && (!with_body || local->el_body.def))
     return create_beacon_block(ctx, beacon_block, local);
+
 #endif
 
   // now check header_cache
