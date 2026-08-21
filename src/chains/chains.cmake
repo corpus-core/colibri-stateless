@@ -320,8 +320,12 @@ function(generate_provers_header)
             endif()
         endif()
     endforeach()
+    # Expire every idle global-cache entry. `now = UINT64_MAX` makes
+    # `timestamp < now` true for all stored expiry times. A huge
+    # `extra_size` would NOT empty the cache: cleanup clamps it back to
+    # `global_cache_max_size` and then only evicts on overflow.
     file(APPEND ${PROVERS_H} "#ifdef PROVER_CACHE\n")
-    file(APPEND ${PROVERS_H} "  c4_prover_cache_clear();\n")
+    file(APPEND ${PROVERS_H} "  c4_prover_cache_cleanup(0xffffffffffffffffULL, 0);\n")
     file(APPEND ${PROVERS_H} "#endif\n")
     file(APPEND ${PROVERS_H} "}\n\n")
 

@@ -181,35 +181,6 @@ void c4_prover_cache_stats(uint64_t* entries, uint64_t* size, uint64_t* max_size
   *capacity = (uint64_t) global_cache_array.capacity;
 }
 
-void c4_prover_cache_clear(void) {
-  if (!global_cache_array.entries || global_cache_array.count == 0) return;
-
-  size_t   write_index = 0;
-  uint64_t kept_size   = 0;
-  for (size_t i = 0; i < global_cache_array.count; ++i) {
-    cache_entry_t* entry = &global_cache_array.entries[i];
-    // Live prover contexts share `value` with the global slot (`use_counter`).
-    // Freeing those pointers would be UAF on the next local-cache hit.
-    if (entry->use_counter > 0) {
-      log_warn("c4_prover_cache_clear: keeping in-use entry %b (use_counter=%d)",
-               bytes(entry->key.bytes32, 32), (uint32_t) entry->use_counter);
-      if (write_index < i)
-        global_cache_array.entries[write_index] = global_cache_array.entries[i];
-      kept_size += global_cache_array.entries[write_index].size;
-      write_index++;
-      continue;
-    }
-    if (entry->free && entry->value)
-      entry->free(entry->value);
-    entry->value       = NULL;
-    entry->free        = NULL;
-    entry->use_counter = 0;
-    entry->timestamp   = 0;
-  }
-  global_cache_array.count        = write_index;
-  global_cache_array.current_size = kept_size;
-}
-
 void c4_prover_cache_cleanup(uint64_t now, uint64_t extra_size) {
   if (!global_cache_array.entries || global_cache_array.count == 0) return; // Nothing to clean
 

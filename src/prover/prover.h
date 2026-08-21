@@ -238,16 +238,6 @@ void c4_prover_cache_set(prover_ctx_t* ctx, bytes32_t key, void* value, uint32_t
 void c4_prover_cache_cleanup(uint64_t now, uint64_t extra_size);
 
 /**
- * Drops idle entries from the global prover cache.
- *
- * Entries with `use_counter > 0` are kept: their `value` is shared with
- * living `prover_ctx_t` local caches, and freeing them would be
- * use-after-free. Call only when no prover context is executing (typical
- * fixture `setUp`); the function is not thread-safe.
- */
-void c4_prover_cache_clear(void);
-
-/**
  * Invalidate a cache entry by key (marks as expired).
  * @param key 32-byte cache key to invalidate
  */
