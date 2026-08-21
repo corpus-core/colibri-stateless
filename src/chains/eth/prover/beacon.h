@@ -157,6 +157,31 @@ ssz_ob_t c4_build_header_data_from_execution(ssz_ob_t execution);
  */
 c4_status_t c4_hybrid_ensure_el_header(prover_ctx_t* ctx, ssz_ob_t execution);
 
+/**
+ * Persists the process-global tag → block-hash cache (`latest` / `safe` / `finalized`)
+ * via the configured `storage_plugin_t` under the key `header_tags_<chain_id>`.
+ * The payload is the raw bytes of the tag cache array (fixed size), so the
+ * consumer must be built with a matching layout. In-flight sentinels
+ * (`fetching_since_ms`, `fetching_ctx`) are dropped on save because they are
+ * only meaningful within a single process.
+ *
+ * No-op when no storage backend is configured.
+ *
+ * @param chain_id the chain whose tag cache should be persisted
+ */
+void c4_prover_header_tags_save(chain_id_t chain_id);
+
+/**
+ * Restores the tag cache from persistent storage (key `header_tags_<chain_id>`).
+ * Rejects payloads that do not match the expected fixed size. In-flight
+ * sentinels are always cleared on load so the fresh process starts without
+ * any stale "fetching" state.
+ *
+ * @param chain_id the chain to load
+ * @return true if a valid payload was found and applied
+ */
+bool c4_prover_header_tags_load(chain_id_t chain_id);
+
 // creates a new header with the body_root passed and returns the ssz_builder_t, which must be freed
 ssz_builder_t c4_proof_add_header(ssz_ob_t header, bytes32_t body_root);
 

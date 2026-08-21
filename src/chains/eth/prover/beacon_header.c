@@ -27,6 +27,7 @@
 #include "el_header.h"
 #include "eth_req.h"
 #include "json.h"
+#include "plugin.h"
 #include "prover.h"
 #include "prover_cache_url.h"
 #include "verify.h"
@@ -82,6 +83,63 @@ typedef struct {
 } tag_cache_entry_t;
 
 static tag_cache_entry_t g_header_tags[HEADER_TAG_COUNT] = {0};
+
+// -- Persistence for the tag cache --
+//
+// The tag cache is currently a single process-global array (not chain-keyed),
+// which is fine for the CLI where each invocation targets exactly one chain.
+// We persist per-chain nonetheless so a shared cache directory can hold
+// snapshots for multiple chains side by side.
+
+#define HEADER_TAGS_BLOB_SIZE (sizeof(g_header_tags))
+
+static void header_tags_storage_key(chain_id_t chain_id, char* buf, size_t buf_len) {
+  buffer_t b = (buffer_t) {.data = bytes((uint8_t*) buf, 0), .allocated = -(int32_t) buf_len};
+  bprintf(&b, "header_tags_%l", (uint64_t) chain_id);
+}
+
+void c4_prover_header_tags_save(chain_id_t chain_id) {
+  storage_plugin_t plugin = {0};
+  c4_get_storage_config(&plugin);
+  if (!plugin.set) return;
+
+  // Copy so we can strip the in-flight sentinels without touching the live
+  // array (which the current process still uses).
+  tag_cache_entry_t snapshot[HEADER_TAG_COUNT];
+  memcpy(snapshot, g_header_tags, sizeof(snapshot));
+  for (uint32_t i = 0; i < HEADER_TAG_COUNT; i++) {
+    snapshot[i].fetching_since_ms = 0;
+    snapshot[i].fetching_ctx      = 0;
+  }
+
+  char key[64] = {0};
+  header_tags_storage_key(chain_id, key, sizeof(key));
+  plugin.set(key, bytes((uint8_t*) snapshot, (uint32_t) sizeof(snapshot)));
+}
+
+bool c4_prover_header_tags_load(chain_id_t chain_id) {
+  storage_plugin_t plugin = {0};
+  c4_get_storage_config(&plugin);
+  if (!plugin.get) return false;
+
+  char key[64] = {0};
+  header_tags_storage_key(chain_id, key, sizeof(key));
+  buffer_t buf = {0};
+  if (!plugin.get(key, &buf) || buf.data.len != HEADER_TAGS_BLOB_SIZE) {
+    buffer_free(&buf);
+    return false;
+  }
+
+  memcpy(g_header_tags, buf.data.data, HEADER_TAGS_BLOB_SIZE);
+  // Sentinels only make sense within the process that set them; a fresh run
+  // must never inherit an "already fetching" state from a previous invocation.
+  for (uint32_t i = 0; i < HEADER_TAG_COUNT; i++) {
+    g_header_tags[i].fetching_since_ms = 0;
+    g_header_tags[i].fetching_ctx      = 0;
+  }
+  buffer_free(&buf);
+  return true;
+}
 
 // -- Tag TTL Calculation --
 
@@ -351,7 +409,7 @@ c4_status_t c4_hybrid_get_block_for_eth(prover_ctx_t* ctx, json_t block, beacon_
   block_number = eth_el_header_get_uint64(el_header, EL_BLOCK_NUMBER);
   keccak(el_header, result.block_hash);
   c4_header_cache_put(ctx->chain_id, block_number, result.block_hash, el_header, with_body ? &result.el_body : NULL);
-  if (tag < HEADER_TAG_COUNT && !bytes_all_zero(bytes(block_hash, 32))) {
+  if (tag < HEADER_TAG_COUNT && !bytes_all_zero(bytes(result.block_hash, 32))) {
     memcpy(g_header_tags[tag].block_hash, result.block_hash, 32);
     g_header_tags[tag].cached_at_ms      = current_ms();
     g_header_tags[tag].fetching_since_ms = 0;
