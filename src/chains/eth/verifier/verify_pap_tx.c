@@ -26,6 +26,7 @@
 #include "beacon_types.h"
 #include "bytes.h"
 #include "crypto.h"
+#include "el_header.h"
 #include "eth_tx.h"
 #include "eth_verify.h"
 #include "json.h"
@@ -122,20 +123,21 @@ static bool extract_tx_from_block_proof(verify_ctx_t* ctx, ssz_ob_t proof_req,
                                         json_t          req_block,
                                         uint32_t        target_tx_index,
                                         const bytes32_t expected_tx_hash) {
-  ssz_ob_t block_proof = ssz_get(&proof_req, "proof");
+  ssz_ob_t  block_proof   = ssz_get(&proof_req, "proof");
+  bytes_t   el_header     = {0};
+  bytes32_t el_block_hash = {0};
 
 #ifdef ETH_BLOCK
   ctx->sync_data = ssz_get(&proof_req, "sync_data");
   if (c4_update_from_sync_data(ctx) != C4_SUCCESS) return false;
-  if (!verify_block_proof_for_block(ctx, block_proof, req_block, NULL))
-    return false;
 #else
   RETURN_VERIFY_ERROR(ctx, "PAP: block proof verification requires ETH_BLOCK");
 #endif
 
-  ssz_ob_t exec_payload = ssz_get(&block_proof, "executionPayload");
-  ssz_ob_t txs          = ssz_get(&exec_payload, "transactions");
-  uint32_t num_txs      = ssz_len(txs);
+  if (c4_verify_block(ctx, ssz_get(&block_proof, "block"), &el_header, el_block_hash) != C4_SUCCESS) return false;
+  ssz_ob_t body    = ssz_get(&block_proof, "body");
+  ssz_ob_t txs     = ssz_get(&body, "transactions");
+  uint32_t num_txs = ssz_len(txs);
   if (target_tx_index >= num_txs)
     RETURN_VERIFY_ERROR(ctx, "PAP: transaction index out of range");
 
@@ -146,11 +148,11 @@ static bool extract_tx_from_block_proof(verify_ctx_t* ctx, ssz_ob_t proof_req,
   if (expected_tx_hash && memcmp(tx_hash_computed, expected_tx_hash, 32) != 0)
     RETURN_VERIFY_ERROR(ctx, "PAP: extracted tx hash does not match requested hash");
 
-  uint64_t      block_number = ssz_get_uint64(&exec_payload, "blockNumber");
-  uint64_t      base_fee     = ssz_get_uint64(&exec_payload, "baseFeePerGas");
+  uint64_t      block_number = eth_el_header_get_uint64(el_header, EL_BLOCK_NUMBER);
+  uint64_t      base_fee     = eth_el_header_get_uint64(el_header, EL_BASE_FEE_PER_GAS);
   ssz_builder_t tx_data      = ssz_builder_for_type(ETH_SSZ_DATA_TX);
   if (!c4_write_tx_data_from_raw(ctx, &tx_data, raw_tx, tx_hash_computed,
-                                 ssz_get(&exec_payload, "blockHash").bytes.data,
+                                 el_block_hash,
                                  block_number, target_tx_index, base_fee)) {
     buffer_free(&tx_data.dynamic);
     buffer_free(&tx_data.fixed);
@@ -217,8 +219,6 @@ static bool get_tx_index_and_block(verify_ctx_t* ctx, bytes32_t requested_hash, 
 }
 
 static bool pap_tx_receipt(verify_ctx_t* ctx) {
-  bytes_t   el_header      = {0};
-  bytes32_t block_hash     = {0};
   bytes32_t requested_hash = {0};
   buffer_t  hbuf           = stack_buffer(requested_hash);
   bytes_t   h              = json_as_bytes(json_at(ctx->args, 0), &hbuf);
@@ -226,6 +226,8 @@ static bool pap_tx_receipt(verify_ctx_t* ctx) {
   buffer_t  buf            = stack_buffer(tmp);
   uint64_t  block_number   = 0;
   uint32_t  tx_index       = 0;
+  bytes_t   el_header      = {0};
+  bytes32_t el_block_hash  = {0};
   ssz_ob_t  proof;
 
   if (h.len != 32) RETURN_VERIFY_ERROR(ctx, "PAP: invalid transaction hash");
@@ -235,24 +237,22 @@ static bool pap_tx_receipt(verify_ctx_t* ctx) {
   if (pap_request_proof(ctx, "eth_getBlockReceipts", bprintf(&buf, "[\"0x%lx\"]", block_number), &proof) != C4_SUCCESS)
     return false;
 
-  ctx->sync_data         = ssz_get(&proof, "sync_data");
   ssz_ob_t receipt_proof = ssz_get(&proof, "proof");
-  ssz_ob_t receipts      = ssz_get(&receipt_proof, "receipts");
-  ssz_ob_t transactions  = ssz_get(&receipt_proof, "transactions");
-  ssz_ob_t header        = strcmp(receipt_proof.def->name, "HybridBlockReceiptsProof") == 0 ? ssz_get(&receipt_proof, "header_data") : receipt_proof;
-  //  ssz_ob_t block_hash      = ssz_get(&header, "blockHash");
-  uint64_t blk_num         = ssz_get_uint64(&header, "blockNumber");
-  uint64_t base_fee        = ssz_get_uint64(&header, "baseFeePerGas");
-  uint32_t num_receipts    = ssz_len(ssz_get(&receipt_proof, "receipts"));
-  uint64_t prev_cumulative = 0;
-  uint32_t next_log_index  = 0;
-  if (tx_index > num_receipts) RETURN_VERIFY_ERROR(ctx, "PAP: invalid transaction index");
+  ctx->sync_data         = ssz_get(&proof, "sync_data");
   if (c4_update_from_sync_data(ctx) != C4_SUCCESS) return false;
 #ifdef ETH_RECEIPT
-  if (!verify_block_receipts_proof_for(ctx, receipt_proof, &el_header, block_hash)) return false;
+  if (!verify_block_receipts_proof_for(ctx, receipt_proof, &el_header, el_block_hash)) return false;
 #else
   RETURN_VERIFY_ERROR(ctx, "PAP: ETH_RECEIPT is not enabled");
 #endif
+  ssz_ob_t receipts        = ssz_get(&receipt_proof, "receipts");
+  ssz_ob_t transactions    = ssz_get(&receipt_proof, "transactions");
+  uint64_t blk_num         = eth_el_header_get_uint64(el_header, EL_BLOCK_NUMBER);
+  uint64_t base_fee        = eth_el_header_get_uint64(el_header, EL_BASE_FEE_PER_GAS);
+  uint32_t num_receipts    = ssz_len(receipts);
+  uint64_t prev_cumulative = 0;
+  uint32_t next_log_index  = 0;
+  if (tx_index > num_receipts) RETURN_VERIFY_ERROR(ctx, "PAP: invalid transaction index");
 
   ssz_builder_t builder = ssz_builder_for_def(eth_ssz_verification_type(ETH_SSZ_DATA_RECEIPT));
   for (uint32_t i = 0; i <= tx_index; i++) {
@@ -260,7 +260,7 @@ static bool pap_tx_receipt(verify_ctx_t* ctx) {
     buffer_reset(&builder.fixed);
     bytes_t raw_tx      = ssz_at(transactions, i).bytes;
     bytes_t raw_receipt = ssz_at(receipts, i).bytes;
-    if (!c4_write_receipt_data_from_raw(ctx, &builder, raw_tx, raw_receipt, block_hash, blk_num, i, base_fee, &prev_cumulative, &next_log_index))
+    if (!c4_write_receipt_data_from_raw(ctx, &builder, raw_tx, raw_receipt, el_block_hash, blk_num, i, base_fee, &prev_cumulative, &next_log_index))
       RETURN_VERIFY_ERROR(ctx, "invalid receipt data from RLP!");
   }
 

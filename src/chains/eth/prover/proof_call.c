@@ -23,6 +23,7 @@
 
 #include "beacon.h"
 #include "beacon_types.h"
+#include "el_header.h"
 #include "eth_account.h"
 #include "eth_req.h"
 #include "eth_tools.h"
@@ -311,8 +312,8 @@ c4_status_t c4_proof_call(prover_ctx_t* ctx) {
 
   TRY_ASYNC_CATCH(c4_beacon_get_block_for_eth(ctx, block_number, &block), eth_state_overrides_free(&overrides_parsed)); // get the beacon-block matching the block-tag (usually cached)
 
-  uint64_t target_block = ssz_get_uint64(&block.execution, "blockNumber");
-  bytes_t  miner        = ssz_get(&block.execution, "feeRecipient").bytes;
+  uint64_t target_block = eth_el_header_get_uint64(block.el_header, EL_BLOCK_NUMBER);
+  bytes_t  miner        = eth_el_header_get(block.el_header, EL_FEE_RECIPIENT);
   TRACE_ADD_UINT64(ctx, "target_block", target_block);
 
   TRACE_START(ctx, "fetch access list and eth_getProof");

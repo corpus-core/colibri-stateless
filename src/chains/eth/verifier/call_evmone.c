@@ -511,6 +511,11 @@ static void host_call(void* context, const struct evmone_message* msg, const uin
 static void host_get_tx_context(void* context, evmone_tx_context* result) {
   evmone_context_t* ctx  = (evmone_context_t*) context;
   evmone_context_t* root = context_root(ctx);
+  //  evm_call_ctx_t*   call_ctx = (evm_call_ctx_t*) ctx->ctx->user_data;
+  //  if (!call_ctx) {
+  //    EVM_LOG("get_tx_context called but no call context found");
+  //    return;
+  //  }
   EVM_LOG("get_tx_context called");
   memset(result, 0, sizeof(evmone_tx_context));
   memcpy(result->tx_origin.bytes, root->tx_origin, 20);
@@ -525,6 +530,7 @@ static void host_get_tx_context(void* context, evmone_tx_context* result) {
   result->blob_hashes_count = 0;
   // SLOTNUM (EIP-7843) stays zero until Amsterdam is activated explicitly.
   result->block_slot_number = 0;
+
   // gas_price as big-endian uint256
   uint64_t gp = root->gas_price;
   for (int i = 31; i >= 0 && gp; i--) {

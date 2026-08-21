@@ -25,6 +25,7 @@
 #include "bytes.h"
 #include "call_ctx.h"
 #include "crypto.h"
+#include "el_header.h"
 #include "eth_account.h"
 #include "eth_verify.h"
 #include "json.h"
@@ -521,9 +522,10 @@ static uint32_t pap_build_proof_payload(call_account_t* ac, buffer_t* out_payloa
 }
 
 static bool pap_verify_proof_response(verify_ctx_t* ctx, call_account_t* call_accounts, bytes_t response, bool* values_changed) {
-  verify_ctx_t proof_ctx = {0};
-  bool         result    = false;
-  bool         is_hybrid = false;
+  verify_ctx_t    proof_ctx  = {0};
+  bytes32_t       state_root = {0};
+  evm_call_ctx_t* evm        = call_get_evm_ctx(ctx);
+  bool            result     = false;
 
   // Inherit the outer verification flags into the inner sub-proof context so user-facing
   // policy flags (VERIFY_FLAG_SKIP_WSP_CHECK, VERIFY_FLAG_HYBRID, VERIFY_FLAG_OBLIVIOUS, …)
@@ -543,7 +545,6 @@ static bool pap_verify_proof_response(verify_ctx_t* ctx, call_account_t* call_ac
     goto cleanup;
   }
 
-  bytes32_t state_root = {0};
   if (!c4_eth_verify_accounts(ctx, ssz_get(&proof_ctx.proof, "accounts"), state_root)) {
     if (proof_ctx.state.error)
       c4_state_add_error(&ctx->state, proof_ctx.state.error);
@@ -552,52 +553,36 @@ static bool pap_verify_proof_response(verify_ctx_t* ctx, call_account_t* call_ac
     goto cleanup;
   }
 
-  if (is_hybrid) {
-    ssz_ob_t header_data = ssz_get(&proof_ctx.proof, "header_data");
-    if (!header_data.bytes.data) {
-      c4_state_add_error(&ctx->state, "missing header_data in hybrid call proof");
-      goto cleanup;
-    }
-    ssz_ob_t sr_ob = ssz_get(&header_data, "stateRoot");
-    if (sr_ob.bytes.len != 32 || memcmp(state_root, sr_ob.bytes.data, 32) != 0) {
-      c4_state_add_error(&ctx->state, "stateRoot mismatch between account proofs and header_data");
-      goto cleanup;
-    }
+  if (c4_verify_block(ctx, ssz_get(&proof_ctx.proof, "block"), &evm->el_header, evm->el_block_hash) != C4_SUCCESS || memcmp(eth_el_header_get(evm->el_header, EL_STATE_ROOT).data, state_root, 32) != 0) {
+    if (proof_ctx.state.error)
+      c4_state_add_error(&ctx->state, proof_ctx.state.error);
+    else
+      c4_state_add_error(&ctx->state, "proofCall state proof verification failed");
+    goto cleanup;
   }
-  else {
-    bytes_t   el_header  = {0};
-    bytes32_t block_hash = {0};
-    if (c4_verify_block(&proof_ctx, ssz_get(&proof_ctx.proof, "block"), &el_header, block_hash) != C4_SUCCESS) {
-      if (proof_ctx.state.error)
-        c4_state_add_error(&ctx->state, proof_ctx.state.error);
-      else
-        c4_state_add_error(&ctx->state, "proofCall state proof verification failed");
-      goto cleanup;
-    }
 
-    // c4_update_from_sync_data may need to issue (or look up the response of)
-    // a checkpointz WSP anchor request. The persistent request list lives on
-    // the outer `ctx` (the host fulfils requests by id against that list), so
-    // we lend it to proof_ctx for the call and immediately move everything
-    // back. This is critical for two reasons:
-    //   1) On a retry the cached WSP response sits in ctx.state.requests; the
-    //      URL lookup inside c4_verify_checkpointz_root runs against
-    //      proof_ctx.state.requests and would otherwise miss it and append a
-    //      duplicate request forever (request-loop bug).
-    //   2) The subsequent c4_verify_header(ctx, ...) call also resolves
-    //      requests against ctx.state.requests (via c4_get_validators →
-    //      req_client_update). Leaving the requests on proof_ctx would make
-    //      that path append duplicates of its own.
-    // Net effect: WSP requests transit through proof_ctx solely so the inner
-    // URL lookup sees them; they are always owned by ctx outside this block.
-    c4_state_take_requests(&proof_ctx.state, &ctx->state);
-    c4_status_t sd_status = c4_update_from_sync_data(&proof_ctx);
-    c4_state_take_requests(&ctx->state, &proof_ctx.state);
+  // c4_update_from_sync_data may need to issue (or look up the response of)
+  // a checkpointz WSP anchor request. The persistent request list lives on
+  // the outer `ctx` (the host fulfils requests by id against that list), so
+  // we lend it to proof_ctx for the call and immediately move everything
+  // back. This is critical for two reasons:
+  //   1) On a retry the cached WSP response sits in ctx.state.requests; the
+  //      URL lookup inside c4_verify_checkpointz_root runs against
+  //      proof_ctx.state.requests and would otherwise miss it and append a
+  //      duplicate request forever (request-loop bug).
+  //   2) The subsequent c4_verify_header(ctx, ...) call also resolves
+  //      requests against ctx.state.requests (via c4_get_validators →
+  //      req_client_update). Leaving the requests on proof_ctx would make
+  //      that path append duplicates of its own.
+  // Net effect: WSP requests transit through proof_ctx solely so the inner
+  // URL lookup sees them; they are always owned by ctx outside this block.
+  c4_state_take_requests(&proof_ctx.state, &ctx->state);
+  c4_status_t sd_status = c4_update_from_sync_data(&proof_ctx);
+  c4_state_take_requests(&ctx->state, &proof_ctx.state);
 
-    if (sd_status != C4_SUCCESS) {
-      if (proof_ctx.state.error) c4_state_add_error(&ctx->state, proof_ctx.state.error);
-      goto cleanup;
-    }
+  if (sd_status != C4_SUCCESS) {
+    if (proof_ctx.state.error) c4_state_add_error(&ctx->state, proof_ctx.state.error);
+    goto cleanup;
   }
 
   // Freshness gate for PAP: in PAP mode there is no usable proof when
@@ -607,7 +592,7 @@ static bool pap_verify_proof_response(verify_ctx_t* ctx, call_account_t* call_ac
   // proof, so this is the right place to enforce the host's "latest" lower
   // bound. The block context lives in the sub-proof (proof_ctx); the request
   // args, the lower bound and the error sink live on the outer ctx.
-  if (!verify_call_freshness(ctx, &proof_ctx)) goto cleanup;
+  if (!verify_call_freshness(ctx, ctx)) goto cleanup;
 
   // Proof is valid, so we check the values for changes
   ssz_ob_t accounts     = ssz_get(&proof_ctx.proof, "accounts");
@@ -669,13 +654,14 @@ static bool has_unverified_storage(call_account_t* ac) {
 }
 
 static bool proof_call(verify_ctx_t* ctx, evm_call_ctx_t* evm) {
-  json_t block_id = json_at(ctx->args, 1);
-  if (block_id.type != JSON_TYPE_STRING) block_id = json_parse("\"latest\"");
   buffer_t  payload        = {0};
   bytes32_t req_id         = {0};
   bool      firstAccount   = true;
   bool      firstStorage   = true;
   bool      values_changed = false;
+  json_t    block_id       = json_at(ctx->args, 1);
+
+  if (block_id.type != JSON_TYPE_STRING) block_id = json_parse("\"latest\"");
   buffer_add_chars(&payload, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"colibri_proofCall\",\"params\":[{\"accessList\":[");
   for (call_account_t* ac = evm->accounts; ac; ac = ac->next) {
     if (!has_unverified_storage(ac)) continue;
@@ -792,9 +778,7 @@ bool verify_call_proof(verify_ctx_t* ctx) {
   if (!evm->accounts && has_proof) {
     ssz_ob_t accounts = ssz_get(&ctx->proof, "accounts");
     if (!c4_eth_verify_accounts(ctx, accounts, evm->state_root)) return false;
-    bytes_t   el_header  = {0};
-    bytes32_t block_hash = {0};
-    if (c4_verify_block(ctx, ssz_get(&ctx->proof, "block"), &el_header, block_hash) != C4_SUCCESS) return false;
+    if (c4_verify_block(ctx, ssz_get(&ctx->proof, "block"), &evm->el_header, evm->el_block_hash) != C4_SUCCESS) return false;
     evm->accounts = call_accounts_from_ssz(accounts);
   }
   if (!prepare_evm_call(ctx, evm, has_overrides)) return false;

@@ -48,15 +48,15 @@ c4_status_t c4_proof_block(prover_ctx_t* ctx) {
                       strcmp(ctx->method, "colibri_proofBlock") == 0;
 
   // fetch the block (default to "latest" if no params given, e.g. for eth_blobBaseFee)
-  TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, block_arg, &block));
+  TRY_ASYNC(include_body ? c4_beacon_get_block_for_eth_with_body(ctx, block_arg, &block) : c4_beacon_get_block_for_eth(ctx, block_arg, &block));
   TRY_ASYNC(c4_check_blockroot_proof(ctx, &historic_proof, &block));
   TRY_ASYNC(c4_get_syncdata_proof(ctx, &historic_proof.sync, &sync_proof));
 
   if (include_body) {
-    if (block.execution.def == NULL) THROW_ERROR("execution payload is null");
+    if (block.el_body.def == NULL) THROW_ERROR("execution payload is null");
     ssz_builder_t content_proof = ssz_builder_for_def(ssz_get_def(ssz_get_def(block_proof.def, "body"), "content"));
-    ssz_add_ob(&content_proof, "transactions", ssz_get(&block.execution, "transactions"));
-    ssz_add_ob(&content_proof, "withdrawals", ssz_get(&block.execution, "withdrawals"));
+    ssz_add_ob(&content_proof, "transactions", ssz_get(&block.el_body, "transactions"));
+    ssz_add_ob(&content_proof, "withdrawals", ssz_get(&block.el_body, "withdrawals"));
     ssz_add_builders(&block_proof, "body", content_proof);
   }
   else {
