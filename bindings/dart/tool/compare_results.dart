@@ -153,6 +153,8 @@ Future<List<CompareResult>> compareAll() async {
     final pap = (content['pap'] as bool?) ?? false;
     final remoteProver = (content['remote_prover'] as bool?) ?? false;
 
+    Colibri.resetNativeCaches(libraryPath: libraryPath);
+
     final storage = FileBackedStorage(dir);
     final responder = FileBasedMockResponder(dir);
     final client = MockClient(responder.handle);

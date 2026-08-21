@@ -49,8 +49,6 @@ static const char* EMPTY_SHA256 = "\xe3\xb0\xc4\x42\x98\xfc\x1c\x14\x9a\xfb\xf4\
 static ssz_builder_t create_txs_builder(verify_ctx_t* ctx, const ssz_def_t* tx_union_def, bool include_txs, ssz_ob_t txs, bytes_t el_header, bytes32_t block_hash) {
   ssz_builder_t txs_builder  = ssz_builder_for_def(tx_union_def->def.container.elements + ((int) include_txs));
   node_t*       root         = NULL;
-  bytes32_t     tmp          = {0};
-  buffer_t      buf          = stack_buffer(tmp);
   ssz_builder_t tx_builder   = ssz_builder_for_def(txs_builder.def->def.vector.type);
   uint64_t      block_number = eth_el_header_get_uint64(el_header, EL_BLOCK_NUMBER);
   uint64_t      base_fee     = eth_el_header_get_uint64(el_header, EL_BASE_FEE_PER_GAS);

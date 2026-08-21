@@ -259,9 +259,9 @@ static c4_status_t verify_block_by_blockproof(verify_ctx_t* ctx, ssz_ob_t block,
     THROW_ERROR("invalid body root for cl proof!");
 
   // check gindex
-  chain_spec_t* chain           = c4_eth_get_chain_spec(ctx->chain_id);
-  fork_id_t     fork            = c4_chain_fork_id(ctx->chain_id, epoch_for_slot(ssz_get_uint64(&cl_header, "slot"), chain));
-  gindex_t      expected_gindex = (fork < C4_FORK_GLOAS) ? 812 : 0;
+  const chain_spec_t* chain           = c4_eth_get_chain_spec(ctx->chain_id);
+  fork_id_t           fork            = c4_chain_fork_id(ctx->chain_id, epoch_for_slot(ssz_get_uint64(&cl_header, "slot"), chain));
+  gindex_t            expected_gindex = (fork < C4_FORK_GLOAS) ? 812 : 0;
   if (gindex != expected_gindex)
     THROW_ERROR("invalid gindex for cl proof!");
 

@@ -212,7 +212,9 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           
           TEST_LOG="/tmp/swift_test_output.log"
-          if swift test 2>&1 | tee "$TEST_LOG"; then
+          # `--parallel` would race the process-global C prover cache
+          # (no mutex; designed for the single-threaded libuv server).
+          if swift test --no-parallel 2>&1 | tee "$TEST_LOG"; then
             echo "✅ Swift tests passed"
             
             test_count=$(grep -o "Test Suite.*passed" "$TEST_LOG" | tail -1 || echo "")

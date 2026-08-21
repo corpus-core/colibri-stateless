@@ -1290,8 +1290,9 @@ void c4_set_checkpoint(uint64_t chain_id, const char* trusted_checkpoint);
 /**
  * Clears all in-process prover and verifier caches.
  *
- * Use this between fixture-backed tests that share one process. Persistent
- * storage (`states_*`, `sync_*`, `header_tags_*`) is left untouched.
+ * Use this between fixture-backed tests that share one process. Must not
+ * run concurrently with proof generation (`rpc()` / `c4_prover_execute`).
+ * Persistent storage (`states_*`, `sync_*`, `header_tags_*`) is left untouched.
  */
 void c4_reset_caches(void);
 

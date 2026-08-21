@@ -306,9 +306,6 @@ void c4_reset_prover_caches(void) {}
 void c4_reset_caches(void) {
   c4_reset_verifier_caches();
   c4_reset_prover_caches();
-#ifdef PROVER_CACHE
-  c4_prover_cache_cleanup(UINT64_MAX, 0);
-#endif
 }
 
 /* ── Standalone checkpoint setter ── */

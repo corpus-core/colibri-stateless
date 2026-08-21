@@ -276,6 +276,10 @@ fn compile_wrapper(repo_root: &Path, dst: &Path) -> PathBuf {
     build.define("CHAIN_ETH", None);
     build.define("VERIFIER", None);
     build.define("PROVER", None);
+    // Must match CMake `option(PROVER_CACHE)` (default ON). The wrapper itself
+    // no longer calls into the cache, but keep the define consistent so any
+    // `#ifdef PROVER_CACHE` in the bindings sources agrees with libprover.a.
+    build.define("PROVER_CACHE", None);
     build.compile("colibri_wrapper");
     // `cc` places the archive into $OUT_DIR by default.
     PathBuf::from(env::var("OUT_DIR").unwrap())
