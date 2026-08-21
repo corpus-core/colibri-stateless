@@ -118,12 +118,6 @@ typedef union {
   uint64_t uint64[4];
 } prover_cache_key_t;
 
-// Warning: Cache implementation assumes single-threaded access via libuv event loop.
-// Multi-threaded usage requires external synchronization.
-#if defined(PROVER_CACHE) && !defined(HTTP_SERVER)
-#warning "PROVER_CACHE without HTTP_SERVER may have thread-safety issues. Consider using with libuv-based HTTP_SERVER."
-#endif
-
 typedef void (*cache_free_cb)(void*);
 typedef struct cache_entry {
   prover_cache_key_t  key;       // cache key
