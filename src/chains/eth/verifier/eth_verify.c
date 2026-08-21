@@ -25,7 +25,11 @@
 #include "beacon_types.h"
 #include "chains.h"
 #include "eth_bloom.h"
+#include "header_cache.h"
 #include "json.h"
+#ifdef PAP
+#include "pap_tx_cache.h"
+#endif
 #include "ssz.h"
 #include "sync_committee.h"
 #include "verify.h"
@@ -374,4 +378,11 @@ bool c4_eth_verify(verify_ctx_t* ctx) {
     ctx->success     = false;
   }
   return true;
+}
+
+void c4_eth_reset_caches(void) {
+  c4_header_cache_clear();
+#ifdef PAP
+  pap_tx_cache_reset();
+#endif
 }

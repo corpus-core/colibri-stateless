@@ -29,13 +29,6 @@
 #ifdef CHAIN_ETH
 #include "header_cache.h"
 #include "sync_committee.h"
-#ifdef PAP
-void pap_tx_cache_reset(void);
-#endif
-#ifdef PROVER
-void c4_prover_header_tags_clear(void);
-void c4_eth_tx_cache_reset(void);
-#endif
 #endif
 #include <stdlib.h>
 #include <string.h>
@@ -259,7 +252,7 @@ char* c4i_build_prover_json_status(c4_status_t status, c4_state_t* state,
 
 char* c4i_build_verifier_json_status(c4_status_t status, c4_state_t* state,
                                      ssz_ob_t result, bool reverted,
-                                     bool     req_ptr_as_string) {
+                                     bool req_ptr_as_string) {
   buffer_t buf = {0};
   // The EVM ran to completion but reverted. We expose this as a distinct
   // status (`revert`) so hosts can map it to a structured JSON-RPC error
@@ -283,8 +276,8 @@ char* c4i_build_verifier_json_status(c4_status_t status, c4_state_t* state,
  */
 static void rpc_capture_snapshots(c4_rpc_ctx_t* ctx) {
   if (!ctx || ctx->client_state.data) return; // already captured
-  ctx->client_state    = c4_get_client_state(ctx->chain_id);
-  c4_init_ctx_t init   = {.chain_id = ctx->chain_id, .client_state = ctx->client_state, .snapshots = NULL};
+  ctx->client_state  = c4_get_client_state(ctx->chain_id);
+  c4_init_ctx_t init = {.chain_id = ctx->chain_id, .client_state = ctx->client_state, .snapshots = NULL};
   c4_init_rpc_ctx(&init);
   ctx->snapshots = init.snapshots;
 }
@@ -303,18 +296,17 @@ static void rpc_transfer_snapshots(c4_rpc_ctx_t* ctx) {
   ctx->snapshots               = NULL;
 }
 
+#ifndef VERIFIER
+void c4_reset_verifier_caches(void) {}
+#endif
+#ifndef PROVER
+void c4_reset_prover_caches(void) {}
+#endif
+
 void c4_reset_caches(void) {
-#ifdef CHAIN_ETH
-  c4_header_cache_clear();
-#ifdef PAP
-  pap_tx_cache_reset();
-#endif
-#ifdef PROVER
-  c4_prover_header_tags_clear();
-  c4_eth_tx_cache_reset();
-#endif
-#endif
-#ifdef PROVER
+  c4_reset_verifier_caches();
+  c4_reset_prover_caches();
+#ifdef PROVER_CACHE
   c4_prover_cache_cleanup(UINT64_MAX, 0);
 #endif
 }
@@ -632,9 +624,9 @@ static bool is_remote_delegated_method(data_request_t* req) {
   char* tmp = safe_malloc(req->payload.len + 1);
   memcpy(tmp, req->payload.data, req->payload.len);
   tmp[req->payload.len] = '\0';
-  json_t root   = json_parse(tmp);
-  json_t method = json_get(root, "method");
-  bool   remote = false;
+  json_t root           = json_parse(tmp);
+  json_t method         = json_get(root, "method");
+  bool   remote         = false;
   if (method.type == JSON_TYPE_STRING) {
     char* m = bprintf(NULL, "%j", method);
     remote  = c4_is_remote_delegated_prover_method(m);
@@ -678,7 +670,7 @@ static c4_status_t handle_request_prover(c4_rpc_ctx_t* ctx) {
     case C4_ERROR:
       rp->request->error = strdup(rp->ctx->state.error ? rp->ctx->state.error : "local prover failed");
       // make sure the error is also set on the verifier
-      if (!ctx->verifier.state.error) 
+      if (!ctx->verifier.state.error)
         ctx->verifier.state.error = bprintf(NULL, "Proof-creating for %s (%j) failed: %s", rp->ctx->method, rp->ctx->params, rp->request->error);
       free_request_prover(ctx);
       return C4_ERROR;

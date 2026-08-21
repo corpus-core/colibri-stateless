@@ -177,6 +177,7 @@ add_verifier(
   METHOD_TYPE c4_eth_get_method_type
   PROVER_PAYLOAD c4_eth_get_prover_payload
   PROVER_CACHE_URL c4_eth_get_prover_cache_request
+  RESET_CACHES c4_eth_reset_caches
 )
 
 # Register ETH chain properties provider
@@ -206,6 +207,7 @@ add_prover(
     prover/historic_proof_zk.c
   DEPENDS util eth_verifier verifier
   PROOF eth_prover_execute
+  RESET_CACHES c4_eth_reset_prover_caches
 )
 
 add_server_handler(

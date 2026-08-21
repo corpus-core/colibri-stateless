@@ -259,6 +259,14 @@ void c4_prover_cache_invalidate(bytes32_t key);
 void c4_prover_cache_stats(uint64_t* entries, uint64_t* size, uint64_t* max_size, uint64_t* capacity);
 #endif
 
+/**
+ * Clears chain-specific in-process prover caches.
+ *
+ * Each chain module may register a `RESET_CACHES` hook via CMake. Hooks
+ * are invoked in registration order. Persistent storage is left untouched.
+ */
+void c4_reset_prover_caches(void);
+
 // Time helpers made available to headers that need them
 uint64_t current_ms();
 uint64_t current_unix_ms();

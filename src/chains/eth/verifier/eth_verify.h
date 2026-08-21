@@ -195,4 +195,11 @@ bool eth_is_oblivious_unavailable(json_t response);
 
 #endif // ETH_OBLIVIOUS
 
+/**
+ * Clears ETH in-process verifier caches (header cache, PAP tx cache).
+ *
+ * Registered via CMake `RESET_CACHES`. Persistent storage is left untouched.
+ */
+void c4_eth_reset_caches(void);
+
 #endif // eth_verify_h__

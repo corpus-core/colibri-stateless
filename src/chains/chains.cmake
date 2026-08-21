@@ -12,7 +12,7 @@ function(add_verifier)
 
     # Parse arguments
     set(options "")
-    set(oneValueArgs NAME GET_REQ_TYPE VERIFY METHOD_TYPE PROVER_PAYLOAD INIT_RPC_CTX PROVER_CACHE_URL)
+    set(oneValueArgs NAME GET_REQ_TYPE VERIFY METHOD_TYPE PROVER_PAYLOAD INIT_RPC_CTX PROVER_CACHE_URL RESET_CACHES)
     set(multiValueArgs SOURCES DEPENDS)
     cmake_parse_arguments(VERIFIER "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
 
@@ -29,8 +29,8 @@ function(add_verifier)
     # Get the current global list
     get_property(CURRENT_PROPERTIES CACHE VERIFIER_PROPERTIES PROPERTY VALUE)
     
-    # Append to the global list (PROVER_PAYLOAD, INIT_RPC_CTX and PROVER_CACHE_URL may be empty)
-    list(APPEND CURRENT_PROPERTIES "${VERIFIER_NAME}:${VERIFIER_GET_REQ_TYPE}:${VERIFIER_VERIFY}:${VERIFIER_METHOD_TYPE}:${VERIFIER_PROVER_PAYLOAD}:${VERIFIER_INIT_RPC_CTX}:${VERIFIER_PROVER_CACHE_URL}")
+    # Append to the global list (optional hooks may be empty)
+    list(APPEND CURRENT_PROPERTIES "${VERIFIER_NAME}:${VERIFIER_GET_REQ_TYPE}:${VERIFIER_VERIFY}:${VERIFIER_METHOD_TYPE}:${VERIFIER_PROVER_PAYLOAD}:${VERIFIER_INIT_RPC_CTX}:${VERIFIER_PROVER_CACHE_URL}:${VERIFIER_RESET_CACHES}")
     set(VERIFIER_PROPERTIES "${CURRENT_PROPERTIES}" CACHE INTERNAL "List of all verifier properties" FORCE)
 endfunction()
 
@@ -80,7 +80,7 @@ function(add_prover)
 
     # Parse arguments
     set(options "")
-    set(oneValueArgs NAME PROOF)
+    set(oneValueArgs NAME PROOF RESET_CACHES)
     set(multiValueArgs SOURCES DEPENDS)
     cmake_parse_arguments(PROVER "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
 
@@ -99,7 +99,7 @@ function(add_prover)
     get_property(CURRENT_PROPERTIES CACHE PROVER_PROPERTIES PROPERTY VALUE)
     
     # Append to the global list
-    list(APPEND CURRENT_PROPERTIES "${PROVER_NAME}:${PROVER_PROOF}")
+    list(APPEND CURRENT_PROPERTIES "${PROVER_NAME}:${PROVER_PROOF}:${PROVER_RESET_CACHES}")
     set(PROVER_PROPERTIES "${CURRENT_PROPERTIES}" CACHE INTERNAL "List of all prover properties" FORCE)
 endfunction()
 
@@ -240,6 +240,32 @@ function(generate_verifiers_header)
     file(APPEND ${VERIFIERS_H} "  return false;\n")
     file(APPEND ${VERIFIERS_H} "}\n\n")
 
+    # Add reset-caches hook declarations for modules that provide one
+    foreach(prop ${VERIFIER_PROPERTIES})
+        string(REPLACE ":" ";" parts "${prop}")
+        list(LENGTH parts count)
+        if(count GREATER 7)
+            list(GET parts 7 reset_caches)
+            if(NOT "${reset_caches}" STREQUAL "")
+                file(APPEND ${VERIFIERS_H} "void ${reset_caches}(void);\n")
+            endif()
+        endif()
+    endforeach()
+
+    # Add c4_reset_verifier_caches dispatcher (no-op if no module registered a hook)
+    file(APPEND ${VERIFIERS_H} "\nvoid c4_reset_verifier_caches(void) {\n")
+    foreach(prop ${VERIFIER_PROPERTIES})
+        string(REPLACE ":" ";" parts "${prop}")
+        list(LENGTH parts count)
+        if(count GREATER 7)
+            list(GET parts 7 reset_caches)
+            if(NOT "${reset_caches}" STREQUAL "")
+                file(APPEND ${VERIFIERS_H} "  ${reset_caches}();\n")
+            endif()
+        endif()
+    endforeach()
+    file(APPEND ${VERIFIERS_H} "}\n\n")
+
     # Close header guard
     file(APPEND ${VERIFIERS_H} "#endif // VERIFIERS_H\n")
 endfunction()
@@ -265,6 +291,32 @@ function(generate_provers_header)
         
         file(APPEND ${PROVERS_H} "bool ${proof}(prover_ctx_t* ctx);\n\n")
     endforeach()
+
+    # Add reset-caches hook declarations for modules that provide one
+    foreach(prop ${PROVER_PROPERTIES})
+        string(REPLACE ":" ";" parts "${prop}")
+        list(LENGTH parts count)
+        if(count GREATER 2)
+            list(GET parts 2 reset_caches)
+            if(NOT "${reset_caches}" STREQUAL "")
+                file(APPEND ${PROVERS_H} "void ${reset_caches}(void);\n")
+            endif()
+        endif()
+    endforeach()
+
+    # Add c4_reset_prover_caches dispatcher (no-op if no module registered a hook)
+    file(APPEND ${PROVERS_H} "\nvoid c4_reset_prover_caches(void) {\n")
+    foreach(prop ${PROVER_PROPERTIES})
+        string(REPLACE ":" ";" parts "${prop}")
+        list(LENGTH parts count)
+        if(count GREATER 2)
+            list(GET parts 2 reset_caches)
+            if(NOT "${reset_caches}" STREQUAL "")
+                file(APPEND ${PROVERS_H} "  ${reset_caches}();\n")
+            endif()
+        endif()
+    endforeach()
+    file(APPEND ${PROVERS_H} "}\n\n")
 
     # Add prover_execute function
     file(APPEND ${PROVERS_H} "static void prover_execute(prover_ctx_t* ctx) {\n")

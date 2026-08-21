@@ -271,6 +271,14 @@ typedef struct {
  */
 void c4_init_rpc_ctx(c4_init_ctx_t* ctx);
 
+/**
+ * Clears chain-specific in-process verifier caches.
+ *
+ * Each chain module may register a `RESET_CACHES` hook via CMake. Hooks
+ * are invoked in registration order. Persistent storage is left untouched.
+ */
+void c4_reset_verifier_caches(void);
+
 #pragma endregion
 #ifdef MESSAGES
 #define RETURN_VERIFY_ERROR(ctx, msg)     \

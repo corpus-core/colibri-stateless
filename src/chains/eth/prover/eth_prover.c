@@ -22,9 +22,11 @@
  */
 
 #include "eth_prover.h"
+#include "beacon.h"
 #include "beacon_types.h"
 #include "json.h"
 #include "state.h"
+#include "tx_cache.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -72,4 +74,9 @@ bool eth_prover_execute(prover_ctx_t* ctx) {
     ctx->state.error = strdup("Unsupported method");
 
   return true;
+}
+
+void c4_eth_reset_prover_caches(void) {
+  c4_prover_header_tags_clear();
+  c4_eth_tx_cache_reset();
 }
