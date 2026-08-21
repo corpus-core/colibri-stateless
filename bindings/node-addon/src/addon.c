@@ -696,6 +696,14 @@ static napi_value set_checkpoint(napi_env env, napi_callback_info info) {
   return NULL;
 }
 
+// resetCaches() -> void
+static napi_value reset_caches(napi_env env, napi_callback_info info) {
+  (void) env;
+  (void) info;
+  c4_reset_caches();
+  return NULL;
+}
+
 // decodeProof(data: Uint8Array) -> JSON string | null
 static napi_value decode_proof(napi_env env, napi_callback_info info) {
   GET_ARGS(env, info, 1);
@@ -742,6 +750,7 @@ static napi_value init(napi_env env, napi_value exports) {
       {"reqSetResponse", req_set_response},
       {"reqSetError", req_set_error},
       {"setCheckpoint", set_checkpoint},
+      {"resetCaches", reset_caches},
       {"decodeProof", decode_proof},
       {"registerStorage", register_storage},
       {"version", version},

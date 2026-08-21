@@ -46,6 +46,20 @@ extern "C" {
 void c4_set_checkpoint(chain_id_t chain_id, const char* checkpoint_hex);
 
 /**
+ * Clears all in-process caches used by the prover and verifier.
+ *
+ * Intended for test isolation when several fixtures share one process
+ * (language bindings). Persistent storage (`states_*`, `sync_*`,
+ * `header_tags_*`, `headers_*`) is left untouched so the host can still
+ * seed the next fixture from disk.
+ *
+ * Currently resets: EL header cache, prover header-tag cache (`latest` /
+ * `safe` / `finalized`), PAP tx cache, ETH tx-index cache, and the
+ * global prover cache.
+ */
+void c4_reset_caches(void);
+
+/**
  * RPC context phases for the unified execution flow.
  */
 typedef enum {

@@ -141,6 +141,10 @@ bool c4_prover_header_tags_load(chain_id_t chain_id) {
   return true;
 }
 
+void c4_prover_header_tags_clear(void) {
+  memset(g_header_tags, 0, sizeof(g_header_tags));
+}
+
 // -- Tag TTL Calculation --
 
 static uint64_t header_tag_ttl_ms(chain_id_t chain_id, header_tag_t tag, prover_flags_t flags) {

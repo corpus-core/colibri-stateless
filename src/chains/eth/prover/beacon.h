@@ -182,6 +182,13 @@ void c4_prover_header_tags_save(chain_id_t chain_id);
  */
 bool c4_prover_header_tags_load(chain_id_t chain_id);
 
+/**
+ * Clears the in-process header-tag cache (`latest` / `safe` / `finalized`).
+ *
+ * Does not delete persisted `header_tags_<chain_id>` blobs from storage.
+ */
+void c4_prover_header_tags_clear(void);
+
 // creates a new header with the body_root passed and returns the ssz_builder_t, which must be freed
 ssz_builder_t c4_proof_add_header(ssz_ob_t header, bytes32_t body_root);
 

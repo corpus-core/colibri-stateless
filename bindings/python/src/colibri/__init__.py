@@ -54,6 +54,11 @@ def _register_global_storage(storage: ColibriStorage = None):
     
     return _global_storage
 
+def reset_caches():
+    """Clear in-process prover/verifier caches. Call between fixture tests."""
+    if _native and hasattr(_native, 'reset_caches'):
+        _native.reset_caches()
+
 def _cleanup_global_storage():
     """Cleanup global storage on module exit"""
     global _storage_registered
@@ -84,4 +89,5 @@ __all__ = [
     "MockRequestHandler",
     "MockProofData",
     "TestHelper",
+    "reset_caches",
 ]

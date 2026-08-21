@@ -29,6 +29,13 @@
 #ifdef CHAIN_ETH
 #include "header_cache.h"
 #include "sync_committee.h"
+#ifdef PAP
+void pap_tx_cache_reset(void);
+#endif
+#ifdef PROVER
+void c4_prover_header_tags_clear(void);
+void c4_eth_tx_cache_reset(void);
+#endif
 #endif
 #include <stdlib.h>
 #include <string.h>
@@ -294,6 +301,22 @@ static void rpc_transfer_snapshots(c4_rpc_ctx_t* ctx) {
   tail->next                   = ctx->verifier.state.requests;
   ctx->verifier.state.requests = ctx->snapshots;
   ctx->snapshots               = NULL;
+}
+
+void c4_reset_caches(void) {
+#ifdef CHAIN_ETH
+  c4_header_cache_clear();
+#ifdef PAP
+  pap_tx_cache_reset();
+#endif
+#ifdef PROVER
+  c4_prover_header_tags_clear();
+  c4_eth_tx_cache_reset();
+#endif
+#endif
+#ifdef PROVER
+  c4_prover_cache_cleanup(UINT64_MAX, 0);
+#endif
 }
 
 /* ── Standalone checkpoint setter ── */

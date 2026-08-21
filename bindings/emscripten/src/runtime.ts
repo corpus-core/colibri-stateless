@@ -84,6 +84,7 @@ export interface C4Runtime {
     rpcCtxSetMinLatestBlockTs(ctx: CtxHandle, ts: bigint): void;
 
     setCheckpoint(chainId: bigint, checkpoint: string): void;
+    resetCaches(): void;
 
     reqSetResponse(req: DataRequest, data: Uint8Array, nodeIndex: number): void;
     reqSetError(req: DataRequest, error: string, nodeIndex: number): void;

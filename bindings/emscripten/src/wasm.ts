@@ -74,6 +74,7 @@ export const loadC4WModule = api.loadC4WModule;
 export const getC4w = api.getC4w;
 export const get_prover_config_hex = api.get_prover_config_hex;
 export const set_trusted_checkpoint = api.set_trusted_checkpoint;
+export const reset_caches = api.reset_caches;
 export const decode_proof = api.decode_proof;
 
 /**

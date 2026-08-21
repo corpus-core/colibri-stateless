@@ -410,6 +410,12 @@ public class Colibri {
         // Placeholder for initialization if needed
     }
 
+    /// Clears in-process prover/verifier caches. Call between fixture-backed
+    /// tests that share one process.
+    public static func resetCaches() {
+        c4_reset_caches()
+    }
+
     // MARK: - Verify Flags
 
     /// Computes the lower bound for `block.timestamp` accepted on `"latest"`

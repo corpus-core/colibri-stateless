@@ -102,3 +102,9 @@ pub fn set_checkpoint(chain_id: u64, checkpoint: &str) -> Result<(), ColibriErro
     unsafe { ffi::c4_set_checkpoint(chain_id, c.as_ptr()) };
     Ok(())
 }
+
+/// Clears in-process prover/verifier caches. Call between fixture-backed
+/// tests that share one process. Persistent storage is left untouched.
+pub fn reset_caches() {
+    unsafe { ffi::c4_reset_caches() };
+}

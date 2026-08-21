@@ -362,6 +362,14 @@ export default class C4Client {
     (await getRuntime()).registerStorage(storage);
   }
 
+  /**
+   * Clears in-process prover/verifier caches. Call between fixture-backed
+   * tests that share one WASM/native process.
+   */
+  static async reset_caches() {
+    (await getRuntime()).resetCaches();
+  }
+
   async request(args: RequestArguments): Promise<unknown> {
     if (!this.connectionState.initialConnectionAttempted) {
       await this.connectionState.attemptInitialConnection();

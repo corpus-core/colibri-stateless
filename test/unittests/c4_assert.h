@@ -111,10 +111,7 @@ static void reset_local_filecache() {
       .set             = file_set,
       .max_sync_states = 3};
   c4_set_storage_config(&plgn);
-
-#ifdef PROVER_CACHE
-  c4_prover_cache_cleanup(UINT64_MAX, 0);
-#endif
+  c4_reset_caches();
 }
 static uint64_t now() {
 #ifndef _WIN32

@@ -567,6 +567,8 @@ cat >> "$GENERATED_TESTS_FILE" << 'EOF'
             return false
         }
         
+        Colibri.resetCaches()
+
         let trustedBlockhash = testJson["trusted_block_hash"] as? String
         
         // Convert params to JSON string

@@ -132,6 +132,14 @@ class Colibri {
   String? _runtimeTrustedCheckpoint;
   Timer? _lightClientTimer;
 
+  /// Clears in-process prover/verifier caches. Call between fixture tests.
+  void resetCaches() => _native.resetCaches();
+
+  /// Clears in-process caches without constructing a full client.
+  static void resetNativeCaches({String? libraryPath}) {
+    ColibriNative.load(libraryPath: libraryPath).resetCaches();
+  }
+
   /// Closes the underlying HTTP client and stops any light client polling.
   ///
   /// Call when the client is no longer needed to release resources.

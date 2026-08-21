@@ -122,6 +122,10 @@ void EMSCRIPTEN_KEEPALIVE c4w_set_checkpoint(uint64_t chain_id, char* checkpoint
   c4_set_checkpoint((chain_id_t) chain_id, checkpoint);
 }
 
+void EMSCRIPTEN_KEEPALIVE c4w_reset_caches(void) {
+  c4_reset_caches();
+}
+
 void EMSCRIPTEN_KEEPALIVE c4w_rpc_ctx_set_witness_keys(void* ctx, char* keys) {
   c4_rpc_ctx_set_witness_keys((c4_rpc_ctx_t*) ctx, keys);
 }
