@@ -438,11 +438,12 @@ static c4_status_t call_apply_authorization_list(verify_ctx_t* ctx, call_account
 
 // Freshness check for eth_call/eth_estimateGas/colibri_simulateTransaction.
 //
-// `ctx` always supplies the request args, the host-supplied lower bound and
-// the error sink. `proof_ctx` is the context whose verified `->proof` carries
-// the block context: it is the same object as `ctx` on the direct eth_call
-// path, and the colibri_proofCall sub-proof context on the PAP path (see
-// pap_verify_proof_response). The actual freshness logic lives in
+// `ctx` supplies the request args, the host-supplied lower bound and the
+// error sink. `proof_ctx` is the context whose `user_data` (`evm_call_ctx_t`)
+// holds the verified EL header: both the direct path and PAP
+// (`pap_verify_proof_response`) pass the outer ctx, because that is where
+// `call_get_evm_ctx` stores `el_header`. Passing the inner PAP `proof_ctx`
+// would find no block context. The actual freshness logic lives in
 // `eth_check_latest_freshness` so all block-tag methods share one error path.
 static bool verify_call_freshness(verify_ctx_t* ctx, verify_ctx_t* proof_ctx) {
   bool                     is_latest = eth_json_is_latest(json_at(ctx->args, 1));
@@ -553,45 +554,34 @@ static bool pap_verify_proof_response(verify_ctx_t* ctx, call_account_t* call_ac
     goto cleanup;
   }
 
-  if (c4_verify_block(ctx, ssz_get(&proof_ctx.proof, "block"), &evm->el_header, evm->el_block_hash) != C4_SUCCESS || memcmp(eth_el_header_get(evm->el_header, EL_STATE_ROOT).data, state_root, 32) != 0) {
-    if (proof_ctx.state.error)
-      c4_state_add_error(&ctx->state, proof_ctx.state.error);
-    else
+  // Apply sync_data on the outer ctx before verifying the block so bootstrap /
+  // light-client validators are in storage when c4_verify_header runs. Pending
+  // WSP and validator requests must live on `ctx` because the host fulfils
+  // against that list (same reason pap_tx applies sync_data before c4_verify_block).
+  ctx->sync_data          = proof_ctx.sync_data;
+  c4_status_t sd_status   = c4_update_from_sync_data(ctx);
+  if (sd_status == C4_PENDING) goto cleanup;
+  if (sd_status != C4_SUCCESS) goto cleanup;
+
+  c4_status_t block_status = c4_verify_block(ctx, ssz_get(&proof_ctx.proof, "block"), &evm->el_header, evm->el_block_hash);
+  if (block_status == C4_PENDING) goto cleanup;
+  if (block_status != C4_SUCCESS) {
+    if (!ctx->state.error)
       c4_state_add_error(&ctx->state, "proofCall state proof verification failed");
     goto cleanup;
   }
 
-  // c4_update_from_sync_data may need to issue (or look up the response of)
-  // a checkpointz WSP anchor request. The persistent request list lives on
-  // the outer `ctx` (the host fulfils requests by id against that list), so
-  // we lend it to proof_ctx for the call and immediately move everything
-  // back. This is critical for two reasons:
-  //   1) On a retry the cached WSP response sits in ctx.state.requests; the
-  //      URL lookup inside c4_verify_checkpointz_root runs against
-  //      proof_ctx.state.requests and would otherwise miss it and append a
-  //      duplicate request forever (request-loop bug).
-  //   2) The subsequent c4_verify_header(ctx, ...) call also resolves
-  //      requests against ctx.state.requests (via c4_get_validators →
-  //      req_client_update). Leaving the requests on proof_ctx would make
-  //      that path append duplicates of its own.
-  // Net effect: WSP requests transit through proof_ctx solely so the inner
-  // URL lookup sees them; they are always owned by ctx outside this block.
-  c4_state_take_requests(&proof_ctx.state, &ctx->state);
-  c4_status_t sd_status = c4_update_from_sync_data(&proof_ctx);
-  c4_state_take_requests(&ctx->state, &proof_ctx.state);
-
-  if (sd_status != C4_SUCCESS) {
-    if (proof_ctx.state.error) c4_state_add_error(&ctx->state, proof_ctx.state.error);
+  bytes_t header_state_root = eth_el_header_get(evm->el_header, EL_STATE_ROOT);
+  if (!header_state_root.data || header_state_root.len != 32 || memcmp(header_state_root.data, state_root, 32) != 0) {
+    c4_state_add_error(&ctx->state, "proofCall state proof verification failed");
     goto cleanup;
   }
 
   // Freshness gate for PAP: in PAP mode there is no usable proof when
   // verify_call_proof first runs, so the direct-path gate skips it. The call
   // proof arrives here via colibri_proofCall and has just been Merkle-verified
-  // above; it carries the same block context (timestamp) as a direct eth_call
-  // proof, so this is the right place to enforce the host's "latest" lower
-  // bound. The block context lives in the sub-proof (proof_ctx); the request
-  // args, the lower bound and the error sink live on the outer ctx.
+  // above (`evm->el_header` is populated). Timestamp is read from that header
+  // via the outer ctx's user_data; args / min_ts / errors also live there.
   if (!verify_call_freshness(ctx, ctx)) goto cleanup;
 
   // Proof is valid, so we check the values for changes

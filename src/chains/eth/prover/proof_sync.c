@@ -43,14 +43,17 @@ static c4_status_t req_client_update(prover_ctx_t* ctx, uint32_t period, uint32_
   bprintf(&tmp, "eth/v1/beacon/light_client/updates?start_period=%d&count=%d", period, count);
 
   data_request_t* req = c4_state_get_data_request_by_url(&ctx->state, (char*) tmp.data.data);
-  if (req) buffer_free(&tmp);
-  if (req && req->response.data) {
-    *data = req->response;
-    return C4_SUCCESS;
-  }
-  else if (req && req->error) {
-    ctx->state.error = strdup(req->error);
-    return C4_ERROR;
+  if (req) {
+    buffer_free(&tmp);
+    if (req->response.data) {
+      *data = req->response;
+      return C4_SUCCESS;
+    }
+    else if (req->error) {
+      ctx->state.error = strdup(req->error);
+      return C4_ERROR;
+    }
+    return C4_PENDING;
   }
   data_request_t* new_req = safe_calloc(1, sizeof(data_request_t));
   new_req->chain_id       = chain_id;

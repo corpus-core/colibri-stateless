@@ -9,6 +9,7 @@
 #include "prover.h"
 #include "server.h"
 #include "verify.h"
+#include "version.h"
 
 /*
  * ============================================================================
@@ -383,7 +384,7 @@ bool c4_handle_verify_request(client_t* client) {
         // REMOTE PROVER PATH
         // We have a remote prover configured, use it to get the proof
         buffer_t buffer = {0};
-        bprintf(&buffer, "{\"method\":\"%s\",\"params\":%j,\"c4\":\"0x%x\"}", verify_req->method, verify_req->params, client_state);
+        bprintf(&buffer, "{\"method\":\"%s\",\"params\":%j,\"c4\":\"0x%x\",\"version\":%d,\"zk_proof\":true}", verify_req->method, verify_req->params, client_state, c4_current_version_number());
         safe_free(client_state.data);
 
         data_request_t* req = (data_request_t*) safe_calloc(1, sizeof(data_request_t));

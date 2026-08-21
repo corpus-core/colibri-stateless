@@ -210,6 +210,7 @@ static bool req_client_update(c4_state_t* state, uint32_t period, uint32_t count
       c4_state_add_error(state, req->error);
       return false;
     }
+    return false; // still pending
   }
   data_request_t* new_req = safe_calloc(1, sizeof(data_request_t));
   new_req->chain_id       = chain_id;
@@ -306,6 +307,7 @@ static bool req_bootstrap(c4_state_t* state, bytes32_t block_root, chain_id_t ch
       c4_state_add_error(state, req->error);
       return false;
     }
+    return false; // still pending
   }
   data_request_t* new_req = safe_calloc(1, sizeof(data_request_t));
   new_req->chain_id       = chain_id;

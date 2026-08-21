@@ -9,7 +9,11 @@ bindings/kotlin/gradlew        text eol=lf
 *.json          text eol=lf
 # Binary files should be left untouched
 *.jar           binary
+*.ssz           binary
 
-# Test data JSON files are actually binary blobs
-test/data/server/*/*.json binary
+# Server HTTP mocks are stored as *.json but are binary dumps (NUL bytes,
+# mixed CR). `*.json text eol=lf` above would otherwise convert them on
+# checkout. `binary` is `-text -diff`; also clear leftover `eol`.
+test/data/server/**             binary
+test/data/server/**             -eol
 

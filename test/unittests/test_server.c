@@ -30,7 +30,7 @@ void tearDown(void) {
 
 // Test 1: test verifying a remote prover-request with a file mock
 void test_remote_prover(void) {
-  c4_test_server_seed_for_test("block_number");
+  c4_test_server_seed_for_test("block_number3");
 
   int   status_code = 0;
   char* response    = send_http_request("POST", "/rpc", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_blockNumber\",\"params\":[]}", &status_code);
@@ -40,7 +40,7 @@ void test_remote_prover(void) {
 
   char* body = extract_json_body(response);
   TEST_ASSERT_NOT_NULL(body);
-  TEST_ASSERT_EQUAL_STRING("{\"id\": 1, \"result\": \"0x168bc6e\"}", body);
+  TEST_ASSERT_EQUAL_STRING("{\"id\": 1, \"result\": \"0x189c171\"}", body);
 
   free(body);
   free(response);

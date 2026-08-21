@@ -45,15 +45,24 @@
 
 #include "bytes.h"
 #include "c4_assert.h"
+#ifdef EL_HEADER_CACHE
+#include "../../src/chains/eth/verifier/header_cache.h"
+#endif
 #include "ssz.h"
 #include "unity.h"
 
 void setUp(void) {
   reset_local_filecache();
+#ifdef EL_HEADER_CACHE
+  c4_header_cache_clear();
+#endif
 }
 
 void tearDown(void) {
   reset_local_filecache();
+#ifdef EL_HEADER_CACHE
+  c4_header_cache_clear();
+#endif
 }
 
 typedef enum {
@@ -210,25 +219,17 @@ void test_freshness_simulate_stale_rejected(void) {
 // In PAP mode there is no usable proof when `verify_call_proof` first runs;
 // the call proof arrives later via `colibri_proofCall` (same SSZ structure as
 // an `eth_call` proof) and is verified inside `pap_verify_proof_response`,
-// which now also enforces the freshness gate. The two tests below pin both
-// halves of that behaviour using the `eth_call_pap_cached` fixture.
-//
-// NOTE on the fixture: its recorded `colibri_proofCall` response predates the
-// block-context feature (prover < 1.1.15), so the verified sub-proof carries
-// no timestamp. We can therefore exercise the "missing context" branch but
-// not the timestamp comparison itself (that path is already covered for the
-// locally generated proofs in Tests 2/3).
+// which now also enforces the freshness gate. The tests below pin that
+// behaviour using the `eth_call_pap_cached` fixture (recorded against a
+// prover that includes block context / timestamp in the CallProof).
 
-// :: Test 5: PAP + enabled check + proof without block context -> fail-closed
+// :: Test 5: PAP + enabled check + stale proof -> rejected
 //
-// When the host opts into the freshness check but the (older) PAP proof does
-// not carry a block context, the verifier must refuse to vouch for a `latest`
-// result rather than silently accepting a potentially stale proof. The lower
-// bound value is irrelevant here -- the gate fails before any timestamp
-// comparison -- so we use `1` to make clear this is about the missing context,
-// not about being "too old".
+// The recorded proof is from a real `latest` call, so it carries an EL
+// timestamp. A far-future lower bound must fail closed on the PAP path
+// just like the local-prover `eth_call` path.
 
-void test_freshness_pap_missing_context_rejected(void) {
+void test_freshness_pap_stale_rejected(void) {
   run_freshness_case("eth_call_pap_cached", "eth_call",
                      "[{\"to\":\"0xdac17f958d2ee523a2206206994597c13d831ec7\","
                      "\"data\":\"0x70a082310000000000000000000000008825ef664b8b43984bbf32b09e6a690c9b914931\"},\"latest\"]",
@@ -236,11 +237,28 @@ void test_freshness_pap_missing_context_rejected(void) {
                      C4_PROVER_FLAG_INCLUDE_CODE,
                      VERIFY_FLAG_PAP,
                      true /* remote prover for the cached PAP fixture */,
-                     1 /* check enabled; fails on missing context regardless of value */,
-                     EXPECT_ERROR_NO_CONTEXT);
+                     UINT64_C(99999999999),
+                     EXPECT_ERROR_TOO_OLD);
 }
 
-// :: Test 6: PAP + disabled check (min_ts = 0) -> success
+// :: Test 6: PAP + enabled check + fresh proof -> success
+//
+// `min_ts = 1` is well before any real mainnet timestamp, so a proof that
+// carries block context must pass.
+
+void test_freshness_pap_fresh_passes(void) {
+  run_freshness_case("eth_call_pap_cached", "eth_call",
+                     "[{\"to\":\"0xdac17f958d2ee523a2206206994597c13d831ec7\","
+                     "\"data\":\"0x70a082310000000000000000000000008825ef664b8b43984bbf32b09e6a690c9b914931\"},\"latest\"]",
+                     C4_CHAIN_MAINNET,
+                     C4_PROVER_FLAG_INCLUDE_CODE,
+                     VERIFY_FLAG_PAP,
+                     true /* remote prover for the cached PAP fixture */,
+                     1,
+                     EXPECT_SUCCESS);
+}
+
+// :: Test 7: PAP + disabled check (min_ts = 0) -> success
 //
 // Confirms the PAP path is unaffected when the host opts out of the freshness
 // check (the binding default when `max_latest_age_seconds = 0`). This also
@@ -432,7 +450,8 @@ int main(void) {
   RUN_TEST(test_freshness_fresh_proof_passes);
   RUN_TEST(test_freshness_stale_proof_rejected);
   RUN_TEST(test_freshness_simulate_stale_rejected);
-  RUN_TEST(test_freshness_pap_missing_context_rejected);
+  RUN_TEST(test_freshness_pap_stale_rejected);
+  RUN_TEST(test_freshness_pap_fresh_passes);
   RUN_TEST(test_freshness_pap_disabled_passes);
   RUN_TEST(test_freshness_account_balance_stale_rejected);
   RUN_TEST(test_freshness_account_balance_fresh_passes);
