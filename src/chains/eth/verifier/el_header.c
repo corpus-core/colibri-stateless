@@ -67,9 +67,9 @@ static c4_status_t eth_el_header_build(c4_state_t* state, bytes_t* el_header, fo
   if (fork < C4_FORK_ELECTRA) count -= 1; // no requestsHash before Prague/Electra
 
   for (int i = 0; i < count; i++) {
-    char    type       = el_header_field_names[i][0];
-    char*   field_name = el_header_field_names[i] + 2;
-    bytes_t value      = {0};
+    const char  type       = el_header_field_names[i][0];
+    const char* field_name = el_header_field_names[i] + 2;
+    bytes_t     value      = {0};
     if (strcmp(field_name, EL_SHA3_UNCLES) == 0)
       value = bytes(EMPTY_RLP_LIST, 32);
     else if (strcmp(field_name, EL_DIFFICULTY) == 0)
@@ -84,7 +84,7 @@ static c4_status_t eth_el_header_build(c4_state_t* state, bytes_t* el_header, fo
         bytes32_t data     = {0};
         int       must_len = type == 'H' ? 32 : 20;
         int       copy_len = must_len < value.len ? must_len : value.len;
-        memcpy(data + must_len - copy_len, value.data, copy_len);
+        if (value.data) memcpy(data + must_len - copy_len, value.data, copy_len);
         rlp_add_item(&result, bytes(data, must_len));
         break;
       }
