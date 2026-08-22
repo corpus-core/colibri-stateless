@@ -189,6 +189,15 @@ bool c4_prover_header_tags_load(chain_id_t chain_id);
  */
 void c4_prover_header_tags_clear(void);
 
+#ifdef TEST
+// Test-only introspection into the header-tag cache. Not part of the public API; only the
+// unit tests link against these. The `tag` parameter is a raw index (0=LATEST, 1=SAFE,
+// 2=FINALIZED) so tests do not need to import the private enum from beacon_header.c.
+void c4_prover_header_tags_test_set(uint32_t tag, const uint8_t* hash, uint64_t block_number, uint64_t cached_at_ms);
+void c4_prover_header_tags_test_get(uint32_t tag, uint8_t* hash_out, uint64_t* block_number_out, uint64_t* cached_at_ms_out);
+bool c4_prover_header_tags_test_apply_write(uint32_t tag, uint64_t new_number, uint64_t now_ms, uint64_t ttl_ms);
+#endif
+
 // creates a new header with the body_root passed and returns the ssz_builder_t, which must be freed
 ssz_builder_t c4_proof_add_header(ssz_ob_t header, bytes32_t body_root);
 

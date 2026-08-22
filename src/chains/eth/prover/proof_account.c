@@ -24,6 +24,7 @@
 #include "beacon.h"
 #include "beacon_types.h"
 #include "chains.h"
+#include "el_header.h"
 #include "eth_account.h"
 #include "eth_req.h"
 #include "eth_tools.h"
@@ -122,7 +123,10 @@ c4_status_t c4_proof_account(prover_ctx_t* ctx) {
     CHECK_JSON_INPUT(ctx->params, "[address,block]", "Invalid arguments for AccountProof: ");
 
   TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, block_number, &block));
-  TRY_ADD_ASYNC(status, eth_get_proof(ctx, address, storage_keys, &eth_proof, ssz_get_uint64(&block.execution, "blockNumber")));
+  // Read the number from the RLP EL header so hybrid mode (where `block.execution` is
+  // empty because the remote prover delivered only the header) does not dereference a
+  // NULL SSZ def. `proof_call.c` uses the same accessor for the same reason.
+  TRY_ADD_ASYNC(status, eth_get_proof(ctx, address, storage_keys, &eth_proof, eth_el_header_get_uint64(block.el_header, EL_BLOCK_NUMBER)));
   TRY_ADD_ASYNC(status, c4_check_blockroot_proof(ctx, &historic_proof, &block));
   TRY_ASYNC_CATCH(status, c4_free_block_proof(&historic_proof));
 

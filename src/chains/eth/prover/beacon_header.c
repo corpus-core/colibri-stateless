@@ -60,11 +60,17 @@ typedef enum {
  * `fetching_ctx` is only compared by pointer value (never dereferenced) so that the fetching
  * context's own re-entry can bypass the stale path and process its response.
  *
+ * `block_number` is the EL block number of `block_hash`. It is used to keep tag updates
+ * monotonic: a slower in-flight `latest` fetch that resolves to an older block must not
+ * overwrite the tag while the current entry is still fresh (`Promise.all` race). After the
+ * TTL has expired any number wins, so a legitimate deeper reorg (shorter head) still lands.
+ *
  * Thread safety: these fields are not protected by a mutex. In multi-threaded bindings
  * (Kotlin, Swift, Python) a race can at worst cause a duplicate fetch, which is acceptable.
  */
 typedef struct {
   bytes32_t block_hash;
+  uint64_t  block_number;      /**< EL block number of `block_hash` (0 = unknown, matches uninitialized entries) */
   uint64_t  cached_at_ms;
   uint64_t  fetching_since_ms; /**< non-zero while a fetch is in progress (unprotected: benign race accepted) */
   uintptr_t fetching_ctx;      /**< opaque identity of the fetching prover context (compared, never dereferenced) */
@@ -126,6 +132,64 @@ bool c4_prover_header_tags_load(chain_id_t chain_id) {
 void c4_prover_header_tags_clear(void) {
   memset(g_header_tags, 0, sizeof(g_header_tags));
 }
+
+// -- Tag Write Rule --
+//
+// Applied after every successful `latest`/`safe`/`finalized` fetch. Kept in its own helper
+// so unit tests can exercise the decision without going through the full fetch/verify path.
+//
+// Rules (in order):
+// - No existing hash yet          → write.
+// - `new_number >= old_number`    → write. `>` is normal chain progress, `==` catches a
+//                                    same-height reorg (new hash on the same slot).
+// - `new_number <  old_number` and TTL still fresh
+//                                 → skip. This is a slower in-flight `latest` from a parallel
+//                                    request (`Promise.all` race) trying to roll the tag back.
+// - `new_number <  old_number` and TTL already expired
+//                                 → write. After TTL any refetch is authoritative, including
+//                                    the rare deeper reorg where the head really dropped.
+//
+// Sentinels are cleared unconditionally by the caller: they are a per-fetch marker for the
+// fetching ctx and must not survive the decision, no matter which branch is taken.
+static bool tag_should_apply_write(const tag_cache_entry_t* tc, uint64_t new_number, uint64_t now, uint64_t ttl_ms) {
+  bool have_existing = tc->cached_at_ms && !bytes_all_zero(bytes(tc->block_hash, 32));
+  if (!have_existing) return true;
+  if (new_number >= tc->block_number) return true;
+  bool within_ttl = (now - tc->cached_at_ms < ttl_ms);
+  return !within_ttl;
+}
+
+#ifdef TEST
+// -- Test-only introspection --
+//
+// Unit tests exercise the monotonic tag-write rule directly against the in-process cache
+// (`test/unittests/test_header_tag_monotonic.c`). No production caller depends on these
+// symbols; they exist only to keep the helper above `static` in normal builds.
+
+void c4_prover_header_tags_test_set(uint32_t tag, const uint8_t* hash, uint64_t block_number, uint64_t cached_at_ms) {
+  if (tag >= HEADER_TAG_COUNT) return;
+  tag_cache_entry_t* tc = &g_header_tags[tag];
+  if (hash)
+    memcpy(tc->block_hash, hash, 32);
+  else
+    memset(tc->block_hash, 0, 32);
+  tc->block_number = block_number;
+  tc->cached_at_ms = cached_at_ms;
+}
+
+void c4_prover_header_tags_test_get(uint32_t tag, uint8_t* hash_out, uint64_t* block_number_out, uint64_t* cached_at_ms_out) {
+  if (tag >= HEADER_TAG_COUNT) return;
+  const tag_cache_entry_t* tc = &g_header_tags[tag];
+  if (hash_out) memcpy(hash_out, tc->block_hash, 32);
+  if (block_number_out) *block_number_out = tc->block_number;
+  if (cached_at_ms_out) *cached_at_ms_out = tc->cached_at_ms;
+}
+
+bool c4_prover_header_tags_test_apply_write(uint32_t tag, uint64_t new_number, uint64_t now_ms, uint64_t ttl_ms) {
+  if (tag >= HEADER_TAG_COUNT) return false;
+  return tag_should_apply_write(&g_header_tags[tag], new_number, now_ms, ttl_ms);
+}
+#endif
 
 // -- Tag TTL Calculation --
 
@@ -380,12 +444,23 @@ c4_status_t c4_hybrid_get_block_for_eth(prover_ctx_t* ctx, json_t block, beacon_
   memcpy(result.block_hash, block_hash, 32);
 
   keccak(el_header, result.block_hash);
-  c4_header_cache_put(ctx->chain_id, eth_el_header_get_uint64(el_header, EL_BLOCK_NUMBER), result.block_hash, el_header, with_body ? &result.el_body : NULL);
-  if (tag < HEADER_TAG_COUNT && !bytes_all_zero(bytes(result.block_hash, 32))) {
-    memcpy(g_header_tags[tag].block_hash, result.block_hash, 32);
-    g_header_tags[tag].cached_at_ms      = current_ms();
-    g_header_tags[tag].fetching_since_ms = 0;
-    g_header_tags[tag].fetching_ctx      = 0;
+  uint64_t new_block_number = eth_el_header_get_uint64(el_header, EL_BLOCK_NUMBER);
+  c4_header_cache_put(ctx->chain_id, new_block_number, result.block_hash, el_header, with_body ? &result.el_body : NULL);
+  if (tag < HEADER_TAG_COUNT) {
+    tag_cache_entry_t* tc = &g_header_tags[tag];
+    // Sentinels are cleared unconditionally: they are a per-fetch marker for the fetching
+    // ctx and must not survive, no matter whether the tag value ends up being written.
+    tc->fetching_since_ms = 0;
+    tc->fetching_ctx      = 0;
+    if (!bytes_all_zero(bytes(result.block_hash, 32))) {
+      uint64_t now    = current_ms();
+      uint64_t ttl_ms = header_tag_ttl_ms(ctx->chain_id, tag, ctx->flags);
+      if (tag_should_apply_write(tc, new_block_number, now, ttl_ms)) {
+        memcpy(tc->block_hash, result.block_hash, 32);
+        tc->block_number = new_block_number;
+        tc->cached_at_ms = now;
+      }
+    }
   }
 
   return create_beacon_block(ctx, beacon_block, &result);
