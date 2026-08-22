@@ -76,8 +76,6 @@ static bool c4_beacon_cache_get_blockdata(prover_ctx_t* ctx, bytes32_t block_roo
   beacon_block_t* cached_block = (beacon_block_t*) c4_prover_cache_get(ctx, key);
   if (cached_block) {
     *beacon_block = *cached_block;
-    if (beacon_block->execution.def && !beacon_block->el_body.def)
-      beacon_block->el_body = beacon_block->execution;
     return true;
   }
   return false;
