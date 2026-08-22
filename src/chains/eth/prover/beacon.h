@@ -58,26 +58,6 @@ typedef struct {
   bytes32_t root; // root of the block
 } beacon_head_t;
 
-#ifdef PROVER_CACHE
-#define BODY_MERKLE_TREE_SIZE 32 /**< depth 4: gindex 1..31, covers up to 16 body fields */
-#define EP_MERKLE_TREE_SIZE   64 /**< depth 5: gindex 1..63, covers up to 32 EP fields */
-
-/**
- * Pre-computed Merkle tree node hashes for the beacon block body and execution payload.
- * Allows proof extraction via pure lookups instead of repeated SHA256 computation.
- * Arrays are indexed by generalized index (gindex 0 unused).
- */
-typedef struct {
-  bytes32_t body[BODY_MERKLE_TREE_SIZE]; /**< body tree nodes indexed by gindex */
-  bytes32_t ep[EP_MERKLE_TREE_SIZE];     /**< execution payload tree nodes indexed by gindex */
-  uint8_t   body_field_count;            /**< actual body field count (11 Deneb, 12 Electra) */
-  uint8_t   ep_field_count;              /**< actual EP field count (17) */
-  uint8_t   ep_field_index;              /**< index of executionPayload within body container */
-  gindex_t  ep_body_gindex;              /**< body-level gindex of executionPayload (e.g. 25) */
-  bool      valid;                       /**< true once leaf + internal hashes are computed */
-} beacon_body_merkle_cache_t;
-#endif
-
 typedef struct {
   bytes_t   el_header;                // the rlp serialized execution layer header
   bytes32_t el_block_hash;            // the block hash of the execution block
@@ -93,9 +73,6 @@ typedef struct {
   uint64_t  block_hash_branch_gindex; // the gindex of the block hash branch, used for the block proof
   ssz_ob_t  el_body;                  // the body containing either the full execution paylod or at least the transaction and withdrawal fields
   bool      header_only;              // true when only header data is available (hybrid mode)
-#ifdef PROVER_CACHE
-  beacon_body_merkle_cache_t merkle_cache; /**< pre-computed body/EP Merkle trees */
-#endif
 } beacon_block_t;
 
 // :: Verified Header Cache
@@ -213,31 +190,6 @@ c4_status_t c4_send_internal_request(prover_ctx_t* ctx, char* path, char* query,
 #ifdef PROVER_CACHE
 c4_status_t c4_set_latest_block(prover_ctx_t* ctx, uint64_t latest_block_number);
 c4_status_t c4_eth_update_finality(prover_ctx_t* ctx, bytes32_t checkpoint, uint64_t* slot);
-
-/**
- * Pre-computes all Merkle tree nodes for the body and execution payload containers.
- * After this call, `block->merkle_cache.valid` is true and proofs can be extracted
- * via `ssz_create_multi_proof_from_body_cache()` without any SHA256 computation.
- *
- * @param block The beacon block whose body/EP hashes to pre-compute
- */
-void c4_beacon_compute_merkle_cache(beacon_block_t* block);
-
-/**
- * Creates a multi-Merkle proof by looking up pre-computed hashes from the body cache.
- * Falls back to NULL_BYTES if any gindex falls outside the cached body/EP tree range.
- *
- * @param cache The pre-computed merkle cache (must have valid==true)
- * @param root_hash Output: receives the body hash_tree_root from cache->body[1]
- * @param gindex Array of generalized indices to prove
- * @param gindex_len Number of generalized indices
- * @return Allocated proof bytes (caller must free), or NULL_BYTES on cache miss
- */
-bytes_t ssz_create_multi_proof_from_body_cache(
-    const beacon_body_merkle_cache_t* cache,
-    bytes32_t                         root_hash,
-    const gindex_t*                   gindex,
-    int                               gindex_len);
 
 /*
  *  Updates the beacon block data in the cache.

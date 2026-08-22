@@ -8,6 +8,7 @@
 
 #include "beacon.h"
 #include "bytes.h"
+#include "el_header.h"
 #include "eth_bloom.h"
 #include "eth_req.h"
 #include "logger.h"
@@ -482,7 +483,7 @@ static c4_status_t get_exec_blocknumber(prover_ctx_t* ctx, json_t block, uint64_
     return C4_SUCCESS;
   }
   TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, block, &beacon_block));
-  *out_block_number = ssz_get_uint64(&beacon_block.execution, "blockNumber");
+  *out_block_number = eth_el_header_get_uint64(beacon_block.el_header, EL_BLOCK_NUMBER);
   return C4_SUCCESS;
 }
 
