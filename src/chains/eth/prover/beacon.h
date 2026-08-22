@@ -196,6 +196,10 @@ void c4_prover_header_tags_clear(void);
 void c4_prover_header_tags_test_set(uint32_t tag, const uint8_t* hash, uint64_t block_number, uint64_t cached_at_ms);
 void c4_prover_header_tags_test_get(uint32_t tag, uint8_t* hash_out, uint64_t* block_number_out, uint64_t* cached_at_ms_out);
 bool c4_prover_header_tags_test_apply_write(uint32_t tag, uint64_t new_number, uint64_t now_ms, uint64_t ttl_ms);
+
+// Drives the private `resolve_el_header_from_block` helper against a synthesized
+// `blockHash`-variant proof. Only linked when `TEST=ON`.
+c4_status_t c4_hybrid_test_resolve_block_hash(prover_ctx_t* ctx, const uint8_t* hash, bytes_t* el_header);
 #endif
 
 // creates a new header with the body_root passed and returns the ssz_builder_t, which must be freed

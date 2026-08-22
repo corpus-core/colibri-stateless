@@ -226,6 +226,74 @@ typedef struct {
   ssz_ob_t  el_body;
 } local_cache_entry_t;
 
+// Resolves the `ETH_BLOCK_PROOF_UNION` variant of a hybrid response into the RLP EL header.
+//
+// - `clProof` variant: the union carries the full block proof and `elHeader` is inlined in
+//   the PROVER response. We return a pointer into that response (borrow), same as before.
+// - `blockHash` variant: the remote prover already knew that this client's `header_cache`
+//   holds the verified header, so it omitted the block proof. We recover the RLP header
+//   from either
+//     (a) a `C4_DATA_TYPE_CACHE` snapshot that `verify_block_by_blockhash` (called inside
+//         `c4_verify`) already attached to `ctx->state` on the fresh-verify path, or
+//     (b) `c4_header_cache_get_el_header` (owned copy) which we then attach as a new
+//         `C4_DATA_TYPE_CACHE` snapshot ourselves so the borrowed bytes stay valid for the
+//         lifetime of the prover ctx and are freed by `c4_state_free` — same lifetime rule
+//         as the verifier applies. Necessary for the `validated`-reentry path (no verify
+//         run, so no snapshot exists yet) and as a safety net if the LRU already evicted
+//         the snapshot between the first and later reentry.
+//
+// Cache-miss (advertised hash was evicted between fetch and response) becomes a hard error
+// rather than silently returning `NULL_BYTES`, which used to blow up downstream with a NULL
+// header — see the callers of `hybrid_fetch_and_verify` and the completeness path in
+// `proof_logs_completeness.c` that checks `el_header.data` after this returns.
+static c4_status_t resolve_el_header_from_block(prover_ctx_t* ctx, ssz_ob_t block, bytes_t* el_header) {
+  if (!block.def) THROW_ERROR("invalid block proof: missing def");
+
+  if (strcmp(block.def->name, "blockHash") == 0) {
+    if (block.bytes.len != 32) THROW_ERROR("invalid block hash length in blockHash variant");
+    const uint8_t* block_hash = block.bytes.data;
+
+    data_request_t* snapshot = c4_state_get_data_request_by_id(&ctx->state, (uint8_t*) block_hash);
+    if (snapshot && snapshot->type == C4_DATA_TYPE_CACHE && snapshot->response.data) {
+      *el_header = snapshot->response;
+      return C4_SUCCESS;
+    }
+
+    bytes_t cached = c4_header_cache_get_el_header(ctx->chain_id, block_hash, NULL);
+    if (!cached.data)
+      THROW_ERROR("blockHash variant references a header not in the verifier cache");
+
+    snapshot           = safe_calloc(1, sizeof(data_request_t));
+    snapshot->chain_id = ctx->chain_id;
+    snapshot->type     = C4_DATA_TYPE_CACHE;
+    snapshot->encoding = C4_DATA_ENCODING_SSZ;
+    snapshot->response = cached;
+    memcpy(snapshot->id, block_hash, 32);
+    c4_state_add_request(&ctx->state, snapshot);
+    *el_header = cached;
+    return C4_SUCCESS;
+  }
+
+  if (block.def->type == SSZ_TYPE_CONTAINER) {
+    *el_header = ssz_get(&block, "elHeader").bytes;
+    return C4_SUCCESS;
+  }
+
+  THROW_ERROR("unexpected block proof variant");
+}
+
+#ifdef TEST
+// Test-only entry point: builds a synthetic `blockHash`-variant ssz_ob_t and drives the
+// resolve helper. Exists so `test/unittests/test_hybrid_blockhash_resolve.c` can exercise
+// the three branches (state snapshot, header_cache copy, miss) without spinning up a full
+// remote-prover fetch pipeline.
+c4_status_t c4_hybrid_test_resolve_block_hash(prover_ctx_t* ctx, const uint8_t* hash, bytes_t* el_header) {
+  static const ssz_def_t s_block_hash_def = SSZ_BYTES32("blockHash");
+  ssz_ob_t                block           = {.def = &s_block_hash_def, .bytes = bytes((uint8_t*) hash, 32)};
+  return resolve_el_header_from_block(ctx, block, el_header);
+}
+#endif
+
 // fetches the blockheader or block from the prover and verifies it.
 static c4_status_t hybrid_fetch_and_verify(prover_ctx_t* ctx, json_t block, hybrid_fetch_type_t type, bytes_t* el_header, ssz_ob_t* el_body) {
   const char* method          = type == HYBRID_FETCH_EXECUTION ? "eth_getBlockByNumber" : "eth_getBlockHeader";
@@ -252,11 +320,8 @@ static c4_status_t hybrid_fetch_and_verify(prover_ctx_t* ctx, json_t block, hybr
 
       if (body.def && body.def->type == SSZ_TYPE_CONTAINER && el_body)
         *el_body = body;
-      if (strcmp(block.def->name, "blockHash") == 0) // this should not happens since the prover thought we already have the header.
-        *el_header = NULL_BYTES;
-      else if (block.def && block.def->type == SSZ_TYPE_CONTAINER && el_header)
-        *el_header = ssz_get(&block, "elHeader").bytes;
-      return C4_SUCCESS;
+      if (!el_header) return C4_SUCCESS;
+      return resolve_el_header_from_block(ctx, block, el_header);
     }
 
     // NOTE: verify_flags are intentionally 0 here. prover_flags_t and verify_flags_t use
@@ -291,10 +356,10 @@ static c4_status_t hybrid_fetch_and_verify(prover_ctx_t* ctx, json_t block, hybr
 
         if (body.def && body.def->type == SSZ_TYPE_CONTAINER && el_body)
           *el_body = body;
-        if (strcmp(block.def->name, "blockHash") == 0) // this should not happens since the prover thought we already have the header.
-          *el_header = NULL_BYTES;
-        else if (block.def && block.def->type == SSZ_TYPE_CONTAINER && el_header)
-          *el_header = ssz_get(&block, "elHeader").bytes;
+        // The verify_ctx's requests (including any header snapshot attached by
+        // `verify_block_by_blockhash`) have already been moved back to ctx->state above,
+        // so `resolve_el_header_from_block` can look up the snapshot there directly.
+        if (el_header) status = resolve_el_header_from_block(ctx, block, el_header);
         break;
       }
       case C4_PENDING:
@@ -429,6 +494,14 @@ c4_status_t c4_hybrid_get_block_for_eth(prover_ctx_t* ctx, json_t block, beacon_
     g_header_tags[tag].fetching_ctx      = (uintptr_t) ctx;
   }
   c4_status_t status = hybrid_fetch_and_verify(ctx, block, with_body ? HYBRID_FETCH_EXECUTION : HYBRID_FETCH_HEADER, &el_header, with_body ? &el_body : NULL);
+
+  // Defensive: `resolve_el_header_from_block` already turns a `blockHash`-variant cache miss
+  // into `C4_ERROR`, but downstream callers (`keccak`, `eth_el_header_get_uint64`) still deref
+  // el_header directly, so guard against any future path that would leak an empty header.
+  if (status == C4_SUCCESS && (!el_header.data || !el_header.len)) {
+    c4_state_add_error(&ctx->state, "hybrid fetch succeeded but returned no execution header");
+    status = C4_ERROR;
+  }
 
   if (status != C4_SUCCESS) {
     if (status == C4_ERROR && tag < HEADER_TAG_COUNT) {
