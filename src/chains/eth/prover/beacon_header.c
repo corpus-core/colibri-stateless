@@ -70,7 +70,7 @@ typedef enum {
  */
 typedef struct {
   bytes32_t block_hash;
-  uint64_t  block_number;      /**< EL block number of `block_hash` (0 = unknown, matches uninitialized entries) */
+  uint64_t  block_number; /**< EL block number of `block_hash` (0 = unknown, matches uninitialized entries) */
   uint64_t  cached_at_ms;
   uint64_t  fetching_since_ms; /**< non-zero while a fetch is in progress (unprotected: benign race accepted) */
   uintptr_t fetching_ctx;      /**< opaque identity of the fetching prover context (compared, never dereferenced) */
@@ -289,7 +289,7 @@ static c4_status_t resolve_el_header_from_block(prover_ctx_t* ctx, ssz_ob_t bloc
 // remote-prover fetch pipeline.
 c4_status_t c4_hybrid_test_resolve_block_hash(prover_ctx_t* ctx, const uint8_t* hash, bytes_t* el_header) {
   static const ssz_def_t s_block_hash_def = SSZ_BYTES32("blockHash");
-  ssz_ob_t                block           = {.def = &s_block_hash_def, .bytes = bytes((uint8_t*) hash, 32)};
+  ssz_ob_t               block            = {.def = &s_block_hash_def, .bytes = bytes((uint8_t*) hash, 32)};
   return resolve_el_header_from_block(ctx, block, el_header);
 }
 #endif

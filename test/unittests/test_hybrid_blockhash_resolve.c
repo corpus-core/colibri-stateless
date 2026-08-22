@@ -20,9 +20,9 @@
 #include "chains/eth/prover/beacon.h"
 #include "chains/eth/verifier/header_cache.h"
 #include "prover/prover.h"
+#include "unity.h"
 #include "util/bytes.h"
 #include "util/state.h"
-#include "unity.h"
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
