@@ -24,6 +24,9 @@
 #include "beacon_types.h"
 #include "ssz.h"
 
+static const ssz_def_t ETH_HEADER_PROOFS_UNION[4];
+static const ssz_def_t PROOF_HEADER[4];
+
 // : Ethereum
 //
 // The Ethereum Mainnet consists of two interconnected layers: the Execution Layer and the Consensus Layer (Beacon Chain).
@@ -101,7 +104,25 @@
 //     BeaconBlockHeader --> sig
 // ```
 //
-// Independently, the BeaconBlockHeader itself can be proven in 4 ways:
+// Independently, the BeaconBlockHeader itself can be proven in 4 ways.
+
+// Proof that an RLP execution-layer header belongs to a signed BeaconBlock.
+// `keccak256(elHeader)` is proven against `clHeader.bodyRoot` at `gindex`
+// (`EXECUTION_BLOCK_HASH_GINDEX_DENEB` = 812, or `EXECUTION_BLOCK_HASH_GINDEX_GLOAS` = 2856 after Glamsterdam).
+static const ssz_def_t ETH_CL_BLOCK_PROOF[] = {
+    SSZ_PROG_BYTES("elHeader"),                       // RLP-serialized execution-layer header
+    SSZ_CONTAINER("clHeader", BEACON_BLOCK_HEADER),   // BeaconBlockHeader whose bodyRoot is the Merkle root of blockhashBranch
+    SSZ_PROG_LIST("blockhashBranch", ssz_bytes32),    // SSZ Merkle branch from the execution block hash to bodyRoot
+    SSZ_UINT64("gindex"),                             // 812 (Deneb/Electra/Fulu: execution_payload.block_hash) or 2856 (Gloas: signed_execution_payload_bid.message.parent_block_hash)
+    SSZ_UNION("headerProof", ETH_HEADER_PROOFS_UNION) // authenticates clHeader
+};
+
+// Shared block proof used by account, tx, receipt, logs, call and block proofs.
+// Either a full consensus-layer proof, or a hash if the verifier already cached that header.
+static const ssz_def_t ETH_BLOCK_PROOF_UNION[] = {
+    SSZ_BYTES32("blockHash"),                     // cached: verifier already holds this verified EL header
+    SSZ_CONTAINER("clProof", ETH_CL_BLOCK_PROOF), // full consensus-layer proof of the EL header
+};
 
 // A Signature Proof simply contains the BLS signature of the sync committee for the header to verify.
 static const ssz_def_t ETH_SIGNATURE_BLOCK_PROOF[] = {
@@ -146,7 +167,6 @@ static const ssz_def_t ETH_HISTORIC_BLOCK_PROOF[] = {
     SSZ_BYTE_VECTOR("sync_committee_signature", 96) // the signature of the sync committee
 };
 
-static const ssz_def_t PROOF_HEADER[4];
 static const ssz_def_t PROOF_HEADER_CONTAINER = SSZ_CONTAINER("ProofHeader", PROOF_HEADER);
 
 // If the header we want to prove is slightly older than the sync period for which the user has the keys, the easiest way to prove it
@@ -192,24 +212,6 @@ static const ssz_def_t ETH_HEADER_PROOFS_UNION[] = {
     SSZ_CONTAINER("historic_proof", ETH_HISTORIC_BLOCK_PROOF),   // proof for a historic block using the state_root of a current block
     SSZ_CONTAINER("headerProof", ETH_HEADERS_BLOCK_PROOF),       // proof block giving a chain of headers up to a verifiable header
     SSZ_CONTAINER("CheckpointProof", ETH_CHECKPOINT_PROOF)       // WSP anchor via LightClientBootstrap (currentSyncCommittee branch)
-};
-
-// Proof that an RLP execution-layer header belongs to a signed BeaconBlock.
-// `keccak256(elHeader)` is proven against `clHeader.bodyRoot` at `gindex`
-// (`EXECUTION_BLOCK_HASH_GINDEX_DENEB` = 812, or `EXECUTION_BLOCK_HASH_GINDEX_GLOAS` = 2856 after Glamsterdam).
-static const ssz_def_t ETH_CL_BLOCK_PROOF[] = {
-    SSZ_PROG_BYTES("elHeader"),                       // RLP-serialized execution-layer header
-    SSZ_CONTAINER("clHeader", BEACON_BLOCK_HEADER),   // BeaconBlockHeader whose bodyRoot is the Merkle root of blockhashBranch
-    SSZ_PROG_LIST("blockhashBranch", ssz_bytes32),    // SSZ Merkle branch from the execution block hash to bodyRoot
-    SSZ_UINT64("gindex"),                             // 812 (Deneb/Electra/Fulu: execution_payload.block_hash) or 2856 (Gloas: signed_execution_payload_bid.message.parent_block_hash)
-    SSZ_UNION("headerProof", ETH_HEADER_PROOFS_UNION) // authenticates clHeader
-};
-
-// Shared block proof used by account, tx, receipt, logs, call and block proofs.
-// Either a full consensus-layer proof, or a hash if the verifier already cached that header.
-static const ssz_def_t ETH_BLOCK_PROOF_UNION[] = {
-    SSZ_BYTES32("blockHash"),                     // cached: verifier already holds this verified EL header
-    SSZ_CONTAINER("clProof", ETH_CL_BLOCK_PROOF), // full consensus-layer proof of the EL header
 };
 
 // :: Logs Proof

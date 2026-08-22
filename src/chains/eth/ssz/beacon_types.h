@@ -46,6 +46,7 @@ typedef enum {
   ETH_SSZ_SIGNED_BEACON_BLOCK_CONTAINER = 1,
   ETH_SSZ_BEACON_BLOCK_BODY_CONTAINER   = 2,
   ETH_SSZ_BEACON_BLOCK_HEADER           = 3,
+
   // verify
   ETH_SSZ_VERIFY_REQUEST           = 4,
   ETH_SSZ_VERIFY_BLOCK_HASH_PROOF  = 5,
@@ -53,12 +54,11 @@ typedef enum {
   ETH_SSZ_VERIFY_TRANSACTION_PROOF = 7,
   ETH_SSZ_VERIFY_RECEIPT_PROOF     = 8,
   ETH_SSZ_VERIFY_LOGS_PROOF        = 9,
-  //  ETH_SSZ_VERIFY_LIGHT_CLIENT_UPDATE_LIST = 10,
-  //  ETH_SSZ_VERIFY_LIGHT_CLIENT_UPDATE      = 11,
-  ETH_SSZ_VERIFY_CALL_PROOF    = 13,
-  ETH_SSZ_VERIFY_SYNC_PROOF    = 14,
-  ETH_SSZ_VERIFY_BLOCK_PROOF   = 15,
-  ETH_SSZ_VERIFY_WITNESS_PROOF = 17,
+  ETH_SSZ_VERIFY_CALL_PROOF        = 13,
+  ETH_SSZ_VERIFY_SYNC_PROOF        = 14,
+  ETH_SSZ_VERIFY_BLOCK_PROOF       = 15,
+  ETH_SSZ_VERIFY_WITNESS_PROOF     = 17,
+
   // data types
   ETH_SSZ_DATA_NONE       = 18,
   ETH_SSZ_DATA_HASH32     = 19,
@@ -73,7 +73,7 @@ typedef enum {
 
   // (28 was ETH_SSZ_VERIFY_BLOCK_HEADER_PROOF: header-only proofs now use
   //  ETH_SSZ_VERIFY_BLOCK_PROOF with the NONE variant of ETH_BLOCK_BODY_UNION)
-  ETH_SSZ_DATA_BLOCK_HEADER       = 29,
+  ETH_SSZ_DATA_BLOCK_HEADER = 29,
   // 30 was ETH_SSZ_DATA_CALL_BLOCK_CONTEXT (compact EVM header via SSZ multi-proof;
   // eth_call now reads block context from the verified RLP EL header)
 
