@@ -121,7 +121,7 @@ void test_sepolia_fork_schedule_unchanged(void) {
   TEST_ASSERT_EQUAL_INT(C4_FORK_ALTAIR, c4_chain_fork_id(C4_CHAIN_SEPOLIA, 50));
   TEST_ASSERT_EQUAL_INT(C4_FORK_BELLATRIX, c4_chain_fork_id(C4_CHAIN_SEPOLIA, 100));
   TEST_ASSERT_EQUAL_INT(C4_FORK_FULU, c4_chain_fork_id(C4_CHAIN_SEPOLIA, 272640));
-  TEST_ASSERT_EQUAL_INT(C4_FORK_FULU, c4_chain_fork_id(C4_CHAIN_SEPOLIA, 0xffffffffffffffffULL));
+  TEST_ASSERT_EQUAL_INT(C4_FORK_GLOAS, c4_chain_fork_id(C4_CHAIN_SEPOLIA, 0xffffffffffffffffULL));
 
   const chain_spec_t* spec = c4_eth_get_chain_spec(C4_CHAIN_SEPOLIA);
   TEST_ASSERT_NOT_NULL(spec);
@@ -131,7 +131,7 @@ void test_sepolia_fork_schedule_unchanged(void) {
 
 void test_mainnet_gloas_still_unassigned(void) {
   TEST_ASSERT_EQUAL_INT(C4_FORK_FULU, c4_chain_fork_id(C4_CHAIN_MAINNET, 411392));
-  TEST_ASSERT_EQUAL_INT(C4_FORK_FULU, c4_chain_fork_id(C4_CHAIN_MAINNET, 0xffffffffffffffffULL));
+  TEST_ASSERT_EQUAL_INT(C4_FORK_GLOAS, c4_chain_fork_id(C4_CHAIN_MAINNET, 0xffffffffffffffffULL));
 }
 
 int main(void) {
