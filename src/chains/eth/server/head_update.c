@@ -5,6 +5,7 @@
 
 #include "beacon.h"
 #include "beacon_types.h"
+#include "el_header.h"
 #include "eth_conf.h"
 #include "eth_req.h"
 #include "handler.h"
@@ -38,6 +39,7 @@ static void prover_request_free(request_t* req) {
 typedef struct {
   uint64_t block_number;
   uint8_t  logs_bloom[256];
+  bool     bloom_fetched;
 } prefetch_state_t;
 
 static void logs_prefetch_cb(request_t* req) {
@@ -47,6 +49,35 @@ static void logs_prefetch_cb(request_t* req) {
   uint8_t           tmp[64] = {0};
   buffer_t          b       = stack_buffer(tmp);
   json_t            recs    = {0};
+
+  if (!s->bloom_fetched) {
+    json_t block_json = {0};
+    switch (eth_get_block(ctx, json_parse(bprintf(&b, "\"0x%lx\"", s->block_number)), true, &block_json)) {
+      case C4_SUCCESS:
+        if (block_json.type == JSON_TYPE_OBJECT) {
+          buffer_t bloom_buffer = stack_buffer(&s->logs_bloom);
+          json_get_bytes(block_json, "logsBloom", &bloom_buffer);
+          s->bloom_fetched = true;
+        }
+        else {
+          // the block does not exist, so we can't prefetch the logs bloom
+          log_error("failed to fetch block %l for log prefetch, since it could not be found", s->block_number);
+          prover_request_free(req);
+          return;
+        }
+        break;
+      case C4_PENDING:
+        if (c4_state_get_pending_request(&ctx->state)) {
+          c4_start_curl_requests(req, &ctx->state);
+          return;
+        }
+      case C4_ERROR:
+        log_error("logs_cache prefetch failed for block %l: %s", s->block_number, ctx->state.error ? ctx->state.error : "(unknown)");
+        prover_request_free(req);
+        return;
+    }
+  }
+
   switch (eth_getBlockReceipts(ctx, json_parse(bprintf(&b, "\"0x%lx\"", s->block_number)), &recs)) {
     case C4_SUCCESS:
       c4_eth_logs_cache_add_block(s->block_number, s->logs_bloom, recs);
@@ -91,9 +122,10 @@ static c4_status_t handle_head(prover_ctx_t* ctx, beacon_head_t* b) {
 
   beacon_block_t beacon_block = {0};
   TRY_ASYNC(c4_beacon_fill_becaon_block_from_eth(ctx, &beacon_block, data_root, data_block, sig_block));
+  uint64_t timestamp           = eth_el_header_get_uint64(beacon_block.el_header, EL_TIMESTAMP);
+  uint64_t beacon_block_number = eth_el_header_get_uint64(beacon_block.el_header, EL_BLOCK_NUMBER);
 
-  c4_beacon_cache_update_blockdata(ctx, &beacon_block, c4_watcher_check_block_number ? 0 : ssz_get_uint64(&beacon_block.execution, "timestamp"), beacon_block.sign_parent_root);
-  uint64_t beacon_block_number = ssz_get_uint64(&beacon_block.execution, "blockNumber");
+  c4_beacon_cache_update_blockdata(ctx, &beacon_block, c4_watcher_check_block_number ? 0 : timestamp, beacon_block.sign_parent_root);
 
   // now set the latest block number
   uint64_t latest_block_number = min64(beacon_block_number, c4_watcher_check_block_number ? json_as_uint64(latest_block) : beacon_block_number);
@@ -105,14 +137,10 @@ static c4_status_t handle_head(prover_ctx_t* ctx, beacon_head_t* b) {
   if (c4_eth_logs_cache_is_enabled()) {
     // Prefer prefetching the signed block's execution payload (latest head), not the parent data_block.
     // If not available, fall back to data_block execution payload.
-    ssz_ob_t sig_body              = ssz_get(&sig_block, "body");
-    ssz_ob_t sig_exec              = ssz_get(&sig_body, "executionPayload");
-    bytes_t  bloom                 = ssz_get(&sig_exec, "logsBloom").bytes;
-    uint64_t prefetch_block_number = ssz_get_uint64(&sig_exec, "blockNumber");
-    if (bloom.len == 256 && prefetch_block_number) {
+    uint64_t prefetch_block_number = beacon_block_number + 1;
+    if (prefetch_block_number) {
       prefetch_state_t* st = (prefetch_state_t*) safe_calloc(1, sizeof(prefetch_state_t));
       st->block_number     = prefetch_block_number;
-      memcpy(st->logs_bloom, bloom.data, 256);
 
       request_t*    preq = (request_t*) safe_calloc(1, sizeof(request_t));
       prover_ctx_t* pctx = (prover_ctx_t*) safe_calloc(1, sizeof(prover_ctx_t));

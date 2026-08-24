@@ -403,10 +403,7 @@ static c4_status_t create_beacon_block(prover_ctx_t* ctx, beacon_block_t* beacon
   beacon_block->slot = eth_el_header_get_uint64(local->el_header, EL_BLOCK_NUMBER);
   return C4_SUCCESS;
 }
-static inline bytes_t bytes_cpy(void* dst, size_t offset, bytes_t src) {
-  memcpy(((uint8_t*) dst) + offset, src.data, src.len);
-  return bytes((char*) dst + offset, src.len);
-}
+
 static c4_status_t store_local_cache_entry(prover_ctx_t* ctx, bytes32_t cache_key, verified_header_entry_t* cached, beacon_block_t* beacon_block) {
   uint32_t        size         = sizeof(local_cache_entry_t) + cached->el_header.len + (cached->el_body.def ? cached->el_body.bytes.len : 0);
   data_request_t* data_request = c4_state_get_data_request_by_id(&ctx->state, cache_key);

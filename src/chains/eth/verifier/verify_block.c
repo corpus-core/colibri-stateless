@@ -105,27 +105,6 @@ bool c4_eth_matches_blocknumber(verify_ctx_t* ctx, ssz_ob_t block, json_t req_bl
   return true;
 }
 
-bool verify_block_proof_for_block(verify_ctx_t* ctx, ssz_ob_t block_proof, json_t block_number, bytes32_t execution_payload_root) {
-
-  bytes32_t body_root         = {0};
-  bytes32_t exec_root         = {0};
-  ssz_ob_t  execution_payload = ssz_get(&block_proof, "executionPayload");
-  ssz_ob_t  proof             = ssz_get(&block_proof, "proof");
-  ssz_ob_t  header            = ssz_get(&block_proof, "header");
-
-  // calculate the tree root of the execution payload
-  ssz_hash_tree_root(execution_payload, exec_root);
-
-  ssz_verify_single_merkle_proof(proof.bytes, exec_root, EXECUTION_PAYLOAD_ROOT_GINDEX, body_root);
-  if (memcmp(body_root, ssz_get(&header, "bodyRoot").bytes.data, 32) != 0) RETURN_VERIFY_ERROR(ctx, "invalid body root!");
-  if (c4_verify_header(ctx, header, block_proof) != C4_SUCCESS) return false;
-  ssz_hash_tree_root(ssz_get(&execution_payload, "withdrawals"), exec_root);
-
-  if (ctx->state.error || !c4_eth_matches_blocknumber(ctx, execution_payload, block_number)) return false;
-  if (execution_payload_root) memcpy(execution_payload_root, exec_root, 32);
-  return true;
-}
-
 // EIP-4844 blob base fee: factor * e^(numerator/denominator) via Taylor series.
 // Uses (a*b)/c = (a/c)*b + (a%c)*b/c to avoid 128-bit intermediate values.
 static uint64_t fake_exponential(uint64_t factor, uint64_t numerator, uint64_t denominator) {

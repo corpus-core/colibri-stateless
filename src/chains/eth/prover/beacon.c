@@ -40,6 +40,9 @@ typedef struct {
   bytes_t  el_header;
   bytes_t  branch;
   gindex_t branch_gindex;
+  ssz_ob_t cl_header;
+  ssz_ob_t el_body;
+  uint8_t  header_data[3 * 32 + 2 * 8];
 } el_header_and_branch_t;
 
 #ifdef PROVER_CACHE
@@ -63,9 +66,7 @@ static beacon_head_t* c4_beacon_cache_get_slot(prover_ctx_t* ctx, json_t block) 
   bytes32_t key = {0};
   create_cache_block_key(key, block);
   beacon_head_t* cached = (beacon_head_t*) c4_prover_cache_get(ctx, key);
-  //  if (strncmp(block.start, "\"latest\"", 8) == 0 && !cached) {
-  //    log_warn("Slatest block not found in cache, but it is requested! This should not happen!");
-  //  }
+  // finalized and safe are both stored with the same key, but we decide here which to return.
   if (cached && strncmp(block.start, "\"finalized\"", 11) == 0) return cached + 1;
   return cached;
 }
@@ -76,8 +77,6 @@ static bool c4_beacon_cache_get_blockdata(prover_ctx_t* ctx, bytes32_t block_roo
   beacon_block_t* cached_block = (beacon_block_t*) c4_prover_cache_get(ctx, key);
   if (cached_block) {
     *beacon_block = *cached_block;
-    if (beacon_block->execution.def && !beacon_block->el_body.def)
-      beacon_block->el_body = beacon_block->execution;
     return true;
   }
   return false;
@@ -102,16 +101,14 @@ c4_status_t c4_set_latest_block(prover_ctx_t* ctx, uint64_t latest_block_number)
   return C4_SUCCESS;
 }
 
-static inline uint32_t merkle_cache_log2_ceil(uint32_t val) {
-  if (val < 2) return 0;
-#if defined(_MSC_VER)
-  unsigned long index;
-  _BitScanReverse(&index, val);
-  uint32_t floor_log2 = index;
-#else
-  uint32_t floor_log2 = 31 - __builtin_clz(val);
-#endif
-  return (val & (val - 1)) == 0 ? floor_log2 : floor_log2 + 1;
+static void free_beacon_block_t(beacon_block_t* beacon_block) {
+  free(beacon_block->header.bytes.data);
+  free(beacon_block->sync_aggregate.bytes.data);
+  free(beacon_block->el_header.data);
+  free(beacon_block->block_hash_branch.data);
+  free(beacon_block->el_body.bytes.data);
+  free(beacon_block->cl_body.bytes.data);
+  free(beacon_block);
 }
 
 void c4_beacon_cache_update_blockdata(prover_ctx_t* ctx, beacon_block_t* beacon_block, uint64_t latest_timestamp, bytes32_t block_root) {
@@ -121,21 +118,17 @@ void c4_beacon_cache_update_blockdata(prover_ctx_t* ctx, beacon_block_t* beacon_
   memcpy(key + 1, block_root + 1, 31);
 
   // cache the block
-  size_t   full_size = sizeof(beacon_block_t) + beacon_block->header.bytes.len + beacon_block->sync_aggregate.bytes.len + beacon_block->el_header.len + beacon_block->block_hash_branch.len;
-  uint8_t* cached    = safe_malloc(full_size);
-  memcpy(cached, beacon_block, sizeof(beacon_block_t));
-  memcpy(cached + sizeof(beacon_block_t), beacon_block->header.bytes.data, beacon_block->header.bytes.len);
-  memcpy(cached + sizeof(beacon_block_t) + beacon_block->header.bytes.len, beacon_block->sync_aggregate.bytes.data, beacon_block->sync_aggregate.bytes.len);
-  memcpy(cached + sizeof(beacon_block_t) + beacon_block->header.bytes.len + beacon_block->sync_aggregate.bytes.len, beacon_block->el_header.data, beacon_block->el_header.len);
-  memcpy(cached + sizeof(beacon_block_t) + beacon_block->header.bytes.len + beacon_block->sync_aggregate.bytes.len + beacon_block->el_header.len, beacon_block->block_hash_branch.data, beacon_block->block_hash_branch.len);
-  beacon_block_t* block            = (beacon_block_t*) cached;
-  block->header.bytes.data         = (uint8_t*) cached + sizeof(beacon_block_t);
-  block->sync_aggregate.bytes.data = (uint8_t*) cached + sizeof(beacon_block_t) + beacon_block->header.bytes.len;
-  block->el_header.data            = (uint8_t*) cached + sizeof(beacon_block_t) + beacon_block->header.bytes.len + beacon_block->sync_aggregate.bytes.len;
-  block->block_hash_branch.data    = (uint8_t*) cached + sizeof(beacon_block_t) + beacon_block->header.bytes.len + beacon_block->sync_aggregate.bytes.len + beacon_block->el_header.len;
-  block->cl_body.bytes.data        = block->header.bytes.data + (beacon_block->cl_body.bytes.data - beacon_block->header.bytes.data);
-  block->execution.bytes.data      = block->header.bytes.data + (beacon_block->execution.bytes.data - beacon_block->header.bytes.data);
-  c4_prover_cache_set(ctx, key, block, full_size, ttl, free); // keep it for 1 day
+  size_t          full_size   = sizeof(beacon_block_t) + beacon_block->el_body.bytes.len + beacon_block->cl_body.bytes.len + beacon_block->el_header.len + beacon_block->header.bytes.len + beacon_block->block_hash_branch.len + beacon_block->sync_aggregate.bytes.len;
+  beacon_block_t* cache_block = safe_malloc(sizeof(beacon_block_t));
+  *cache_block                = *beacon_block;
+  if (beacon_block->block_hash_branch.data) cache_block->block_hash_branch = bytes_dup(beacon_block->block_hash_branch);
+  if (beacon_block->el_body.bytes.data) cache_block->el_body.bytes = bytes_dup(beacon_block->el_body.bytes);
+  if (beacon_block->cl_body.bytes.data) cache_block->cl_body.bytes = bytes_dup(beacon_block->cl_body.bytes);
+  if (beacon_block->el_header.data) cache_block->el_header = bytes_dup(beacon_block->el_header);
+  if (beacon_block->header.bytes.data) cache_block->header.bytes = bytes_dup(beacon_block->header.bytes);
+  if (beacon_block->sync_aggregate.bytes.data) cache_block->sync_aggregate.bytes = bytes_dup(beacon_block->sync_aggregate.bytes);
+
+  c4_prover_cache_set(ctx, key, cache_block, full_size, ttl, free_beacon_block_t); // keep it for 1 day
 
   // cache the slot
   beacon_head_t head = {.slot = beacon_block->slot};
@@ -146,45 +139,30 @@ void c4_beacon_cache_update_blockdata(prover_ctx_t* ctx, beacon_block_t* beacon_
   *key = 'S';
   if (latest_timestamp) {
     memcpy((char*) key, "Slatest", 8);
-    /*:: [ $COUNT of $ALL ] $service_to_build
-    uint64_t now_unix_ms                  = current_unix_ms(); // Use Unix epoch time
-    uint64_t block_interval_ms            = 12000;
-    uint64_t buffer_ms                    = 2000; // buffer to make sure the block is actually available.
-    uint64_t predicted_next_block_unix_ms = (latest_timestamp * 1000) + block_interval_ms + buffer_ms;
-*/
-    uint64_t duration_ms = 20000; // Default to minimum TTL
-                                  //    if (predicted_next_block_unix_ms > now_unix_ms)
-                                  //      duration_ms = predicted_next_block_unix_ms - now_unix_ms;
-    //    else
-    // Block prediction is already in the past or now, maybe the buffer wasn't enough
-    // or clocks are skewed. Set a very short duration.
-    //      log_warn("Predictive TTL calculation resulted in past time for Slatest (Block Ts: %l, Now: %l). Setting minimal TTL.", latest_timestamp, now_unix_ms / 1000);
+    uint64_t duration_ms = 20000;    // Default to minimum TTL
     c4_prover_cache_invalidate(key); // invalidate oldkey
     c4_prover_cache_set(ctx, key, bytes_dup(slot_data).data, slot_data.len, duration_ms, free);
   }
   *key = 'S';
-  memcpy(key + 1, ssz_get(&beacon_block->execution, "blockHash").bytes.data + 1, 31);
+  memcpy(key + 1, beacon_block->el_block_hash + 1, 31);
   c4_prover_cache_set(ctx, key, bytes_dup(slot_data).data, slot_data.len, ttl, free); // keep it for 1 day
   memset(key + 1, 0, 31);
-  ssz_ob_t block_number_ob      = ssz_get(&beacon_block->execution, "blockNumber");
-  uint8_t* block_number_src     = block_number_ob.bytes.data;
+  uint64_t block_number         = eth_el_header_get_uint64(beacon_block->el_header, EL_BLOCK_NUMBER);
   uint8_t  block_number_data[8] = {0};
-  for (int i = 0; i < 8; i++)
-    block_number_data[7 - i] = block_number_src[i];
-  bytes_t block_number = bytes_remove_leading_zeros(bytes(block_number_data, 8));
-  memcpy(key + 1, block_number.data, block_number.len);
+  uint64_to_be(block_number_data, block_number);
+  bytes_t block_number_bytes = bytes_remove_leading_zeros(bytes(block_number_data, 8));
+  memcpy(key + 1, block_number_bytes.data, block_number_bytes.len);
   c4_prover_cache_set(ctx, key, bytes_dup(slot_data).data, slot_data.len, ttl, free); // keep it for 1 day
 
   // cache the transactions in the tx cache.
-  ssz_ob_t  txs              = ssz_get(&beacon_block->execution, "transactions");
-  uint32_t  len              = ssz_len(txs);
-  bytes32_t tx_hash          = {0};
-  uint64_t  block_number_val = ssz_uint64(block_number_ob);
+  ssz_ob_t  txs     = ssz_get(&beacon_block->el_body, "transactions");
+  uint32_t  len     = ssz_len(txs);
+  bytes32_t tx_hash = {0};
   // Reserve once for batch insertion to avoid per-insert cleanup
   c4_eth_tx_cache_reserve(len);
   for (uint32_t i = 0; i < len; i++) {
     keccak(ssz_at(txs, i).bytes, tx_hash);
-    c4_eth_tx_cache_set(tx_hash, block_number_val, i);
+    c4_eth_tx_cache_set(tx_hash, block_number, i);
   }
 }
 
@@ -319,11 +297,6 @@ c4_status_t c4_eth_get_signblock_and_parent(prover_ctx_t* ctx, bytes32_t sign_ha
   return status;
 }
 
-static c4_status_t eth_get_block(prover_ctx_t* ctx, json_t block, bool full_tx, json_t* result) {
-  uint8_t  tmp[200] = {0};
-  buffer_t buffer   = stack_buffer(tmp);
-  return c4_send_eth_rpc(ctx, (char*) (block.len == 68 ? "eth_getBlockByHash" : "eth_getBlockByNumber"), bprintf(&buffer, "[%J,%s]", block, full_tx ? "true" : "false"), block.len == 68 ? DEFAULT_TTL : 12, result, NULL);
-}
 static c4_status_t get_beacon_header_from_eth_block(prover_ctx_t* ctx, json_t eth_block, json_t* header, bytes32_t root, bytes32_t parent_root) {
   buffer_t buffer = {.allocated = -32, .data = {.data = parent_root, .len = 0}};
   json_t   p_hash = json_get(eth_block, "parentBeaconBlockRoot");
@@ -392,8 +365,11 @@ c4_status_t c4_eth_update_finality(prover_ctx_t* ctx, bytes32_t checkpoint, uint
   c4_prover_cache_invalidate(key);
   return eth_get_final_hash(ctx, true, checkpoint, slot);
 }
-static c4_status_t get_el_header_and_branch(prover_ctx_t* ctx, bytes_t* el_header, bytes_t* branch, gindex_t* branch_gindex, fork_id_t fork, ssz_ob_t data_block, bytes32_t block_root) {
+#endif
 
+static c4_status_t get_el_header_and_branch(prover_ctx_t* ctx, el_header_and_branch_t* el_header_and_branch, fork_id_t fork, ssz_ob_t data_block, bytes32_t block_root) {
+
+  ssz_ob_t  el_body                 = {0};
   bytes32_t cache_key               = {0};
   bytes32_t body_root               = {0};
   bytes_t   generated_header        = {0};
@@ -401,15 +377,15 @@ static c4_status_t get_el_header_and_branch(prover_ctx_t* ctx, bytes_t* el_heade
   gindex_t  generated_branch_gindex = 0;
   memcpy(cache_key, "ELH_", 4);
   memcpy(cache_key + 4, block_root + 28, 28);
-  el_header_and_branch_t* cached_header = c4_prover_cache_get(ctx, cache_key);
-  if (cached_header) {
-    *el_header     = cached_header->el_header;
-    *branch        = cached_header->branch;
-    *branch_gindex = cached_header->branch_gindex;
+
+  bytes_t cached_value = c4_state_cache_get(&ctx->state, cache_key);
+  if (cached_value.data) {
+    *el_header_and_branch = *(el_header_and_branch_t*) cached_value.data;
     return C4_SUCCESS;
   }
 
   if (fork < C4_FORK_GLOAS) {
+    // generate the el_header and branch
     ssz_ob_t            body      = ssz_get(&data_block, "body");
     ssz_ob_t            execution = ssz_get(&body, "executionPayload");
     eth_el_header_ctx_t el_ctx    = {
@@ -424,26 +400,41 @@ static c4_status_t get_el_header_and_branch(prover_ctx_t* ctx, bytes_t* el_heade
     TRY_ASYNC(eth_el_header_build_from_ep(&generated_header, &el_ctx));
     generated_branch_gindex = 812;
     generated_branch        = ssz_create_proof(body, body_root, generated_branch_gindex);
+
+    // TODO optimize instead allocating the content twice, calculate the size and use the memory directly
+    ssz_builder_t body_builder = ssz_builder_for_type(ETH_SSZ_EL_BLOCK_CONTENT);
+    ssz_add_bytes(&body_builder, "transactions", ssz_get(&execution, "transactions").bytes);
+    ssz_add_bytes(&body_builder, "withdrawals", ssz_get(&execution, "withdrawals").bytes);
+    el_body = ssz_builder_to_bytes(&body_builder);
   }
+
   else
     THROW_ERROR("GLOAS el_header not implemented yet!"); // TODO fetch from eth_getBlockByHash
 
+  size_t                  size  = sizeof(el_header_and_branch_t) + generated_header.len + generated_branch.len + el_body.bytes.len;
+  el_header_and_branch_t* value = safe_malloc(size);
+
+  // build header
+  value->cl_header = (ssz_ob_t) {.def = eth_ssz_type_for_denep(ETH_SSZ_BEACON_BLOCK_HEADER, ctx->chain_id), .bytes = bytes(value->header_data, 112)};
+  memcpy(value->header_data, data_block.bytes.data, 112 - 32); // everything except body
+  memcpy(value->header_data + 112 - 32, body_root, 32);
+
   // cache the generated header
-  el_header_and_branch_t* cache_value = safe_malloc(generated_header.len + sizeof(el_header_and_branch_t) + generated_branch.len);
-  cache_value->branch_gindex          = generated_branch_gindex;
-  cache_value->el_header              = bytes(((void*) cache_value) + sizeof(el_header_and_branch_t), generated_header.len);
-  cache_value->branch                 = bytes(cache_value->el_header.data + generated_header.len, generated_branch.len);
-  memcpy(cache_value->el_header.data, generated_header.data, generated_header.len);
-  memcpy(cache_value->branch.data, generated_branch.data, generated_branch.len);
+  value->branch_gindex = generated_branch_gindex;
+  value->el_header     = bytes_cpy(value, sizeof(el_header_and_branch_t), generated_header);
+  value->branch        = bytes_cpy(value, sizeof(el_header_and_branch_t) + generated_header.len, generated_branch);
+  value->el_body.bytes = bytes_cpy(value, sizeof(el_header_and_branch_t) + generated_header.len + generated_branch.len, el_body.bytes);
+  value->el_body.def   = el_body.def;
+
   safe_free(generated_header.data);
   safe_free(generated_branch.data);
-  c4_prover_cache_set(ctx, cache_key, cache_value, generated_header.len + sizeof(el_header_and_branch_t) + generated_branch.len, 1000 * 60 * 60 * 24, free); // 24 hours
-  *el_header     = cache_value->el_header;
-  *branch        = cache_value->branch;
-  *branch_gindex = cache_value->branch_gindex;
+  safe_free(el_body.bytes.data);
+
+  c4_state_cache_set(&ctx->state, cache_key, bytes((void*) value, size));
+  *el_header_and_branch = *value;
+
   return C4_SUCCESS;
 }
-#endif
 
 static inline c4_status_t eth_get_block_roots(prover_ctx_t* ctx, json_t block, bytes32_t sig_root, bytes32_t data_root) {
   CHECK_JSON(block, block.len == 68 ? "bytes32" : "block", "block identifier");
@@ -481,18 +472,20 @@ c4_status_t c4_beacon_get_block_for_eth_with_body(prover_ctx_t* ctx, json_t bloc
 c4_status_t c4_beacon_fill_becaon_block_from_eth(prover_ctx_t*   ctx,
                                                  beacon_block_t* beacon_block, bytes32_t data_root, ssz_ob_t data_block, ssz_ob_t sig_block) {
 
-  chain_spec_t* chain = c4_eth_get_chain_spec(ctx->chain_id);
-#ifdef PROVER_CACHE
-  TRY_ASYNC(get_el_header_and_branch(ctx, &beacon_block->el_header, &beacon_block->block_hash_branch, &beacon_block->block_hash_branch_gindex,
-                                     c4_chain_fork_id(ctx->chain_id, epoch_for_slot(ssz_get_uint64(&data_block, "slot"), chain)), data_block, data_root));
-#endif
+  chain_spec_t*          chain    = c4_eth_get_chain_spec(ctx->chain_id);
+  el_header_and_branch_t el_data  = {0};
+  ssz_ob_t               sig_body = ssz_get(&sig_block, "body");
+  fork_id_t              fork     = c4_chain_fork_id(ctx->chain_id, epoch_for_slot(ssz_get_uint64(&data_block, "slot"), chain));
 
-  ssz_ob_t sig_body            = ssz_get(&sig_block, "body");
-  beacon_block->slot           = ssz_get_uint64(&data_block, "slot");
-  beacon_block->header         = data_block;
-  beacon_block->cl_body        = ssz_get(&data_block, "body");
-  beacon_block->execution      = ssz_get(&beacon_block->cl_body, "executionPayload");
-  beacon_block->sync_aggregate = ssz_get(&sig_body, "syncAggregate");
+  TRY_ASYNC(get_el_header_and_branch(ctx, &el_data, fork, data_block, data_root));
+  beacon_block->el_header                = el_data.el_header;
+  beacon_block->block_hash_branch        = el_data.branch;
+  beacon_block->block_hash_branch_gindex = el_data.branch_gindex;
+  beacon_block->el_body                  = el_data.el_body;
+  beacon_block->header                   = el_data.cl_header;
+  beacon_block->slot                     = ssz_get_uint64(&data_block, "slot");
+  beacon_block->cl_body                  = ssz_get(&data_block, "body");
+  beacon_block->sync_aggregate           = ssz_get(&sig_body, "syncAggregate");
   memcpy(beacon_block->sign_parent_root, ssz_get(&sig_block, "parentRoot").bytes.data, 32);
   memcpy(beacon_block->data_block_root, data_root, 32);
   keccak(beacon_block->el_header, beacon_block->el_block_hash);
@@ -528,16 +521,8 @@ c4_status_t c4_beacon_get_block_for_eth(prover_ctx_t* ctx, json_t block, beacon_
 
   TRY_ASYNC(c4_beacon_fill_becaon_block_from_eth(ctx, beacon_block, data_root, data_block, sig_block));
 #ifdef PROVER_CACHE
-  if (strncmp(block.start, "\"latest\"", 8) == 0) { // for latest we take the timestamp, so we can define the ttl
-    ssz_ob_t sig_body  = ssz_get(&sig_block, "body");
-    ssz_ob_t execution = ssz_get(&sig_body, "executionPayload");
-    c4_beacon_cache_update_blockdata(ctx, beacon_block, ssz_get_uint64(&execution, "timestamp"), beacon_block->data_block_root);
-  }
-  else
-    c4_beacon_cache_update_blockdata(ctx, beacon_block, 0, beacon_block->data_block_root);
+  c4_beacon_cache_update_blockdata(ctx, beacon_block, strncmp(block.start, "\"latest\"", 8) == 0, beacon_block->data_block_root);
 #endif
-  if (beacon_block->execution.def && !beacon_block->el_body.def)
-    beacon_block->el_body = beacon_block->execution;
 
   return C4_SUCCESS;
 }

@@ -45,7 +45,7 @@ c4_status_t eth_get_logs(prover_ctx_t* ctx, json_t params, json_t* logs);
 
 // get the block receipts for the given block
 c4_status_t eth_getBlockReceipts(prover_ctx_t* ctx, json_t block, json_t* receipts_array);
-
+c4_status_t eth_get_block(prover_ctx_t* ctx, json_t block, bool full_tx, json_t* result);
 // serialize the receipt for the given json using the buffer to allocate memory
 bytes_t c4_serialize_receipt(json_t r, buffer_t* buf);
 

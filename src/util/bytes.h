@@ -33,6 +33,7 @@ extern "C" {
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 // Only define the attribute if the clang analyzer is running
 #ifdef __clang_analyzer__
@@ -409,6 +410,11 @@ void buffer_add_bytes(buffer_t* buf, uint32_t len, ...);
     fwrite(__str, 1, __buf.data.len, file);                  \
     buffer_free(&__buf);                                     \
   } while (0)
+
+static inline bytes_t bytes_cpy(void* dst, size_t offset, bytes_t src) {
+  memcpy(((uint8_t*) dst) + offset, src.data, src.len);
+  return bytes((char*) dst + offset, src.len);
+}
 
 #ifdef __cplusplus
 }

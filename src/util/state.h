@@ -324,6 +324,25 @@ void c4_append_prover_request_props(buffer_t* payload, bytes_t client_state, cha
 data_request_t* c4_state_get_data_request_by_id(c4_state_t* state, bytes32_t id);
 
 /**
+ * Gets a value from the cache.
+ *
+ * @param state Pointer to the state object
+ * @param key 32-byte identifier to search for
+ * @return The value, or NULL_BYTES if not found
+ */
+bytes_t c4_state_cache_get(c4_state_t* state, bytes32_t key);
+
+/**
+ * Sets a value in the cache.
+ *
+ * @param state Pointer to the state object
+ * @param key 32-byte identifier to store the value under
+ * @param value The value to store
+ * @return The value, or NULL_BYTES if not found
+ */
+bytes_t c4_state_cache_set(c4_state_t* state, bytes32_t key, bytes_t value);
+
+/**
  * Finds a data request by its URL.
  *
  * Performs a linear search through the request list to find a request

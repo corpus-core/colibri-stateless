@@ -100,7 +100,8 @@ typedef enum {
 
   ETH_SSZ_VERIFY_LOGS_COMPLETENESS_PROOF = 48, // `LogsCompletenessProof` (proof union index 20): completeness proof for eth_getLogs
 
-  ETH_SSZ_CL_BLOCK_PROOF = 49, // ETH_CL_BLOCK_PROOF
+  ETH_SSZ_CL_BLOCK_PROOF   = 49, // ETH_CL_BLOCK_PROOF
+  ETH_SSZ_EL_BLOCK_CONTENT = 50, // ETH_EL_BLOCK_CONTENT
 
 } eth_ssz_type_t;
 

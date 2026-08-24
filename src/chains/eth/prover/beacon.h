@@ -64,7 +64,6 @@ typedef struct {
   uint64_t  slot;                     // slot of the block
   bytes32_t body_root;                // the body root of the block
   ssz_ob_t  header;                   // block header
-  ssz_ob_t  execution;                // execution payload
   ssz_ob_t  cl_body;                  // body of the block (empty in hybrid mode)
   ssz_ob_t  sync_aggregate;           // sync aggregate with the signature of the block (empty in hybrid mode)
   bytes32_t sign_parent_root;         // the parentRoot of the block containing the signature

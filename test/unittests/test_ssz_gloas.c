@@ -30,9 +30,9 @@
 //   3. Ensure the light-client containers accept sane payloads (structural
 //      validation + hash_tree_root does not crash).
 
-#include "c4_assert.h" // provides read_testdata() and ASSERT_HEX_STRING_EQUAL()
 #include "beacon_types.h"
 #include "bytes.h"
+#include "c4_assert.h" // provides read_testdata() and ASSERT_HEX_STRING_EQUAL()
 #include "chains.h"
 #include "ssz.h"
 #include "state.h"
@@ -67,52 +67,52 @@ static const ssz_def_t GLOAS_TEST_SYNC_COMMITTEE_FIELDS[] = {
 
 // Positions match `specs/gloas/beacon-chain.md` line 816 (BeaconState, 46 fields).
 static const ssz_def_t GLOAS_TEST_BEACON_STATE_BASE[] = {
-    SSZ_UINT64("genesis_time"),                     // 0
-    SSZ_BYTES32("genesis_validators_root"),         // 1
-    SSZ_UINT64("slot"),                             // 2
-    SSZ_UINT64("fork"),                             // 3
-    SSZ_UINT64("latest_block_header"),              // 4
-    SSZ_UINT64("block_roots"),                      // 5
-    SSZ_UINT64("state_roots"),                      // 6
-    SSZ_UINT64("historical_roots"),                 // 7
-    SSZ_UINT64("eth1_data"),                        // 8
-    SSZ_UINT64("eth1_data_votes"),                  // 9
-    SSZ_UINT64("eth1_deposit_index"),               // 10
-    SSZ_UINT64("validators"),                       // 11
-    SSZ_UINT64("balances"),                         // 12
-    SSZ_UINT64("randao_mixes"),                     // 13
-    SSZ_UINT64("slashings"),                        // 14
-    SSZ_UINT64("previous_epoch_participation"),     // 15
-    SSZ_UINT64("current_epoch_participation"),      // 16
-    SSZ_UINT64("justification_bits"),               // 17
-    SSZ_UINT64("previous_justified_checkpoint"),    // 18
-    SSZ_UINT64("current_justified_checkpoint"),     // 19
-    SSZ_CONTAINER("finalized_checkpoint", GLOAS_TEST_CHECKPOINT_FIELDS),      // 20
-    SSZ_UINT64("inactivity_scores"),                // 21
-    SSZ_CONTAINER("current_sync_committee", GLOAS_TEST_SYNC_COMMITTEE_FIELDS),// 22
-    SSZ_CONTAINER("next_sync_committee", GLOAS_TEST_SYNC_COMMITTEE_FIELDS),   // 23
-    SSZ_BYTES32("latest_block_hash"),               // 24
-    SSZ_UINT64("next_withdrawal_index"),            // 25
-    SSZ_UINT64("next_withdrawal_validator_index"),  // 26
-    SSZ_UINT64("historical_summaries"),             // 27
-    SSZ_UINT64("deposit_requests_start_index"),     // 28
-    SSZ_UINT64("deposit_balance_to_consume"),       // 29
-    SSZ_UINT64("exit_balance_to_consume"),          // 30
-    SSZ_UINT64("earliest_exit_epoch"),              // 31
-    SSZ_UINT64("consolidation_balance_to_consume"), // 32
-    SSZ_UINT64("earliest_consolidation_epoch"),     // 33
-    SSZ_UINT64("pending_deposits"),                 // 34
-    SSZ_UINT64("pending_partial_withdrawals"),      // 35
-    SSZ_UINT64("pending_consolidations"),           // 36
-    SSZ_UINT64("proposer_lookahead"),               // 37
-    SSZ_UINT64("builders"),                         // 38
-    SSZ_UINT64("next_withdrawal_builder_index"),    // 39
-    SSZ_UINT64("execution_payload_availability"),   // 40
-    SSZ_UINT64("builder_pending_payments"),         // 41
-    SSZ_UINT64("builder_pending_withdrawals"),      // 42
-    SSZ_UINT64("latest_execution_payload_bid"),     // 43
-    SSZ_UINT64("payload_expected_withdrawals"),     // 44
-    SSZ_UINT64("ptc_window")                        // 45
+    SSZ_UINT64("genesis_time"),                                                // 0
+    SSZ_BYTES32("genesis_validators_root"),                                    // 1
+    SSZ_UINT64("slot"),                                                        // 2
+    SSZ_UINT64("fork"),                                                        // 3
+    SSZ_UINT64("latest_block_header"),                                         // 4
+    SSZ_UINT64("block_roots"),                                                 // 5
+    SSZ_UINT64("state_roots"),                                                 // 6
+    SSZ_UINT64("historical_roots"),                                            // 7
+    SSZ_UINT64("eth1_data"),                                                   // 8
+    SSZ_UINT64("eth1_data_votes"),                                             // 9
+    SSZ_UINT64("eth1_deposit_index"),                                          // 10
+    SSZ_UINT64("validators"),                                                  // 11
+    SSZ_UINT64("balances"),                                                    // 12
+    SSZ_UINT64("randao_mixes"),                                                // 13
+    SSZ_UINT64("slashings"),                                                   // 14
+    SSZ_UINT64("previous_epoch_participation"),                                // 15
+    SSZ_UINT64("current_epoch_participation"),                                 // 16
+    SSZ_UINT64("justification_bits"),                                          // 17
+    SSZ_UINT64("previous_justified_checkpoint"),                               // 18
+    SSZ_UINT64("current_justified_checkpoint"),                                // 19
+    SSZ_CONTAINER("finalized_checkpoint", GLOAS_TEST_CHECKPOINT_FIELDS),       // 20
+    SSZ_UINT64("inactivity_scores"),                                           // 21
+    SSZ_CONTAINER("current_sync_committee", GLOAS_TEST_SYNC_COMMITTEE_FIELDS), // 22
+    SSZ_CONTAINER("next_sync_committee", GLOAS_TEST_SYNC_COMMITTEE_FIELDS),    // 23
+    SSZ_BYTES32("latest_block_hash"),                                          // 24
+    SSZ_UINT64("next_withdrawal_index"),                                       // 25
+    SSZ_UINT64("next_withdrawal_validator_index"),                             // 26
+    SSZ_UINT64("historical_summaries"),                                        // 27
+    SSZ_UINT64("deposit_requests_start_index"),                                // 28
+    SSZ_UINT64("deposit_balance_to_consume"),                                  // 29
+    SSZ_UINT64("exit_balance_to_consume"),                                     // 30
+    SSZ_UINT64("earliest_exit_epoch"),                                         // 31
+    SSZ_UINT64("consolidation_balance_to_consume"),                            // 32
+    SSZ_UINT64("earliest_consolidation_epoch"),                                // 33
+    SSZ_UINT64("pending_deposits"),                                            // 34
+    SSZ_UINT64("pending_partial_withdrawals"),                                 // 35
+    SSZ_UINT64("pending_consolidations"),                                      // 36
+    SSZ_UINT64("proposer_lookahead"),                                          // 37
+    SSZ_UINT64("builders"),                                                    // 38
+    SSZ_UINT64("next_withdrawal_builder_index"),                               // 39
+    SSZ_UINT64("execution_payload_availability"),                              // 40
+    SSZ_UINT64("builder_pending_payments"),                                    // 41
+    SSZ_UINT64("builder_pending_withdrawals"),                                 // 42
+    SSZ_UINT64("latest_execution_payload_bid"),                                // 43
+    SSZ_UINT64("payload_expected_withdrawals"),                                // 44
+    SSZ_UINT64("ptc_window")                                                   // 45
 };
 
 static const ssz_def_t GLOAS_TEST_BEACON_STATE_BASE_CONTAINER =
@@ -478,20 +478,20 @@ void test_gloas_lc_bootstrap_hash_tree_root(void) {
   // table is required.
   static uint8_t buf[496 + 24624 + 352] = {0};
   // Header: match the layout of test_gloas_lc_header_hash_tree_root.
-  buf[0]           = 0x2a; // slot = 42
-  buf[8]           = 0x07; // proposer_index = 7
-  memset(buf + 16, 0xaa, 32);        // parent_root
-  memset(buf + 48, 0xbb, 32);        // state_root
-  memset(buf + 80, 0xcc, 32);        // body_root
-  memset(buf + 112, 0xdd, 32);       // executionBlockHash
+  buf[0] = 0x2a;               // slot = 42
+  buf[8] = 0x07;               // proposer_index = 7
+  memset(buf + 16, 0xaa, 32);  // parent_root
+  memset(buf + 48, 0xbb, 32);  // state_root
+  memset(buf + 80, 0xcc, 32);  // body_root
+  memset(buf + 112, 0xdd, 32); // executionBlockHash
   for (int i = 0; i < 11; i++)
     memset(buf + 144 + i * 32, (uint8_t) (0xe0 + i), 32);
   // SyncCommittee pubkeys: cycle through non-zero bytes so hash_tree_root has
   // something to chew on (validity check does not care about the actual keys).
   for (int i = 0; i < 512; i++)
     memset(buf + 496 + i * 48, (uint8_t) (i & 0xff), 48);
-  memset(buf + 496 + 512 * 48, 0x11, 48);        // aggregate pubkey
-  memset(buf + 496 + 24624, 0x22, 352);          // currentSyncCommitteeBranch (11 * 32)
+  memset(buf + 496 + 512 * 48, 0x11, 48); // aggregate pubkey
+  memset(buf + 496 + 24624, 0x22, 352);   // currentSyncCommitteeBranch (11 * 32)
 
   const ssz_def_t bootstrap_def = SSZ_CONTAINER("LightClientBootstrap", GLOAS_LIGHT_CLIENT_BOOTSTRAP);
   ssz_ob_t        bootstrap     = {.bytes = bytes(buf, sizeof(buf)), .def = &bootstrap_def};
@@ -523,18 +523,18 @@ void test_gloas_lc_header_hash_tree_root(void) {
   // Followed by executionBlockHash (32) and executionBranch (11 * 32 = 352).
   // Total: 112 + 32 + 352 = 496 bytes.
   uint8_t buf[496] = {0};
-  buf[0]           = 0x2a; // slot = 42
-  buf[8]           = 0x07; // proposer_index = 7
-  memset(buf + 16, 0xaa, 32);        // parent_root
-  memset(buf + 48, 0xbb, 32);        // state_root
-  memset(buf + 80, 0xcc, 32);        // body_root
-  memset(buf + 112, 0xdd, 32);       // executionBlockHash
+  buf[0]           = 0x2a;     // slot = 42
+  buf[8]           = 0x07;     // proposer_index = 7
+  memset(buf + 16, 0xaa, 32);  // parent_root
+  memset(buf + 48, 0xbb, 32);  // state_root
+  memset(buf + 80, 0xcc, 32);  // body_root
+  memset(buf + 112, 0xdd, 32); // executionBlockHash
   for (int i = 0; i < 11; i++) {
     memset(buf + 144 + i * 32, (uint8_t) (0xe0 + i), 32);
   }
 
   const ssz_def_t header_def = SSZ_CONTAINER("LightClientHeader", GLOAS_LIGHT_CLIENT_HEADER);
-  ssz_ob_t         header    = {.bytes = bytes(buf, sizeof(buf)), .def = &header_def};
+  ssz_ob_t        header     = {.bytes = bytes(buf, sizeof(buf)), .def = &header_def};
 
   c4_state_t state = {0};
   TEST_ASSERT_TRUE_MESSAGE(ssz_is_valid(header, true, &state),
@@ -752,7 +752,7 @@ void test_gloas_signed_beacon_block_ssz_roundtrip(void) {
   ssz_ob_t payload_atts = ssz_get(&body, "payloadAttestations");
   TEST_ASSERT_NOT_NULL(payload_atts.def);
   TEST_ASSERT_EQUAL_UINT32(1, ssz_len(payload_atts));
-  ssz_ob_t patt = ssz_at(payload_atts, 0);
+  ssz_ob_t patt      = ssz_at(payload_atts, 0);
   ssz_ob_t patt_data = ssz_get(&patt, "data");
   TEST_ASSERT_NOT_NULL(patt_data.def);
   TEST_ASSERT_EQUAL_UINT64(222962, ssz_get_uint64(&patt_data, "slot"));
