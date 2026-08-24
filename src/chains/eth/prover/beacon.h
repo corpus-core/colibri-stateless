@@ -72,7 +72,7 @@ typedef struct {
   ssz_ob_t  sync_aggregate;           // sync aggregate with the signature of the block (empty in hybrid mode)
   bytes32_t sign_parent_root;         // the parentRoot of the block containing the signature
   bytes32_t data_block_root;          // the blockroot used for the data block
-} beacon_block_t;
+} eth_block_t;
 
 // :: Verified Header Cache
 //
@@ -84,14 +84,14 @@ typedef struct {
 
 // get the beacon block for the given eth block number or hash
 c4_status_t c4_eth_get_signblock_and_parent(prover_ctx_t* ctx, bytes32_t sig_root, bytes32_t data_root, ssz_ob_t* sig_block, ssz_ob_t* data_block, bytes32_t data_root_result);
-c4_status_t c4_beacon_get_block_for_eth(prover_ctx_t* ctx, json_t block, beacon_block_t* beacon_block);
-c4_status_t c4_beacon_get_block_for_eth_with_body(prover_ctx_t* ctx, json_t block, beacon_block_t* beacon_block);
+c4_status_t c4_beacon_get_block_for_eth(prover_ctx_t* ctx, json_t block, eth_block_t* beacon_block);
+c4_status_t c4_beacon_get_block_for_eth_with_body(prover_ctx_t* ctx, json_t block, eth_block_t* beacon_block);
 
 // :: Hybrid Mode (beacon_header.c)
 
 /**
  * Resolves the block identifier and fetches/caches the verified block header
- * from the remote prover. Returns a header-only `beacon_block_t`.
+ * from the remote prover. Returns a header-only `eth_block_t`.
  *
  * Handles all block identifier formats: `"latest"`, `"safe"`, `"justified"`,
  * `"finalized"`, block hash (`0x...` 32 bytes), and block number (`0x...`).
@@ -103,7 +103,7 @@ c4_status_t c4_beacon_get_block_for_eth_with_body(prover_ctx_t* ctx, json_t bloc
  * @param beacon_block output: populated with header-only data
  * @return `C4_SUCCESS` when header is ready, `C4_PENDING` while waiting, `C4_ERROR` on failure
  */
-c4_status_t c4_hybrid_get_block_for_eth(prover_ctx_t* ctx, json_t block, beacon_block_t* beacon_block, bool with_body);
+c4_status_t c4_hybrid_get_block_for_eth(prover_ctx_t* ctx, json_t block, eth_block_t* beacon_block, bool with_body);
 
 /**
  * Builds an SSZ-encoded `ETH_BLOCK_HEADER_DATA` (14 fields) from a full execution payload.
@@ -194,7 +194,7 @@ c4_status_t c4_eth_update_finality(prover_ctx_t* ctx, bytes32_t checkpoint, uint
  *  Updates the beacon block data in the cache.
  *
  *  This uses the following keys in the cache:
- *  - B<beacon_block_root> -> beacon_block_t
+ *  - B<beacon_block_root> -> eth_block_t
  *  - Slatest -> beacon_head_t
  *  - S<exec_block_hash> -> beacon_head_t
  *  - S<exec_block_number> -> beacon_head_t
@@ -204,11 +204,11 @@ c4_status_t c4_eth_update_finality(prover_ctx_t* ctx, bytes32_t checkpoint, uint
  *  @param latest_timestamp The latest timestamp of the block
  *  @param block_root The root of the block
  */
-void c4_beacon_cache_update_blockdata(prover_ctx_t* ctx, beacon_block_t* beacon_block, uint64_t latest_timestamp, bytes32_t block_root);
+void c4_beacon_cache_update_blockdata(prover_ctx_t* ctx, eth_block_t* beacon_block, uint64_t latest_timestamp, bytes32_t block_root);
 
 #endif
-c4_status_t c4_beacon_fill_becaon_block_from_eth(prover_ctx_t*   ctx,
-                                                 beacon_block_t* beacon_block, bytes32_t data_root, ssz_ob_t data_block, ssz_ob_t sig_block);
+c4_status_t c4_beacon_fill_becaon_block_from_eth(prover_ctx_t* ctx,
+                                                 eth_block_t* beacon_block, bytes32_t data_root, ssz_ob_t data_block, ssz_ob_t sig_block);
 
 #ifdef __cplusplus
 }

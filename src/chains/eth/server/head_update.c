@@ -120,7 +120,7 @@ static c4_status_t handle_head(prover_ctx_t* ctx, beacon_head_t* b) {
   }
   TRY_ASYNC(status);
 
-  beacon_block_t beacon_block = {0};
+  eth_block_t beacon_block = {0};
   TRY_ASYNC(c4_beacon_fill_becaon_block_from_eth(ctx, &beacon_block, data_root, data_block, sig_block));
   uint64_t timestamp           = eth_el_header_get_uint64(beacon_block.el_header, EL_TIMESTAMP);
   uint64_t beacon_block_number = eth_el_header_get_uint64(beacon_block.el_header, EL_BLOCK_NUMBER);

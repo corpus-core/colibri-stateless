@@ -392,10 +392,10 @@ static c4_status_t hybrid_fetch_and_verify(prover_ctx_t* ctx, json_t block, hybr
   return C4_PENDING;
 }
 
-// -- Hybrid: Resolve Block Identifier and Return Header-Only beacon_block_t --
+// -- Hybrid: Resolve Block Identifier and Return Header-Only eth_block_t --
 
-static c4_status_t create_beacon_block(prover_ctx_t* ctx, beacon_block_t* beacon_block, local_cache_entry_t* local) {
-  memset(beacon_block, 0, sizeof(beacon_block_t));
+static c4_status_t create_beacon_block(prover_ctx_t* ctx, eth_block_t* beacon_block, local_cache_entry_t* local) {
+  memset(beacon_block, 0, sizeof(eth_block_t));
   memcpy(beacon_block->el_block_hash, local->block_hash, 32);
   beacon_block->header_only = true;
   beacon_block->el_header   = local->el_header;
@@ -404,7 +404,7 @@ static c4_status_t create_beacon_block(prover_ctx_t* ctx, beacon_block_t* beacon
   return C4_SUCCESS;
 }
 
-static c4_status_t store_local_cache_entry(prover_ctx_t* ctx, bytes32_t cache_key, verified_header_entry_t* cached, beacon_block_t* beacon_block) {
+static c4_status_t store_local_cache_entry(prover_ctx_t* ctx, bytes32_t cache_key, verified_header_entry_t* cached, eth_block_t* beacon_block) {
   uint32_t        size         = sizeof(local_cache_entry_t) + cached->el_header.len + (cached->el_body.def ? cached->el_body.bytes.len : 0);
   data_request_t* data_request = c4_state_get_data_request_by_id(&ctx->state, cache_key);
   if (data_request && data_request->validated && data_request->response.data)
@@ -430,7 +430,7 @@ static c4_status_t store_local_cache_entry(prover_ctx_t* ctx, bytes32_t cache_ke
   return create_beacon_block(ctx, beacon_block, local);
 }
 
-c4_status_t c4_hybrid_get_block_for_eth(prover_ctx_t* ctx, json_t block, beacon_block_t* beacon_block, bool with_body) {
+c4_status_t c4_hybrid_get_block_for_eth(prover_ctx_t* ctx, json_t block, eth_block_t* beacon_block, bool with_body) {
   header_tag_t tag          = HEADER_TAG_COUNT;
   bytes_t      el_header    = NULL_BYTES;
   ssz_ob_t     el_body      = {0};

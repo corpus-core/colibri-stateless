@@ -475,7 +475,7 @@ static c4_status_t build_result_json_from_matches(prover_ctx_t* ctx, log_cache_s
 
 static c4_status_t get_exec_blocknumber(prover_ctx_t* ctx, json_t block, uint64_t* out_block_number) {
   if (!out_block_number) return C4_ERROR;
-  beacon_block_t beacon_block = {0};
+  eth_block_t beacon_block = {0};
   if (block.type == JSON_TYPE_NOT_FOUND || block.type == JSON_TYPE_INVALID) block = json_parse("\"latest\"");
   if (block.type != JSON_TYPE_STRING) THROW_ERROR_WITH("Invalid block: %J", block);
   if (strncmp(block.start, "\"0x", 3) == 0) {

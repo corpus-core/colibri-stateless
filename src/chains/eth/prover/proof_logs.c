@@ -59,7 +59,7 @@ typedef struct proof_logs_block {
   json_t                   block_receipts;
   proof_logs_tx_t*         txs;
   uint32_t                 tx_count;
-  beacon_block_t           beacon_block;
+  eth_block_t              beacon_block;
   bytes32_t                body_root;
   blockroot_proof_t        block_proof;
   ssz_ob_t                 receipt_proof;

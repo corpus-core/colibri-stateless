@@ -67,7 +67,7 @@ uint8_t* c4_eth_tx_cachekey(bytes32_t target, bytes32_t blockhash) {
 }
 #endif
 
-void eth_add_block_proof(prover_ctx_t* ctx, ssz_builder_t* builder, beacon_block_t* block_data, blockroot_proof_t* historic_block_proof) {
+void eth_add_block_proof(prover_ctx_t* ctx, ssz_builder_t* builder, eth_block_t* block_data, blockroot_proof_t* historic_block_proof) {
   // the blockHash-only variant is safe whenever the verifier already holds the verified
   // header: either the client advertised it as its last verified block (remote mode) or
   // prover and verifier run in the same process and share the header cache (hybrid mode).

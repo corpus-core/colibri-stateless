@@ -36,7 +36,7 @@
 #include <string.h>
 
 c4_status_t c4_proof_block(prover_ctx_t* ctx) {
-  beacon_block_t    block          = {0};
+  eth_block_t       block          = {0};
   ssz_builder_t     block_proof    = ssz_builder_for_type(ETH_SSZ_VERIFY_BLOCK_PROOF);
   blockroot_proof_t historic_proof = {0};
   ssz_builder_t     sync_proof     = NULL_SSZ_BUILDER;

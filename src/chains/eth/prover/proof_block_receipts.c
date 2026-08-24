@@ -54,7 +54,7 @@ static ssz_builder_t serialize_receipts(json_t block_receipts) {
 
 c4_status_t c4_proof_block_receipts(prover_ctx_t* ctx) {
   ssz_builder_t     sync_proof     = NULL_SSZ_BUILDER;
-  beacon_block_t    block          = {0};
+  eth_block_t       block          = {0};
   json_t            block_receipts = {0};
   blockroot_proof_t block_proof    = {0};
   c4_status_t       status         = C4_SUCCESS;

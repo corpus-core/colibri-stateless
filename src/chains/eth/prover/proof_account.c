@@ -67,7 +67,7 @@ static ssz_builder_t create_storage_proof(prover_ctx_t* ctx, const ssz_def_t* de
   return storage_proof;
 }
 
-static c4_status_t create_eth_account_proof(prover_ctx_t* ctx, json_t eth_proof, beacon_block_t* block_data, json_t address, json_t block_number, blockroot_proof_t historic_proof) {
+static c4_status_t create_eth_account_proof(prover_ctx_t* ctx, json_t eth_proof, eth_block_t* block_data, json_t address, json_t block_number, blockroot_proof_t historic_proof) {
 
   json_t        json_code         = {0};
   buffer_t      tmp               = {0};
@@ -111,7 +111,7 @@ c4_status_t c4_proof_account(prover_ctx_t* ctx) {
   json_t            storage_keys   = is_storage_at || is_proof ? json_at(ctx->params, 1) : (json_t) {0};
   json_t            block_number   = json_at(ctx->params, is_storage_at || is_proof ? 2 : 1);
   json_t            eth_proof      = {0};
-  beacon_block_t    block          = {0};
+  eth_block_t       block          = {0};
   blockroot_proof_t historic_proof = {0};
   c4_status_t       status         = C4_SUCCESS;
 

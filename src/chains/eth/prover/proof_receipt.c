@@ -39,7 +39,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-static c4_status_t create_eth_receipt_proof(prover_ctx_t* ctx, beacon_block_t* block_data, ssz_ob_t tx_proof, ssz_ob_t receipt_proof, json_t receipt, blockroot_proof_t block_proof) {
+static c4_status_t create_eth_receipt_proof(prover_ctx_t* ctx, eth_block_t* block_data, ssz_ob_t tx_proof, ssz_ob_t receipt_proof, json_t receipt, blockroot_proof_t block_proof) {
   ssz_builder_t eth_tx_proof = ssz_builder_for_type(ETH_SSZ_VERIFY_RECEIPT_PROOF);
   uint32_t      tx_index     = json_get_uint32(receipt, "transactionIndex");
   ssz_builder_t sync_proof   = NULL_SSZ_BUILDER;
@@ -117,7 +117,7 @@ c4_status_t c4_proof_receipt(prover_ctx_t* ctx) {
   json_t            txhash         = json_at(ctx->params, 0);
   json_t            tx_data        = {0};
   json_t            block_receipts = {0};
-  beacon_block_t    block          = {0};
+  eth_block_t       block          = {0};
   json_t            receipt        = {0};
   blockroot_proof_t block_proof    = {0};
   ssz_ob_t          receipt_proof  = {0};

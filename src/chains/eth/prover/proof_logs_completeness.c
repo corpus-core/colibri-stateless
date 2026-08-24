@@ -53,10 +53,10 @@ uint32_t c4_eth_get_logs_completeness_max_blocks(void) {
 }
 
 typedef struct {
-  uint64_t       block_number;
-  beacon_block_t beacon;   // el_header always set; el_body set for full blocks
-  bool           is_full;  // true: deliver all receipts, false: bloom-negative
-  json_t         receipts; // block receipts (only for full blocks)
+  uint64_t    block_number;
+  eth_block_t beacon;   // el_header always set; el_body set for full blocks
+  bool        is_full;  // true: deliver all receipts, false: bloom-negative
+  json_t      receipts; // block receipts (only for full blocks)
 } compl_block_t;
 
 // Builds a JSON block identifier ("0x..") for the given block number into buf.
@@ -193,10 +193,10 @@ static c4_status_t serialize_completeness_proof(prover_ctx_t* ctx, compl_block_t
 }
 
 c4_status_t c4_proof_logs_completeness(prover_ctx_t* ctx) {
-  beacon_block_t from_block = {0};
-  beacon_block_t to_block   = {0};
-  c4_status_t    status     = C4_SUCCESS;
-  json_t         filter     = json_at(ctx->params, 0);
+  eth_block_t from_block = {0};
+  eth_block_t to_block   = {0};
+  c4_status_t status     = C4_SUCCESS;
+  json_t      filter     = json_at(ctx->params, 0);
 
   CHECK_JSON_INPUT(filter, JSON_GET_LOGS_FILTER_FIELDS, "Invalid eth_getLogs filter: ");
 

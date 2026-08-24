@@ -87,7 +87,7 @@ c4_status_t c4_eth_get_tx_proof(prover_ctx_t* ctx, bytes32_t block_hash, ssz_ob_
   return C4_SUCCESS;
 }
 
-static c4_status_t create_eth_tx_proof(prover_ctx_t* ctx, uint32_t tx_index, beacon_block_t* block_data, bytes32_t body_root, ssz_ob_t tx_proof, blockroot_proof_t block_proof) {
+static c4_status_t create_eth_tx_proof(prover_ctx_t* ctx, uint32_t tx_index, eth_block_t* block_data, bytes32_t body_root, ssz_ob_t tx_proof, blockroot_proof_t block_proof) {
 
   ssz_builder_t eth_tx_proof = ssz_builder_for_type(ETH_SSZ_VERIFY_TRANSACTION_PROOF);
   ssz_builder_t sync_proof   = NULL_SSZ_BUILDER;
@@ -113,7 +113,7 @@ c4_status_t c4_proof_transaction(prover_ctx_t* ctx) {
   bytes32_t         body_root    = {0};
   json_t            txhash       = json_at(ctx->params, 0);
   json_t            tx_data      = {0};
-  beacon_block_t    block        = {0};
+  eth_block_t       block        = {0};
   uint32_t          tx_index     = 0;
   json_t            block_number = {0};
   blockroot_proof_t block_proof  = {0};
