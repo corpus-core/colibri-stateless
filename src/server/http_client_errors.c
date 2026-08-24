@@ -413,11 +413,6 @@ c4_response_type_t c4_classify_response(long http_code, const char* url, bytes_t
       }
     }
     // No error found or not JSON-RPC - success
-
-    if (req && req->type == C4_DATA_TYPE_BEACON_API && req->url && strncmp(req->url, "eth/v1/beacon/headers?parent_root=", 34) == 0 && bytes_contains_string(response_body, "\"data\":[]")) {
-
-      return C4_RESPONSE_ERROR_RETRY;
-    }
     return C4_RESPONSE_SUCCESS;
   }
   // Handle HTTP error codes

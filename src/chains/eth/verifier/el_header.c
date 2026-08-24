@@ -57,6 +57,7 @@ static const char* el_header_field_names[] = {
     "U:" EL_SLOT_NUMBER,              // 22
 };
 
+// keccak256(rlp.encode([])) = keccak256(0xc0); sha3Uncles of no uncles and EIP-7928 empty BAL hash
 const char* EMPTY_RLP_LIST = "\x1d\xcc\x4d\xe8\xde\xc7\x5d\x7a\xab\x85\xb5\x67\xb6\xcc\xd4\x1a\xd3\x12\x45\x1b\x94\x8a\x74\x13\xf0\xa1\x42\xfd\x40\xd4\x93\x47";
 
 static c4_status_t eth_el_header_build(c4_state_t* state, bytes_t* el_header, fork_id_t fork, void* data, el_header_field_func get_field_func) {
@@ -116,7 +117,7 @@ static void get_requests_hash(bytes32_t out_hash, eth_el_header_ctx_t* ctx) {
     return;
   }
   ssz_ob_t           body               = ssz_get(&ctx->beacon_block, "body");
-  ssz_ob_t           execution_requests = ssz_get(&body, "executionRequests");
+  ssz_ob_t           execution_requests = ctx->execution_requests.def ? ctx->execution_requests : ssz_get(&body, "executionRequests");
   static const char* request_lists[]    = {"deposits", "withdrawals", "consolidations"};
   uint8_t            hashes[sizeof(request_lists) / sizeof(request_lists[0]) * 32]; // one intermediate hash per non-empty request list
   uint32_t           hashes_len = 0;
@@ -163,10 +164,15 @@ void eth_get_withdrawals_root(bytes32_t out_hash, ssz_ob_t withdrawals) {
   patricia_node_free(root);
 }
 
-// computes the withdrawalsRoot as defined in EIP-4895: a Merkle Patricia Trie built over
-// all withdrawals of the execution payload. The key for withdrawal i is the RLP-encoded
-// index (same encoding as the transactions trie), the value is the RLP-encoded list
-// [index, validatorIndex, address, amount] (all uint64 except address which is 20 bytes).
+// EIP-7928: block_access_list_hash = keccak256(rlp.encode(BAL)).
+// The payload field is already RLP; an empty ProgressiveByteList means rlp.encode([]) = 0xc0.
+void eth_get_block_access_list_hash(bytes32_t out_hash, bytes_t rlp_encoded_bal) {
+  uint8_t empty_rlp = 0xc0;
+  bytes_t input     = (rlp_encoded_bal.len && rlp_encoded_bal.data) ? rlp_encoded_bal : bytes(&empty_rlp, 1);
+  keccak(input, out_hash);
+}
+
+// EIP-4895: transactionsRoot is a Merkle Patricia Trie over raw transaction bytes, keyed by RLP index.
 void eth_get_transactions_root(bytes32_t out_hash, ssz_ob_t txs) {
   uint32_t len = ssz_len(txs);
 
@@ -190,27 +196,35 @@ void eth_get_transactions_root(bytes32_t out_hash, ssz_ob_t txs) {
 
 static bytes_t get_from_ep(void* data, buffer_t* buffer, char* name) {
   eth_el_header_ctx_t* ctx = (eth_el_header_ctx_t*) data;
-  if (strcmp(name, "parentBeaconBlockRoot") == 0)
+  if (strcmp(name, EL_PARENT_BEACON_BLOCK_ROOT) == 0)
     return bytes(ctx->parent_root, 32);
-  if (strcmp(name, "requestsHash") == 0) {
+  if (strcmp(name, EL_REQUESTS_HASH) == 0) {
     buffer_reset(buffer);
     buffer_grow(buffer, 32);
     buffer->data.len = 32;
     get_requests_hash(buffer->data.data, ctx);
     return buffer->data;
   }
-  if (strcmp(name, "withdrawalsRoot") == 0) {
+  if (strcmp(name, EL_WITHDRAWALS_ROOT) == 0) {
     buffer_reset(buffer);
     buffer_grow(buffer, 32);
     buffer->data.len = 32;
     eth_get_withdrawals_root(buffer->data.data, ssz_get(&ctx->execution_payload, "withdrawals"));
     return buffer->data;
   }
-  if (strcmp(name, "transactionsRoot") == 0) {
+  if (strcmp(name, EL_TRANSACTIONS_ROOT) == 0) {
     buffer_reset(buffer);
     buffer_grow(buffer, 32);
     buffer->data.len = 32;
     eth_get_transactions_root(buffer->data.data, ssz_get(&ctx->execution_payload, "transactions"));
+    return buffer->data;
+  }
+  if (strcmp(name, EL_BLOCK_ACCESS_LIST_HASH) == 0) {
+    ssz_ob_t block_access_list = ssz_get(&ctx->execution_payload, "blockAccessList");
+    buffer_reset(buffer);
+    buffer_grow(buffer, 32);
+    buffer->data.len = 32;
+    eth_get_block_access_list_hash(buffer->data.data, block_access_list.bytes);
     return buffer->data;
   }
 

@@ -129,6 +129,32 @@ int conf_int(int* target, char* env_name, char* arg_nane, char shortcut, char* d
   return 0;
 }
 
+int conf_uint64(uint64_t* target, char* env_name, char* arg_nane, char shortcut, char* descr, uint64_t min, uint64_t max) {
+  char* default_value = bprintf(NULL, "%llu", *target);
+  add_help_line(shortcut, arg_nane, env_name, descr, default_value);
+  safe_free(default_value);
+  register_config_param(env_name, arg_nane, descr, CONFIG_PARAM_INT, target, min, max);
+  char*    env_value = getenv(env_name);
+  char*    arg_value = get_arg(arg_nane, shortcut, max != 1);
+  uint64_t val       = 0;
+  bool     set       = false;
+  if (env_value) {
+    val = max == 1 ? (strcmp(env_value, "true") == 0 || strcmp(env_value, "1") == 0) : atoll(env_value);
+    set = true;
+  }
+  if (arg_value) {
+    val = max == 1 ? (strcmp(arg_value, "true") == 0 || strcmp(arg_value, "1") == 0) : atoll(arg_value);
+    set = true;
+  }
+  if (!set) return 0;
+  if (val < min || val > max) {
+    log_error("Invalid value for %s: %d (must be between %d and %d)", env_name, (uint32_t) val, (uint32_t) min, (uint32_t) max);
+    return 1;
+  }
+  *target = val;
+  return 0;
+}
+
 // Trim whitespace from both ends of a string
 static char* trim(char* str) {
   if (!str) return NULL;

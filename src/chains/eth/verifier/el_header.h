@@ -45,6 +45,7 @@ extern "C" {
 
 typedef struct {
   ssz_ob_t    execution_payload;
+  ssz_ob_t    execution_requests;
   fork_id_t   fork;
   c4_state_t* state;
   chain_id_t  chain_id;
@@ -53,6 +54,16 @@ typedef struct {
 } eth_el_header_ctx_t;
 void eth_get_withdrawals_root(bytes32_t out_hash, ssz_ob_t withdrawals);
 void eth_get_transactions_root(bytes32_t out_hash, ssz_ob_t txs);
+/**
+ * Computes `block_access_list_hash` as defined in EIP-7928:
+ * `keccak256(rlp.encode(block_access_list))`.
+ * `rlp_encoded_bal` is the already-RLP-encoded payload field. An empty or
+ * missing list is treated as `rlp.encode([])` (`0xc0`).
+ *
+ * @param out_hash 32-byte output buffer
+ * @param rlp_encoded_bal RLP bytes of the BAL (may be empty)
+ */
+void eth_get_block_access_list_hash(bytes32_t out_hash, bytes_t rlp_encoded_bal);
 
 bytes_t     eth_el_header_get(bytes_t header, char* name);
 uint64_t    eth_el_header_get_uint64(bytes_t header, char* name);

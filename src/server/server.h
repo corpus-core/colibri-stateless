@@ -109,7 +109,7 @@ typedef struct {
   int            port;
   int            loglevel;
   int            req_timeout;
-  int            chain_id;
+  uint64_t       chain_id;
   char*          rpc_nodes;
   char*          prover_nodes;
   char*          v2_prover; // base URL of a legacy 2.x prover to forward proof requests for clients with version < 3.0.0 (empty = disabled)

@@ -322,9 +322,11 @@ static const ssz_def_t GLOAS_EXECUTION_PAYLOAD_ENVELOPE_BASE_CONTAINER =
 static const ssz_def_t GLOAS_EXECUTION_PAYLOAD_ENVELOPE_CONTAINER C4_UNUSED =
     SSZ_PROG_CONTAINER("ExecutionPayloadEnvelope", GLOAS_EXECUTION_PAYLOAD_ENVELOPE_BASE_CONTAINER, 0x1FULL); // [1]*5
 
-static const ssz_def_t GLOAS_SIGNED_EXECUTION_PAYLOAD_ENVELOPE[] C4_UNUSED = {
+static const ssz_def_t GLOAS_SIGNED_EXECUTION_PAYLOAD_ENVELOPE[] = {
     SSZ_PROG_CONTAINER("message", GLOAS_EXECUTION_PAYLOAD_ENVELOPE_BASE_CONTAINER, 0x1FULL),
     SSZ_BYTE_VECTOR("signature", 96)};
+static const ssz_def_t GLOAS_SIGNED_EXECUTION_PAYLOAD_ENVELOPE_CONTAINER =
+    SSZ_CONTAINER("SignedExecutionPayloadEnvelope", GLOAS_SIGNED_EXECUTION_PAYLOAD_ENVELOPE);
 
 // --- BeaconBlockBody (Gloas): progressive container with 13 fields ---
 //
@@ -394,6 +396,8 @@ const ssz_def_t* eth_ssz_type_for_gloas(eth_ssz_type_t type, chain_id_t chain_id
       // that ask for the execution payload container therefore get the payload
       // field of the envelope (index 0 of the base container).
       return &GLOAS_EXECUTION_PAYLOAD_ENVELOPE_BASE[0];
+    case ETH_SSZ_SIGNED_EXECUTION_PAYLOAD_ENVELOPE_CONTAINER:
+      return &GLOAS_SIGNED_EXECUTION_PAYLOAD_ENVELOPE_CONTAINER;
 #else
     (void) chain_id;
 #endif

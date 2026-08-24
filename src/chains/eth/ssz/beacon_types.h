@@ -103,6 +103,8 @@ typedef enum {
   ETH_SSZ_CL_BLOCK_PROOF   = 49, // ETH_CL_BLOCK_PROOF
   ETH_SSZ_EL_BLOCK_CONTENT = 50, // ETH_EL_BLOCK_CONTENT
 
+  ETH_SSZ_SIGNED_EXECUTION_PAYLOAD_ENVELOPE_CONTAINER = 51, // ETH_SSZ_SIGNED_EXECUTION_PAYLOAD_ENVELOPE_CONTAINER
+
 } eth_ssz_type_t;
 
 // functionpointer for a function calculating the fork version from chain_id, fork and target bytes

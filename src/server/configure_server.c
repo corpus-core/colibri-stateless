@@ -101,7 +101,7 @@ http_server_t http_server = {
 
 static void config() {
   c4_configure_add_section("General");
-  conf_int(&http_server.chain_id, "CHAIN_ID", "chain_id", 'c', "chain id", 1, 0xFFFFFFF);
+  conf_uint64(&http_server.chain_id, "CHAIN_ID", "chain_id", 'c', "chain id", 1, 0xFFFFFFFFFFFFFFFFULL);
   conf_int(&http_server.loglevel, "LOG_LEVEL", "log_level", 'l', "log level", 0, 5);
   conf_string(&http_server.host, "HOST", "host", 'h', "Host/IP address to bind to (127.0.0.1=localhost only, 0.0.0.0=all interfaces)");
   conf_int(&http_server.port, "PORT", "port", 'p', "Port to listen on", 1, 65535);

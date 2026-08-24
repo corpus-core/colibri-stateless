@@ -12,7 +12,7 @@
 static char* get_default_config(char* chain_name, chain_id_t* chain_id, char* config_file) {
   if (!chain_name) chain_name = "mainnet";
   if (*chain_name >= '0' && *chain_name <= '9')
-    *chain_id = atoi(chain_name);
+    *chain_id = atoll(chain_name);
   else if (strcmp(chain_name, "mainnet") == 0)
     *chain_id = C4_CHAIN_MAINNET;
   else if (strcmp(chain_name, "sepolia") == 0)
@@ -109,6 +109,14 @@ static char* get_default_config(char* chain_name, chain_id_t* chain_id, char* co
                "\"beacon_api\":[\"https://rpc-gbc.chiadochain.net\"],"
                "\"checkpointz\":[\"https://checkpoint.chiadochain.net\"],"
                "\"prover\":[\"https://chiado.colibri-proof.tech\"]}";
+      break;
+    case 7091047534: // plataberget
+      config = "{\"eth_rpc\":["
+               "\"https://plataberget.colibri-proof.tech/execution/\""
+               "],"
+               "\"beacon_api\":[\"https://plataberget.colibri-proof.tech/consensus/\"],"
+               "\"checkpointz\":[\"https://checkpoint-sync.glamsterdam-devnet-8.ethpandaops.io/\"],"
+               "\"prover\":[\"https://plataberget.colibri-proof.tech\"]}";
       break;
   }
 

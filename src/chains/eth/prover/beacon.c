@@ -33,6 +33,7 @@
 #include "tx_cache.h"
 #include "version.h"
 #include <inttypes.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -174,29 +175,112 @@ static c4_status_t get_finality_check_points(prover_ctx_t* ctx, json_t* result) 
   return C4_SUCCESS;
 }
 
-static c4_status_t get_beacon_header_by_parent_hash(prover_ctx_t* ctx, bytes32_t parent_hash, json_t* header, bytes32_t root) {
+// Nimbus does not implement GET /eth/v1/beacon/headers?parent_root=
+// (https://github.com/status-im/nimbus-eth2/issues/7305). Every CL does
+// implement GET /eth/v1/beacon/headers/{block_id} and ?slot=. Walk canonical
+// slots after the parent; the first block whose parent_root matches is the
+// child. MAX is one epoch — a longer gap means the child has not been
+// produced. WINDOW keeps a typical parent+1 hit from waiting on a full epoch.
+// Empty slots must be HTTP 200 with {"data":[]}; a 4xx/5xx on ?slot= aborts
+// the lookup instead of skipping that slot.
+#define PARENT_CHILD_SCAN_WINDOW 8u
+#define PARENT_CHILD_SCAN_MAX    32u
+#define PARENT_CHILD_SLOT_TTL    6u // same as head: empty slots must not stick for DEFAULT_TTL
 
-  char     path[200]   = {0};
-  json_t   result      = {0};
-  buffer_t buffer      = {.allocated = -32, .data = {.data = root, .len = 0}};
-  buffer_t path_buffer = stack_buffer(path);
-  bprintf(&path_buffer, "eth/v1/beacon/headers?parent_root=0x%x", bytes(parent_hash, 32));
-
-  TRY_ASYNC(c4_send_beacon_json_with_client_type(ctx, path, NULL, DEFAULT_TTL, &result, BEACON_SUPPORTS_PARENT_ROOT_HEADERS));
-
+static json_t beacon_header_unwrap_data(json_t result) {
   json_t val = json_get(result, "data");
-  if (val.type == JSON_TYPE_ARRAY)
-    val = json_at(val, 0);
-  if (val.type != JSON_TYPE_OBJECT) {
-    *header = val;
-    return C4_SUCCESS;
-  };
-  if (root) json_get_bytes(val, "root", &buffer);
-  val     = json_get(val, "header");
-  *header = json_get(val, "message");
+  if (val.type == JSON_TYPE_ARRAY) val = json_at(val, 0);
+  return val;
+}
 
-  if (!header->start) THROW_ERROR("Invalid header!");
+static json_t beacon_header_message(json_t entry) {
+  return json_get(json_get(entry, "header"), "message");
+}
 
+static bool beacon_header_root_equals(json_t entry, bytes32_t expected) {
+  uint8_t  tmp[32];
+  buffer_t buf = stack_buffer(tmp);
+  bytes_t  got = json_get_bytes(entry, "root", &buf);
+  return got.len == 32 && memcmp(got.data, expected, 32) == 0;
+}
+
+static bool beacon_header_parent_matches(json_t entry, bytes32_t parent_root) {
+  uint8_t  tmp[32];
+  buffer_t buf        = stack_buffer(tmp);
+  bytes_t  got_parent = json_get_bytes(beacon_header_message(entry), "parent_root", &buf);
+  return got_parent.len == 32 && memcmp(got_parent.data, parent_root, 32) == 0;
+}
+
+// Slot responses may list several headers (equivocation). Prefer canonical.
+static json_t beacon_header_child_in_result(json_t result, bytes32_t parent_root) {
+  json_t data    = json_get(result, "data");
+  json_t chosen  = (json_t) {.type = JSON_TYPE_NOT_FOUND};
+  json_t entries = data;
+
+  if (data.type == JSON_TYPE_OBJECT) {
+    if (beacon_header_parent_matches(data, parent_root)) return data;
+    return chosen;
+  }
+  if (data.type != JSON_TYPE_ARRAY) return chosen;
+
+  json_for_each_value(entries, entry) {
+    if (entry.type != JSON_TYPE_OBJECT) continue;
+    if (!beacon_header_parent_matches(entry, parent_root)) continue;
+    if (json_as_bool(json_get(entry, "canonical"))) return entry;
+    if (chosen.type != JSON_TYPE_OBJECT) chosen = entry;
+  }
+  return chosen;
+}
+
+static c4_status_t beacon_header_extract(prover_ctx_t* ctx, json_t entry, json_t* header, bytes32_t root) {
+  if (root) {
+    buffer_t buffer = {.allocated = -32, .data = {.data = root, .len = 0}};
+    if (json_get_bytes(entry, "root", &buffer).len != 32) THROW_ERROR("Invalid beacon header root!");
+  }
+  *header = beacon_header_message(entry);
+  if (header->type != JSON_TYPE_OBJECT) THROW_ERROR("Invalid header!");
+  return C4_SUCCESS;
+}
+
+static c4_status_t get_beacon_header_by_parent_hash(prover_ctx_t* ctx, bytes32_t parent_root, json_t* header, bytes32_t root) {
+  char     path[200]   = {0};
+  json_t   parent_res  = {0};
+  buffer_t path_buffer = stack_buffer(path);
+
+  bprintf(&path_buffer, "eth/v1/beacon/headers/0x%x", bytes(parent_root, 32));
+  TRY_ASYNC(c4_send_beacon_json(ctx, path, NULL, DEFAULT_TTL, &parent_res));
+
+  json_t parent_entry = beacon_header_unwrap_data(parent_res);
+  if (parent_entry.type != JSON_TYPE_OBJECT) THROW_ERROR("Parent beacon header not found!");
+  if (!beacon_header_root_equals(parent_entry, parent_root)) THROW_ERROR("Parent beacon header root mismatch!");
+  json_t slot_json = json_get(beacon_header_message(parent_entry), "slot");
+  if (slot_json.type == JSON_TYPE_NOT_FOUND || slot_json.type == JSON_TYPE_INVALID || !slot_json.start)
+    THROW_ERROR("Parent beacon header missing slot!");
+  uint64_t parent_slot = json_as_uint64(slot_json);
+  if (parent_slot > UINT64_MAX - PARENT_CHILD_SCAN_MAX) THROW_ERROR("Parent beacon slot is too large to scan for a child!");
+
+  for (uint32_t base = 1; base <= PARENT_CHILD_SCAN_MAX; base += PARENT_CHILD_SCAN_WINDOW) {
+    json_t      slot_results[PARENT_CHILD_SCAN_WINDOW];
+    c4_status_t status = C4_SUCCESS;
+    uint32_t    n      = PARENT_CHILD_SCAN_WINDOW;
+    if (base + n - 1 > PARENT_CHILD_SCAN_MAX) n = PARENT_CHILD_SCAN_MAX - base + 1;
+    memset(slot_results, 0, sizeof(slot_results));
+
+    for (uint32_t i = 0; i < n; i++) {
+      path_buffer = stack_buffer(path);
+      bprintf(&path_buffer, "eth/v1/beacon/headers?slot=%l", parent_slot + base + i);
+      TRY_ADD_ASYNC(status, c4_send_beacon_json(ctx, path, NULL, PARENT_CHILD_SLOT_TTL, &slot_results[i]));
+    }
+    TRY_ASYNC(status);
+
+    for (uint32_t i = 0; i < n; i++) {
+      json_t entry = beacon_header_child_in_result(slot_results[i], parent_root);
+      if (entry.type != JSON_TYPE_OBJECT) continue;
+      return beacon_header_extract(ctx, entry, header, root);
+    }
+  }
+
+  *header = (json_t) {.type = JSON_TYPE_NOT_FOUND};
   return C4_SUCCESS;
 }
 
@@ -235,6 +319,21 @@ static c4_status_t get_block(prover_ctx_t* ctx, beacon_head_t* b, ssz_ob_t* bloc
   TRY_ASYNC(determine_fork(ctx, block));
 
   *block = ssz_get(block, "message");
+  return C4_SUCCESS;
+}
+
+static c4_status_t get_execution_payload(prover_ctx_t* ctx, bytes32_t block_root, ssz_ob_t* execution_payload, ssz_ob_t* execution_requests) {
+  char     path[200];
+  ssz_ob_t envelope = {0};
+  buffer_t buffer   = stack_buffer(path);
+  uint32_t ttl      = 6; // 6s for head-requests
+  bprintf(&buffer, "eth/v1/beacon/execution_payload_envelopes/0x%x", bytes(block_root, 32));
+
+  TRY_ASYNC(c4_send_beacon_ssz(ctx, path, NULL, eth_ssz_type_for_gloas(ETH_SSZ_SIGNED_EXECUTION_PAYLOAD_ENVELOPE_CONTAINER, ctx->chain_id), ttl, &envelope));
+
+  ssz_ob_t message   = ssz_get(&envelope, "message");
+  *execution_payload = ssz_get(&message, "payload");
+  if (execution_requests) *execution_requests = ssz_get(&message, "executionRequests");
   return C4_SUCCESS;
 }
 
@@ -408,8 +507,43 @@ static c4_status_t get_el_header_and_branch(prover_ctx_t* ctx, el_header_and_bra
     el_body = ssz_builder_to_bytes(&body_builder);
   }
 
-  else
-    THROW_ERROR("GLOAS el_header not implemented yet!"); // TODO fetch from eth_getBlockByHash
+  else {
+    ssz_ob_t      body               = ssz_get(&data_block, "body");
+    ssz_ob_t      bid                = ssz_get(&body, "signedExecutionPayloadBid");
+    ssz_ob_t      message            = ssz_get(&bid, "message");
+    uint8_t*      parent_block_root  = ssz_get(&message, "parentBlockRoot").bytes.data;
+    uint8_t*      parent_block_hash  = ssz_get(&message, "parentBlockHash").bytes.data;
+    ssz_ob_t      execution          = {0};
+    ssz_ob_t      execution_requests = {0};
+    beacon_head_t bh                 = {0};
+    ssz_ob_t      parent_data_block  = {0};
+    c4_status_t   status             = C4_SUCCESS;
+    memcpy(bh.root, parent_block_root, 32);
+
+    TRY_ADD_ASYNC(status, get_execution_payload(ctx, parent_block_root, &execution, &execution_requests));
+    TRY_ADD_ASYNC(status, get_block(ctx, &bh, &parent_data_block)); // the header might be enough, but the block is most likely still cached.
+    TRY_ASYNC(status);
+
+    eth_el_header_ctx_t el_ctx = {
+        .execution_payload  = execution,
+        .fork               = fork,
+        .state              = &ctx->state,
+        .chain_id           = ctx->chain_id,
+        .beacon_block       = parent_data_block,
+        .execution_requests = execution_requests,
+    };
+    bytes_t parent_root = ssz_get(&parent_data_block, "parentRoot").bytes;
+    if (parent_root.len == 32) memcpy(el_ctx.parent_root, parent_root.data, 32);
+    TRY_ASYNC(eth_el_header_build_from_ep(&generated_header, &el_ctx));
+    generated_branch_gindex = 2856;
+    generated_branch        = ssz_create_proof(body, body_root, generated_branch_gindex);
+
+    // TODO optimize instead allocating the content twice, calculate the size and use the memory directly
+    ssz_builder_t body_builder = ssz_builder_for_type(ETH_SSZ_EL_BLOCK_CONTENT);
+    ssz_add_bytes(&body_builder, "transactions", ssz_get(&execution, "transactions").bytes);
+    ssz_add_bytes(&body_builder, "withdrawals", ssz_get(&execution, "withdrawals").bytes);
+    el_body = ssz_builder_to_bytes(&body_builder);
+  }
 
   size_t                  size  = sizeof(el_header_and_branch_t) + generated_header.len + generated_branch.len + el_body.bytes.len;
   el_header_and_branch_t* value = safe_malloc(size);
