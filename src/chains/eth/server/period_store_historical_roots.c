@@ -353,7 +353,8 @@ void c4_ps_schedule_fetch_historical_root(uint64_t period) {
   req->chain_id                     = http_server.chain_id;
   req->type                         = C4_DATA_TYPE_BEACON_API;
   req->encoding                     = C4_DATA_ENCODING_JSON;
-  req->preferred_client_type        = BEACON_CLIENT_LODESTAR;
+  // Lodestar URL; c4_request_fix_url rewrites it for Nimbus nodes (mixed clusters).
+  req->preferred_client_type        = BEACON_CLIENT_LODESTAR | BEACON_CLIENT_NIMBUS;
   uint64_t* pdata                   = (uint64_t*) safe_calloc(1, sizeof(uint64_t));
   *pdata                            = period;
   c4_add_request(&historical_client, req, pdata, fetch_historical_root_cb);

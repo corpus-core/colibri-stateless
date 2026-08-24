@@ -1450,10 +1450,24 @@ static bytes_t convert_lighthouse_to_ssz(data_request_t* req, json_t result, uin
 
 char* c4_request_fix_url(char* url, single_request_t* r, beacon_client_type_t client_type) {
   static char buffer[1024];
-  buffer_t    buf = stack_buffer(buffer);
-  if ((client_type & BEACON_CLIENT_NIMBUS) && strncmp(url, "eth/v1/lodestar/historical_summaries/", 39) == 0) {
-    buffer_reset(&buf);
-    return bprintf(&buf, "nimbus/v1/debug/beacon/states/%s/historical_summaries", url + 39);
+  buffer_t    buf                 = stack_buffer(buffer);
+  const char  lodestar_states[]   = "eth/v1/lodestar/states/";
+  const char  historical_suffix[] = "/historical_summaries";
+  (void) r;
+
+  if ((client_type & BEACON_CLIENT_NIMBUS) && url && strncmp(url, lodestar_states, sizeof(lodestar_states) - 1) == 0) {
+    const char* state_id = url + sizeof(lodestar_states) - 1;
+    const char* slash    = strrchr(state_id, '/');
+    if (slash && strcmp(slash, historical_suffix) == 0) {
+      size_t id_len = (size_t) (slash - state_id);
+      char   id[128];
+      if (id_len > 0 && id_len < sizeof(id)) {
+        memcpy(id, state_id, id_len);
+        id[id_len] = 0;
+        buffer_reset(&buf);
+        return bprintf(&buf, "nimbus/v1/debug/beacon/states/%s/historical_summaries", id);
+      }
+    }
   }
 
   return url;

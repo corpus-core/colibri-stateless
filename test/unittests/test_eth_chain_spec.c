@@ -134,6 +134,16 @@ void test_mainnet_gloas_still_unassigned(void) {
   TEST_ASSERT_EQUAL_INT(C4_FORK_GLOAS, c4_chain_fork_id(C4_CHAIN_MAINNET, 0xffffffffffffffffULL));
 }
 
+void test_chain_schedules_fork(void) {
+  TEST_ASSERT_TRUE(c4_chain_schedules_fork(C4_CHAIN_PLATABERGET, C4_FORK_GLOAS));
+  TEST_ASSERT_TRUE(c4_chain_schedules_fork(C4_CHAIN_PLATABERGET, C4_FORK_FULU));
+  TEST_ASSERT_FALSE(c4_chain_schedules_fork(C4_CHAIN_MAINNET, C4_FORK_GLOAS));
+  TEST_ASSERT_FALSE(c4_chain_schedules_fork(C4_CHAIN_SEPOLIA, C4_FORK_GLOAS));
+  TEST_ASSERT_TRUE(c4_chain_schedules_fork(C4_CHAIN_MAINNET, C4_FORK_FULU));
+  TEST_ASSERT_FALSE(c4_chain_schedules_fork(C4_CHAIN_MAINNET, C4_FORK_PHASE0));
+  TEST_ASSERT_FALSE(c4_chain_schedules_fork(CHAIN(999999), C4_FORK_GLOAS));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_plataberget_genesis_validators_root);
@@ -144,5 +154,6 @@ int main(void) {
   RUN_TEST(test_fork_id_epoch_zero_still_phase0_on_public_networks);
   RUN_TEST(test_sepolia_fork_schedule_unchanged);
   RUN_TEST(test_mainnet_gloas_still_unassigned);
+  RUN_TEST(test_chain_schedules_fork);
   return UNITY_END();
 }

@@ -13,6 +13,7 @@ typedef struct {
   char* period_prover_key_file;      // Path to file containing SP1/Network private key
   int   eth_logs_cache_blocks;
   int   logs_completeness_max_blocks; // max block range for an eth_getLogs completeness proof (0 = keep default)
+  int   nimbus;                       // Nimbus CL: slot-scan parent lookup + nimbus historical_summaries URL
 
 } eth_config_t;
 

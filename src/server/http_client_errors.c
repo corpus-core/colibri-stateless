@@ -317,6 +317,34 @@ static bool c4_is_beacon_api_sync_lag(long http_code, const char* url, bytes_t r
       bytes_contains_string(response_body, "LC bootstrap unavailable"));
 }
 
+static bool is_parent_root_headers_url(const char* url) {
+  return url && strstr(url, "headers?parent_root=");
+}
+
+static bool json_string_field_contains(json_t obj, const char* key, const char* needle) {
+  json_t v = json_get(obj, key);
+  if (v.type != JSON_TYPE_STRING || !v.start || v.len < 2 || !needle) return false;
+  return bytes_contains_string(bytes((uint8_t*) v.start + 1, (uint32_t) (v.len - 2)), needle);
+}
+
+static bool beacon_headers_data_empty(bytes_t response_body) {
+  if (!response_body.data || response_body.len == 0) return false;
+  json_t parsed = json_parse((char*) response_body.data);
+  if (parsed.type != JSON_TYPE_OBJECT) return false;
+  json_t data = json_get(parsed, "data");
+  return data.type == JSON_TYPE_ARRAY && json_len(data) == 0;
+}
+
+static bool has_untried_peer(data_request_t* req, server_list_t* servers_opt) {
+  server_list_t* servers = servers_opt;
+  if (!req || !servers || servers->count <= 1) return false;
+  for (size_t i = 0; i < servers->count; i++) {
+    if (i == req->response_node_index || (req->node_exclude_mask & (1u << i))) continue;
+    return true;
+  }
+  return false;
+}
+
 // Main function to classify response based on HTTP code and content
 c4_response_type_t c4_classify_response(long http_code, const char* url, bytes_t response_body, data_request_t* req,
                                         server_list_t* servers_opt) {
@@ -413,9 +441,30 @@ c4_response_type_t c4_classify_response(long http_code, const char* url, bytes_t
       }
     }
     // No error found or not JSON-RPC - success
+    // Empty parent_root query: the child may exist on a more-synced peer.
+    // Only retry while another node is left; the last empty is success so the
+    // prover can report "not been signed yet" instead of exhausting into a generic error.
+    if (req && req->type == C4_DATA_TYPE_BEACON_API && is_parent_root_headers_url(url) &&
+        beacon_headers_data_empty(response_body)) {
+      if (has_untried_peer(req, servers_opt)) {
+        log_warn("   [beacon] headers?parent_root= returned empty data - retrying on another node");
+        return C4_RESPONSE_ERROR_RETRY;
+      }
+    }
     return C4_RESPONSE_SUCCESS;
   }
   // Handle HTTP error codes
+  // Nimbus returns 500 NoImplementationError for headers?parent_root= (issue #7305).
+  if (http_code >= 500 && req && req->type == C4_DATA_TYPE_BEACON_API && is_parent_root_headers_url(url) &&
+      response_body.data && response_body.len > 0) {
+    json_t parsed = json_parse((char*) response_body.data);
+    if (parsed.type == JSON_TYPE_OBJECT &&
+        (json_string_field_contains(parsed, "message", "NoImplementationError") ||
+         json_string_field_contains(parsed, "message", "not implemented"))) {
+      log_warn("   [beacon] headers?parent_root= not implemented by this client - skipping node");
+      return C4_RESPONSE_ERROR_METHOD_NOT_SUPPORTED;
+    }
+  }
   // All 5xx codes are server errors (retryable) and <400 are curl/transport considered retryable
   if (http_code >= 500 || http_code < 400) return C4_RESPONSE_ERROR_RETRY;
 

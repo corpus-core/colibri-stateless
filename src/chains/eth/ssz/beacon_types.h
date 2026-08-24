@@ -123,6 +123,16 @@ typedef struct {
 
 bool                c4_chain_genesis_validators_root(chain_id_t chain_id, bytes32_t genesis_validators_root);
 fork_id_t           c4_chain_fork_id(chain_id_t chain_id, uint64_t epoch);
+/**
+ * Returns true if the chain has assigned an activation epoch to `fork`
+ * (as opposed to leaving it unscheduled). Phase0 is genesis and always
+ * returns false because it is not listed in `fork_epochs`.
+ *
+ * @param chain_id chain to inspect
+ * @param fork fork id (Altair or later)
+ * @return true if the fork is on the chain's schedule
+ */
+bool                c4_chain_schedules_fork(chain_id_t chain_id, fork_id_t fork);
 const chain_spec_t* c4_eth_get_chain_spec(chain_id_t id);
 const ssz_def_t*    eth_ssz_type_for_fork(eth_ssz_type_t type, fork_id_t fork, chain_id_t chain_id);
 

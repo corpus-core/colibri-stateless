@@ -81,6 +81,7 @@ typedef enum {
   C4_PROVER_FLAG_LIGHT_CLIENT       = 1 << 11, // light client mode: extended header cache TTL for "latest" (full block_time instead of half)
   C4_PROVER_FLAG_LOGS_COMPLETENESS  = 1 << 12, // if true, eth_getLogs generates a completeness proof over the requested block range (proves no matching log was omitted)
   C4_PROVER_FLAG_INPUT_VALIDATED    = 1 << 13, // internal/transient: set once the request input params have been validated (see CHECK_JSON_INPUT). Prevents re-validation on async re-entries and nested dispatch. Not a request option and never serialized.
+  C4_PROVER_FLAG_NIMBUS             = 1 << 14, // Nimbus CL compatibility: find child headers via slot scan instead of `headers?parent_root=` (status-im/nimbus-eth2#7305) and use the Nimbus historical_summaries URL.
 } prover_flag_types_t;
 
 /**

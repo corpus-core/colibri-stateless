@@ -175,17 +175,27 @@ static c4_status_t get_finality_check_points(prover_ctx_t* ctx, json_t* result) 
   return C4_SUCCESS;
 }
 
-// Nimbus does not implement GET /eth/v1/beacon/headers?parent_root=
-// (https://github.com/status-im/nimbus-eth2/issues/7305). Every CL does
-// implement GET /eth/v1/beacon/headers/{block_id} and ?slot=. Walk canonical
-// slots after the parent; the first block whose parent_root matches is the
-// child. MAX is one epoch — a longer gap means the child has not been
-// produced. WINDOW keeps a typical parent+1 hit from waiting on a full epoch.
-// Empty slots must be HTTP 200 with {"data":[]}; a 4xx/5xx on ?slot= aborts
-// the lookup instead of skipping that slot.
+// Child-header lookup:
+// - Default: GET /eth/v1/beacon/headers?parent_root= (Beacon API, Lodestar).
+// - C4_PROVER_FLAG_NIMBUS: Nimbus does not implement that query
+//   (https://github.com/status-im/nimbus-eth2/issues/7305). Walk ?slot= after
+//   the parent instead. MAX is one epoch; WINDOW keeps a typical parent+1 hit
+//   from waiting on a full epoch. Empty slots must be HTTP 200 {"data":[]};
+//   a 4xx/5xx on ?slot= aborts the window instead of skipping that slot.
 #define PARENT_CHILD_SCAN_WINDOW 8u
 #define PARENT_CHILD_SCAN_MAX    32u
-#define PARENT_CHILD_SLOT_TTL    6u // same as head: empty slots must not stick for DEFAULT_TTL
+#define PARENT_CHILD_SLOT_TTL    6u // empty ?slot= and empty ?parent_root= must not stick for DEFAULT_TTL
+
+static bool json_uint64_field(json_t obj, const char* key, uint64_t* out) {
+  json_t v = json_get(obj, key);
+  if (v.type == JSON_TYPE_NOT_FOUND || v.type == JSON_TYPE_INVALID || !v.start) return false;
+  if (out) *out = json_as_uint64(v);
+  return true;
+}
+
+static bool el_block_uses_gloas_path(const prover_ctx_t* ctx, json_t eth_block) {
+  return c4_chain_schedules_fork(ctx->chain_id, C4_FORK_GLOAS) && json_uint64_field(eth_block, "slotNumber", NULL);
+}
 
 static json_t beacon_header_unwrap_data(json_t result) {
   json_t val = json_get(result, "data");
@@ -242,21 +252,28 @@ static c4_status_t beacon_header_extract(prover_ctx_t* ctx, json_t entry, json_t
   return C4_SUCCESS;
 }
 
-static c4_status_t get_beacon_header_by_parent_hash(prover_ctx_t* ctx, bytes32_t parent_root, json_t* header, bytes32_t root) {
+static c4_status_t get_beacon_header_at_slot_with_parent(prover_ctx_t* ctx, uint64_t slot, bytes32_t expected_parent, json_t* header, bytes32_t root) {
   char     path[200]   = {0};
-  json_t   parent_res  = {0};
+  json_t   result      = {0};
   buffer_t path_buffer = stack_buffer(path);
 
-  bprintf(&path_buffer, "eth/v1/beacon/headers/0x%x", bytes(parent_root, 32));
-  TRY_ASYNC(c4_send_beacon_json(ctx, path, NULL, DEFAULT_TTL, &parent_res));
+  bprintf(&path_buffer, "eth/v1/beacon/headers?slot=%l", slot);
+  TRY_ASYNC(c4_send_beacon_json(ctx, path, NULL, PARENT_CHILD_SLOT_TTL, &result));
 
-  json_t parent_entry = beacon_header_unwrap_data(parent_res);
-  if (parent_entry.type != JSON_TYPE_OBJECT) THROW_ERROR("Parent beacon header not found!");
-  if (!beacon_header_root_equals(parent_entry, parent_root)) THROW_ERROR("Parent beacon header root mismatch!");
-  json_t slot_json = json_get(beacon_header_message(parent_entry), "slot");
-  if (slot_json.type == JSON_TYPE_NOT_FOUND || slot_json.type == JSON_TYPE_INVALID || !slot_json.start)
-    THROW_ERROR("Parent beacon header missing slot!");
-  uint64_t parent_slot = json_as_uint64(slot_json);
+  json_t entry = beacon_header_child_in_result(result, expected_parent);
+  if (entry.type != JSON_TYPE_OBJECT)
+    THROW_ERROR("No canonical beacon header at that slot with matching parentRoot!");
+  TRY_ASYNC(beacon_header_extract(ctx, entry, header, root));
+  uint64_t got_slot = 0;
+  if (!json_uint64_field(*header, "slot", &got_slot) || got_slot != slot)
+    THROW_ERROR("Beacon header slot does not match the requested slot!");
+  return C4_SUCCESS;
+}
+
+static c4_status_t scan_child_headers(prover_ctx_t* ctx, uint64_t parent_slot, bytes32_t parent_root, json_t* header, bytes32_t root) {
+  char     path[200]   = {0};
+  buffer_t path_buffer = stack_buffer(path);
+
   if (parent_slot > UINT64_MAX - PARENT_CHILD_SCAN_MAX) THROW_ERROR("Parent beacon slot is too large to scan for a child!");
 
   for (uint32_t base = 1; base <= PARENT_CHILD_SCAN_MAX; base += PARENT_CHILD_SCAN_WINDOW) {
@@ -282,6 +299,56 @@ static c4_status_t get_beacon_header_by_parent_hash(prover_ctx_t* ctx, bytes32_t
 
   *header = (json_t) {.type = JSON_TYPE_NOT_FOUND};
   return C4_SUCCESS;
+}
+
+static c4_status_t get_beacon_header_by_parent_hash_scan(prover_ctx_t* ctx, bytes32_t parent_root, json_t* header, bytes32_t root) {
+  char     path[200]   = {0};
+  json_t   parent_res  = {0};
+  buffer_t path_buffer = stack_buffer(path);
+
+  bprintf(&path_buffer, "eth/v1/beacon/headers/0x%x", bytes(parent_root, 32));
+  TRY_ASYNC(c4_send_beacon_json(ctx, path, NULL, DEFAULT_TTL, &parent_res));
+
+  json_t parent_entry = beacon_header_unwrap_data(parent_res);
+  if (parent_entry.type != JSON_TYPE_OBJECT) THROW_ERROR("Parent beacon header not found!");
+  if (!beacon_header_root_equals(parent_entry, parent_root)) THROW_ERROR("Parent beacon header root mismatch!");
+  uint64_t parent_slot = 0;
+  if (!json_uint64_field(beacon_header_message(parent_entry), "slot", &parent_slot))
+    THROW_ERROR("Parent beacon header missing slot!");
+  return scan_child_headers(ctx, parent_slot, parent_root, header, root);
+}
+
+static c4_status_t get_beacon_header_by_parent_hash_query(prover_ctx_t* ctx, bytes32_t parent_root, json_t* header, bytes32_t root) {
+  char     path[200]   = {0};
+  json_t   result      = {0};
+  buffer_t path_buffer = stack_buffer(path);
+
+  bprintf(&path_buffer, "eth/v1/beacon/headers?parent_root=0x%x", bytes(parent_root, 32));
+  TRY_ASYNC(c4_send_beacon_json_with_client_type(ctx, path, NULL, PARENT_CHILD_SLOT_TTL, &result, BEACON_SUPPORTS_PARENT_ROOT_HEADERS));
+
+  json_t entry = beacon_header_child_in_result(result, parent_root);
+  if (entry.type != JSON_TYPE_OBJECT) {
+    *header = (json_t) {.type = JSON_TYPE_NOT_FOUND};
+    return C4_SUCCESS;
+  }
+  return beacon_header_extract(ctx, entry, header, root);
+}
+
+// parent_slot is a Nimbus-only hint (scan after that slot). NULL means the
+// parent slot is unknown: fetch the parent header first. Slot 0 is valid, so
+// this cannot be a zero sentinel. The Lodestar path ignores the slot and uses
+// headers?parent_root=.
+static c4_status_t find_child_header(prover_ctx_t* ctx, bytes32_t parent_root, const uint64_t* parent_slot, json_t* header, bytes32_t root) {
+  if (ctx->flags & C4_PROVER_FLAG_NIMBUS) {
+    if (parent_slot)
+      return scan_child_headers(ctx, *parent_slot, parent_root, header, root);
+    return get_beacon_header_by_parent_hash_scan(ctx, parent_root, header, root);
+  }
+  return get_beacon_header_by_parent_hash_query(ctx, parent_root, header, root);
+}
+
+static c4_status_t get_beacon_header_by_parent_hash(prover_ctx_t* ctx, bytes32_t parent_root, json_t* header, bytes32_t root) {
+  return find_child_header(ctx, parent_root, NULL, header, root);
 }
 
 static c4_status_t determine_fork(prover_ctx_t* ctx, ssz_ob_t* block) {
@@ -396,39 +463,89 @@ c4_status_t c4_eth_get_signblock_and_parent(prover_ctx_t* ctx, bytes32_t sign_ha
   return status;
 }
 
-static c4_status_t get_beacon_header_from_eth_block(prover_ctx_t* ctx, json_t eth_block, json_t* header, bytes32_t root, bytes32_t parent_root) {
-  buffer_t buffer = {.allocated = -32, .data = {.data = parent_root, .len = 0}};
+static c4_status_t eth_parent_beacon_root(prover_ctx_t* ctx, json_t eth_block, bytes32_t out) {
+  buffer_t buffer = {.allocated = -32, .data = {.data = out, .len = 0}};
   json_t   p_hash = json_get(eth_block, "parentBeaconBlockRoot");
   if (p_hash.len != 68) THROW_ERROR("The Block is not a Beacon Block!");
-  return get_beacon_header_by_parent_hash(ctx, json_as_bytes(p_hash, &buffer).data, header, root);
+  if (json_as_bytes(p_hash, &buffer).len != 32) THROW_ERROR("Invalid parentBeaconBlockRoot!");
+  return C4_SUCCESS;
 }
 
-static inline c4_status_t eth_get_by_number(prover_ctx_t* ctx, uint64_t block_number, bytes32_t sig_root, bytes32_t data_root) {
+// Looks up the CL child of eth_block.parentBeaconBlockRoot.
+// Writes the child root into `root` and the parent CL root into `parent_root`.
+static c4_status_t get_beacon_header_from_eth_block(prover_ctx_t* ctx, json_t eth_block, json_t* header, bytes32_t root, bytes32_t parent_root) {
+  TRY_ASYNC(eth_parent_beacon_root(ctx, eth_block, parent_root));
+  return get_beacon_header_by_parent_hash(ctx, parent_root, header, root);
+}
+
+// Gloas ePBS: EL.slotNumber is the execution beacon slot. The data block we
+// merkle-prove is the next CL block (bid.parent_block_hash == EL.hash, gindex
+// 2856); the sync-committee signature lives in the block after that.
+static c4_status_t eth_get_gloas_roots(prover_ctx_t* ctx, json_t eth_block, bytes32_t sig_root, bytes32_t data_root) {
+  uint64_t slot = 0;
+  if (!json_uint64_field(eth_block, "slotNumber", &slot))
+    THROW_ERROR("Gloas execution block is missing slotNumber!");
+
+  bytes32_t parent_cl = {0};
+  TRY_ASYNC(eth_parent_beacon_root(ctx, eth_block, parent_cl));
+
+  json_t    ignored   = {0};
+  bytes32_t exec_root = {0};
+  TRY_ASYNC(get_beacon_header_at_slot_with_parent(ctx, slot, parent_cl, &ignored, exec_root));
+
+  json_t data_header = {0};
+  TRY_ASYNC(find_child_header(ctx, exec_root, &slot, &data_header, data_root));
+  if (data_header.type == JSON_TYPE_NOT_FOUND)
+    THROW_ERROR("The requested block has not been signed yet and cannot be verified!!");
+
+  uint64_t data_slot = 0;
+  if (!json_uint64_field(data_header, "slot", &data_slot))
+    THROW_ERROR("Gloas data beacon header is missing slot!");
+
+  json_t sig_header = {0};
+  TRY_ASYNC(find_child_header(ctx, data_root, &data_slot, &sig_header, sig_root));
+  if (sig_header.type == JSON_TYPE_NOT_FOUND)
+    THROW_ERROR("The requested block has not been signed yet and cannot be verified!!");
+  return C4_SUCCESS;
+}
+
+static c4_status_t eth_get_by_number(prover_ctx_t* ctx, uint64_t block_number, bytes32_t sig_root, bytes32_t data_root) {
   char   tmp[100]  = {0};
   json_t eth_block = {0};
   json_t header    = {0};
 
-  // if we have the blocknumber, we fetch the next block, since we know this is the signing block
+  if (c4_chain_schedules_fork(ctx->chain_id, C4_FORK_GLOAS)) {
+    sbprintf(tmp, "\"0x%lx\"", block_number);
+    TRY_ASYNC(eth_get_block(ctx, (json_t) {.start = tmp, .len = strlen(tmp), .type = JSON_TYPE_STRING}, false, &eth_block));
+    if (eth_block.type == JSON_TYPE_NOT_FOUND || eth_block.type == JSON_TYPE_NULL)
+      THROW_ERROR_WITH("The execution block %l can not be found!", block_number);
+    if (el_block_uses_gloas_path(ctx, eth_block))
+      return eth_get_gloas_roots(ctx, eth_block, sig_root, data_root);
+    // Pre-Gloas block on a Gloas-scheduled chain: N has no slotNumber, continue via N+1.
+  }
+
+  // Pre-Gloas: EL N+1.parentBeaconBlockRoot is the data CL root; its child is the signing block.
   sbprintf(tmp, "\"0x%lx\"", block_number + 1);
   TRY_ASYNC(eth_get_block(ctx, (json_t) {.start = tmp, .len = strlen(tmp), .type = JSON_TYPE_STRING}, false, &eth_block));
 
   if (eth_block.type == JSON_TYPE_NOT_FOUND || eth_block.type == JSON_TYPE_NULL)
     THROW_ERROR_WITH("The Block after %l, which should contain the parentBeaconBlockRoot for the data block can not be found in the execution layer!", block_number);
 
-  // get the beacon block matching the parent hash
   return get_beacon_header_from_eth_block(ctx, eth_block, &header, sig_root, data_root);
 }
 
-static inline c4_status_t eth_get_by_hash(prover_ctx_t* ctx, json_t block_hash, bytes32_t data_root) {
-  // get the eth block from the blockhash or blocknumber
+static c4_status_t eth_get_by_hash(prover_ctx_t* ctx, json_t block_hash, bytes32_t sig_root, bytes32_t data_root) {
   json_t    eth_block   = {0};
   json_t    header      = {0};
   bytes32_t parent_root = {0};
 
-  // eth_getBlockByHash
   TRY_ASYNC(eth_get_block(ctx, block_hash, false, &eth_block));
 
-  // get the beacon block matching the parent hash
+  if (el_block_uses_gloas_path(ctx, eth_block))
+    return eth_get_gloas_roots(ctx, eth_block, sig_root, data_root);
+
+  // Pre-Gloas: EL N.parentBeaconBlockRoot's child is the data CL block.
+  // Only data_root is filled here; the caller looks up the signing child later.
   return get_beacon_header_from_eth_block(ctx, eth_block, &header, data_root, parent_root);
 }
 
@@ -588,7 +705,7 @@ static inline c4_status_t eth_get_block_roots(prover_ctx_t* ctx, json_t block, b
   else if (strncmp(block.start, "\"finalized\"", 11) == 0)
     TRY_ASYNC(eth_get_final_hash(ctx, false, data_root, NULL));
   else if (block.type == JSON_TYPE_STRING && block.len == 68) // blockhash
-    TRY_ASYNC(eth_get_by_hash(ctx, block, data_root));
+    TRY_ASYNC(eth_get_by_hash(ctx, block, sig_root, data_root));
   else if (block.type == JSON_TYPE_STRING && block.len > 4 && block.start[1] == '0' && block.start[2] == 'x') // blocknumber
     TRY_ASYNC(eth_get_by_number(ctx, json_as_uint64(block), sig_root, data_root));
   else

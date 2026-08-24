@@ -111,6 +111,19 @@ void        ssz_add_header_proof(ssz_builder_t* builder, eth_block_t* block_data
 void        c4_free_block_proof(blockroot_proof_t* block_proof);
 c4_status_t c4_fetch_zk_proof_data(prover_ctx_t* ctx, zk_proof_data_t* zk_proof, uint64_t period);
 
+#ifdef TEST
+/**
+ * Test helper: enqueue the historical_summaries Beacon request for `block`.
+ * Default path is Lodestar; `C4_PROVER_FLAG_NIMBUS` selects the Nimbus URL.
+ *
+ * @param ctx prover context
+ * @param block beacon block whose `cl_header.stateRoot` is used in the path
+ * @param history_proof output JSON, filled after the request is fulfilled
+ * @return `C4_PENDING` until the request is fulfilled, then the send status
+ */
+c4_status_t c4_test_get_historical_summaries(prover_ctx_t* ctx, eth_block_t* block, json_t* history_proof);
+#endif
+
 #ifdef __cplusplus
 }
 #endif

@@ -167,6 +167,20 @@ fork_id_t c4_chain_fork_id(chain_id_t chain_id, uint64_t epoch) {
   return (fork_id_t) i;
 }
 
+bool c4_chain_schedules_fork(chain_id_t chain_id, fork_id_t fork) {
+  const chain_spec_t* spec = c4_eth_get_chain_spec(chain_id);
+  if (!spec || !spec->fork_epochs || fork <= C4_FORK_PHASE0) return false;
+  // fork_epochs[n] activates fork n+1. Stop at FORKS_END so an out-of-range
+  // fork id cannot read past the table. NOT_ASSIGNED_YET is > FORKS_END.
+  unsigned want = (unsigned) fork - 1;
+  unsigned n    = 0;
+  while (spec->fork_epochs[n] != FORKS_END) {
+    if (n == want) return spec->fork_epochs[n] < FORKS_END;
+    n++;
+  }
+  return false;
+}
+
 const gindex_t* c4_block_header_gindexes(chain_id_t chain_id, uint64_t slot) {
   // EP at gindex 25 in BeaconBlockBody (index 9, depth 4), field index i in EP (depth 5) → 25*32+i
   // Deneb: body has 12 fields, EP has 17 fields → EP gindex=25, same layout

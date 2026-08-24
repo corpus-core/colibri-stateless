@@ -81,6 +81,7 @@
 // | `-d`           | `<chain_store>` | Use `chain_data` from the `chain_store` found within the path               |              |
 // | `-i`           |                 | Include code in the proof                                                   |              |
 // | `-G`           |                 | Generate an `eth_getLogs` completeness proof over the requested block range (proves no matching log was omitted; sets `C4_PROVER_FLAG_LOGS_COMPLETENESS`) |              |
+// | `-N`           |                 | Nimbus CL compatibility (slot-scan parent lookup, nimbus historical_summaries; sets `C4_PROVER_FLAG_NIMBUS`) |              |
 // | `<method>`     |                 | The method to execute                                                       |              |
 // | `<params>`     |                 | Parameters for the method                                                   |              |
 
@@ -117,6 +118,7 @@ int main(int argc, char* argv[]) {
                     "  -d <chain_store> : use chain_data from the chain_store found within the path\n"
                     "  -i               : include code in the proof\n"
                     "  -G               : generate an eth_getLogs completeness proof over the requested block range (proves no matching log was omitted)\n"
+                    "  -N               : Nimbus CL compatibility (slot-scan parent lookup, nimbus historical_summaries)\n"
                     "  --version, -v    : display version information\n"
                     "\n",
             argv[0]);
@@ -165,6 +167,9 @@ int main(int argc, char* argv[]) {
           case 'G':
             // Generate an eth_getLogs completeness proof over the requested block range
             flags |= C4_PROVER_FLAG_LOGS_COMPLETENESS;
+            break;
+          case 'N':
+            flags |= C4_PROVER_FLAG_NIMBUS;
             break;
 #ifdef TEST
 #ifdef USE_CURL

@@ -123,38 +123,20 @@ static c4_status_t get_historical_summaries(prover_ctx_t* ctx, eth_block_t* bloc
   if (ctx->state.error) return C4_ERROR;
   uint8_t  tmp[200] = {0};
   buffer_t buf      = stack_buffer(tmp);
+  bytes_t  state    = ssz_get(&block->cl_header, "stateRoot").bytes;
 
-  return c4_send_beacon_json_with_client_type(ctx, bprintf(&buf, "eth/v1/lodestar/states/0x%b/historical_summaries", ssz_get(&block->cl_header, "stateRoot").bytes), NULL, 120, history_proof, BEACON_CLIENT_LODESTAR);
-  /*
-  json_t      history_proof2 = {0};
-  c4_status_t status1        = c4_send_beacon_json_with_client_type(ctx, bprintf(&buf, "nimbus/v1/debug/beacon/states/0x%b/historical_summaries", ssz_get(&block->header, "stateRoot").bytes), NULL, 120, &history_proof1, BEACON_CLIENT_NIMBUS);
-  if (ctx->state.error) {
-    safe_free(ctx->state.error);
-    ctx->state.error = NULL;
-    status1          = C4_ERROR;
-  }
-  */
-  /*
-   // /eth/v1/lodestar/states/{state_id}/historical_summaries
-   buffer_reset(&buf);
-   c4_status_t status2 = c4_send_beacon_json_with_client_type(ctx, bprintf(&buf, "eth/v1/lodestar/states/0x%b/historical_summaries", ssz_get(&block->header, "stateRoot").bytes), NULL, 120, &history_proof2, BEACON_CLIENT_LODESTAR);
-   if (ctx->state.error) {
-     safe_free(ctx->state.error);
-     ctx->state.error = NULL;
-     status2          = C4_ERROR;
-   }
-
-   if (status1 == C4_SUCCESS && history_proof1.type == JSON_TYPE_OBJECT)
-     *history_proof = history_proof1;
-   else if (status2 == C4_SUCCESS && history_proof2.type == JSON_TYPE_OBJECT)
-     *history_proof = history_proof2;
-   else if (status1 == C4_PENDING)
-     return C4_PENDING;
-   else
-     THROW_ERROR("Failed to get historical summaries! Looks like it is not supported by the beacon client!");
-   return C4_SUCCESS;
-   */
+  bool        nimbus = (ctx->flags & C4_PROVER_FLAG_NIMBUS) != 0;
+  const char* path   = nimbus ? "nimbus/v1/debug/beacon/states/0x%b/historical_summaries"
+                              : "eth/v1/lodestar/states/0x%b/historical_summaries";
+  uint32_t    client = nimbus ? BEACON_CLIENT_NIMBUS : BEACON_CLIENT_LODESTAR;
+  return c4_send_beacon_json_with_client_type(ctx, bprintf(&buf, path, state), NULL, 120, history_proof, client);
 }
+
+#ifdef TEST
+c4_status_t c4_test_get_historical_summaries(prover_ctx_t* ctx, eth_block_t* block, json_t* history_proof) {
+  return get_historical_summaries(ctx, block, history_proof);
+}
+#endif
 
 static c4_status_t check_historic_proof_direct(prover_ctx_t* ctx, blockroot_proof_t* block_proof, eth_block_t* src_block) {
   uint64_t            slot          = src_block->slot;
