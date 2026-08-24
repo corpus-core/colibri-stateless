@@ -306,10 +306,11 @@ void test_gloas_gindex_helpers_pre_gloas_branches(void) {
 // -----------------------------------------------------------------------------
 //
 // Several code paths carry `TODO(gloas)` markers that must be revisited before
-// Gloas is scheduled on any chain (see `eth_tx.h`, `eth_account.h`,
+// Gloas is scheduled on a production chain (see `eth_tx.h`, `eth_account.h`,
 // `beacon_types.c::c4_block_header_gindexes`, `historic_proof.c::summaries_gidx`).
-// This test fails as soon as any chain_spec assigns a real epoch to Gloas, so a
-// contributor who schedules Gloas cannot forget the follow-up work.
+// This test fails as soon as mainnet/Sepolia/Gnosis assign a real Gloas epoch.
+// Platåberget already activates Gloas at epoch 1536; that schedule is covered
+// in `test_eth_chain_spec.c`.
 
 void test_gloas_activation_epoch_still_reserved(void) {
   const chain_id_t chains[] = {

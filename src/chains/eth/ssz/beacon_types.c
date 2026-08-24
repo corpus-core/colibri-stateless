@@ -21,14 +21,18 @@
  * SPDX-License-Identifier: MIT
  */
 #define NOT_ASSIGNED_YET 0xffffffffffffffffULL
+#define FORKS_END        0xfffffffffffffffeULL // must stay < NOT_ASSIGNED_YET
+
 #include "beacon_types.h"
 #include "ssz.h"
 
-// the fork epochs for the different chains. index 0 is the the first fork or the epcoh of the ALTAIR fork. Must be NULL-Terminated
-static const uint64_t eth_mainnet_fork_epochs[] = {74240ULL, 144896ULL, 194048ULL, 269568ULL, 364032ULL, 411392ULL, NOT_ASSIGNED_YET, 0ULL};
-static const uint64_t eth_gnosis_fork_epochs[]  = {512ULL, 385536ULL, 648704ULL, 889856ULL, 1337856ULL, 1714688ULL, NOT_ASSIGNED_YET, 0ULL};
-static const uint64_t eth_sepolia_fork_epochs[] = {50L, 100L, 56832L, 132608L, 222464L, 272640L, NOT_ASSIGNED_YET, 0ULL};
-static const uint64_t eth_chiado_fork_epochs[]  = {90L, 180L, 244224L, 516608L, 948224L, 1353216L, NOT_ASSIGNED_YET, 0ULL};
+// fork_epochs[n] = activation epoch of fork (n+1) (Altair ..).
+// 0 = active at genesis. NOT_ASSIGNED_YET = not scheduled. Terminated by FORKS_END.
+static const uint64_t eth_mainnet_fork_epochs[]     = {74240ULL, 144896ULL, 194048ULL, 269568ULL, 364032ULL, 411392ULL, NOT_ASSIGNED_YET, FORKS_END};
+static const uint64_t eth_gnosis_fork_epochs[]      = {512ULL, 385536ULL, 648704ULL, 889856ULL, 1337856ULL, 1714688ULL, NOT_ASSIGNED_YET, FORKS_END};
+static const uint64_t eth_sepolia_fork_epochs[]     = {50L, 100L, 56832L, 132608L, 222464L, 272640L, NOT_ASSIGNED_YET, FORKS_END};
+static const uint64_t eth_chiado_fork_epochs[]      = {90L, 180L, 244224L, 516608L, 948224L, 1353216L, NOT_ASSIGNED_YET, FORKS_END};
+static const uint64_t eth_plataberget_fork_epochs[] = {0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 1536ULL, FORKS_END};
 
 static void mainnet_fork_version(chain_id_t chain_id, fork_id_t fork, uint8_t* version) {
   version[0] = (uint8_t) fork;
@@ -54,6 +58,17 @@ static void sepolia_fork_version(chain_id_t chain_id, fork_id_t fork, uint8_t* v
   version[3]  = (uint8_t) (id & 0xff);
 }
 
+// Platåberget / glamsterdam-devnet-8: GENESIS_FORK_VERSION 0x10733183, then
+// first byte steps 0x10 per fork (Altair 0x20 .. Gloas 0x80). See
+// ethpandaops/glamsterdam-devnets network-configs/devnet-8/metadata/config.yaml
+static void plataberget_fork_version(chain_id_t chain_id, fork_id_t fork, uint8_t* version) {
+  (void) chain_id;
+  version[0] = (uint8_t) ((fork + 1) << 4);
+  version[1] = 0x73;
+  version[2] = 0x31;
+  version[3] = 0x83;
+}
+
 static const chain_spec_t chain_data[] = {
     {// Mainnet
      .chain_id                 = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 1ULL),
@@ -73,6 +88,15 @@ static const chain_spec_t chain_data[] = {
      .epochs_per_period_bits   = 8,
      .weak_subjectivity_epochs = 3682,
      .fork_version_func        = sepolia_fork_version},
+    {// Plataberget
+     .chain_id                 = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 7091047534),
+     .fork_epochs              = eth_plataberget_fork_epochs,
+     .genesis_validators_root  = "\xbb\x4a\x1a\x9e\x3f\x7f\x4e\x10\xed\xcd\x73\x4e\x4a\xcc\x3b\x5f\xfd\x4f\x83\x0e\xfe\x0a\xf2\x74\x8f\xa4\x58\xcf\xee\x5d\x26\x58",
+     .zk_sync_keys_root        = "\x82\xb2\x41\xf5\x2b\x29\x0f\x82\x78\x81\x11\xbd\x79\x74\xee\x87\xd9\xbb\xac\xfb\xe5\xd0\x84\xa3\x70\x31\x7f\x34\xe7\xb7\xfa\x84", // TODO: replace Sepolia placeholder with Plataberget v6 anchor
+     .slots_per_epoch_bits     = 5,
+     .epochs_per_period_bits   = 8,
+     .weak_subjectivity_epochs = 3682,
+     .fork_version_func        = plataberget_fork_version},
     {// Gnosis
      .chain_id                 = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 100ULL),
      .fork_epochs              = eth_gnosis_fork_epochs,
@@ -135,8 +159,11 @@ fork_id_t c4_chain_fork_id(chain_id_t chain_id, uint64_t epoch) {
   const chain_spec_t* data = c4_eth_get_chain_spec(chain_id);
   if (!data) return C4_FORK_ALTAIR;
 
+  // 0 is a valid activation epoch. FORKS_END and NOT_ASSIGNED_YET are both
+  // >= FORKS_END, so a single upper bound stops the scan.
   int i = 0;
-  while (data->fork_epochs[i] && epoch >= data->fork_epochs[i]) i++;
+  while (data->fork_epochs[i] != FORKS_END && epoch >= data->fork_epochs[i])
+    i++;
   return (fork_id_t) i;
 }
 

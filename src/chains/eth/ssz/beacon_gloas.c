@@ -24,12 +24,10 @@
 // title: Beacon Types
 // description: The SSZ types for the Beacon chain for the Gloas Fork (EIP-7688 + EIP-7732 ePBS).
 
-// Preparation only: `C4_FORK_GLOAS` has no epoch assigned yet in any chain spec
-// (`fork_epochs[C4_FORK_GLOAS-1] == NOT_ASSIGNED_YET`), so none of these definitions
-// are reachable at runtime. They implement the Gloas structure from
-// `build/consensus-specs/specs/gloas/` so the code compiles once an epoch is
-// scheduled. See `specs/gloas/beacon-chain.md` and
-// `specs/gloas/light-client/sync-protocol.md` for the source of truth.
+// Gloas SSZ types from `build/consensus-specs/specs/gloas/`. Mainnet / Sepolia /
+// Gnosis still have `fork_epochs[C4_FORK_GLOAS-1] == NOT_ASSIGNED_YET`; Platåberget
+// activates Gloas at epoch 1536, so these definitions are reachable there.
+// See `specs/gloas/beacon-chain.md` and `specs/gloas/light-client/sync-protocol.md`.
 
 #include "beacon_types.h"
 #include "ssz.h" // Ensure ssz_uint64_def is available
