@@ -629,7 +629,6 @@ static c4_status_t get_el_header_and_branch(prover_ctx_t* ctx, el_header_and_bra
     ssz_ob_t      bid                = ssz_get(&body, "signedExecutionPayloadBid");
     ssz_ob_t      message            = ssz_get(&bid, "message");
     uint8_t*      parent_block_root  = ssz_get(&message, "parentBlockRoot").bytes.data;
-    uint8_t*      parent_block_hash  = ssz_get(&message, "parentBlockHash").bytes.data;
     ssz_ob_t      execution          = {0};
     ssz_ob_t      execution_requests = {0};
     beacon_head_t bh                 = {0};
