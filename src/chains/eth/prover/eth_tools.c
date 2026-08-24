@@ -89,7 +89,7 @@ void eth_add_block_proof(prover_ctx_t* ctx, ssz_builder_t* builder, beacon_block
   else {
     ssz_builder_t block_proof = ssz_builder_for_type(ETH_SSZ_CL_BLOCK_PROOF);
     ssz_add_bytes(&block_proof, "elHeader", block_data->el_header);
-    ssz_add_builders(&block_proof, "clHeader", c4_proof_add_header(block_data->header, block_data->body_root));
+    ssz_add_ob(&block_proof, "clHeader", block_data->cl_header);
     ssz_add_bytes(&block_proof, "blockhashBranch", block_data->block_hash_branch);
     ssz_add_uint64(&block_proof, block_data->block_hash_branch_gindex);
     ssz_add_header_proof(&block_proof, block_data, *historic_block_proof);

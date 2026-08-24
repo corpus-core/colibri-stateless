@@ -124,7 +124,7 @@ static c4_status_t get_historical_summaries(prover_ctx_t* ctx, beacon_block_t* b
   uint8_t  tmp[200] = {0};
   buffer_t buf      = stack_buffer(tmp);
 
-  return c4_send_beacon_json_with_client_type(ctx, bprintf(&buf, "eth/v1/lodestar/states/0x%b/historical_summaries", ssz_get(&block->header, "stateRoot").bytes), NULL, 120, history_proof, BEACON_CLIENT_LODESTAR);
+  return c4_send_beacon_json_with_client_type(ctx, bprintf(&buf, "eth/v1/lodestar/states/0x%b/historical_summaries", ssz_get(&block->cl_header, "stateRoot").bytes), NULL, 120, history_proof, BEACON_CLIENT_LODESTAR);
   /*
   json_t      history_proof2 = {0};
   c4_status_t status1        = c4_send_beacon_json_with_client_type(ctx, bprintf(&buf, "nimbus/v1/debug/beacon/states/0x%b/historical_summaries", ssz_get(&block->header, "stateRoot").bytes), NULL, 120, &history_proof1, BEACON_CLIENT_NIMBUS);
@@ -249,7 +249,7 @@ static c4_status_t check_historic_proof_direct(prover_ctx_t* ctx, blockroot_proo
   block_proof->sync_aggregate = block.sync_aggregate;
   block_proof->proof_header   = bytes(safe_malloc(112), 112);
   block_proof->type           = HISTORIC_PROOF_DIRECT;
-  memcpy(block_proof->proof_header.data, block.header.bytes.data, 112 - 32);
+  memcpy(block_proof->proof_header.data, block.cl_header.bytes.data, 112 - 32);
   memcpy(block_proof->proof_header.data + 112 - 32, body_root, 32);
 
   safe_free(block_idx_proof.data);

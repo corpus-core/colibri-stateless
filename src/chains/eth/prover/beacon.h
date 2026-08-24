@@ -59,19 +59,19 @@ typedef struct {
 } beacon_head_t;
 
 typedef struct {
+  bool      header_only;              // true when only header data is available (hybrid mode)
   bytes_t   el_header;                // the rlp serialized execution layer header
+  ssz_ob_t  el_body;                  // the body containing either the full execution paylod or at least the transaction and withdrawal fields
   bytes32_t el_block_hash;            // the block hash of the execution block
+  bytes_t   block_hash_branch;        // the branch of the block hash, used for the block proof
+  uint64_t  block_hash_branch_gindex; // the gindex of the block hash branch, used for the block proof
   uint64_t  slot;                     // slot of the block
-  bytes32_t body_root;                // the body root of the block
-  ssz_ob_t  header;                   // block header
+  bytes32_t cl_body_root;             // the body root of the block
+  ssz_ob_t  cl_header;                // block header
   ssz_ob_t  cl_body;                  // body of the block (empty in hybrid mode)
   ssz_ob_t  sync_aggregate;           // sync aggregate with the signature of the block (empty in hybrid mode)
   bytes32_t sign_parent_root;         // the parentRoot of the block containing the signature
   bytes32_t data_block_root;          // the blockroot used for the data block
-  bytes_t   block_hash_branch;        // the branch of the block hash, used for the block proof
-  uint64_t  block_hash_branch_gindex; // the gindex of the block hash branch, used for the block proof
-  ssz_ob_t  el_body;                  // the body containing either the full execution paylod or at least the transaction and withdrawal fields
-  bool      header_only;              // true when only header data is available (hybrid mode)
 } beacon_block_t;
 
 // :: Verified Header Cache
