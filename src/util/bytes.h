@@ -412,8 +412,10 @@ void buffer_add_bytes(buffer_t* buf, uint32_t len, ...);
   } while (0)
 
 static inline bytes_t bytes_cpy(void* dst, size_t offset, bytes_t src) {
-  memcpy(((uint8_t*) dst) + offset, src.data, src.len);
-  return bytes(((uint8_t*) dst) + offset, src.len);
+  uint8_t* dest = ((uint8_t*) dst) + offset;
+  memcpy(dest, src.data, src.len);
+  bytes_t out = {.len = src.len, .data = dest};
+  return out;
 }
 
 #ifdef __cplusplus
