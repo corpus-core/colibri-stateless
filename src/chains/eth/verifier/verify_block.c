@@ -233,7 +233,10 @@ bool verify_block_proof(verify_ctx_t* ctx) {
   else if (is_full_block)
     RETURN_VERIFY_ERROR(ctx, "missing body for block proof");
 
-  if (!eth_set_block_data(ctx, el_header, include_txs, has_body ? &body : NULL, ETH_BLOCK_DATA_MASK_ALL)) return false;
+  bytes_t   header = {0};
+  fork_id_t fork   = (rlp_decode(&el_header, 0, &header) == RLP_LIST && rlp_decode(&header, -1, &header) == 22) ? C4_FORK_GLOAS : C4_FORK_FULU;
+
+  if (!eth_set_block_data(ctx, el_header, include_txs, has_body ? &body : NULL, fork == C4_FORK_GLOAS ? ETH_BLOCK_DATA_MASK_ALL : ETH_BLOCK_DATA_MASK_ALL_WITHOUT_REQUESTS)) return false;
   if (json_len(ctx->args) >= 1 && !c4_eth_matches_blocknumber(ctx, ctx->data, json_at(ctx->args, 0))) return false;
   if (!eth_check_latest_freshness(ctx, json_len(ctx->args) == 0 || eth_json_is_latest(json_at(ctx->args, 0)), true, eth_el_header_get_uint64(el_header, EL_TIMESTAMP))) return false;
   ctx->success = true;
