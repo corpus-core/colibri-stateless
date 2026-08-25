@@ -234,7 +234,7 @@ bool verify_block_proof(verify_ctx_t* ctx) {
     RETURN_VERIFY_ERROR(ctx, "missing body for block proof");
 
   bytes_t   header = {0};
-  fork_id_t fork   = (rlp_decode(&el_header, 0, &header) == RLP_LIST && rlp_decode(&header, -1, &header) == 22) ? C4_FORK_FULU : C4_FORK_FULU;
+  fork_id_t fork   = (rlp_decode(&el_header, 0, &header) == RLP_LIST && rlp_decode(&header, -1, &header) == 23) ? C4_FORK_GLOAS : C4_FORK_FULU;
 
   if (!eth_set_block_data(ctx, el_header, include_txs, has_body ? &body : NULL, fork == C4_FORK_GLOAS ? ETH_BLOCK_DATA_MASK_ALL : ETH_BLOCK_DATA_MASK_ALL_WITHOUT_REQUESTS)) return false;
   if (json_len(ctx->args) >= 1 && !c4_eth_matches_blocknumber(ctx, ctx->data, json_at(ctx->args, 0))) return false;

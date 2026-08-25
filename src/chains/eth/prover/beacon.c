@@ -629,36 +629,25 @@ static c4_status_t get_el_header_and_branch(prover_ctx_t* ctx, el_header_and_bra
     ssz_ob_t      bid                = ssz_get(&body, "signedExecutionPayloadBid");
     ssz_ob_t      message            = ssz_get(&bid, "message");
     uint8_t*      parent_block_root  = ssz_get(&message, "parentBlockRoot").bytes.data;
+    uint8_t*      parent_block_hash  = ssz_get(&message, "parentBlockHash").bytes.data;
     ssz_ob_t      execution          = {0};
     ssz_ob_t      execution_requests = {0};
-    beacon_head_t bh                 = {0};
     ssz_ob_t      parent_data_block  = {0};
-    c4_status_t   status             = C4_SUCCESS;
-    memcpy(bh.root, parent_block_root, 32);
+    ssz_builder_t body_builder       = ssz_builder_for_type(ETH_SSZ_EL_BLOCK_CONTENT);
+    json_t        result             = {0};
+    buffer_t      buffer             = {0};
+    char          tmp[100]           = {0};
+    sbprintf(tmp, "[\"0x%x\"]", bytes(parent_block_hash, 32));
 
-    TRY_ADD_ASYNC(status, get_execution_payload(ctx, parent_block_root, &execution, &execution_requests));
-    TRY_ADD_ASYNC(status, get_block(ctx, &bh, &parent_data_block)); // the header might be enough, but the block is most likely still cached.
-    TRY_ASYNC(status);
+    TRY_ASYNC(c4_send_eth_rpc(ctx, "debug_getRawBlock", tmp, DEFAULT_TTL, &result, NULL));
+    buffer_grow(&buffer, result.len / 2 + 1);
+    TRY_ASYNC_FINAL(eth_el_header_get_from_raw_block(&ctx->state, json_as_bytes(result, &buffer), &generated_header, &body_builder), buffer_free(&buffer));
 
-    eth_el_header_ctx_t el_ctx = {
-        .execution_payload  = execution,
-        .fork               = fork,
-        .state              = &ctx->state,
-        .chain_id           = ctx->chain_id,
-        .beacon_block       = parent_data_block,
-        .execution_requests = execution_requests,
-    };
-    bytes_t parent_root = ssz_get(&parent_data_block, "parentRoot").bytes;
-    if (parent_root.len == 32) memcpy(el_ctx.parent_root, parent_root.data, 32);
-    TRY_ASYNC(eth_el_header_build_from_ep(&generated_header, &el_ctx));
     generated_branch_gindex = 2856;
     generated_branch        = ssz_create_proof(body, body_root, generated_branch_gindex);
+    el_body                 = ssz_builder_to_bytes(&body_builder);
 
     // TODO optimize instead allocating the content twice, calculate the size and use the memory directly
-    ssz_builder_t body_builder = ssz_builder_for_type(ETH_SSZ_EL_BLOCK_CONTENT);
-    ssz_add_bytes(&body_builder, "transactions", ssz_get(&execution, "transactions").bytes);
-    ssz_add_bytes(&body_builder, "withdrawals", ssz_get(&execution, "withdrawals").bytes);
-    el_body = ssz_builder_to_bytes(&body_builder);
   }
 
   size_t                  size  = sizeof(el_header_and_branch_t) + generated_header.len + generated_branch.len + el_body.bytes.len;

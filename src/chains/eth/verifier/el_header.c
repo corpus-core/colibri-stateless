@@ -283,3 +283,64 @@ uint64_t eth_el_header_get_uint64(bytes_t header, char* name) {
   if (value.len == 0) return 0;
   return bytes_as_be(value);
 }
+
+c4_status_t eth_el_header_get_from_raw_block(c4_state_t* state, bytes_t raw_block, bytes_t* el_header, ssz_builder_t* body_builder) {
+  bytes_t transactions = NULL_BYTES;
+  bytes_t withdrawals  = NULL_BYTES;
+  if (rlp_decode(&raw_block, 0, &raw_block) != RLP_LIST) return c4_state_add_error(state, "Invalid RLP list");
+  if (rlp_decode(&raw_block, 0, el_header) != RLP_LIST) return c4_state_add_error(state, "Invalid RLP header");
+  if (rlp_decode(&raw_block, 1, &transactions) != RLP_LIST) return c4_state_add_error(state, "Invalid RLP transactions");
+  if (rlp_decode(&raw_block, 3, &withdrawals) != RLP_LIST) return c4_state_add_error(state, "Invalid RLP withdrawals");
+
+  // encode as single list for the raw block header
+  buffer_t buffer = {0};
+  buffer_append(&buffer, *el_header);
+  rlp_to_list(&buffer);
+  *el_header                        = buffer.data;
+  ssz_builder_t tx_builder          = ssz_builder_for_def(ssz_get_def(body_builder->def, "transactions"));
+  ssz_builder_t withdrawals_builder = ssz_builder_for_def(ssz_get_def(body_builder->def, "withdrawals"));
+  buffer_t      tx_buffer           = {0};
+  int           tx_count            = rlp_decode(&transactions, -1, &transactions);
+  int           withdrawals_count   = rlp_decode(&withdrawals, -1, &withdrawals);
+
+  for (int i = 0; i < tx_count; i++) {
+    bytes_t tx = NULL_BYTES;
+    if (rlp_decode(&transactions, i, &tx) == RLP_LIST) {
+      buffer_reset(&tx_buffer);
+      buffer_append(&tx_buffer, tx);
+      rlp_to_list(&tx_buffer);
+      tx = tx_buffer.data;
+    } // types tx
+    ssz_add_dynamic_list_bytes(&tx_builder, tx_count, tx);
+  }
+
+  for (int i = 0; i < withdrawals_count; i++) {
+    uint8_t       val[8]         = {0};
+    ssz_builder_t builder        = ssz_builder_for_def(withdrawals_builder.def->def.vector.type);
+    bytes_t       w              = {0};
+    bytes_t       index          = {0};
+    bytes_t       validatorIndex = {0};
+    bytes_t       address        = {0};
+    bytes_t       amount         = {0};
+    rlp_decode(&withdrawals, i, &w);
+    rlp_decode(&w, 0, &index);
+    rlp_decode(&w, 1, &validatorIndex);
+    rlp_decode(&w, 2, &address);
+    rlp_decode(&w, 3, &amount);
+
+    memcpy(val + 8 - index.len, index.data, index.len);
+    ssz_add_uint64(&builder, uint64_from_be(val));
+    memset(val, 0, 8);
+    memcpy(val + 8 - validatorIndex.len, validatorIndex.data, validatorIndex.len);
+    ssz_add_uint64(&builder, uint64_from_be(val));
+    ssz_add_bytes(&builder, "address", address);
+    memset(val, 0, 8);
+    memcpy(val + 8 - amount.len, amount.data, amount.len);
+    ssz_add_uint64(&builder, uint64_from_be(val));
+    ssz_add_dynamic_list_builders(&withdrawals_builder, withdrawals_count, builder);
+  }
+
+  ssz_add_builders(body_builder, "transactions", tx_builder);
+  ssz_add_builders(body_builder, "withdrawals", withdrawals_builder);
+  return C4_SUCCESS;
+}
