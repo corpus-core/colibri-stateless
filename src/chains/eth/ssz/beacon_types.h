@@ -250,6 +250,28 @@ gindex_t c4_finalized_root_gindex(chain_id_t chain_id, uint64_t slot);
 gindex_t c4_historical_summaries_gindex(chain_id_t chain_id, uint64_t slot);
 
 /**
+ * Returns the generalized index within `BeaconBlockBody` of the leaf that the
+ * CL block-hash proof (`ETH_CL_BLOCK_PROOF`) anchors against for the fork active
+ * at `slot`. Both the prover (when building the branch) and the verifier (when
+ * checking it) resolve the gindex through this helper, so the leaf position is
+ * bound and cannot be swapped out by a crafted proof.
+ *
+ * The leaf differs by fork -- both anchors are "safe" in the sense that they
+ * require the signed head to be canonical, but they identify different EL blocks:
+ * - Deneb / Electra / Fulu: `execution_payload.block_hash` (gindex 812).
+ *   Proves the EL block of the CURRENT beacon slot.
+ * - Gloas (EIP-7732): `signed_execution_payload_bid.message.parent_block_hash`
+ *   (gindex 2856). Under ePBS the current-slot payload is not yet executed at
+ *   proposal time; the bid instead commits to the PARENT (head-1) EL block.
+ *
+ * @param chain_id chain identifier (drives chain spec + fork lookup)
+ * @param slot beacon slot; drives the active fork
+ * @return generalized index of the EL block-hash leaf inside `BeaconBlockBody`,
+ *         or 0 if the fork is unknown / no CL block proof is defined
+ */
+gindex_t c4_execution_block_hash_gindex(chain_id_t chain_id, uint64_t slot);
+
+/**
  * Computes the expected combined generalized index for a historic-direct block
  * inclusion proof: target `block_root` -> `HistoricalSummary.block_summary_root`
  * -> `historical_summaries` list root -> `BeaconState` root.

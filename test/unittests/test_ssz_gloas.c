@@ -282,23 +282,26 @@ void test_gloas_gindex_helpers_pre_gloas_branches(void) {
   uint64_t electra_slot = slot_for_epoch(400000ULL, spec); // Electra (>= 364032, < 411392)
   uint64_t fulu_slot    = slot_for_epoch(500000ULL, spec); // Fulu (>= 411392)
 
-  // Deneb: (54, 55, 105, 59)
+  // Deneb: (54, 55, 105, 59, 812)
   TEST_ASSERT_EQUAL_UINT64(54, c4_current_sync_committee_gindex(C4_CHAIN_MAINNET, deneb_slot));
   TEST_ASSERT_EQUAL_UINT64(55, c4_next_sync_committee_gindex(C4_CHAIN_MAINNET, deneb_slot));
   TEST_ASSERT_EQUAL_UINT64(105, c4_finalized_root_gindex(C4_CHAIN_MAINNET, deneb_slot));
   TEST_ASSERT_EQUAL_UINT64(59, c4_historical_summaries_gindex(C4_CHAIN_MAINNET, deneb_slot));
+  TEST_ASSERT_EQUAL_UINT64(812, c4_execution_block_hash_gindex(C4_CHAIN_MAINNET, deneb_slot));
 
-  // Electra: (86, 87, 169, 91)
+  // Electra: (86, 87, 169, 91, 812)
   TEST_ASSERT_EQUAL_UINT64(86, c4_current_sync_committee_gindex(C4_CHAIN_MAINNET, electra_slot));
   TEST_ASSERT_EQUAL_UINT64(87, c4_next_sync_committee_gindex(C4_CHAIN_MAINNET, electra_slot));
   TEST_ASSERT_EQUAL_UINT64(169, c4_finalized_root_gindex(C4_CHAIN_MAINNET, electra_slot));
   TEST_ASSERT_EQUAL_UINT64(91, c4_historical_summaries_gindex(C4_CHAIN_MAINNET, electra_slot));
+  TEST_ASSERT_EQUAL_UINT64(812, c4_execution_block_hash_gindex(C4_CHAIN_MAINNET, electra_slot));
 
   // Fulu keeps the Electra state layout for these fields.
   TEST_ASSERT_EQUAL_UINT64(86, c4_current_sync_committee_gindex(C4_CHAIN_MAINNET, fulu_slot));
   TEST_ASSERT_EQUAL_UINT64(87, c4_next_sync_committee_gindex(C4_CHAIN_MAINNET, fulu_slot));
   TEST_ASSERT_EQUAL_UINT64(169, c4_finalized_root_gindex(C4_CHAIN_MAINNET, fulu_slot));
   TEST_ASSERT_EQUAL_UINT64(91, c4_historical_summaries_gindex(C4_CHAIN_MAINNET, fulu_slot));
+  TEST_ASSERT_EQUAL_UINT64(812, c4_execution_block_hash_gindex(C4_CHAIN_MAINNET, fulu_slot));
 
   // Cross-check on Gnosis (different slots_per_epoch_bits / epochs_per_period_bits).
   const chain_spec_t* g_spec = c4_eth_get_chain_spec(C4_CHAIN_GNOSIS);
@@ -309,6 +312,7 @@ void test_gloas_gindex_helpers_pre_gloas_branches(void) {
   TEST_ASSERT_EQUAL_UINT64(87, c4_next_sync_committee_gindex(C4_CHAIN_GNOSIS, gnosis_electra_slot));
   TEST_ASSERT_EQUAL_UINT64(169, c4_finalized_root_gindex(C4_CHAIN_GNOSIS, gnosis_electra_slot));
   TEST_ASSERT_EQUAL_UINT64(91, c4_historical_summaries_gindex(C4_CHAIN_GNOSIS, gnosis_electra_slot));
+  TEST_ASSERT_EQUAL_UINT64(812, c4_execution_block_hash_gindex(C4_CHAIN_GNOSIS, gnosis_electra_slot));
 
   // Platåberget schedules Gloas at epoch 1536 → covers the Gloas helper branch.
   const chain_spec_t* p_spec = c4_eth_get_chain_spec(C4_CHAIN_PLATABERGET);
@@ -318,6 +322,13 @@ void test_gloas_gindex_helpers_pre_gloas_branches(void) {
   TEST_ASSERT_EQUAL_UINT64(2946, c4_next_sync_committee_gindex(C4_CHAIN_PLATABERGET, plataberget_gloas_slot));
   TEST_ASSERT_EQUAL_UINT64(735, c4_finalized_root_gindex(C4_CHAIN_PLATABERGET, plataberget_gloas_slot));
   TEST_ASSERT_EQUAL_UINT64(2950, c4_historical_summaries_gindex(C4_CHAIN_PLATABERGET, plataberget_gloas_slot));
+  TEST_ASSERT_EQUAL_UINT64(2856, c4_execution_block_hash_gindex(C4_CHAIN_PLATABERGET, plataberget_gloas_slot));
+
+  // A Platåberget slot BEFORE Gloas activation (epoch 1536) must still return
+  // the pre-Gloas leaf (812), otherwise the prover would build the branch at
+  // the wrong depth on the pre-Gloas half of the chain.
+  uint64_t plataberget_pre_gloas_slot = slot_for_epoch(1000ULL, p_spec);
+  TEST_ASSERT_EQUAL_UINT64(812, c4_execution_block_hash_gindex(C4_CHAIN_PLATABERGET, plataberget_pre_gloas_slot));
 }
 
 // -----------------------------------------------------------------------------

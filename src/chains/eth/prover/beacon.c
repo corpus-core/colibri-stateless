@@ -614,7 +614,7 @@ static c4_status_t get_el_header_and_branch(prover_ctx_t* ctx, el_header_and_bra
     bytes_t parent_root = ssz_get(&data_block, "parentRoot").bytes;
     if (parent_root.len == 32) memcpy(el_ctx.parent_root, parent_root.data, 32);
     TRY_ASYNC(eth_el_header_build_from_ep(&generated_header, &el_ctx));
-    generated_branch_gindex = 812;
+    generated_branch_gindex = c4_execution_block_hash_gindex(ctx->chain_id, ssz_get_uint64(&data_block, "slot"));
     generated_branch        = ssz_create_proof(body, body_root, generated_branch_gindex);
 
     // TODO optimize instead allocating the content twice, calculate the size and use the memory directly
@@ -639,7 +639,7 @@ static c4_status_t get_el_header_and_branch(prover_ctx_t* ctx, el_header_and_bra
     buffer_grow(&buffer, result.len / 2 + 1);
     TRY_ASYNC_FINAL(eth_el_header_get_from_raw_block(&ctx->state, json_as_bytes(result, &buffer), &generated_header, &body_builder), buffer_free(&buffer));
 
-    generated_branch_gindex = 2856;
+    generated_branch_gindex = c4_execution_block_hash_gindex(ctx->chain_id, ssz_get_uint64(&data_block, "slot"));
     generated_branch        = ssz_create_proof(body, body_root, generated_branch_gindex);
     el_body                 = ssz_builder_to_bytes(&body_builder);
   }

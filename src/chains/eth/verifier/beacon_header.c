@@ -274,10 +274,15 @@ static c4_status_t verify_block_by_blockproof(verify_ctx_t* ctx, ssz_ob_t block,
   if (memcmp(body_root, ssz_get(&cl_header, "bodyRoot").bytes.data, 32))
     THROW_ERROR("invalid body root for cl proof!");
 
-  // check gindex
-  const chain_spec_t* chain           = c4_eth_get_chain_spec(ctx->chain_id);
-  fork_id_t           fork            = c4_chain_fork_id(ctx->chain_id, epoch_for_slot(ssz_get_uint64(&cl_header, "slot"), chain));
-  gindex_t            expected_gindex = (fork < C4_FORK_GLOAS) ? 812 : 2856;
+  // Pin the branch target to the fork-specific EL block-hash leaf inside
+  // `BeaconBlockBody`. Without this cross-check a crafted proof could point at
+  // any other bytes32 in the body (e.g. `graffiti`, `execution_payload.extra_data`)
+  // and pass off arbitrary 32 bytes as the block hash. See `beacon_types.h` for
+  // the exact per-fork semantics (Deneb..Fulu: `execution_payload.block_hash`,
+  // Gloas: `signed_execution_payload_bid.message.parent_block_hash`).
+  gindex_t expected_gindex = c4_execution_block_hash_gindex(ctx->chain_id, ssz_get_uint64(&cl_header, "slot"));
+  if (expected_gindex == 0)
+    THROW_ERROR("unsupported fork for cl proof gindex!");
   if (gindex != expected_gindex)
     THROW_ERROR("invalid gindex for cl proof!");
 

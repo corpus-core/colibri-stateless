@@ -202,6 +202,16 @@ bool c4_chain_schedules_fork(chain_id_t chain_id, fork_id_t fork) {
 #define DENEP_HISTORICAL_SUMMARIES_GINDEX   59
 #define ELECTRA_HISTORICAL_SUMMARIES_GINDEX 91
 #define GLOAS_HISTORICAL_SUMMARIES_GINDEX   2950
+// Position of the EL block-hash leaf inside `BeaconBlockBody` that the CL
+// block-hash proof anchors against. The leaf identity differs between forks:
+// - 812  (Deneb..Fulu): `execution_payload.block_hash` inside the classical
+//                       `BeaconBlockBody` container (depth 10, field 812).
+// - 2856 (Gloas):       `signed_execution_payload_bid.message.parent_block_hash`
+//                       inside the ProgressiveContainer body (EIP-7732 ePBS).
+// Both are pinned by `specs/*/light-client/sync-protocol.md` and cross-checked
+// in `test_gloas_execution_block_hash_gindex`.
+#define DENEP_EXECUTION_BLOCK_HASH_GINDEX 812
+#define GLOAS_EXECUTION_BLOCK_HASH_GINDEX 2856
 
 // Resolves the fork active at `slot` on `chain_id`. Centralised here so that
 // callers reduce to a single lookup and the fork-detection code cannot drift.
@@ -236,6 +246,12 @@ gindex_t c4_historical_summaries_gindex(chain_id_t chain_id, uint64_t slot) {
   if (fork >= C4_FORK_GLOAS) return GLOAS_HISTORICAL_SUMMARIES_GINDEX;
   if (fork >= C4_FORK_ELECTRA) return ELECTRA_HISTORICAL_SUMMARIES_GINDEX;
   return DENEP_HISTORICAL_SUMMARIES_GINDEX;
+}
+
+gindex_t c4_execution_block_hash_gindex(chain_id_t chain_id, uint64_t slot) {
+  fork_id_t fork = fork_at_slot(chain_id, slot);
+  if (fork >= C4_FORK_GLOAS) return GLOAS_EXECUTION_BLOCK_HASH_GINDEX;
+  return DENEP_EXECUTION_BLOCK_HASH_GINDEX;
 }
 
 // SSZ shape of the two intermediate levels of the historic-block proof. These
