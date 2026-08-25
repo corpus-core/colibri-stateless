@@ -194,6 +194,14 @@ bool c4_chain_schedules_fork(chain_id_t chain_id, fork_id_t fork) {
 #define DENEP_FINALIZED_ROOT_GINDEX           105
 #define ELECTRA_FINALIZED_ROOT_GINDEX         169
 #define GLOAS_FINALIZED_ROOT_GINDEX           735
+// `historical_summaries` is field 27 of `BeaconState`. Pre-Gloas it sits in a
+// classical container (depth 5 -> 32, depth 6 -> 64 after Electra). Gloas turns
+// `BeaconState` into a `ProgressiveContainer`, so field 27 lives at
+// `ssz_add_gindex(2, prog_chunk_gindex(27)) = ssz_add_gindex(2, 1926) = 2950`
+// (see `prog_chunk_gindex` in `ssz_merkle.c`).
+#define DENEP_HISTORICAL_SUMMARIES_GINDEX   59
+#define ELECTRA_HISTORICAL_SUMMARIES_GINDEX 91
+#define GLOAS_HISTORICAL_SUMMARIES_GINDEX   2950
 
 // Resolves the fork active at `slot` on `chain_id`. Centralised here so that
 // callers reduce to a single lookup and the fork-detection code cannot drift.
@@ -223,18 +231,50 @@ gindex_t c4_finalized_root_gindex(chain_id_t chain_id, uint64_t slot) {
   return DENEP_FINALIZED_ROOT_GINDEX;
 }
 
-const gindex_t* c4_call_block_context_gindexes(void) {
-  // Order matches leaf layout: stateRoot, blockNumber, timestamp, coinbase, prevRandao, baseFeePerGas, blockHash, gasLimit, excessBlobGas
-  static const gindex_t gindexes[CALL_BLOCK_CONTEXT_FIELD_COUNT] = {
-      802, // stateRoot     (EP index 2)
-      806, // blockNumber   (EP index 6)
-      809, // timestamp     (EP index 9)
-      801, // feeRecipient  (EP index 1)
-      805, // prevRandao    (EP index 5)
-      811, // baseFeePerGas (EP index 11)
-      812, // blockHash     (EP index 12)
-      807, // gasLimit      (EP index 7)
-      816  // excessBlobGas (EP index 16)
-  };
-  return gindexes;
+gindex_t c4_historical_summaries_gindex(chain_id_t chain_id, uint64_t slot) {
+  fork_id_t fork = fork_at_slot(chain_id, slot);
+  if (fork >= C4_FORK_GLOAS) return GLOAS_HISTORICAL_SUMMARIES_GINDEX;
+  if (fork >= C4_FORK_ELECTRA) return ELECTRA_HISTORICAL_SUMMARIES_GINDEX;
+  return DENEP_HISTORICAL_SUMMARIES_GINDEX;
+}
+
+// SSZ shape of the two intermediate levels of the historic-block proof. These
+// are re-declared here (identical copies exist in the prover and in the server's
+// period_store) because the gindex helper is the single source of truth for
+// what a well-formed proof MUST hash against. Any drift between the copies is
+// caught by `test_gloas_state_gindexes` / prover unit tests.
+static const ssz_def_t HISTORIC_HISTORICAL_SUMMARY[] = {
+    SSZ_BYTES32("block_summary_root"),
+    SSZ_BYTES32("state_summary_root")};
+static const ssz_def_t HISTORIC_HISTORICAL_SUMMARY_CONTAINER =
+    SSZ_CONTAINER("HISTORICAL_SUMMARY", HISTORIC_HISTORICAL_SUMMARY);
+static const ssz_def_t HISTORIC_SUMMARIES_LIST =
+    SSZ_LIST("summaries", HISTORIC_HISTORICAL_SUMMARY_CONTAINER, 1 << 24);
+static const ssz_def_t HISTORIC_BLOCK_ROOTS_VECTOR =
+    SSZ_VECTOR("blocks", ssz_bytes32, 8192);
+
+gindex_t c4_historic_block_gindex(chain_id_t chain_id, uint64_t block_slot, uint64_t state_slot) {
+  const chain_spec_t* chain = c4_eth_get_chain_spec(chain_id);
+  if (!chain) return 0;
+
+  // Historic-direct proofs only exist for blocks whose slot has a corresponding
+  // entry in `historical_summaries`, which was introduced with Capella. Note the
+  // `fork_epochs` off-by-one: `fork_epochs[n]` holds the activation epoch of
+  // fork `n+1` (fork_epochs[0] = Altair, fork_epochs[1] = Bellatrix,
+  // fork_epochs[2] = Capella), so Capella is `fork_epochs[C4_FORK_CAPELLA - 1]`.
+  uint64_t capella_epoch = chain->fork_epochs[C4_FORK_CAPELLA - 1];
+  if (capella_epoch >= FORKS_END) return 0;
+  uint64_t offset_period = capella_epoch >> chain->epochs_per_period_bits;
+  uint64_t block_period  = block_slot >> (chain->slots_per_epoch_bits + chain->epochs_per_period_bits);
+  if (block_period < offset_period) return 0;
+
+  uint64_t summary_idx = block_period - offset_period;
+  uint64_t block_idx   = block_slot & 0x1FFFULL; // slot % 8192
+
+  gindex_t summaries_gidx = c4_historical_summaries_gindex(chain_id, state_slot);
+  gindex_t period_gidx    = ssz_gindex(&HISTORIC_SUMMARIES_LIST, 2, (int) summary_idx, "block_summary_root");
+  gindex_t block_gidx     = ssz_gindex(&HISTORIC_BLOCK_ROOTS_VECTOR, 1, (int) block_idx);
+  if (!summaries_gidx || !period_gidx || !block_gidx) return 0;
+
+  return ssz_add_gindex(ssz_add_gindex(summaries_gidx, period_gidx), block_gidx);
 }

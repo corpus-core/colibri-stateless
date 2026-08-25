@@ -171,18 +171,16 @@ static c4_status_t check_historic_proof_direct(prover_ctx_t* ctx, blockroot_proo
   TRY_ADD_ASYNC(status, c4_send_internal_request(ctx, bprintf(&buf2, "period_store/%d/blocks.ssz", block_period), NULL, 0, &blocks)); // get the blockd
   TRY_ASYNC(status);                                                                                                                  // finish requests before continuing
 
-  uint32_t  offset_period = (uint32_t) (chain->fork_epochs[C4_FORK_BELLATRIX] >> chain->epochs_per_period_bits);
-  fork_id_t fork          = c4_chain_fork_id(ctx->chain_id, epoch_for_slot(block.slot, chain)); // current fork for the state
-  json_t    data          = json_get(history_proof, "data");                                    // the the main json-object
-  uint32_t  summary_idx   = block_period - offset_period;                                       // the index starting from the  cappella fork, where we got zhe first Summary entry.
-  uint32_t  block_idx     = slot % 8192;                                                        // idx within the period
-  // TODO(gloas): Gloas turns `BeaconState` into a `ProgressiveContainer` (EIP-7688),
-  //              so the classical `2^depth + field_index` chunking no longer matches
-  //              the spec merkleization. This branch keeps the Electra layout for
-  //              Fulu (unchanged for the sync-committee/historical fields) and must
-  //              be revisited before `C4_FORK_GLOAS` gets an activation epoch.
-  gindex_t  summaries_gidx = (fork >= C4_FORK_ELECTRA ? 64 : 32) + 27;                     // the gindex of the field for the summaries in the state. summaries have the index 27 in the state.
-  gindex_t  period_gidx    = ssz_gindex(&SUMMARIES, 2, summary_idx, "block_summary_root"); // the gindex of the single summary-object we need to proof
+  uint32_t offset_period = (uint32_t) (chain->fork_epochs[C4_FORK_CAPELLA - 1] >> chain->epochs_per_period_bits);
+  json_t   data          = json_get(history_proof, "data");                                     // the main json-object
+  uint32_t summary_idx   = block_period - offset_period;                                        // index starting from the Capella fork, where the first HistoricalSummary was appended.
+  uint32_t block_idx     = slot % 8192;                                                         // idx within the period
+  // Sub-gindexes for the two SSZ sub-proofs we construct below. `historical_summaries`
+  // remains a classical `List[HistoricalSummary, HISTORICAL_ROOTS_LIMIT]` (EIP-7688 keeps
+  // it non-progressive), so both are fork-independent. The combined proof gindex is
+  // resolved via `c4_historic_block_gindex` (single source of truth for both prover and
+  // verifier) so a manipulated gindex cannot smuggle in a different BeaconState field.
+  gindex_t  period_gidx    = ssz_gindex(&SUMMARIES, 2, summary_idx, "block_summary_root"); // gindex of the single summary-object we need to proof
   gindex_t  block_gidx     = ssz_gindex(&BLOCKS, 1, block_idx);
   ssz_ob_t  blocks_ob      = {.bytes = blocks, .def = &BLOCKS};
   buffer_t  full_proof     = {0};
@@ -226,7 +224,11 @@ static c4_status_t check_historic_proof_direct(prover_ctx_t* ctx, blockroot_proo
   // calc header
   ssz_hash_tree_root(block.cl_body, body_root);
   block_proof->historic_proof = full_proof.data;
-  block_proof->gindex         = ssz_add_gindex(ssz_add_gindex(summaries_gidx, period_gidx), block_gidx);
+  // Combined proof gindex resolved through the shared helper. The verifier will
+  // compute the exact same value from `chain_id`, `block.slot` (of the target
+  // header) and `state_slot` (of the anchoring `signed_header`, which for the
+  // direct path is the same `block.slot` we hand in as `proof_header` below).
+  block_proof->gindex         = c4_historic_block_gindex(ctx->chain_id, slot, block.slot);
   block_proof->sync_aggregate = block.sync_aggregate;
   block_proof->proof_header   = bytes(safe_malloc(112), 112);
   block_proof->type           = HISTORIC_PROOF_DIRECT;

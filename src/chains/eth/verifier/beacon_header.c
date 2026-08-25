@@ -121,8 +121,24 @@ static c4_status_t c4_verify_historic_proof(verify_ctx_t* ctx, ssz_ob_t header, 
   bytes32_t state_root    = {0};
   ssz_ob_t  signed_header = ssz_get(&historic_proof, "header");
 
+  // Derive the expected combined gindex locally. Never trust the value carried
+  // in the proof: without this cross-check an attacker could supply any Merkle
+  // path that terminates at some other `bytes32` position inside the BeaconState
+  // tree (e.g. `block_roots[i]`, `state_roots[i]`,
+  // `latest_block_header.parent_root`, ...) and have the verifier accept an
+  // arbitrary `block_root` as a "historic block". The verifier below hashes
+  // against `expected_gindex`, so both the position and the leaf are bound.
+  uint64_t block_slot    = ssz_get_uint64(&header, "slot");
+  uint64_t state_slot    = ssz_get_uint64(&signed_header, "slot");
+  gindex_t expected_gidx = c4_historic_block_gindex(ctx->chain_id, block_slot, state_slot);
+  uint64_t proof_gidx    = ssz_get_uint64(&historic_proof, "gindex");
+  if (expected_gidx == 0)
+    THROW_ERROR("invalid slot for historic proof gindex!");
+  if (proof_gidx != (uint64_t) expected_gidx)
+    THROW_ERROR("invalid gindex for historic proof!");
+
   ssz_hash_tree_root(header, block_root);
-  ssz_verify_single_merkle_proof(ssz_get(&historic_proof, "proof").bytes, block_root, ssz_get_uint64(&historic_proof, "gindex"), state_root);
+  ssz_verify_single_merkle_proof(ssz_get(&historic_proof, "proof").bytes, block_root, expected_gidx, state_root);
 
   if (memcmp(state_root, ssz_get(&signed_header, "stateRoot").bytes.data, 32))
     THROW_ERROR("invalid state root for historic proof!");

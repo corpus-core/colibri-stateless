@@ -189,11 +189,6 @@ inline static bool is_gnosis_chain(chain_id_t chain_id) {
 
 #define BLOCK_HEADER_FIELD_COUNT 14
 
-/** Number of leaves in the call state proof when block context is included (stateRoot + 8 execution payload fields). */
-#define CALL_BLOCK_CONTEXT_FIELD_COUNT 9
-/** Gindexes for state proof + block context: stateRoot, blockNumber, timestamp, feeRecipient, prevRandao, baseFeePerGas, blockHash, gasLimit, excessBlobGas. */
-const gindex_t* c4_call_block_context_gindexes(void);
-
 /**
  * Returns the generalized index of `current_sync_committee` within `BeaconState` for the fork active at `slot`.
  *
@@ -235,5 +230,44 @@ gindex_t c4_next_sync_committee_gindex(chain_id_t chain_id, uint64_t slot);
  * @return Generalized index used to build/verify the finality Merkle proof
  */
 gindex_t c4_finalized_root_gindex(chain_id_t chain_id, uint64_t slot);
+
+/**
+ * Returns the generalized index of the `historical_summaries` field within `BeaconState`
+ * for the fork active at `slot`.
+ *
+ * `historical_summaries` is field 27 of `BeaconState` (unchanged since Capella). EIP-7688
+ * deliberately keeps it as a classical `List[HistoricalSummary, HISTORICAL_ROOTS_LIMIT]`
+ * so existing verifiers can continue to prove against the same list `hash_tree_root`. Only
+ * the outer embedding changes with Gloas, where `BeaconState` becomes a `ProgressiveContainer`:
+ * - Capella/Deneb: 32 + 27 = 59
+ * - Electra/Fulu:  64 + 27 = 91
+ * - Gloas:         2950 (progressive chunk gindex of field 27, mixed under active_fields)
+ *
+ * @param chain_id Chain identifier used to look up fork epochs
+ * @param slot Beacon slot; used to derive the epoch and thus the active fork
+ * @return Generalized index of the `historical_summaries` list root within `BeaconState`
+ */
+gindex_t c4_historical_summaries_gindex(chain_id_t chain_id, uint64_t slot);
+
+/**
+ * Computes the expected combined generalized index for a historic-direct block
+ * inclusion proof: target `block_root` -> `HistoricalSummary.block_summary_root`
+ * -> `historical_summaries` list root -> `BeaconState` root.
+ *
+ * This is the single source of truth for what a well-formed
+ * `HISTORIC_PROOF_DIRECT` MUST hash against. Both the prover (when building the
+ * proof) and the verifier (when validating it) resolve the gindex through this
+ * helper -- so a proof cannot smuggle in a chosen gindex that happens to point
+ * at some other `bytes32` position in the `BeaconState` tree (e.g. `block_roots`,
+ * `state_roots`, `latest_block_header.parent_root`, ...).
+ *
+ * @param chain_id chain identifier (drives chain spec + fork lookup)
+ * @param block_slot slot of the block being proven; drives `summary_idx` and `block_idx`
+ * @param state_slot slot of the state whose root the proof terminates in; drives
+ *                   the fork-dependent `summaries_gidx` (91 pre-Gloas, 2950 from Gloas)
+ * @return combined gindex, or 0 if no historic-direct proof is possible for
+ *         `block_slot` (chain unknown, Capella not scheduled, or block predates Capella)
+ */
+gindex_t c4_historic_block_gindex(chain_id_t chain_id, uint64_t block_slot, uint64_t state_slot);
 
 #endif
