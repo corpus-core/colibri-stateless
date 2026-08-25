@@ -121,14 +121,13 @@ static c4_status_t check_historic_proof_header(prover_ctx_t* ctx, blockroot_proo
 
 static c4_status_t get_historical_summaries(prover_ctx_t* ctx, eth_block_t* block, json_t* history_proof) {
   if (ctx->state.error) return C4_ERROR;
-  uint8_t  tmp[200] = {0};
-  buffer_t buf      = stack_buffer(tmp);
-  bytes_t  state    = ssz_get(&block->cl_header, "stateRoot").bytes;
-
-  bool        nimbus = (ctx->flags & C4_PROVER_FLAG_NIMBUS) != 0;
-  const char* path   = nimbus ? "nimbus/v1/debug/beacon/states/0x%b/historical_summaries"
-                              : "eth/v1/lodestar/states/0x%b/historical_summaries";
-  uint32_t    client = nimbus ? BEACON_CLIENT_NIMBUS : BEACON_CLIENT_LODESTAR;
+  uint8_t     tmp[200] = {0};
+  buffer_t    buf      = stack_buffer(tmp);
+  bytes_t     state    = ssz_get(&block->cl_header, "stateRoot").bytes;
+  bool        nimbus   = (ctx->flags & C4_PROVER_FLAG_NIMBUS) != 0;
+  const char* path     = nimbus ? "nimbus/v1/debug/beacon/states/0x%b/historical_summaries"
+                                : "eth/v1/lodestar/states/0x%b/historical_summaries";
+  uint32_t    client   = nimbus ? BEACON_CLIENT_NIMBUS : BEACON_CLIENT_LODESTAR;
   return c4_send_beacon_json_with_client_type(ctx, bprintf(&buf, path, state), NULL, 120, history_proof, client);
 }
 

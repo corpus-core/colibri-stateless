@@ -181,34 +181,6 @@ bool c4_chain_schedules_fork(chain_id_t chain_id, fork_id_t fork) {
   return false;
 }
 
-const gindex_t* c4_block_header_gindexes(chain_id_t chain_id, uint64_t slot) {
-  // EP at gindex 25 in BeaconBlockBody (index 9, depth 4), field index i in EP (depth 5) → 25*32+i
-  // Deneb: body has 12 fields, EP has 17 fields → EP gindex=25, same layout
-  // Electra: body has 13 fields, EP has 17 fields → EP gindex=25, same layout
-  // TODO(gloas): EIP-7732 removes `executionPayload` from the body, so these
-  //              gindices no longer address any EL field once Gloas activates.
-  //              See `eth_tx.h` for the follow-up plan (bid.block_hash + RLP).
-  static const gindex_t deneb_gindexes[BLOCK_HEADER_FIELD_COUNT] = {
-      800,  // parentHash      (EP index 0)
-      802,  // stateRoot       (EP index 2)
-      803,  // receiptsRoot    (EP index 3)
-      804,  // logsBloom       (EP index 4)
-      806,  // blockNumber     (EP index 6)
-      807,  // gasLimit        (EP index 7)
-      808,  // gasUsed         (EP index 8)
-      809,  // timestamp       (EP index 9)
-      811,  // baseFeePerGas   (EP index 11)
-      812,  // blockHash       (EP index 12)
-      815,  // blobGasUsed     (EP index 15)
-      816,  // excessBlobGas   (EP index 16)
-      801,  // feeRecipient    (EP index 1)
-      813}; // transactionsRoot (EP index 13, leaf = ssz_hash_tree_root(transactions))
-  const chain_spec_t* spec = c4_eth_get_chain_spec(chain_id);
-  fork_id_t           fork = c4_chain_fork_id(chain_id, epoch_for_slot(slot, spec));
-  (void) fork;
-  return deneb_gindexes;
-}
-
 // Generalized indices for the fork-specific `BeaconState` layout used by the
 // light client. Values are the source of truth for both the verifier and the
 // prover, and are cross-verified against the consensus spec constants (see

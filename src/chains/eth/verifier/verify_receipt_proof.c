@@ -38,40 +38,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-static bool verify_merkle_proof(verify_ctx_t* ctx, ssz_ob_t proof, bytes_t block_hash, bytes_t block_number, bytes_t raw, uint32_t tx_index, bytes32_t receipt_root, bytes32_t body_root) {
-  uint8_t   leafes[4 * 32] = {0};                                                                                    // 3 leafes, 32 bytes each
-  bytes32_t root_hash      = {0};                                                                                    // calculated body root hash
-  gindex_t  gindexes[]     = {GINDEX_BLOCKUMBER, GINDEX_BLOCHASH, GINDEX_RECEIPT_ROOT, GINDEX_TXINDEX_G + tx_index}; // calculate the gindexes for the proof
-
-  // copy leaf data
-  memcpy(leafes, block_number.data, block_number.len);
-  memcpy(leafes + 32, block_hash.data, block_hash.len);
-  memcpy(leafes + 64, receipt_root, 32);
-  ssz_hash_tree_root(ssz_ob(ssz_transactions_bytes, raw), leafes + 96);
-
-  if (!ssz_verify_multi_merkle_proof(proof.bytes, bytes(leafes, sizeof(leafes)), gindexes, root_hash)) RETURN_VERIFY_ERROR(ctx, "invalid tx proof, missing nodes!");
-  if (memcmp(root_hash, body_root, 32) != 0) RETURN_VERIFY_ERROR(ctx, "invalid tx proof, body root mismatch!");
-  return true;
-}
-
-// gindex of tx[0] in the SSZ transactions list (2 * next_pow2(1048576))
-#define GINDEX_TX_IN_LIST_BASE 2097152L
-
-static bool verify_hybrid_tx_merkle_proof(verify_ctx_t* ctx, ssz_ob_t tx_proof, bytes_t raw, uint32_t tx_index, const uint8_t* expected_tx_root) {
-  bytes32_t leaf          = {0};
-  bytes32_t computed_root = {0};
-
-  if (!tx_proof.bytes.data || !tx_proof.bytes.len)
-    RETURN_VERIFY_ERROR(ctx, "missing txProof in hybrid receipt proof");
-
-  ssz_hash_tree_root(ssz_ob(ssz_transactions_bytes, raw), leaf);
-  ssz_verify_single_merkle_proof(tx_proof.bytes, leaf, GINDEX_TX_IN_LIST_BASE + tx_index, computed_root);
-
-  if (memcmp(computed_root, expected_tx_root, 32) != 0)
-    RETURN_VERIFY_ERROR(ctx, "hybrid receipt proof: transactionsRoot mismatch!");
-  return true;
-}
-
 bool verify_receipt_proof(verify_ctx_t* ctx) {
   ssz_ob_t  tx_proof      = ssz_get(&ctx->proof, "transactionProof");
   ssz_ob_t  receipt_proof = ssz_get(&ctx->proof, "receiptProof");

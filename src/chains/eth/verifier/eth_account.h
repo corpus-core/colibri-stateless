@@ -30,9 +30,6 @@ extern "C" {
 
 #include "beacon_types.h"
 #include "verify.h"
-// STATE_ROOT_GINDEX = (25 << 5) | 2 (see GINDEX_* comment in eth_tx.h).
-// TODO(gloas): breaks with EIP-7732 -- see `eth_tx.h` for the migration note.
-#define STATE_ROOT_GINDEX 802
 
 extern const uint8_t* EMPTY_HASH;
 extern const uint8_t* EMPTY_ROOT_HASH;
@@ -50,7 +47,6 @@ typedef struct call_account call_account_t;
 
 bool                eth_verify_account_proof_exec(verify_ctx_t* ctx, ssz_ob_t* proof, bytes32_t state_root, eth_account_field_t field, bytes_t value);
 bool                eth_get_storage_value(ssz_ob_t storage, const bytes32_t key, bytes32_t value);
-gindex_t            eth_get_gindex_for_block(fork_id_t fork, json_t block);
 eth_account_field_t eth_account_get_field(verify_ctx_t* ctx);
 bool                eth_account_verify_data(verify_ctx_t* ctx, address_t verified_address, eth_account_field_t field, bytes_t values);
 c4_status_t         eth_fetch_account_code(verify_ctx_t* ctx, call_account_t* ac);

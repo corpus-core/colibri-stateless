@@ -230,11 +230,6 @@ INTERNAL c4_status_t eth_resolve_account_codes(verify_ctx_t* ctx, call_account_t
   return status;
 }
 
-gindex_t eth_get_gindex_for_block(fork_id_t fork, json_t block) {
-  if (block.type != JSON_TYPE_STRING || strncmp(block.start, "\"0x", 3)) return 0;
-  return block.len == 68 ? GINDEX_BLOCHASH : GINDEX_BLOCKUMBER;
-}
-
 eth_account_field_t eth_account_get_field(verify_ctx_t* ctx) {
   if (ctx->method && strcmp(ctx->method, "eth_getBalance") == 0) return ETH_ACCOUNT_BALANCE;
   if (ctx->method && strcmp(ctx->method, "eth_getStorageAt") == 0) return ETH_ACCOUNT_STORAGE_HASH;

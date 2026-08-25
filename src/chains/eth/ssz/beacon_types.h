@@ -121,8 +121,8 @@ typedef struct {
   fork_version_func_t fork_version_func;
 } chain_spec_t;
 
-bool                c4_chain_genesis_validators_root(chain_id_t chain_id, bytes32_t genesis_validators_root);
-fork_id_t           c4_chain_fork_id(chain_id_t chain_id, uint64_t epoch);
+bool      c4_chain_genesis_validators_root(chain_id_t chain_id, bytes32_t genesis_validators_root);
+fork_id_t c4_chain_fork_id(chain_id_t chain_id, uint64_t epoch);
 /**
  * Returns true if the chain has assigned an activation epoch to `fork`
  * (as opposed to leaving it unscheduled). Phase0 is genesis and always
@@ -188,7 +188,6 @@ inline static bool is_gnosis_chain(chain_id_t chain_id) {
 }
 
 #define BLOCK_HEADER_FIELD_COUNT 14
-const gindex_t* c4_block_header_gindexes(chain_id_t chain_id, uint64_t slot);
 
 /** Number of leaves in the call state proof when block context is included (stateRoot + 8 execution payload fields). */
 #define CALL_BLOCK_CONTEXT_FIELD_COUNT 9

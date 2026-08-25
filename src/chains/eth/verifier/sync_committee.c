@@ -492,22 +492,13 @@ INTERNAL c4_status_t c4_update_from_sync_data(verify_ctx_t* ctx) {
 }
 
 fork_id_t c4_eth_get_fork_for_lcu(chain_id_t chain_id, bytes_t data) {
-  // TODO(gloas): This detector reads the leading SSZ offset assuming the outer
-  //              LightClientUpdate/Bootstrap is variable-size (dynamic
-  //              ExecutionPayloadHeader inside LightClientHeader). EIP-7732
-  //              replaces that header field with a fixed `executionBlockHash`
-  //              plus a `Vector[Bytes32, 11]` branch, making Gloas LC blobs
-  //              fully fixed-size and this offset probe useless. Before Gloas
-  //              gets an activation epoch on any chain, the fork must be
-  //              derived from the SSZ union tag delivered on the wire (see
-  //              `C4_ETH_SYNCDATA_UPDATE_UNION` / `..._BOOTSTRAP_UNION` in
-  //              `verify_types.c`), not from the payload body. Guarded by
-  //              `test_gloas_activation_epoch_still_reserved`.
   if (data.len < 4) return 0;
   uint64_t slot   = 0;
   uint32_t offset = uint32_from_le(data.data);
   if (offset + 8 > data.len)
     // this is most likely a gloas bootstrap!
+    // TODO(gloas): this may break if the lower 4 bytes of the slot are smaller than the lcu length.
+    // so in 99% of the cases it will work, but we should find a better way to detect the fork.
     slot = uint64_from_le(data.data);
   else
     slot = uint64_from_le(data.data + offset);

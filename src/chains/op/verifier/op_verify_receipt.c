@@ -37,22 +37,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-static bool verify_merkle_proof(verify_ctx_t* ctx, ssz_ob_t proof, bytes_t block_hash, bytes_t block_number, bytes_t raw, uint32_t tx_index, bytes32_t receipt_root, bytes32_t body_root) {
-  uint8_t   leafes[4 * 32] = {0};                                                                                    // 3 leafes, 32 bytes each
-  bytes32_t root_hash      = {0};                                                                                    // calculated body root hash
-  gindex_t  gindexes[]     = {GINDEX_BLOCKUMBER, GINDEX_BLOCHASH, GINDEX_RECEIPT_ROOT, GINDEX_TXINDEX_G + tx_index}; // calculate the gindexes for the proof
-
-  // copy leaf data
-  memcpy(leafes, block_number.data, block_number.len);
-  memcpy(leafes + 32, block_hash.data, block_hash.len);
-  memcpy(leafes + 64, receipt_root, 32);
-  ssz_hash_tree_root(ssz_ob(ssz_transactions_bytes, raw), leafes + 96);
-
-  if (!ssz_verify_multi_merkle_proof(proof.bytes, bytes(leafes, sizeof(leafes)), gindexes, root_hash)) RETURN_VERIFY_ERROR(ctx, "invalid tx proof, missing nodes!");
-  if (memcmp(root_hash, body_root, 32) != 0) RETURN_VERIFY_ERROR(ctx, "invalid tx proof, body root mismatch!");
-  return true;
-}
-
 bool op_verify_receipt_proof(verify_ctx_t* ctx) {
   uint32_t tx_index          = ssz_get_uint32(&ctx->proof, "transactionIndex");
   ssz_ob_t receipt_proof     = ssz_get(&ctx->proof, "receipt_proof");
