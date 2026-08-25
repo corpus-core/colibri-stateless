@@ -625,18 +625,14 @@ static c4_status_t get_el_header_and_branch(prover_ctx_t* ctx, el_header_and_bra
   }
 
   else {
-    ssz_ob_t      body               = ssz_get(&data_block, "body");
-    ssz_ob_t      bid                = ssz_get(&body, "signedExecutionPayloadBid");
-    ssz_ob_t      message            = ssz_get(&bid, "message");
-    uint8_t*      parent_block_root  = ssz_get(&message, "parentBlockRoot").bytes.data;
-    uint8_t*      parent_block_hash  = ssz_get(&message, "parentBlockHash").bytes.data;
-    ssz_ob_t      execution          = {0};
-    ssz_ob_t      execution_requests = {0};
-    ssz_ob_t      parent_data_block  = {0};
-    ssz_builder_t body_builder       = ssz_builder_for_type(ETH_SSZ_EL_BLOCK_CONTENT);
-    json_t        result             = {0};
-    buffer_t      buffer             = {0};
-    char          tmp[100]           = {0};
+    ssz_ob_t      body              = ssz_get(&data_block, "body");
+    ssz_ob_t      bid               = ssz_get(&body, "signedExecutionPayloadBid");
+    ssz_ob_t      message           = ssz_get(&bid, "message");
+    uint8_t*      parent_block_hash = ssz_get(&message, "parentBlockHash").bytes.data;
+    ssz_builder_t body_builder      = ssz_builder_for_type(ETH_SSZ_EL_BLOCK_CONTENT);
+    json_t        result            = {0};
+    buffer_t      buffer            = {0};
+    char          tmp[100]          = {0};
     sbprintf(tmp, "[\"0x%x\"]", bytes(parent_block_hash, 32));
 
     TRY_ASYNC(c4_send_eth_rpc(ctx, "debug_getRawBlock", tmp, DEFAULT_TTL, &result, NULL));
@@ -646,8 +642,6 @@ static c4_status_t get_el_header_and_branch(prover_ctx_t* ctx, el_header_and_bra
     generated_branch_gindex = 2856;
     generated_branch        = ssz_create_proof(body, body_root, generated_branch_gindex);
     el_body                 = ssz_builder_to_bytes(&body_builder);
-
-    // TODO optimize instead allocating the content twice, calculate the size and use the memory directly
   }
 
   size_t                  size  = sizeof(el_header_and_branch_t) + generated_header.len + generated_branch.len + el_body.bytes.len;
