@@ -592,7 +592,7 @@ static c4_status_t get_el_header_and_branch(prover_ctx_t* ctx, el_header_and_bra
   bytes_t   generated_branch        = {0};
   gindex_t  generated_branch_gindex = 0;
   memcpy(cache_key, "ELH_", 4);
-  memcpy(cache_key + 4, block_root + 28, 28);
+  memcpy(cache_key + 4, block_root + 4, 28);
 
   bytes_t cached_value = c4_state_cache_get(&ctx->state, cache_key);
   if (cached_value.data) {
