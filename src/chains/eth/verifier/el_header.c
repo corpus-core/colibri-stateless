@@ -327,6 +327,15 @@ c4_status_t eth_el_header_get_from_raw_block(c4_state_t* state, bytes_t raw_bloc
     rlp_decode(&w, 1, &validatorIndex);
     rlp_decode(&w, 2, &address);
     rlp_decode(&w, 3, &amount);
+    if (index.len > 8 || validatorIndex.len > 8 || amount.len > 8) {
+      buffer_free(&tx_builder.fixed);
+      buffer_free(&tx_builder.dynamic);
+      buffer_free(&withdrawals_builder.fixed);
+      buffer_free(&withdrawals_builder.dynamic);
+      buffer_free(&tx_buffer);
+      buffer_free(&buffer);
+      return c4_state_add_error(state, "Invalid RLP length");
+    }
 
     memcpy(val + 8 - index.len, index.data, index.len);
     ssz_add_uint64(&builder, uint64_from_be(val));
@@ -342,5 +351,7 @@ c4_status_t eth_el_header_get_from_raw_block(c4_state_t* state, bytes_t raw_bloc
 
   ssz_add_builders(body_builder, "transactions", tx_builder);
   ssz_add_builders(body_builder, "withdrawals", withdrawals_builder);
+
+  buffer_free(&tx_buffer);
   return C4_SUCCESS;
 }
