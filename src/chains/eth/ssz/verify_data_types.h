@@ -206,7 +206,8 @@ static const ssz_def_t ETH_BLOCK_DATA[] = {
     SSZ_BYTES32("transactionsRoot"),                             // the transactionsRoot
     SSZ_BYTES32("stateRoot"),                                    // the stateRoot
     SSZ_UINT64("blobGasUsed"),                                   // the gas used for the blob transactions
-    SSZ_BYTES32("requestsHash")                                  // the requestHash ( eip-7685 )
+    SSZ_BYTES32("requestsHash"),                                 // the requestHash ( eip-7685 )
+    SSZ_BYTES32("blockAccessListHash")                           // the blockAccessListHash ( EIP-7928 )
 
 };
 
@@ -228,6 +229,9 @@ static const ssz_def_t ETH_BLOCK_HEADER_DATA[] = {
     SSZ_UINT64("excessBlobGas"),       // the excess blob gas of the block
     SSZ_ADDRESS("feeRecipient"),       // the address of the fee recipient (coinbase)
     SSZ_BYTES32("transactionsRoot"),   // transactionsRoot
+    SSZ_BYTES32("requestsHash"),       // the requestHash ( eip-7685 )
+    SSZ_BYTES32("blockAccessListHash") // the blockAccessListHash ( EIP-7928 )
+
 };
 
 // :: Account Proof

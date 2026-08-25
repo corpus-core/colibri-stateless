@@ -504,9 +504,13 @@ fork_id_t c4_eth_get_fork_for_lcu(chain_id_t chain_id, bytes_t data) {
   //              `verify_types.c`), not from the payload body. Guarded by
   //              `test_gloas_activation_epoch_still_reserved`.
   if (data.len < 4) return 0;
+  uint64_t slot   = 0;
   uint32_t offset = uint32_from_le(data.data);
-  if (offset + 8 > data.len) return 0;
-  uint64_t            slot = uint64_from_le(data.data + offset);
+  if (offset + 8 > data.len)
+    // this is most likely a gloas bootstrap!
+    slot = uint64_from_le(data.data);
+  else
+    slot = uint64_from_le(data.data + offset);
   const chain_spec_t* spec = c4_eth_get_chain_spec(chain_id);
   return c4_chain_fork_id(chain_id, epoch_for_slot(slot, spec));
 }

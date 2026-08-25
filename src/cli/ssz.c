@@ -35,12 +35,13 @@
 #include <string.h>
 
 const ssz_def_t ELECTRA_LIGHT_CLIENT_BOOTSTRAP_CONTAINER = SSZ_CONTAINER("LightClientBootstrap", ELECTRA_LIGHT_CLIENT_BOOTSTRAP);
+const ssz_def_t GLOAS_LIGHT_CLIENT_BOOTSTRAP_CONTAINER   = SSZ_CONTAINER("LightClientBootstrap", GLOAS_LIGHT_CLIENT_BOOTSTRAP);
 
 const ssz_def_t* get_definition(char* typename, chain_id_t chain_id) {
   if (strcmp(typename, "signedblock") == 0) return eth_ssz_type_for_fork(ETH_SSZ_SIGNED_BEACON_BLOCK_CONTAINER, C4_FORK_ELECTRA, chain_id);
   if (strcmp(typename, "blockbody") == 0) return eth_ssz_type_for_fork(ETH_SSZ_BEACON_BLOCK_BODY_CONTAINER, C4_FORK_ELECTRA, chain_id);
   if (strcmp(typename, "lcu") == 0) return eth_get_light_client_update(C4_FORK_ELECTRA);
-  if (strcmp(typename, "lcb") == 0) return &ELECTRA_LIGHT_CLIENT_BOOTSTRAP_CONTAINER;
+  if (strcmp(typename, "lcb") == 0) return &GLOAS_LIGHT_CLIENT_BOOTSTRAP_CONTAINER;
   if (strcmp(typename, "zk") == 0) return eth_ssz_verification_type(ETH_SSZ_VERIFY_ZK_SYNCDATA_V6); // SP1 v6 ZKSyncDataV6 (356-byte proof); debug tool reads the current v6 format
   if (strcmp(typename, "zk5") == 0) return eth_ssz_verification_type(ETH_SSZ_VERIFY_ZK_SYNCDATA);   // legacy SP1 v5 ZKSyncData (260-byte proof)
   if (strcmp(typename, "txcache") == 0) return &PAP_TX_CACHE_SNAPSHOT;
