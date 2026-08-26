@@ -144,6 +144,7 @@ static c4_status_t handle_head(prover_ctx_t* ctx, beacon_head_t* b) {
 
       request_t*    preq = (request_t*) safe_calloc(1, sizeof(request_t));
       prover_ctx_t* pctx = (prover_ctx_t*) safe_calloc(1, sizeof(prover_ctx_t));
+      pctx->flags        = http_server.prover_flags;
       preq->client       = NULL;
       preq->ctx          = pctx;
       pctx->chain_id     = http_server.chain_id;
@@ -207,7 +208,8 @@ void c4_handle_new_head(json_t head) {
   ctx->chain_id         = http_server.chain_id;
   ctx->proof            = bytes(b, sizeof(beacon_head_t)); // we are misusing the proof.data for our custom pointer, to our beacon_head_t.
   ctx->client_type      = BEACON_CLIENT_EVENT_SERVER;      // make sure we use the same beacon client that actually gave us the event.
-  json_get_bytes(head, "block", &buffer);                  // write the block root to the beacon_head_t
+  ctx->flags            = http_server.prover_flags;
+  json_get_bytes(head, "block", &buffer); // write the block root to the beacon_head_t
   handle_new_head_cb(req);
 }
 
@@ -246,5 +248,6 @@ void c4_handle_finalized_checkpoint(json_t checkpoint) {
   req->ctx                                = safe_calloc(1, sizeof(prover_ctx_t));
   ((prover_ctx_t*) req->ctx)->chain_id    = http_server.chain_id;
   ((prover_ctx_t*) req->ctx)->client_type = BEACON_CLIENT_EVENT_SERVER;
+  ((prover_ctx_t*) req->ctx)->flags       = http_server.prover_flags;
   req->cb(req);
 }
