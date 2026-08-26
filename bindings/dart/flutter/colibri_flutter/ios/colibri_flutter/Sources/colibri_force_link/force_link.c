@@ -30,6 +30,7 @@ extern void* c4_create_rpc_ctx(void);
 extern int c4_rpc_execute_json_status(void);
 extern void c4_free_rpc_ctx(void);
 extern void c4_set_checkpoint(void);
+extern void c4_reset_caches(void);
 extern void c4_rpc_set_witness_keys(void);
 extern void c4_rpc_set_proxy_urls(void);
 extern void c4_rpc_set_min_latest_block_ts(void);
@@ -54,6 +55,7 @@ COLIBRI_KEEP(c4_create_rpc_ctx);
 COLIBRI_KEEP(c4_rpc_execute_json_status);
 COLIBRI_KEEP(c4_free_rpc_ctx);
 COLIBRI_KEEP(c4_set_checkpoint);
+COLIBRI_KEEP(c4_reset_caches);
 COLIBRI_KEEP(c4_rpc_set_witness_keys);
 // Required by Dart FFI (native.dart). Without this keeper, Release device
 // builds dead-strip the symbol while Debug/simulator often still keep it.

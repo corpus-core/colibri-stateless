@@ -64,16 +64,16 @@ static const ssz_def_t C4_ETH_ZK_SYNCDATA_V6[6];
 // A List of possible types of data matching the Proofs
 const ssz_def_t C4_ETH_REQUEST_DATA_UNION[12] = {
     SSZ_NONE,
-    SSZ_BYTES32("hash"),                                        // the blockhash  which is used for blockhash proof
-    SSZ_BYTES("bytes", 1073741824),                             // the bytes of the data
-    SSZ_UINT256("value"),                                       // the balance of an account
-    SSZ_CONTAINER("EthTransactionData", ETH_TX_DATA),           // the transaction data
-    SSZ_CONTAINER("EthReceiptData", ETH_RECEIPT_DATA),          // the transaction receipt
-    SSZ_LIST("EthLogs", ETH_RECEIPT_DATA_LOG_CONTAINER, 1024),  // result of eth_getLogs
-    SSZ_CONTAINER("EthBlockData", ETH_BLOCK_DATA),              // the block data
-    SSZ_CONTAINER("EthProofData", ETH_PROOF_DATA),              // the result of an eth_getProof
-    SSZ_CONTAINER("SimulationResult", ETH_SIMULATION_RESULT),   // the result of an colibri_simulateTransaction
-    SSZ_CONTAINER("EthBlockHeaderData", ETH_BLOCK_HEADER_DATA), // compact block header data
+    SSZ_BYTES32("hash"),                                            // the blockhash  which is used for blockhash proof
+    SSZ_BYTES("bytes", 1073741824),                                 // the bytes of the data
+    SSZ_UINT256("value"),                                           // the balance of an account
+    SSZ_CONTAINER("EthTransactionData", ETH_TX_DATA),               // the transaction data
+    SSZ_CONTAINER("EthReceiptData", ETH_RECEIPT_DATA),              // the transaction receipt
+    SSZ_LIST("EthLogs", ETH_RECEIPT_DATA_LOG_CONTAINER, 1024),      // result of eth_getLogs
+    SSZ_CONTAINER("EthBlockData", ETH_BLOCK_DATA),                  // the block data
+    SSZ_CONTAINER("EthProofData", ETH_PROOF_DATA),                  // the result of an eth_getProof
+    SSZ_CONTAINER("SimulationResult", ETH_SIMULATION_RESULT),       // the result of an colibri_simulateTransaction
+    SSZ_CONTAINER("EthBlockHeaderData", ETH_BLOCK_HEADER_DATA),     // compact block header data
     SSZ_LIST("EthBlockReceipts", ETH_RECEIPT_DATA_CONTAINER, 2048), // all receipts of a block
 };
 
@@ -86,20 +86,10 @@ static const ssz_def_t C4_REQUEST_PROOFS_UNION[] = {
     SSZ_LIST("LogsProof", ETH_LOGS_BLOCK_CONTAINER, 256),                //  4: a Proof for multiple Receipts and txs
     SSZ_CONTAINER("CallProof", ETH_CALL_PROOF),                          //  5: a Proof of a Call like eth_call
     SSZ_CONTAINER("SyncProof", ETH_SYNC_PROOF),                          //  6: Proof as input data for the sync committee transition used by zk
-    SSZ_CONTAINER("BlockProof", ETH_BLOCK_PROOF),                        //  7: Proof for BlockData
-    SSZ_CONTAINER("BlockNumberProof", ETH_BLOCK_NUMBER_PROOF),           //  8: Proof for BlockNumber
-    SSZ_CONTAINER("WitnessProof", C4_WITNESS_SIGNED),                    //  9: Proof for Witness
-    SSZ_CONTAINER("BlockHeaderProof", ETH_BLOCK_HEADER_PROOF),           // 10: Proof for compact BlockHeader
-    SSZ_CONTAINER("BlockReceiptsProof", ETH_BLOCK_RECEIPTS_PROOF),       // 11: Proof for all block receipts
-    SSZ_CONTAINER("HybridAccountProof", ETH_HYBRID_ACCOUNT_PROOF),       // 12: Hybrid account proof with embedded header_data
-    SSZ_CONTAINER("HybridTransactionProof", ETH_HYBRID_TRANSACTION_PROOF), // 13: Hybrid tx proof (SSZ branch + header_data)
-    SSZ_CONTAINER("HybridReceiptProof", ETH_HYBRID_RECEIPT_PROOF),       // 14: Hybrid receipt proof (Patricia + header_data)
-    SSZ_LIST("HybridLogsProof", ETH_HYBRID_LOGS_BLOCK_CONTAINER, 256),    // 15: Hybrid logs proof with embedded header_data per block
-    SSZ_CONTAINER("HybridCallProof", ETH_HYBRID_CALL_PROOF),               // 16: Hybrid call proof with embedded header_data
-    SSZ_CONTAINER("HybridBlockProof", ETH_HYBRID_BLOCK_PROOF),             // 17: Hybrid block proof (EP only)
-    SSZ_CONTAINER("HybridBlockHeaderProof", ETH_HYBRID_BLOCK_HEADER_PROOF), // 18: Hybrid block header/number proof (header_data only)
-    SSZ_CONTAINER("HybridBlockReceiptsProof", ETH_HYBRID_BLOCK_RECEIPTS_PROOF), // 19: Hybrid block receipts proof (header_data only)
-    SSZ_CONTAINER("LogsCompletenessProof", ETH_LOGS_COMPLETENESS_PROOF), // 20: Completeness proof for eth_getLogs over a contiguous block range
+    SSZ_CONTAINER("BlockProof", ETH_BLOCK_PROOF),                        //  7: Proof for BlockData (body union: NONE = header-only proof)
+    SSZ_CONTAINER("WitnessProof", C4_WITNESS_SIGNED),                    //  8: Proof for Witness
+    SSZ_CONTAINER("BlockReceiptsProof", ETH_BLOCK_RECEIPTS_PROOF),       //  9: Proof for all block receipts
+    SSZ_CONTAINER("LogsCompletenessProof", ETH_LOGS_COMPLETENESS_PROOF), // 17: Completeness proof for eth_getLogs over a contiguous block range
 };
 
 // A List of possible types of sync data used to update the sync state by verifying the transition from the last period to the required.
@@ -115,17 +105,17 @@ static const ssz_def_t C4_ETH_SYNCDATA_BOOTSTRAP_UNION[] = {
 
 // A List of LightClient Updates as returned from light_client/updates endpoint.
 static const ssz_def_t C4_ETH_SYNCDATA_UPDATE_UNION[] = {
-    SSZ_CONTAINER("DenepLightClientUpdate", DENEP_LIGHT_CLIENT_UPDATE),      // 0: Deneb-fork structured LightClient Update
-    SSZ_CONTAINER("ElectraLightClientUpdate", ELECTRA_LIGHT_CLIENT_UPDATE),  // 1: Electra-fork structured LightClient Update
-    SSZ_CONTAINER("GloasLightClientUpdate", GLOAS_LIGHT_CLIENT_UPDATE)       // 2: Gloas-fork structured LightClient Update
+    SSZ_CONTAINER("DenepLightClientUpdate", DENEP_LIGHT_CLIENT_UPDATE),     // 0: Deneb-fork structured LightClient Update
+    SSZ_CONTAINER("ElectraLightClientUpdate", ELECTRA_LIGHT_CLIENT_UPDATE), // 1: Electra-fork structured LightClient Update
+    SSZ_CONTAINER("GloasLightClientUpdate", GLOAS_LIGHT_CLIENT_UPDATE)      // 2: Gloas-fork structured LightClient Update
 };
 
 // A Union of possible types of sync data used to update the sync state by verifying the transition from the last period to the required.
 const ssz_def_t C4_ETH_REQUEST_SYNCDATA_UNION[] = {
     SSZ_NONE,
-    SSZ_CONTAINER("LCSyncData", C4_ETH_LC_SYNCDATA),       // Light Client Sync Data
-    SSZ_CONTAINER("ZKSyncData", C4_ETH_ZK_SYNCDATA),       // ZK Proof Sync Data (legacy SP1 v5, 260-byte groth16 proof)
-    SSZ_CONTAINER("ZKSyncDataV6", C4_ETH_ZK_SYNCDATA_V6),  // ZK Proof Sync Data (SP1 v6 "Hypercube", 356-byte groth16 proof)
+    SSZ_CONTAINER("LCSyncData", C4_ETH_LC_SYNCDATA),      // Light Client Sync Data
+    SSZ_CONTAINER("ZKSyncData", C4_ETH_ZK_SYNCDATA),      // ZK Proof Sync Data (legacy SP1 v5, 260-byte groth16 proof)
+    SSZ_CONTAINER("ZKSyncDataV6", C4_ETH_ZK_SYNCDATA_V6), // ZK Proof Sync Data (SP1 v6 "Hypercube", 356-byte groth16 proof)
 };
 
 // the main container defining the incoming data processed by the verifier
@@ -281,12 +271,8 @@ const ssz_def_t* eth_ssz_verification_type(eth_ssz_type_t type) {
       return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, ETH_SYNC_PROOF);
     case ETH_SSZ_VERIFY_BLOCK_PROOF:
       return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, ETH_BLOCK_PROOF);
-    case ETH_SSZ_VERIFY_BLOCK_NUMBER_PROOF:
-      return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, ETH_BLOCK_NUMBER_PROOF);
     case ETH_SSZ_VERIFY_WITNESS_PROOF:
       return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, C4_WITNESS_SIGNED);
-    case ETH_SSZ_VERIFY_STATE_PROOF:
-      return &ETH_STATE_PROOF_CONTAINER;
     case ETH_SSZ_DATA_NONE:
       return C4_ETH_REQUEST_DATA_UNION;
     case ETH_SSZ_DATA_HASH32:
@@ -309,32 +295,10 @@ const ssz_def_t* eth_ssz_verification_type(eth_ssz_type_t type) {
       return C4_ETH_REQUEST_DATA_UNION + 9;
     case ETH_SSZ_DATA_BLOCK_HEADER:
       return C4_ETH_REQUEST_DATA_UNION + 10;
-    case ETH_SSZ_DATA_CALL_BLOCK_CONTEXT:
-      return ETH_STATE_BLOCK_UNION + 3;
-    case ETH_SSZ_DATA_STATE_BLOCK_TIMESTAMP:
-      return ETH_STATE_BLOCK_UNION + 4;
-    case ETH_SSZ_VERIFY_BLOCK_HEADER_PROOF:
-      return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, ETH_BLOCK_HEADER_PROOF);
     case ETH_SSZ_VERIFY_BLOCK_RECEIPTS_PROOF:
       return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, ETH_BLOCK_RECEIPTS_PROOF);
     case ETH_SSZ_DATA_BLOCK_RECEIPTS:
       return C4_ETH_REQUEST_DATA_UNION + 11;
-    case ETH_SSZ_VERIFY_HYBRID_ACCOUNT_PROOF:
-      return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, ETH_HYBRID_ACCOUNT_PROOF);
-    case ETH_SSZ_VERIFY_HYBRID_TRANSACTION_PROOF:
-      return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, ETH_HYBRID_TRANSACTION_PROOF);
-    case ETH_SSZ_VERIFY_HYBRID_RECEIPT_PROOF:
-      return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, ETH_HYBRID_RECEIPT_PROOF);
-    case ETH_SSZ_VERIFY_HYBRID_LOGS_PROOF:
-      return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, &ETH_HYBRID_LOGS_BLOCK_CONTAINER);
-    case ETH_SSZ_VERIFY_HYBRID_CALL_PROOF:
-      return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, ETH_HYBRID_CALL_PROOF);
-    case ETH_SSZ_VERIFY_HYBRID_BLOCK_PROOF:
-      return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, ETH_HYBRID_BLOCK_PROOF);
-    case ETH_SSZ_VERIFY_HYBRID_BLOCK_HEADER_PROOF:
-      return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, ETH_HYBRID_BLOCK_HEADER_PROOF);
-    case ETH_SSZ_VERIFY_HYBRID_BLOCK_RECEIPTS_PROOF:
-      return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, ETH_HYBRID_BLOCK_RECEIPTS_PROOF);
     case ETH_SSZ_VERIFY_LOGS_COMPLETENESS_PROOF:
       return ARRAY_TYPE(C4_REQUEST_PROOFS_UNION, ETH_LOGS_COMPLETENESS_PROOF);
     case ETH_SSZ_VERIFY_CHECKPOINT_PROOF:
@@ -345,6 +309,10 @@ const ssz_def_t* eth_ssz_verification_type(eth_ssz_type_t type) {
       return C4_ETH_REQUEST_SYNCDATA_UNION + 2;
     case ETH_SSZ_VERIFY_ZK_SYNCDATA_V6:
       return C4_ETH_REQUEST_SYNCDATA_UNION + 3;
+    case ETH_SSZ_CL_BLOCK_PROOF:
+      return ARRAY_TYPE(ETH_BLOCK_PROOF_UNION, ETH_CL_BLOCK_PROOF);
+    case ETH_SSZ_EL_BLOCK_CONTENT:
+      return ARRAY_TYPE(ETH_BLOCK_BODY_UNION, ETH_BLOCK_BODY_CONTENT);
     default: return NULL;
   }
 }

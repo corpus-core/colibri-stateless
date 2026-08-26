@@ -60,18 +60,18 @@ typedef enum {
 // :: Execution trace entry (captured during simulation)
 
 typedef struct trace_entry {
-  uint8_t              type;          // EVMONE_CALL, EVMONE_DELEGATECALL, etc.
-  address_t            from;
-  address_t            to;
-  uint64_t             gas;
-  uint64_t             gas_used;
-  bytes_t              input;
-  bytes_t              output;
-  bytes32_t            value;
-  uint32_t             subtraces;
-  uint32_t*            trace_address;
-  uint32_t             trace_depth;
-  struct trace_entry*  next;
+  uint8_t             type; // EVMONE_CALL, EVMONE_DELEGATECALL, etc.
+  address_t           from;
+  address_t           to;
+  uint64_t            gas;
+  uint64_t            gas_used;
+  bytes_t             input;
+  bytes_t             output;
+  bytes32_t           value;
+  uint32_t            subtraces;
+  uint32_t*           trace_address;
+  uint32_t            trace_depth;
+  struct trace_entry* next;
 } trace_entry_t;
 
 // :: Emitted log (captured during EVM execution for simulation)
@@ -93,16 +93,18 @@ typedef struct emitted_log {
  * it may be stack-allocated with a single-pass lifetime.
  */
 typedef struct evm_call_ctx {
-  call_account_t*  accounts;
-  bytes_t          call_result;
-  emitted_log_t*   logs;
-  keccak_entry_t*  keccak_entries;
-  trace_entry_t*   traces;
-  uint64_t         gas_used;
-  bytes32_t        state_root;
-  bool             pap_mode;
-  bool             evm_done;
-  bool             reverted; // set to true when the EVM execution reverted; `call_result` then holds the revert data
+  call_account_t* accounts;
+  bytes_t         call_result;
+  emitted_log_t*  logs;
+  keccak_entry_t* keccak_entries;
+  trace_entry_t*  traces;
+  uint64_t        gas_used;
+  bytes32_t       state_root;
+  bool            pap_mode;
+  bool            evm_done;
+  bool            reverted;  // set to true when the EVM execution reverted; `call_result` then holds the revert data
+  bytes_t         el_header; // header of the execution payload
+  bytes32_t       el_block_hash;
 } evm_call_ctx_t;
 
 /**
@@ -116,9 +118,9 @@ typedef struct evm_call_ctx {
  * Linked list keyed by (address, key).
  */
 typedef struct transient_slot {
-  address_t             address;
-  bytes32_t             key;
-  bytes32_t             value;
+  address_t              address;
+  bytes32_t              key;
+  bytes32_t              value;
   struct transient_slot* next;
 } transient_slot_t;
 
@@ -150,24 +152,24 @@ typedef struct evmone_context {
   bool                   storage_miss;
 } evmone_context_t;
 
-/** Block context extracted from call proof when state_proof.block is the blockContext union variant (selector 3). */
+/** Block context extracted from the verified RLP execution header of a call proof. */
 typedef struct eth_call_block_context {
-  uint64_t   block_number;
-  uint64_t   timestamp;
-  address_t  coinbase;
-  bytes32_t  prev_randao;
-  bytes32_t  base_fee_per_gas;
-  bytes32_t  block_hash;
-  uint64_t   gas_limit;
-  uint64_t   excess_blob_gas;
+  uint64_t  block_number;
+  uint64_t  timestamp;
+  address_t coinbase;
+  bytes32_t prev_randao;
+  bytes32_t base_fee_per_gas;
+  bytes32_t block_hash;
+  uint64_t  gas_limit;
+  uint64_t  excess_blob_gas;
 } eth_call_block_context_t;
 
 /**
  * Extracts the block context from a call/estimate/simulate proof.
  *
- * Handles both hybrid call proofs (`header_data`) and standard proofs
- * (`state_proof.block` blockContext union variant). Returns `false` when
- * no block context is available (e.g. PAP-only proof or legacy format),
+ * Handles both a previously verified `el_header` on the call context and a
+ * `block` field of `ETH_BLOCK_PROOF_UNION` (verified via `c4_verify_block`).
+ * Returns `false` when no block context is available (e.g. PAP-only proof),
  * in which case `out` is left untouched.
  *
  * @param ctx verification context (must have `proof` set)
@@ -214,8 +216,8 @@ c4_status_t call_apply_state_overrides(verify_ctx_t* ctx, call_account_t** accou
 
 // :: Emitted log helpers
 
-void           free_keccak_entries(keccak_entry_t* entries);
-void           free_emitted_logs(emitted_log_t* logs);
+void free_keccak_entries(keccak_entry_t* entries);
+void free_emitted_logs(emitted_log_t* logs);
 
 // :: Trace helpers
 
@@ -234,9 +236,8 @@ void context_apply(evmone_context_t* ctx);
  * extracted from the verification context.
  *
  * Populates `block_number`, `timestamp`, `block_coinbase`, `block_prev_randao`,
- * `block_base_fee`, `blob_base_fee`, and `block_gas_limit` from the call proof's
- * state_proof (when using `ETH_CALL_STATE_PROOF`) or leaves them at zero/defaults
- * for PAP mode.
+ * `block_base_fee`, `blob_base_fee`, and `block_gas_limit` from the verified
+ * RLP execution header, or leaves them at zero/defaults for PAP mode.
  *
  * @param out      context to initialize (zeroed by caller)
  * @param ctx      verification context

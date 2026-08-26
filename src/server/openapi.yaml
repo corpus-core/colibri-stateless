@@ -1124,6 +1124,15 @@ components:
                 If true, eth_call proofs will include the required contract bytecode
                 in the proof, enabling stateless verification.
               default: false
+            last_block_hash:
+              type: string
+              format: hex
+              description: |
+                32-byte hash of the newest execution block header the client has already
+                verified and cached. If the requested proof targets this block, the prover
+                omits the block proof and references the block by hash only, resulting in
+                a much smaller proof. Only advertise hashes the client can still resolve.
+              example: '0x89abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567'
       example:
         jsonrpc: '2.0'
         method: eth_call

@@ -43,14 +43,17 @@ static c4_status_t req_client_update(prover_ctx_t* ctx, uint32_t period, uint32_
   bprintf(&tmp, "eth/v1/beacon/light_client/updates?start_period=%d&count=%d", period, count);
 
   data_request_t* req = c4_state_get_data_request_by_url(&ctx->state, (char*) tmp.data.data);
-  if (req) buffer_free(&tmp);
-  if (req && req->response.data) {
-    *data = req->response;
-    return C4_SUCCESS;
-  }
-  else if (req && req->error) {
-    ctx->state.error = strdup(req->error);
-    return C4_ERROR;
+  if (req) {
+    buffer_free(&tmp);
+    if (req->response.data) {
+      *data = req->response;
+      return C4_SUCCESS;
+    }
+    else if (req->error) {
+      ctx->state.error = strdup(req->error);
+      return C4_ERROR;
+    }
+    return C4_PENDING;
   }
   data_request_t* new_req = safe_calloc(1, sizeof(data_request_t));
   new_req->chain_id       = chain_id;
@@ -78,10 +81,10 @@ static ssz_ob_t unwrap_lcu_response(prover_ctx_t* ctx, bytes_t data) {
   if (data.len < 12) return result;
   uint64_t payload_len = uint64_from_le(data.data);
   if (payload_len < 4 || 8 + payload_len > data.len) return result;
-  result.bytes         = bytes(data.data + 12, payload_len - 4);
+  result.bytes          = bytes(data.data + 12, payload_len - 4);
   fork_id_t        fork = c4_eth_get_fork_for_lcu(ctx->chain_id, result.bytes);
   const ssz_def_t* def  = eth_get_light_client_update(fork);
-  result.def = def;
+  result.def            = def;
   return result;
 }
 
@@ -125,10 +128,10 @@ static c4_status_t extract_sync_data(prover_ctx_t* ctx, bytes_t old_data, bytes_
   ssz_add_bytes(&signgin_data_builder, "BeaconBlockHeader", header.bytes);
   ssz_add_bytes(&signgin_data_builder, "domain", bytes(domain, 32));
   ssz_ob_t signing_data = ssz_builder_to_bytes(&signgin_data_builder);
-  gindex_t state_gidx = ssz_gindex(signing_data.def, 2, "BeaconBlockHeader", "stateRoot");
+  gindex_t state_gidx   = ssz_gindex(signing_data.def, 2, "BeaconBlockHeader", "stateRoot");
   eth_cu_add_proof(ctx);
   bytes_t header_proof = ssz_create_proof(signing_data, domain, state_gidx);
-  bytes_t  full_proof   = bytes(malloc(header_proof.len + state_proof.len + 32), header_proof.len + state_proof.len + 32);
+  bytes_t full_proof   = bytes(malloc(header_proof.len + state_proof.len + 32), header_proof.len + state_proof.len + 32);
   memcpy(full_proof.data, aggregate, 32);                                              // 1
   memcpy(full_proof.data + 32, state_proof.data, state_proof.len);                     // 5 for deneb
   memcpy(full_proof.data + 32 + state_proof.len, header_proof.data, header_proof.len); // 4
@@ -171,7 +174,7 @@ c4_status_t c4_proof_sync(prover_ctx_t* ctx) {
   if (period == 0) THROW_ERROR_WITH("Invalid period: %j", period_data);
   TRY_ADD_ASYNC(status, req_client_update(ctx, period - 2, 1, ctx->chain_id, &old_data));
   TRY_ADD_ASYNC(status, req_client_update(ctx, period - 1, 1, ctx->chain_id, &new_data));
-  TRY_ASYNC(status);  
+  TRY_ASYNC(status);
   TRY_ASYNC(extract_sync_data(ctx, old_data, new_data, &period_values));
   return create_proof(ctx, &period_values);
 }

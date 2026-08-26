@@ -46,6 +46,7 @@ typedef enum {
   ETH_SSZ_SIGNED_BEACON_BLOCK_CONTAINER = 1,
   ETH_SSZ_BEACON_BLOCK_BODY_CONTAINER   = 2,
   ETH_SSZ_BEACON_BLOCK_HEADER           = 3,
+
   // verify
   ETH_SSZ_VERIFY_REQUEST           = 4,
   ETH_SSZ_VERIFY_BLOCK_HASH_PROOF  = 5,
@@ -53,14 +54,11 @@ typedef enum {
   ETH_SSZ_VERIFY_TRANSACTION_PROOF = 7,
   ETH_SSZ_VERIFY_RECEIPT_PROOF     = 8,
   ETH_SSZ_VERIFY_LOGS_PROOF        = 9,
-  //  ETH_SSZ_VERIFY_LIGHT_CLIENT_UPDATE_LIST = 10,
-  //  ETH_SSZ_VERIFY_LIGHT_CLIENT_UPDATE      = 11,
-  ETH_SSZ_VERIFY_STATE_PROOF        = 12,
-  ETH_SSZ_VERIFY_CALL_PROOF         = 13,
-  ETH_SSZ_VERIFY_SYNC_PROOF         = 14,
-  ETH_SSZ_VERIFY_BLOCK_PROOF        = 15,
-  ETH_SSZ_VERIFY_BLOCK_NUMBER_PROOF = 16,
-  ETH_SSZ_VERIFY_WITNESS_PROOF      = 17,
+  ETH_SSZ_VERIFY_CALL_PROOF        = 13,
+  ETH_SSZ_VERIFY_SYNC_PROOF        = 14,
+  ETH_SSZ_VERIFY_BLOCK_PROOF       = 15,
+  ETH_SSZ_VERIFY_WITNESS_PROOF     = 17,
+
   // data types
   ETH_SSZ_DATA_NONE       = 18,
   ETH_SSZ_DATA_HASH32     = 19,
@@ -73,22 +71,14 @@ typedef enum {
   ETH_SSZ_DATA_PROOF      = 26,
   ETH_SSZ_DATA_SIMULATION = 27,
 
-  ETH_SSZ_VERIFY_BLOCK_HEADER_PROOF = 28,
-  ETH_SSZ_DATA_BLOCK_HEADER         = 29,
-  ETH_SSZ_DATA_CALL_BLOCK_CONTEXT   = 30,
+  // (28 was ETH_SSZ_VERIFY_BLOCK_HEADER_PROOF: header-only proofs now use
+  //  ETH_SSZ_VERIFY_BLOCK_PROOF with the NONE variant of ETH_BLOCK_BODY_UNION)
+  ETH_SSZ_DATA_BLOCK_HEADER = 29,
+  // 30 was ETH_SSZ_DATA_CALL_BLOCK_CONTEXT (compact EVM header via SSZ multi-proof;
+  // eth_call now reads block context from the verified RLP EL header)
 
   ETH_SSZ_VERIFY_BLOCK_RECEIPTS_PROOF = 31,
   ETH_SSZ_DATA_BLOCK_RECEIPTS         = 32,
-
-  // hybrid proof types (header_data embedded, no consensus proof needed)
-  ETH_SSZ_VERIFY_HYBRID_ACCOUNT_PROOF      = 33,
-  ETH_SSZ_VERIFY_HYBRID_TRANSACTION_PROOF  = 34,
-  ETH_SSZ_VERIFY_HYBRID_RECEIPT_PROOF      = 35,
-  ETH_SSZ_VERIFY_HYBRID_LOGS_PROOF         = 36,
-  ETH_SSZ_VERIFY_HYBRID_CALL_PROOF         = 37,
-  ETH_SSZ_VERIFY_HYBRID_BLOCK_PROOF        = 38,
-  ETH_SSZ_VERIFY_HYBRID_BLOCK_HEADER_PROOF  = 39,
-  ETH_SSZ_VERIFY_HYBRID_BLOCK_RECEIPTS_PROOF = 40,
 
   // beacon container types (chain- and fork-aware, resolved via eth_ssz_type_for_fork)
   ETH_SSZ_EXECUTION_PAYLOAD_CONTAINER = 42,
@@ -99,10 +89,8 @@ typedef enum {
   // a CheckpointProof SSZ blob using the same definition the verifier reads.
   ETH_SSZ_VERIFY_CHECKPOINT_PROOF = 43,
 
-  // Resolves to the `timestamp` variant of `ETH_STATE_BLOCK_UNION` (UINT64). Used
-  // by the verifier to distinguish the new account-`latest` freshness leaf from
-  // the `blockNumber` variant (both are 8 bytes long).
-  ETH_SSZ_DATA_STATE_BLOCK_TIMESTAMP = 44,
+  // 44 was ETH_SSZ_DATA_STATE_BLOCK_TIMESTAMP (timestamp-only variant of the
+  // removed ETH_STATE_BLOCK_UNION; freshness now reads timestamp from the RLP EL header)
 
   // `C4_ETH_REQUEST_SYNCDATA_UNION` variants (named to avoid raw pointer arithmetic
   // on the union array at the call sites).
@@ -110,7 +98,12 @@ typedef enum {
   ETH_SSZ_VERIFY_ZK_SYNCDATA    = 46, // `ZKSyncData`   (union index 2): legacy SP1 v5 ZK sync data, 260-byte proof
   ETH_SSZ_VERIFY_ZK_SYNCDATA_V6 = 47, // `ZKSyncDataV6` (union index 3): SP1 v6 ZK sync data, 356-byte proof
 
-  ETH_SSZ_VERIFY_LOGS_COMPLETENESS_PROOF = 48 // `LogsCompletenessProof` (proof union index 20): completeness proof for eth_getLogs
+  ETH_SSZ_VERIFY_LOGS_COMPLETENESS_PROOF = 48, // `LogsCompletenessProof` (proof union index 20): completeness proof for eth_getLogs
+
+  ETH_SSZ_CL_BLOCK_PROOF   = 49, // ETH_CL_BLOCK_PROOF
+  ETH_SSZ_EL_BLOCK_CONTENT = 50, // ETH_EL_BLOCK_CONTENT
+
+  ETH_SSZ_SIGNED_EXECUTION_PAYLOAD_ENVELOPE_CONTAINER = 51, // ETH_SSZ_SIGNED_EXECUTION_PAYLOAD_ENVELOPE_CONTAINER
 
 } eth_ssz_type_t;
 
@@ -128,8 +121,18 @@ typedef struct {
   fork_version_func_t fork_version_func;
 } chain_spec_t;
 
-bool                c4_chain_genesis_validators_root(chain_id_t chain_id, bytes32_t genesis_validators_root);
-fork_id_t           c4_chain_fork_id(chain_id_t chain_id, uint64_t epoch);
+bool      c4_chain_genesis_validators_root(chain_id_t chain_id, bytes32_t genesis_validators_root);
+fork_id_t c4_chain_fork_id(chain_id_t chain_id, uint64_t epoch);
+/**
+ * Returns true if the chain has assigned an activation epoch to `fork`
+ * (as opposed to leaving it unscheduled). Phase0 is genesis and always
+ * returns false because it is not listed in `fork_epochs`.
+ *
+ * @param chain_id chain to inspect
+ * @param fork fork id (Altair or later)
+ * @return true if the fork is on the chain's schedule
+ */
+bool                c4_chain_schedules_fork(chain_id_t chain_id, fork_id_t fork);
 const chain_spec_t* c4_eth_get_chain_spec(chain_id_t id);
 const ssz_def_t*    eth_ssz_type_for_fork(eth_ssz_type_t type, fork_id_t fork, chain_id_t chain_id);
 
@@ -185,12 +188,6 @@ inline static bool is_gnosis_chain(chain_id_t chain_id) {
 }
 
 #define BLOCK_HEADER_FIELD_COUNT 14
-const gindex_t* c4_block_header_gindexes(chain_id_t chain_id, uint64_t slot);
-
-/** Number of leaves in the call state proof when block context is included (stateRoot + 8 execution payload fields). */
-#define CALL_BLOCK_CONTEXT_FIELD_COUNT 9
-/** Gindexes for state proof + block context: stateRoot, blockNumber, timestamp, feeRecipient, prevRandao, baseFeePerGas, blockHash, gasLimit, excessBlobGas. */
-const gindex_t* c4_call_block_context_gindexes(void);
 
 /**
  * Returns the generalized index of `current_sync_committee` within `BeaconState` for the fork active at `slot`.
@@ -233,5 +230,66 @@ gindex_t c4_next_sync_committee_gindex(chain_id_t chain_id, uint64_t slot);
  * @return Generalized index used to build/verify the finality Merkle proof
  */
 gindex_t c4_finalized_root_gindex(chain_id_t chain_id, uint64_t slot);
+
+/**
+ * Returns the generalized index of the `historical_summaries` field within `BeaconState`
+ * for the fork active at `slot`.
+ *
+ * `historical_summaries` is field 27 of `BeaconState` (unchanged since Capella). EIP-7688
+ * deliberately keeps it as a classical `List[HistoricalSummary, HISTORICAL_ROOTS_LIMIT]`
+ * so existing verifiers can continue to prove against the same list `hash_tree_root`. Only
+ * the outer embedding changes with Gloas, where `BeaconState` becomes a `ProgressiveContainer`:
+ * - Capella/Deneb: 32 + 27 = 59
+ * - Electra/Fulu:  64 + 27 = 91
+ * - Gloas:         2950 (progressive chunk gindex of field 27, mixed under active_fields)
+ *
+ * @param chain_id Chain identifier used to look up fork epochs
+ * @param slot Beacon slot; used to derive the epoch and thus the active fork
+ * @return Generalized index of the `historical_summaries` list root within `BeaconState`
+ */
+gindex_t c4_historical_summaries_gindex(chain_id_t chain_id, uint64_t slot);
+
+/**
+ * Returns the generalized index within `BeaconBlockBody` of the leaf that the
+ * CL block-hash proof (`ETH_CL_BLOCK_PROOF`) anchors against for the fork active
+ * at `slot`. Both the prover (when building the branch) and the verifier (when
+ * checking it) resolve the gindex through this helper, so the leaf position is
+ * bound and cannot be swapped out by a crafted proof.
+ *
+ * The leaf differs by fork -- both anchors are "safe" in the sense that they
+ * require the signed head to be canonical, but they identify different EL blocks:
+ * - Deneb / Electra / Fulu: `execution_payload.block_hash` (gindex 812).
+ *   Proves the EL block of the CURRENT beacon slot.
+ * - Gloas (EIP-7732): `signed_execution_payload_bid.message.parent_block_hash`
+ *   (gindex 2856). Under ePBS the current-slot payload is not yet executed at
+ *   proposal time; the bid instead commits to the PARENT (head-1) EL block.
+ *
+ * @param chain_id chain identifier (drives chain spec + fork lookup)
+ * @param slot beacon slot; drives the active fork
+ * @return generalized index of the EL block-hash leaf inside `BeaconBlockBody`,
+ *         or 0 if the fork is unknown / no CL block proof is defined
+ */
+gindex_t c4_execution_block_hash_gindex(chain_id_t chain_id, uint64_t slot);
+
+/**
+ * Computes the expected combined generalized index for a historic-direct block
+ * inclusion proof: target `block_root` -> `HistoricalSummary.block_summary_root`
+ * -> `historical_summaries` list root -> `BeaconState` root.
+ *
+ * This is the single source of truth for what a well-formed
+ * `HISTORIC_PROOF_DIRECT` MUST hash against. Both the prover (when building the
+ * proof) and the verifier (when validating it) resolve the gindex through this
+ * helper -- so a proof cannot smuggle in a chosen gindex that happens to point
+ * at some other `bytes32` position in the `BeaconState` tree (e.g. `block_roots`,
+ * `state_roots`, `latest_block_header.parent_root`, ...).
+ *
+ * @param chain_id chain identifier (drives chain spec + fork lookup)
+ * @param block_slot slot of the block being proven; drives `summary_idx` and `block_idx`
+ * @param state_slot slot of the state whose root the proof terminates in; drives
+ *                   the fork-dependent `summaries_gidx` (91 pre-Gloas, 2950 from Gloas)
+ * @return combined gindex, or 0 if no historic-direct proof is possible for
+ *         `block_slot` (chain unknown, Capella not scheduled, or block predates Capella)
+ */
+gindex_t c4_historic_block_gindex(chain_id_t chain_id, uint64_t block_slot, uint64_t state_slot);
 
 #endif

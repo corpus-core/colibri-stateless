@@ -145,6 +145,10 @@ function createRuntime(c4w: C4W): C4Runtime {
             free_buffers.forEach(ptr => c4w._free(ptr));
         },
 
+        resetCaches() {
+            c4w._c4w_reset_caches();
+        },
+
         reqSetResponse(req: DataRequest, data: Uint8Array, nodeIndex: number) {
             // ownership of the copied bytes is transferred to the C context
             c4w._c4w_req_set_response(req.req_ptr as number, copy_to_c(data, c4w), data.length, nodeIndex);

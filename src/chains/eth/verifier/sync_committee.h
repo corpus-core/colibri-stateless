@@ -37,7 +37,7 @@ extern "C" {
 
 #define MAX_SYNC_PERIODS 8
 // max(MAX_SYNC_PERIODS*4=32, 32, uint64+bytes32=40) + 1 status byte = 41
-#define MAX_STATES_SIZE  41
+#define MAX_STATES_SIZE 41
 
 // Light client update format constants
 #define SSZ_OFFSET_SIZE        4
@@ -69,11 +69,11 @@ typedef struct {
 } c4_sync_validators_t;
 
 typedef enum {
-  C4_STATE_SYNC_EMPTY              = 0, // No states and no checkpoint yet
-  C4_STATE_SYNC_PERIODS            = 1, // We do have at least one period stored
-  C4_STATE_SYNC_CHECKPOINT         = 2, // we only have a checkpoint stored
-  C4_STATE_SYNC_BLOCKHASH_HEADER   = 3, // OP-Stack: cached verified execution-block header (number+hash); body not stored
-  C4_STATE_SYNC_EXECUTION_PAYLOAD  = 4  // OP-Stack: cached full execution payload; data here holds (number+hash), payload stored separately via storage_plugin
+  C4_STATE_SYNC_EMPTY             = 0, // No states and no checkpoint yet
+  C4_STATE_SYNC_PERIODS           = 1, // We do have at least one period stored
+  C4_STATE_SYNC_CHECKPOINT        = 2, // we only have a checkpoint stored
+  C4_STATE_SYNC_BLOCKHASH_HEADER  = 3, // OP-Stack: cached verified execution-block header (number+hash); body not stored
+  C4_STATE_SYNC_EXECUTION_PAYLOAD = 4  // OP-Stack: cached full execution payload; data here holds (number+hash), payload stored separately via storage_plugin
 } c4_state_sync_type_t;
 
 typedef struct {
@@ -82,9 +82,9 @@ typedef struct {
     uint32_t  periods[MAX_SYNC_PERIODS]; // max 8 periods (8*4 =32)
     bytes32_t checkpoint;                // 32 bytes
     struct {
-      uint64_t  block_number;            // execution block number
-      bytes32_t blockhash;                // execution block hash
-    } block;                             // BLOCKHASH_HEADER / EXECUTION_PAYLOAD (40 bytes)
+      uint64_t  block_number; // execution block number
+      bytes32_t blockhash;    // execution block hash
+    } block;                  // BLOCKHASH_HEADER / EXECUTION_PAYLOAD (40 bytes)
   } data;
 } c4_chain_state_t;
 

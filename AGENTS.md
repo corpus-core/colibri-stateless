@@ -343,7 +343,7 @@ ctest --test-dir build/default  # Run tests
 - Use `safe_malloc()`, `safe_calloc()`, `safe_realloc()` (abort on OOM).
 - Use `safe_free()` for deallocation.
 - `buffer_t` manages growable buffers. `allocated > 0` means heap-allocated; `allocated < 0` means fixed/stack buffer (do not free).
-- Ownership annotations: `M_RET` (returns allocated memory), `M_TAKE(n)` (takes ownership of param n). Used by Clang static analyzer.
+- Ownership annotations: `M_RET` (returns allocated memory). Used by Clang static analyzer.
 
 ### Error Handling
 

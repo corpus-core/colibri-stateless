@@ -22,10 +22,12 @@
  */
 
 #include "../../bindings/colibri_common.h"
+#include "beacon.h"
 #include "beacon_types.h"
 #include "bytes.h"
 #include "config.h"
 #include "crypto.h"
+#include "header_cache.h"
 #include "logger.h"
 #include "plugin.h"
 #include "ssz.h"
@@ -75,6 +77,7 @@
 // | `-W`           |                 | Skip the Weak Subjectivity Period check (sets `VERIFY_FLAG_SKIP_WSP_CHECK`). **SECURITY:** only safe when another trust anchor (witness signatures, hard-coded checkpoint, signed package) is in place; raises the risk of long-range attacks across periods older than the WSP. |         |
 // | `-A`           | `<seconds>`     | Maximum age (in seconds) accepted for proofs whose request uses the `"latest"` block tag. Currently active for `eth_call`, `eth_estimateGas`, and `colibri_simulateTransaction`. `0` disables the check. | `60` |
 // | `-G`           |                 | Generate and require an `eth_getLogs` completeness proof over the requested block range (proves no matching log was omitted). Sets `C4_PROVER_FLAG_LOGS_COMPLETENESS` and `VERIFY_FLAG_LOGS_COMPLETENESS`. | |
+// | `-N`           |                 | Nimbus CL compatibility for local proofs (slot-scan parent lookup, nimbus historical_summaries; sets `C4_PROVER_FLAG_NIMBUS`). | |
 // | `-h`           |                 | Display this help message  |         |
 // | `<method>`     |                 | Method to verify           |         |
 // | `<args>`       |                 | Arguments for the method   |         |
@@ -123,6 +126,7 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, "  -W skip the Weak Subjectivity Period check (VERIFY_FLAG_SKIP_WSP_CHECK). SECURITY: only safe with an alternative trust anchor (witness signatures, hard-coded checkpoint, signed package).\n");
     fprintf(stderr, "  -A <seconds> max age accepted for proofs targeting the \"latest\" block tag (eth_call/eth_estimateGas/colibri_simulateTransaction; default 60, 0 = disabled)\n");
     fprintf(stderr, "  -G generate and require an eth_getLogs completeness proof over the requested block range (proves no matching log was omitted)\n");
+    fprintf(stderr, "  -N Nimbus CL compatibility for local proofs (slot-scan parent lookup, nimbus historical_summaries)\n");
     fprintf(stderr, "  -O no verifier, just return the proof\n");
     fprintf(stderr, "  --version, -v display version information\n");
     fprintf(stderr, "  -h help\n");
@@ -153,6 +157,7 @@ int main(int argc, char* argv[]) {
   c4_prover_mode_t prover_mode            = C4_PROVER_MODE_REMOTE;
   bool             prover_mode_set        = false;
   bool             logs_completeness      = false; // enable eth_getLogs completeness proof (prover + verifier flag)
+  bool             use_nimbus             = false; // Nimbus CL compatibility for local proofs
   uint64_t         max_latest_age_seconds = 60;    // 0 disables the freshness check for "latest" proofs
   c4_set_log_level(LOG_ERROR);
   buffer_add_chars(&args, "[");
@@ -239,6 +244,9 @@ int main(int argc, char* argv[]) {
           case 'G':
             logs_completeness = true;
             break;
+          case 'N':
+            use_nimbus = true;
+            break;
           case 'A': {
             if (i + 1 >= argc) {
               fprintf(stderr, "-A requires a value (non-negative integer seconds; 0 disables the check)\n");
@@ -298,6 +306,10 @@ int main(int argc, char* argv[]) {
   }
   buffer_add_chars(&args, "]");
   json_t default_config = json_parse(get_default_config(chain_name, &chain_id, NULL));
+#ifdef EL_HEADER_CACHE
+  c4_header_cache_load(chain_id);
+  c4_prover_header_tags_load(chain_id);
+#endif
 
   if (prover_url)
     set_config("prover", prover_url);
@@ -345,6 +357,7 @@ int main(int argc, char* argv[]) {
     prover_flags |= C4_PROVER_FLAG_LOGS_COMPLETENESS;
     verify_flags |= VERIFY_FLAG_LOGS_COMPLETENESS;
   }
+  if (use_nimbus) prover_flags |= C4_PROVER_FLAG_NIMBUS;
   if (!prover_mode_set) {
     if (input != NULL)
       prover_mode = C4_PROVER_MODE_LOCAL;
@@ -416,6 +429,10 @@ int main(int argc, char* argv[]) {
     else
       fprintf(stderr, "revert data: (empty)\n");
     c4_rpc_ctx_free(ctx);
+#ifdef EL_HEADER_CACHE
+    c4_header_cache_save(chain_id);
+    c4_prover_header_tags_save(chain_id);
+#endif
     return EXIT_FAILURE;
   }
 
@@ -437,6 +454,11 @@ int main(int argc, char* argv[]) {
       ssz_dump_to_file_no_quotes(stdout, ctx->verifier.data);
     fflush(stdout);
     c4_rpc_ctx_free(ctx);
+#ifdef EL_HEADER_CACHE
+    c4_header_cache_save(chain_id);
+    c4_prover_header_tags_save(chain_id);
+#endif
+
     return EXIT_SUCCESS;
   }
 

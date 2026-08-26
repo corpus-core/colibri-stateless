@@ -81,7 +81,8 @@ function create_cache(dir) {
  * @param name fixture directory name (e.g. 'eth_getBalance1')
  * @return {test_conf, conf} the parsed test.json and the client config
  */
-export function setup_fixture(Colibri, name) {
+export async function setup_fixture(Colibri, name) {
+    await Colibri.reset_caches();
     const dir = `${testdir}/${name}`;
     const cache = {}
     Colibri.register_storage({
@@ -150,7 +151,7 @@ export async function run_rpc_suite(t, Colibri, decode_proof) {
     const tests = fs.readdirSync(testdir).filter(f => fs.existsSync(`${testdir}/${f}/test.json`));
     for (const test of tests) {
         await t.test(`run ${test}`, async () => {
-            const { test_conf, conf } = setup_fixture(Colibri, test);
+            const { test_conf, conf } = await setup_fixture(Colibri, test);
             if (test_conf.requires_chain_store) return;
 
             const c4 = new Colibri(conf);

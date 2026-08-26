@@ -265,14 +265,18 @@ static int on_body(llhttp_t* parser, const char* at, size_t length) {
 
   client->body_size_received = new_total;
   // llhttp may call on_body multiple times (chunked encoding or segmented reads).
-  // Accumulate the full payload so handlers see a complete request body.
+  // Accumulate the full payload so handlers see a complete request body. We over-allocate one
+  // extra byte and NUL-terminate the buffer so consumers that treat the payload as a C-string
+  // (e.g. `json_parse`, the TEST-only file-mock URL rewriter, various loggers) do not read past
+  // the end. `payload_len` still reports the logical body length; the terminator is a guard byte.
   if (length > 0) {
-    uint8_t* new_payload = (uint8_t*) safe_malloc(new_total);
+    uint8_t* new_payload = (uint8_t*) safe_malloc(new_total + 1);
     if (client->request.payload && client->request.payload_len > 0) {
       memcpy(new_payload, client->request.payload, client->request.payload_len);
       safe_free(client->request.payload);
     }
     memcpy(new_payload + (new_total - length), at, length);
+    new_payload[new_total]      = '\0';
     client->request.payload     = new_payload;
     client->request.payload_len = new_total;
   }

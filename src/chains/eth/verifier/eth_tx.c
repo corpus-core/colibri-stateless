@@ -363,12 +363,14 @@ INTERNAL bytes_t c4_eth_create_tx_path(uint32_t tx_index, buffer_t* buf) {
   return buf->data;
 }
 
-INTERNAL bool c4_tx_verify_receipt_proof(verify_ctx_t* ctx, ssz_ob_t receipt_proof, uint32_t tx_index, bytes32_t receipt_root, bytes_t* receipt_raw) {
-  bytes32_t tmp      = {0};
-  buffer_t  path_buf = stack_buffer(tmp);
+INTERNAL bool c4_verify_mpt_proof(verify_ctx_t* ctx, ssz_ob_t proof, uint32_t tx_index, bytes32_t expected_root, bytes_t* raw_value) {
+  bytes32_t tmp             = {0};
+  bytes32_t calculated_root = {0};
+  buffer_t  path_buf        = stack_buffer(tmp);
 
-  if (patricia_verify(receipt_root, c4_eth_create_tx_path(tx_index, &path_buf), receipt_proof, receipt_raw) != PATRICIA_FOUND)
+  if (patricia_verify(calculated_root, c4_eth_create_tx_path(tx_index, &path_buf), proof, raw_value) != PATRICIA_FOUND)
     RETURN_VERIFY_ERROR(ctx, "invalid account proof on execution layer!");
+  if (memcmp(calculated_root, expected_root, 32) != 0) RETURN_VERIFY_ERROR(ctx, "invalid merkle root!");
   return true;
 }
 
@@ -842,22 +844,22 @@ INTERNAL bool c4_write_tx_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer
 }
 
 bool c4_write_receipt_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer, bytes_t tx_raw, bytes_t receipt_raw,
-                                             bytes32_t block_hash, uint64_t block_number, uint32_t tx_index,
-                                             uint64_t base_fee, uint64_t* out_cumulative_gas,
-                                             uint32_t* out_log_index) {
-  bytes_t   val             = {0};
-  bytes_t   receipt_list    = receipt_raw;
-  bytes_t   tx_list_payload = tx_raw;
-  tx_type_t type            = 0;
-  bytes32_t tx_hash         = {0};
-  address_t from_address    = {0};
-  uint64_t  status_u64      = 0;
-  uint64_t  cumulative_gas  = 0;
-  uint64_t  gas_used       = 0;
-  uint64_t  effective_gas   = 0;
-  uint64_t  deposit_nonce   = 0;
-  uint32_t  deposit_ver     = 0;
-  const rlp_type_defs_t* defs_ptr = NULL;
+                                    bytes32_t block_hash, uint64_t block_number, uint32_t tx_index,
+                                    uint64_t base_fee, uint64_t* out_cumulative_gas,
+                                    uint32_t* out_log_index) {
+  bytes_t                val             = {0};
+  bytes_t                receipt_list    = receipt_raw;
+  bytes_t                tx_list_payload = tx_raw;
+  tx_type_t              type            = 0;
+  bytes32_t              tx_hash         = {0};
+  address_t              from_address    = {0};
+  uint64_t               status_u64      = 0;
+  uint64_t               cumulative_gas  = 0;
+  uint64_t               gas_used        = 0;
+  uint64_t               effective_gas   = 0;
+  uint64_t               deposit_nonce   = 0;
+  uint32_t               deposit_ver     = 0;
+  const rlp_type_defs_t* defs_ptr        = NULL;
 
   if (!buffer || !buffer->def || !out_cumulative_gas || !out_log_index) return false;
   keccak(tx_raw, tx_hash);
@@ -876,7 +878,7 @@ bool c4_write_receipt_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer, by
   status_u64 = bytes_as_be(val);
   if (rlp_decode(&receipt_list, 1, &val) != RLP_ITEM) RETURN_VERIFY_ERROR(ctx, "write_receipt_data: cumulativeGasUsed");
   cumulative_gas = bytes_as_be(val);
-  gas_used       = cumulative_gas -  *out_cumulative_gas;
+  gas_used       = cumulative_gas - *out_cumulative_gas;
   if (rlp_decode(&receipt_list, 2, &val) != RLP_ITEM || val.len != 256) RETURN_VERIFY_ERROR(ctx, "write_receipt_data: logsBloom");
   bytes_t logs_bloom = val;
 
@@ -894,7 +896,7 @@ bool c4_write_receipt_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer, by
   else if (!c4_tx_create_from_address(ctx, tx_raw, from_address))
     return false;
 
-  bytes_t to_field = get_rlp_field(ctx, tx_list_payload, defs_ptr, "to", RLP_ITEM);
+  bytes_t  to_field          = get_rlp_field(ctx, tx_list_payload, defs_ptr, "to", RLP_ITEM);
   uint64_t gas_price_rlp_val = 0, max_priority_fee_per_gas_rlp_val = 0, max_fee_per_gas_rlp_val = 0;
   if (type != TX_TYPE_DEPOSITED)
     gas_price_rlp_val = bytes_as_be(get_rlp_field(ctx, tx_list_payload, defs_ptr, "gasPrice", RLP_ITEM));
@@ -923,9 +925,9 @@ bool c4_write_receipt_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer, by
 
   bytes_t logs_rlp = {0};
   if (rlp_decode(&receipt_list, 3, &logs_rlp) != RLP_LIST) RETURN_VERIFY_ERROR(ctx, "write_receipt_data: logs");
-  int num_logs = rlp_decode(&logs_rlp, -1, &logs_rlp);
-  const ssz_def_t* logs_def = ssz_get_def(buffer->def, "logs");
-  ssz_builder_t logs_builder = ssz_builder_for_def(logs_def);
+  int              num_logs     = rlp_decode(&logs_rlp, -1, &logs_rlp);
+  const ssz_def_t* logs_def     = ssz_get_def(buffer->def, "logs");
+  ssz_builder_t    logs_builder = ssz_builder_for_def(logs_def);
   for (int log_index = 0; log_index < num_logs; log_index++) {
     bytes_t log_rlp = {0};
     if (rlp_decode(&logs_rlp, log_index, &log_rlp) != RLP_LIST) RETURN_VERIFY_ERROR(ctx, "write_receipt_data: log entry");
@@ -933,7 +935,7 @@ bool c4_write_receipt_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer, by
     if (rlp_decode(&log_rlp, 0, &addr_bytes) != RLP_ITEM) RETURN_VERIFY_ERROR(ctx, "write_receipt_data: log address");
     if (rlp_decode(&log_rlp, 1, &topics_rlp) != RLP_LIST) RETURN_VERIFY_ERROR(ctx, "write_receipt_data: log topics");
     if (rlp_decode(&log_rlp, 2, &data_bytes) != RLP_ITEM) RETURN_VERIFY_ERROR(ctx, "write_receipt_data: log data");
-    int num_topics = rlp_decode(&topics_rlp, -1, &topics_rlp);
+    int           num_topics  = rlp_decode(&topics_rlp, -1, &topics_rlp);
     ssz_builder_t log_builder = ssz_builder_for_def(logs_def->def.vector.type);
     ssz_add_bytes(&log_builder, "blockHash", bytes(block_hash, 32));
     ssz_add_uint64(&log_builder, block_number);
@@ -946,7 +948,7 @@ bool c4_write_receipt_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer, by
     ssz_add_uint8(&log_builder, 0);
     ssz_builder_t topics_builder = ssz_builder_for_def(ssz_get_def(log_builder.def, "topics"));
     for (int t = 0; t < num_topics; t++) {
-      bytes_t topic = {0};
+      bytes_t topic       = {0};
       uint8_t topic32[32] = {0};
       if (rlp_decode(&topics_rlp, t, &topic) != RLP_ITEM) RETURN_VERIFY_ERROR(ctx, "write_receipt_data: topic");
       if (topic.len <= 32) memcpy(topic32 + (32 - topic.len), topic.data, topic.len);

@@ -25,6 +25,7 @@
 #include "bytes.h"
 #include "chains.h"
 #include "crypto.h"
+#include "el_header.h"
 #include "eth_account.h"
 #include "eth_tx.h"
 #include "eth_verify.h"
@@ -158,8 +159,8 @@ static void adopt_cache_entry(verify_ctx_t* ctx, bytes32_t blockhash, bytes_t by
   snap->response       = bytes;
   snap->validated      = true;
   memcpy(snap->id, blockhash, 32);
-  snap->next           = ctx->state.requests;
-  ctx->state.requests  = snap;
+  snap->next          = ctx->state.requests;
+  ctx->state.requests = snap;
 }
 
 ssz_ob_t op_extract_verified_execution_payload(verify_ctx_t* ctx, ssz_ob_t block_proof, json_t* block_number, bytes32_t parent_hash) {
@@ -280,7 +281,7 @@ bool op_verify_block(verify_ctx_t* ctx) {
   ssz_ob_t  block_proof       = ssz_get(&ctx->proof, "block_proof");
   bytes32_t parent_root       = {0};
   bytes32_t withdrawel_root   = {0};
-  ssz_ob_t execution_payload = op_extract_verified_execution_payload(ctx, block_proof, &block_number, &parent_root);
+  ssz_ob_t  execution_payload = op_extract_verified_execution_payload(ctx, block_proof, &block_number, &parent_root);
   if (!execution_payload.def) return false;
 
   if (is_blocknumber) {
@@ -291,7 +292,17 @@ bool op_verify_block(verify_ctx_t* ctx) {
   }
   else {
     ssz_hash_tree_root(ssz_get(&execution_payload, "withdrawals"), withdrawel_root);
-    eth_set_block_data(ctx, ETH_BLOCK_DATA_MASK_ALL, execution_payload, parent_root, withdrawel_root, include_txs);
+    eth_el_header_ctx_t ectx = {0};
+    ectx.chain_id            = ctx->chain_id;
+    ectx.execution_payload   = execution_payload;
+    ectx.fork                = C4_FORK_DENEB;
+    memcpy(ectx.parent_root, parent_root, 32);
+    bytes_t el_header = {0};
+    // TODO set beacon-block
+    eth_el_header_build_from_ep(&el_header, &ectx);
+    bool success = eth_set_block_data(ctx, el_header, include_txs, &execution_payload, ETH_BLOCK_DATA_MASK_ALL);
+    safe_free(el_header.data);
+    if (!success) return false;
   }
   ctx->success = true;
   return true;

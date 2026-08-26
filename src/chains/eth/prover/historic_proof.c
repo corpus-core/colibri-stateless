@@ -75,7 +75,7 @@ static void verify_proof(char* name, bytes32_t leaf, bytes32_t root, bytes_t pro
   safe_free(debug.data.data);
 }
 
-static c4_status_t check_historic_proof_header(prover_ctx_t* ctx, blockroot_proof_t* block_proof, beacon_block_t* src_block) {
+static c4_status_t check_historic_proof_header(prover_ctx_t* ctx, blockroot_proof_t* block_proof, eth_block_t* src_block) {
   if (memcmp(src_block->data_block_root, src_block->sign_parent_root, 32) == 0) return C4_SUCCESS;
   json_t    proof_header  = {0};
   json_t    header        = {0};
@@ -119,47 +119,28 @@ static c4_status_t check_historic_proof_header(prover_ctx_t* ctx, blockroot_proo
   return C4_SUCCESS;
 }
 
-static c4_status_t get_historical_summaries(prover_ctx_t* ctx, beacon_block_t* block, json_t* history_proof) {
+static c4_status_t get_historical_summaries(prover_ctx_t* ctx, eth_block_t* block, json_t* history_proof) {
   if (ctx->state.error) return C4_ERROR;
-  uint8_t  tmp[200] = {0};
-  buffer_t buf      = stack_buffer(tmp);
-
-  return c4_send_beacon_json_with_client_type(ctx, bprintf(&buf, "eth/v1/lodestar/states/0x%b/historical_summaries", ssz_get(&block->header, "stateRoot").bytes), NULL, 120, history_proof, BEACON_CLIENT_LODESTAR);
-  /*
-  json_t      history_proof2 = {0};
-  c4_status_t status1        = c4_send_beacon_json_with_client_type(ctx, bprintf(&buf, "nimbus/v1/debug/beacon/states/0x%b/historical_summaries", ssz_get(&block->header, "stateRoot").bytes), NULL, 120, &history_proof1, BEACON_CLIENT_NIMBUS);
-  if (ctx->state.error) {
-    safe_free(ctx->state.error);
-    ctx->state.error = NULL;
-    status1          = C4_ERROR;
-  }
-  */
-  /*
-   // /eth/v1/lodestar/states/{state_id}/historical_summaries
-   buffer_reset(&buf);
-   c4_status_t status2 = c4_send_beacon_json_with_client_type(ctx, bprintf(&buf, "eth/v1/lodestar/states/0x%b/historical_summaries", ssz_get(&block->header, "stateRoot").bytes), NULL, 120, &history_proof2, BEACON_CLIENT_LODESTAR);
-   if (ctx->state.error) {
-     safe_free(ctx->state.error);
-     ctx->state.error = NULL;
-     status2          = C4_ERROR;
-   }
-
-   if (status1 == C4_SUCCESS && history_proof1.type == JSON_TYPE_OBJECT)
-     *history_proof = history_proof1;
-   else if (status2 == C4_SUCCESS && history_proof2.type == JSON_TYPE_OBJECT)
-     *history_proof = history_proof2;
-   else if (status1 == C4_PENDING)
-     return C4_PENDING;
-   else
-     THROW_ERROR("Failed to get historical summaries! Looks like it is not supported by the beacon client!");
-   return C4_SUCCESS;
-   */
+  uint8_t     tmp[200] = {0};
+  buffer_t    buf      = stack_buffer(tmp);
+  bytes_t     state    = ssz_get(&block->cl_header, "stateRoot").bytes;
+  bool        nimbus   = (ctx->flags & C4_PROVER_FLAG_NIMBUS) != 0;
+  const char* path     = nimbus ? "nimbus/v1/debug/beacon/states/0x%b/historical_summaries"
+                                : "eth/v1/lodestar/states/0x%b/historical_summaries";
+  uint32_t    client   = nimbus ? BEACON_CLIENT_NIMBUS : BEACON_CLIENT_LODESTAR;
+  return c4_send_beacon_json_with_client_type(ctx, bprintf(&buf, path, state), NULL, 120, history_proof, client);
 }
 
-static c4_status_t check_historic_proof_direct(prover_ctx_t* ctx, blockroot_proof_t* block_proof, beacon_block_t* src_block) {
+#ifdef TEST
+c4_status_t c4_test_get_historical_summaries(prover_ctx_t* ctx, eth_block_t* block, json_t* history_proof) {
+  return get_historical_summaries(ctx, block, history_proof);
+}
+#endif
+
+static c4_status_t check_historic_proof_direct(prover_ctx_t* ctx, blockroot_proof_t* block_proof, eth_block_t* src_block) {
   uint64_t            slot          = src_block->slot;
   c4_status_t         status        = C4_SUCCESS;
-  beacon_block_t      block         = {0};
+  eth_block_t         block         = {0};
   json_t              history_proof = {0};
   uint8_t             tmp[200]      = {0};
   buffer_t            buf           = stack_buffer(tmp);
@@ -177,8 +158,8 @@ static c4_status_t check_historic_proof_direct(prover_ctx_t* ctx, blockroot_proo
   if (!(ctx->flags & C4_PROVER_FLAG_CHAIN_STORE)) return C4_SUCCESS;
   uint64_t state_period = block_proof->sync.post_sync_period ? block_proof->sync.post_sync_period : block_proof->sync.oldest_period; // the newest period the client will hold after syncing
   uint64_t block_period = block_proof->sync.block_period ? block_proof->sync.block_period : block_proof->sync.required_period;       // the period of the target block
-  if (!state_period) return C4_SUCCESS;        // the client does not have a state yet, so he might as well get the head and verify the block.
-  if (block_period >= state_period) return C4_SUCCESS; // the target block is within the current range of the client
+  if (!state_period) return C4_SUCCESS;                                                                                              // the client does not have a state yet, so he might as well get the head and verify the block.
+  if (block_period >= state_period) return C4_SUCCESS;                                                                               // the target block is within the current range of the client
 
   // Historic-direct path: the actual sub-requests below are billed via their
   // respective helpers; this constant covers the server-side composition work
@@ -190,18 +171,16 @@ static c4_status_t check_historic_proof_direct(prover_ctx_t* ctx, blockroot_proo
   TRY_ADD_ASYNC(status, c4_send_internal_request(ctx, bprintf(&buf2, "period_store/%d/blocks.ssz", block_period), NULL, 0, &blocks)); // get the blockd
   TRY_ASYNC(status);                                                                                                                  // finish requests before continuing
 
-  uint32_t  offset_period  = (uint32_t) (chain->fork_epochs[C4_FORK_BELLATRIX] >> chain->epochs_per_period_bits);
-  fork_id_t fork           = c4_chain_fork_id(ctx->chain_id, epoch_for_slot(block.slot, chain)); // current fork for the state
-  json_t    data           = json_get(history_proof, "data");                                    // the the main json-object
-  uint32_t  summary_idx    = block_period - offset_period;                                       // the index starting from the  cappella fork, where we got zhe first Summary entry.
-  uint32_t  block_idx      = slot % 8192;                                                        // idx within the period
-  // TODO(gloas): Gloas turns `BeaconState` into a `ProgressiveContainer` (EIP-7688),
-  //              so the classical `2^depth + field_index` chunking no longer matches
-  //              the spec merkleization. This branch keeps the Electra layout for
-  //              Fulu (unchanged for the sync-committee/historical fields) and must
-  //              be revisited before `C4_FORK_GLOAS` gets an activation epoch.
-  gindex_t  summaries_gidx = (fork >= C4_FORK_ELECTRA ? 64 : 32) + 27;                           // the gindex of the field for the summaries in the state. summaries have the index 27 in the state.
-  gindex_t  period_gidx    = ssz_gindex(&SUMMARIES, 2, summary_idx, "block_summary_root");       // the gindex of the single summary-object we need to proof
+  uint32_t offset_period = (uint32_t) (chain->fork_epochs[C4_FORK_CAPELLA - 1] >> chain->epochs_per_period_bits);
+  json_t   data          = json_get(history_proof, "data");                                     // the main json-object
+  uint32_t summary_idx   = block_period - offset_period;                                        // index starting from the Capella fork, where the first HistoricalSummary was appended.
+  uint32_t block_idx     = slot % 8192;                                                         // idx within the period
+  // Sub-gindexes for the two SSZ sub-proofs we construct below. `historical_summaries`
+  // remains a classical `List[HistoricalSummary, HISTORICAL_ROOTS_LIMIT]` (EIP-7688 keeps
+  // it non-progressive), so both are fork-independent. The combined proof gindex is
+  // resolved via `c4_historic_block_gindex` (single source of truth for both prover and
+  // verifier) so a manipulated gindex cannot smuggle in a different BeaconState field.
+  gindex_t  period_gidx    = ssz_gindex(&SUMMARIES, 2, summary_idx, "block_summary_root"); // gindex of the single summary-object we need to proof
   gindex_t  block_gidx     = ssz_gindex(&BLOCKS, 1, block_idx);
   ssz_ob_t  blocks_ob      = {.bytes = blocks, .def = &BLOCKS};
   buffer_t  full_proof     = {0};
@@ -243,13 +222,17 @@ static c4_status_t check_historic_proof_direct(prover_ctx_t* ctx, blockroot_proo
       buffer_append(&full_proof, json_as_bytes(entry, &buf)); // as provided by lodestar
 
   // calc header
-  ssz_hash_tree_root(block.body, body_root);
+  ssz_hash_tree_root(block.cl_body, body_root);
   block_proof->historic_proof = full_proof.data;
-  block_proof->gindex         = ssz_add_gindex(ssz_add_gindex(summaries_gidx, period_gidx), block_gidx);
+  // Combined proof gindex resolved through the shared helper. The verifier will
+  // compute the exact same value from `chain_id`, `block.slot` (of the target
+  // header) and `state_slot` (of the anchoring `signed_header`, which for the
+  // direct path is the same `block.slot` we hand in as `proof_header` below).
+  block_proof->gindex         = c4_historic_block_gindex(ctx->chain_id, slot, block.slot);
   block_proof->sync_aggregate = block.sync_aggregate;
   block_proof->proof_header   = bytes(safe_malloc(112), 112);
   block_proof->type           = HISTORIC_PROOF_DIRECT;
-  memcpy(block_proof->proof_header.data, block.header.bytes.data, 112 - 32);
+  memcpy(block_proof->proof_header.data, block.cl_header.bytes.data, 112 - 32);
   memcpy(block_proof->proof_header.data + 112 - 32, body_root, 32);
 
   safe_free(block_idx_proof.data);
@@ -259,8 +242,8 @@ static c4_status_t check_historic_proof_direct(prover_ctx_t* ctx, blockroot_proo
   return C4_SUCCESS;
 }
 
-void ssz_add_header_proof(ssz_builder_t* builder, beacon_block_t* block_data, blockroot_proof_t block_proof) {
-  ssz_builder_t bp             = ssz_builder_for_def(ssz_get_def(builder->def, "header_proof")->def.container.elements + block_proof.type);
+void ssz_add_header_proof(ssz_builder_t* builder, eth_block_t* block_data, blockroot_proof_t block_proof) {
+  ssz_builder_t bp             = ssz_builder_for_def(ssz_get_def(builder->def, "headerProof")->def.container.elements + block_proof.type);
   ssz_ob_t      sync_aggregate = block_proof.sync_aggregate;
 
   switch (block_proof.type) {
@@ -282,7 +265,7 @@ void ssz_add_header_proof(ssz_builder_t* builder, beacon_block_t* block_data, bl
   ssz_add_bytes(&bp, "sync_committee_bits", ssz_get(&sync_aggregate, "syncCommitteeBits").bytes);
   ssz_add_bytes(&bp, "sync_committee_signature", ssz_get(&sync_aggregate, "syncCommitteeSignature").bytes);
 
-  ssz_add_builders(builder, "header_proof", bp);
+  ssz_add_builders(builder, "headerProof", bp);
 }
 
 void c4_free_block_proof(blockroot_proof_t* block_proof) {
@@ -340,8 +323,8 @@ static ssz_ob_t build_checkpoint_proof_ob(ssz_ob_t bootstrap) {
 // owns `out->bytes.data`. Used by both the ZK and LC sync-data paths so they
 // share the same async sequencing and avoid duplicated fin-block roundtrips.
 static c4_status_t fetch_finalized_checkpoint_proof(prover_ctx_t* ctx, ssz_ob_t* out) {
-  beacon_block_t fin       = {0};
-  ssz_ob_t       bootstrap = {0};
+  eth_block_t fin       = {0};
+  ssz_ob_t    bootstrap = {0};
   TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, json_parse("\"finalized\""), &fin));
   TRY_ASYNC(fetch_bootstrap_by_root(ctx, fin.data_block_root, &bootstrap));
   *out = build_checkpoint_proof_ob(bootstrap);
@@ -423,7 +406,7 @@ c4_status_t c4_get_syncdata_proof(prover_ctx_t* ctx, syncdata_state_t* sync_data
     //
     // The CheckpointProof anchor can only be processed by clients from version 1.1.28
     // onwards, so only request/embed it when the consumer is new enough.
-    bool     need_checkpoint_proof = ctx->witness_key.len == 0 && ctx->version >= c4_version_number(1, 1, 28);      
+    bool     need_checkpoint_proof = ctx->witness_key.len == 0 && ctx->version >= c4_version_number(1, 1, 28);
     ssz_ob_t checkpoint_ob         = {0};
     if (need_checkpoint_proof)
       TRY_ASYNC(fetch_finalized_checkpoint_proof(ctx, &checkpoint_ob));
@@ -511,7 +494,7 @@ static c4_status_t update_syncdata_state(prover_ctx_t* ctx, syncdata_state_t* sy
         // The block itself is then verified against a recent state via historical_summaries
         // (HISTORIC_PROOF_DIRECT, see `check_historic_proof_direct`), not by pulling its own
         // (older) sync committee.
-        beacon_block_t fin = {0};
+        eth_block_t fin = {0};
         TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, json_parse("\"finalized\""), &fin));
         uint64_t fin_period = (uint64_t) (fin.slot >> (chain->slots_per_epoch_bits + chain->epochs_per_period_bits));
         if (fin_period > sync_data->required_period) sync_data->required_period = fin_period;
@@ -564,7 +547,7 @@ static c4_status_t update_syncdata_state(prover_ctx_t* ctx, syncdata_state_t* sy
   if ((ctx->flags & C4_PROVER_FLAG_ZK_PROOF) && sync_data->required_period) {
     uint64_t epoch_gap = (((uint64_t) sync_data->required_period) - (uint64_t) sync_data->newest_period) << chain->epochs_per_period_bits;
     if (sync_data->newest_period && sync_data->required_period > sync_data->newest_period && epoch_gap > chain->weak_subjectivity_epochs) {
-      beacon_block_t fin = {0};
+      eth_block_t fin = {0};
       TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, json_parse("\"finalized\""), &fin));
       uint32_t current_period = (uint32_t) (fin.slot >> (chain->slots_per_epoch_bits + chain->epochs_per_period_bits));
       if ((uint64_t) current_period > sync_data->required_period) {
@@ -582,7 +565,7 @@ static c4_status_t update_syncdata_state(prover_ctx_t* ctx, syncdata_state_t* sy
   return C4_SUCCESS;
 }
 
-c4_status_t c4_check_blockroot_proof(prover_ctx_t* ctx, blockroot_proof_t* block_proof, beacon_block_t* src_block) {
+c4_status_t c4_check_blockroot_proof(prover_ctx_t* ctx, blockroot_proof_t* block_proof, eth_block_t* src_block) {
   if (ctx->flags & C4_PROVER_FLAG_HYBRID) return C4_SUCCESS;
   const chain_spec_t* chain = c4_eth_get_chain_spec(ctx->chain_id);
   if (!chain) THROW_ERROR("unsupported chain id!");

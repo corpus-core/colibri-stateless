@@ -109,9 +109,10 @@ typedef struct {
   int            port;
   int            loglevel;
   int            req_timeout;
-  int            chain_id;
+  uint64_t       chain_id;
   char*          rpc_nodes;
   char*          prover_nodes;
+  char*          v2_prover; // base URL of a legacy 2.x prover to forward proof requests for clients with version < 3.0.0 (empty = disabled)
   char*          beacon_nodes;
   char*          checkpointz_nodes;
   bytes32_t      witness_key;
@@ -154,7 +155,7 @@ typedef struct {
   int   tracing_sample_percent; // 0..100
 
   /** If 1, `/proof` may accept client `rpc` / `beacon` JSON arrays (proxy mode). */
-  int   proxy_enabled;
+  int proxy_enabled;
   /** Comma-separated domain patterns allowed for proxy URLs (e.g. `*.alchemy.com,infura.io`). */
   char* proxy_allowed_domains;
 } http_server_t;
@@ -290,8 +291,8 @@ typedef struct request_t {
   client_t*         client; // client request
   void*             ctx;    // prover
   single_request_t* requests;
-  size_t            request_count;  // count of handles
-  size_t            batch_started;  // how many requests have been dispatched so far (for throttled dispatch)
+  size_t            request_count; // count of handles
+  size_t            batch_started; // how many requests have been dispatched so far (for throttled dispatch)
   uint64_t          start_time;
   http_client_cb    cb;          // callback function to call when all requests are done
   void*             parent_ctx;  // pointer to parent context or parent caller
@@ -361,8 +362,8 @@ const config_param_t* c4_get_config_params(int* count);
 const char*           c4_get_config_file_path();
 int                   c4_save_config_file(const char* updates);
 // Handlers
-bool           c4_handle_verify_request(client_t* client);
-bool           c4_handle_proof_request(client_t* client);
+bool c4_handle_verify_request(client_t* client);
+bool c4_handle_proof_request(client_t* client);
 /**
  * Shared dispatch for direct `/proof` requests (POST and GET variants).
  *
@@ -379,15 +380,38 @@ bool           c4_handle_proof_request(client_t* client);
  * @param extra_flags  additional prover flags (e.g. INCLUDE_CODE / ZK_PROOF)
  * @param client_state client_state snapshot (copied, may be empty)
  * @param witness_key  witness/signer keys (copied, may be empty)
+ * @param last_block_hash 32-byte hash of the newest block header the client has verified
+ *                     and cached (copied, pass `NULL_BYTES` if unknown); lets the prover
+ *                     omit the block proof (blockHash union variant) for matching blocks
  * @param proxy_rpc    per-request RPC proxy list (ownership transferred, may be NULL)
  * @param proxy_beacon per-request Beacon proxy list (ownership transferred, may be NULL)
  * @param cache_control optional `Cache-Control` header value for the direct response (copied, may be NULL)
  */
-void           c4_proof_request_dispatch(client_t* client, char* method_str, char* params_str,
-                                         uint32_t version, prover_flags_t extra_flags,
-                                         bytes_t client_state, bytes_t witness_key,
-                                         server_list_t* proxy_rpc, server_list_t* proxy_beacon,
-                                         const char* cache_control);
+void c4_proof_request_dispatch(client_t* client, char* method_str, char* params_str,
+                               uint32_t version, prover_flags_t extra_flags,
+                               bytes_t client_state, bytes_t witness_key, bytes_t last_block_hash,
+                               server_list_t* proxy_rpc, server_list_t* proxy_beacon,
+                               const char* cache_control);
+/**
+ * Forwards a proof request to a legacy 2.x prover server when the client version is below 3.0.0.
+ *
+ * Uses `http_server.v2_prover` (base URL / origin, without `/proof`) and appends a caller-supplied,
+ * pre-validated sub-path (starts with `/`, e.g. `/proof` or `/proof/<method>/<block>/...`). The
+ * request body (for POST) and method are forwarded 1:1; the response is streamed back as
+ * `application/octet-stream`.
+ *
+ * Rationale: callers must not pass `client->request.path` unfiltered here to avoid path traversal
+ * on the legacy prover (e.g. `POST /proof/../metrics`). Instead, callers pass a fixed or freshly
+ * rebuilt sub-path.
+ *
+ * @param client   the HTTP client (used for reading request payload/method and writing the response)
+ * @param version  the version number requested by the client (`0` if not provided)
+ * @param sub_path pre-validated sub-path to append to the configured v2_prover origin (e.g. `/proof`)
+ *
+ * @return `true` if the request was handled here (either forwarded or rejected with an HTTP error),
+ *         `false` if `version >= 3.0.0` and the caller should continue with the local prover.
+ */
+bool           c4_try_forward_legacy_proof(client_t* client, uint32_t version, const char* sub_path);
 bool           c4_handle_status(client_t* client);
 bool           c4_handle_health_check(client_t* client);
 bool           c4_handle_metrics(client_t* client);
@@ -411,15 +435,15 @@ int c4_select_best_server(server_list_t* servers, uint32_t exclude_mask, uint32_
 int c4_select_best_server_for_method(server_list_t* servers, uint32_t exclude_mask, uint32_t preferred_client_type, const char* method, uint64_t requested_block, bool has_block);
 
 // Method support tracking functions
-void               c4_mark_method_unsupported(server_list_t* servers, int server_index, const char* method);
-bool               c4_is_method_supported(server_list_t* servers, int server_index, const char* method);
-void               c4_cleanup_method_support(server_health_t* health);
-void               c4_update_server_health(server_list_t* servers, int server_index, uint64_t response_time, bool success);
-void               c4_calculate_server_weights(server_list_t* servers);
-bool               c4_should_reset_health_stats(server_list_t* servers);
-void               c4_reset_server_health_stats(server_list_t* servers);
-bool               c4_has_available_servers(server_list_t* servers, uint32_t exclude_mask);
-void               c4_attempt_server_recovery(server_list_t* servers);
+void c4_mark_method_unsupported(server_list_t* servers, int server_index, const char* method);
+bool c4_is_method_supported(server_list_t* servers, int server_index, const char* method);
+void c4_cleanup_method_support(server_health_t* health);
+void c4_update_server_health(server_list_t* servers, int server_index, uint64_t response_time, bool success);
+void c4_calculate_server_weights(server_list_t* servers);
+bool c4_should_reset_health_stats(server_list_t* servers);
+void c4_reset_server_health_stats(server_list_t* servers);
+bool c4_has_available_servers(server_list_t* servers, uint32_t exclude_mask);
+void c4_attempt_server_recovery(server_list_t* servers);
 
 // Concurrency hooks for request lifecycle
 bool c4_on_request_start(server_list_t* servers, int idx, bool allow_overflow);
@@ -444,7 +468,7 @@ char*                   c4_request_fix_url(char* url, single_request_t* r, beaco
 data_request_encoding_t c4_request_fix_encoding(data_request_encoding_t encoding, single_request_t* r, beacon_client_type_t client_type);
 bytes_t                 c4_request_fix_response(bytes_t response, single_request_t* r, beacon_client_type_t client_type);
 c4_response_type_t      c4_classify_response(long http_code, const char* url, bytes_t response_body, data_request_t* req,
-                                               server_list_t* servers_opt);
+                                             server_list_t* servers_opt);
 bool                    c4_error_indicates_not_found(long http_code, data_request_t* req, bytes_t response_body);
 
 // Internal call handlers

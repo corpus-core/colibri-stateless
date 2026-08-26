@@ -24,14 +24,23 @@
 // datei: test_addiere.c
 #include "bytes.h"
 #include "c4_assert.h"
+#ifdef EL_HEADER_CACHE
+#include "../../src/chains/eth/verifier/header_cache.h"
+#endif
 #include "ssz.h"
 #include "unity.h"
 void setUp(void) {
   reset_local_filecache();
+#ifdef EL_HEADER_CACHE
+  c4_header_cache_clear();
+#endif
 }
 
 void tearDown(void) {
   reset_local_filecache();
+#ifdef EL_HEADER_CACHE
+  c4_header_cache_clear();
+#endif
 }
 
 void test_call() {

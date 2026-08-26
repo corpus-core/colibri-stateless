@@ -1,11 +1,11 @@
 #ifndef ZK_VERIFIER_H
 #define ZK_VERIFIER_H
 
-#include <stdbool.h>
-#include <stdint.h>
-#include <stddef.h>
-#include "bytes.h" // from util
 #include "../bn254/bn254.h"
+#include "bytes.h" // from util
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -15,13 +15,13 @@ extern "C" {
  * Structure representing a Groth16 Verification Key.
  */
 typedef struct {
-    uint8_t program_hash[32];
-    bn254_g1_t alpha;
-    bn254_g2_t beta_neg;
-    bn254_g2_t gamma_neg;
-    bn254_g2_t delta_neg;
-    size_t ic_count;
-    bn254_g1_t* ic;
+  uint8_t     program_hash[32];
+  bn254_g1_t  alpha;
+  bn254_g2_t  beta_neg;
+  bn254_g2_t  gamma_neg;
+  bn254_g2_t  delta_neg;
+  size_t      ic_count;
+  bn254_g1_t* ic;
 } zk_vk_t;
 
 /**
@@ -43,7 +43,7 @@ const zk_vk_t* c4_zk_get_vk(const uint8_t* program_hash);
 
 /**
  * Verifies a Groth16 Zero-Knowledge Proof for a specific Program.
- * 
+ *
  * @param proof          The raw proof bytes (Groth16: A, B, C compressed).
  * @param public_inputs  The public inputs (serialized).
  * @param program_hash   The program hash identifying the Verification Key.

@@ -90,8 +90,8 @@ void c4_eth_parse_filter_topics(json_t topics_json, bytes_t out_topics[C4_ETH_LO
 }
 
 static int build_bloom_variants(bytes_t addresses, bytes_t topics[C4_ETH_LOG_MAX_TOPICS], uint64_t out_variants[C4_ETH_BLOOM_MAX_VARIANTS][32]) {
-  int addr_count                        = (int) (addresses.len / ADDRESS_SIZE);
-  int counts[C4_ETH_LOG_MAX_TOPICS]     = {0};
+  int addr_count                    = (int) (addresses.len / ADDRESS_SIZE);
+  int counts[C4_ETH_LOG_MAX_TOPICS] = {0};
   for (int p = 0; p < C4_ETH_LOG_MAX_TOPICS; p++) counts[p] = (int) topics[p].len / 32;
   int total = (addr_count ? addr_count : 1);
   for (int p = 0; p < C4_ETH_LOG_MAX_TOPICS; p++) {
@@ -99,8 +99,8 @@ static int build_bloom_variants(bytes_t addresses, bytes_t topics[C4_ETH_LOG_MAX
     if (total > (C4_ETH_BLOOM_MAX_VARIANTS / c)) return 0;
     total *= c;
   }
-  int idx_addr                      = 0;
-  int idx[C4_ETH_LOG_MAX_TOPICS]    = {0, 0, 0, 0};
+  int idx_addr                   = 0;
+  int idx[C4_ETH_LOG_MAX_TOPICS] = {0, 0, 0, 0};
   for (int v = 0; v < total && v < C4_ETH_BLOOM_MAX_VARIANTS; v++) {
     uint8_t* bloom = (uint8_t*) out_variants[v];
     memset(bloom, 0, 256);
@@ -172,9 +172,9 @@ bool c4_eth_bloom_negative(bytes_t query_blooms, bytes_t block_bloom) {
 }
 
 bytes_t c4_eth_create_bloomfilter(json_t filter) {
-  bytes_t result                                  = {0};
-  bytes_t addresses                               = {0};
-  bytes_t topics[C4_ETH_LOG_MAX_TOPICS]           = {0};
+  bytes_t result                        = {0};
+  bytes_t addresses                     = {0};
+  bytes_t topics[C4_ETH_LOG_MAX_TOPICS] = {0};
   c4_eth_parse_filter_addresses(json_get(filter, "address"), &addresses);
   c4_eth_parse_filter_topics(json_get(filter, "topics"), topics);
   uint64_t tmp_variants[C4_ETH_BLOOM_MAX_VARIANTS][32];

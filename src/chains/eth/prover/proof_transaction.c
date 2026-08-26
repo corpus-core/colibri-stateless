@@ -38,7 +38,56 @@
 #include <stdlib.h>
 #include <string.h>
 
-static c4_status_t create_eth_tx_proof(prover_ctx_t* ctx, uint32_t tx_index, beacon_block_t* block_data, bytes32_t body_root, bytes_t tx_proof, blockroot_proof_t block_proof) {
+#include "patricia.h"
+static ssz_ob_t create_tx_proof(ssz_ob_t execution_payload, uint32_t tx_index, node_t** root_var) {
+  node_t*   root   = NULL;
+  bytes32_t tmp    = {0};
+  buffer_t  tx_buf = {0};
+  buffer_t  buf    = stack_buffer(tmp);
+  if (root_var && *root_var)
+    root = *root_var;
+  else {
+    ssz_ob_t transactions = ssz_get(&execution_payload, "transactions");
+    uint32_t len          = ssz_len(transactions);
+    for (uint32_t i = 0; i < len; i++)
+      patricia_set_value(&root, c4_eth_create_tx_path(i, &buf), ssz_at(transactions, i).bytes);
+  }
+
+  ssz_ob_t proof = patricia_create_merkle_proof(root, c4_eth_create_tx_path(tx_index, &buf));
+
+  if (root_var)
+    *root_var = root;
+  else
+    patricia_node_free(root);
+
+  buffer_free(&buf);
+  return proof;
+}
+
+c4_status_t c4_eth_get_tx_proof(prover_ctx_t* ctx, bytes32_t block_hash, ssz_ob_t execution_payload, uint32_t tx_index, ssz_ob_t* tx_proof) {
+
+  // Account for Patricia trie work: one insertion per receipt plus one proof.
+  // When the trie is served from the prover cache the linear part is essentially
+  // a no-op, but we still bill it because the original work that filled the
+  // cache was performed by this server -- this keeps the formula simple.
+  eth_cu_add_patricia(ctx, 100, 1);
+
+  // now we should have all data required to create the proof
+#ifdef PROVER_CACHE
+  bytes32_t cachekey;
+  c4_eth_tx_cachekey(cachekey, block_hash);
+  node_t* tx_tree   = (node_t*) c4_prover_cache_get(ctx, cachekey);
+  bool    cache_hit = tx_tree != NULL;
+  if (!cache_hit) REQUEST_WORKER_THREAD(ctx);
+  *tx_proof = create_tx_proof(execution_payload, tx_index, &tx_tree);
+  if (!cache_hit) c4_prover_cache_set(ctx, cachekey, tx_tree, 100000, 200000, (cache_free_cb) patricia_node_free);
+#else
+  *tx_proof = create_tx_proof(execution_payload, tx_index, NULL);
+#endif
+  return C4_SUCCESS;
+}
+
+static c4_status_t create_eth_tx_proof(prover_ctx_t* ctx, uint32_t tx_index, eth_block_t* block_data, bytes32_t body_root, ssz_ob_t tx_proof, blockroot_proof_t block_proof) {
 
   ssz_builder_t eth_tx_proof = ssz_builder_for_type(ETH_SSZ_VERIFY_TRANSACTION_PROOF);
   ssz_builder_t sync_proof   = NULL_SSZ_BUILDER;
@@ -47,14 +96,9 @@ static c4_status_t create_eth_tx_proof(prover_ctx_t* ctx, uint32_t tx_index, bea
   TRY_ASYNC(c4_get_syncdata_proof(ctx, &block_proof.sync, &sync_proof));
 
   // build the proof
-  ssz_add_bytes(&eth_tx_proof, "transaction", ssz_at(ssz_get(&block_data->execution, "transactions"), tx_index).bytes);
   ssz_add_uint32(&eth_tx_proof, tx_index);
-  ssz_add_bytes(&eth_tx_proof, "blockNumber", ssz_get(&block_data->execution, "blockNumber").bytes);
-  ssz_add_bytes(&eth_tx_proof, "blockHash", ssz_get(&block_data->execution, "blockHash").bytes);
-  ssz_add_uint64(&eth_tx_proof, ssz_get_uint64(&block_data->execution, "baseFeePerGas"));
-  ssz_add_bytes(&eth_tx_proof, "proof", tx_proof);
-  ssz_add_builders(&eth_tx_proof, "header", c4_proof_add_header(block_data->header, body_root));
-  ssz_add_header_proof(&eth_tx_proof, block_data, block_proof);
+  ssz_add_bytes(&eth_tx_proof, "transactionProof", tx_proof.bytes);
+  eth_add_block_proof(ctx, &eth_tx_proof, block_data, &block_proof);
 
   ctx->proof = eth_create_proof_request(
       ctx->chain_id,
@@ -65,43 +109,15 @@ static c4_status_t create_eth_tx_proof(prover_ctx_t* ctx, uint32_t tx_index, bea
   return C4_SUCCESS;
 }
 
-static c4_status_t create_hybrid_tx_proof(prover_ctx_t* ctx, uint32_t tx_index, beacon_block_t* block_data) {
-  ssz_builder_t proof_builder = ssz_builder_for_type(ETH_SSZ_VERIFY_HYBRID_TRANSACTION_PROOF);
-
-  ssz_ob_t transactions = ssz_get(&block_data->execution, "transactions");
-  ssz_ob_t raw_tx       = ssz_at(transactions, tx_index);
-  if (!raw_tx.bytes.data) THROW_ERROR("transaction index out of range");
-
-  ssz_add_bytes(&proof_builder, "transaction", raw_tx.bytes);
-  ssz_add_uint32(&proof_builder, tx_index);
-
-  bytes32_t tx_root  = {0};
-  gindex_t  tx_gi    = ssz_gindex(transactions.def, 1, tx_index);
-  bytes_t   tx_proof = ssz_create_proof(transactions, tx_root, tx_gi);
-  ssz_add_bytes(&proof_builder, "txProof", tx_proof);
-  safe_free(tx_proof.data);
-
-  ssz_ob_t header_data = c4_build_header_data_from_execution(block_data->execution);
-  ssz_add_bytes(&proof_builder, "header_data", header_data.bytes);
-  safe_free(header_data.bytes.data);
-
-  ctx->proof = eth_create_proof_request(
-      ctx->chain_id,
-      NULL_SSZ_BUILDER,
-      proof_builder,
-      NULL_SSZ_BUILDER);
-
-  return C4_SUCCESS;
-}
-
 c4_status_t c4_proof_transaction(prover_ctx_t* ctx) {
   bytes32_t         body_root    = {0};
   json_t            txhash       = json_at(ctx->params, 0);
   json_t            tx_data      = {0};
-  beacon_block_t    block        = {0};
+  eth_block_t       block        = {0};
   uint32_t          tx_index     = 0;
   json_t            block_number = {0};
   blockroot_proof_t block_proof  = {0};
+  ssz_ob_t          tx_proof     = {0};
   c4_status_t       status       = C4_SUCCESS;
 #ifdef PROVER_CACHE
   uint8_t  block_buffer[32] = {0};
@@ -135,37 +151,23 @@ c4_status_t c4_proof_transaction(prover_ctx_t* ctx) {
     }
   }
 
-  if (ctx->flags & C4_PROVER_FLAG_HYBRID) {
-    TRY_ADD_ASYNC(status, c4_beacon_get_execution_for_eth(ctx, block_number, &block));
-    if (status != C4_SUCCESS) return status;
-    return create_hybrid_tx_proof(ctx, tx_index, &block);
-  }
-
   // get the beacon-block with signature
-  TRY_ADD_ASYNC(status, c4_beacon_get_block_for_eth(ctx, block_number, &block));
+  TRY_ADD_ASYNC(status, c4_beacon_get_block_for_eth_with_body(ctx, block_number, &block));
 
   // check if we need historical proofs
   if (block.slot) TRY_ADD_ASYNC(status, c4_check_blockroot_proof(ctx, &block_proof, &block));
+  if (!block.el_body.bytes.data && status == C4_SUCCESS)
+    status = c4_state_add_error(&ctx->state, "block execution is missing");
+  else if (status == C4_SUCCESS)
+    TRY_ADD_ASYNC(status, c4_eth_get_tx_proof(ctx, block.el_block_hash, block.el_body, tx_index, &tx_proof));
 
-  if (status != C4_SUCCESS) {
-    safe_free(block_proof.historic_proof.data);
-    return status;
-  }
-  REQUEST_WORKER_THREAD_CATCH(ctx, safe_free(block_proof.historic_proof.data));
-
+  TRY_ASYNC_CATCH(status, safe_free(block_proof.historic_proof.data));
   TRACE_START(ctx, "proof_data");
 
   eth_cu_add_multi_proof(ctx, 4);
-  bytes_t state_proof = ssz_create_multi_proof(block.body, body_root, 4,
-                                               ssz_gindex(block.body.def, 2, "executionPayload", "blockNumber"),
-                                               ssz_gindex(block.body.def, 2, "executionPayload", "blockHash"),
-                                               ssz_gindex(block.body.def, 2, "executionPayload", "baseFeePerGas"),
-                                               ssz_gindex(block.body.def, 3, "executionPayload", "transactions", tx_index)
-
-  );
   TRY_ASYNC_FINAL(
-      create_eth_tx_proof(ctx, tx_index, &block, body_root, state_proof, block_proof),
-      safe_free(state_proof.data);
+      create_eth_tx_proof(ctx, tx_index, &block, body_root, tx_proof, block_proof),
+      safe_free(tx_proof.bytes.data);
       c4_free_block_proof(&block_proof));
   return C4_SUCCESS;
 }

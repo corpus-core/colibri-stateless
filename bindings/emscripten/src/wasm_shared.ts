@@ -38,6 +38,7 @@ export interface C4W {
     _c4w_execute_rpc_ctx: (ctx: number) => number;
     _c4w_free_rpc_ctx: (ctx: number) => void;
     _c4w_set_checkpoint: (chainId: bigint, checkpoint: number) => void;
+    _c4w_reset_caches: () => void;
     _c4w_rpc_ctx_set_witness_keys: (ctx: number, keys: number) => void;
     _c4w_rpc_ctx_set_proxy_urls: (ctx: number, rpc_urls: number, beacon_urls: number) => void;
     _c4w_rpc_ctx_set_min_latest_block_ts: (ctx: number, ts: bigint) => void;
@@ -315,6 +316,15 @@ export function createC4wApi(options: {
         free_buffers.forEach(ptr => c4w._free(ptr));
     }
 
+    /**
+     * Clears in-process prover/verifier caches (header tags, EL headers, PAP
+     * tx cache, prover cache). Persistent storage is left to the host.
+     */
+    async function reset_caches(): Promise<void> {
+        const c4w = await getC4w();
+        c4w._c4w_reset_caches();
+    }
+
     async function decode_proof(proof: Uint8Array): Promise<any> {
         const c4w = await getC4w();
         const ptr = copy_to_c(proof, c4w);
@@ -330,6 +340,7 @@ export function createC4wApi(options: {
         getC4w,
         get_prover_config_hex,
         set_trusted_checkpoint,
+        reset_caches,
         decode_proof,
     };
 }

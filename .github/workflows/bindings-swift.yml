@@ -212,7 +212,21 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           
           TEST_LOG="/tmp/swift_test_output.log"
-          if swift test 2>&1 | tee "$TEST_LOG"; then
+          # `--parallel` would race the process-global C prover cache
+          # (no mutex; designed for the single-threaded libuv server).
+          # `set -o pipefail`: without it the pipeline exits 0 because `tee`
+          # succeeds even when `swift test` failed. Swift Testing then prints
+          # "0 tests in 0 suites passed", which made the step look green.
+          set -o pipefail
+          if swift test --no-parallel 2>&1 | tee "$TEST_LOG"; then
+            if grep -qE "Test Suite 'All tests' failed|with [1-9][0-9]* failures" "$TEST_LOG"; then
+              echo "❌ XCTest reported failures even though swift test exited 0"
+              echo "- ❌ **Swift Tests**: XCTest reported failures" >> $GITHUB_STEP_SUMMARY || true
+              echo "\`\`\`" >> $GITHUB_STEP_SUMMARY || true
+              tail -30 "$TEST_LOG" >> $GITHUB_STEP_SUMMARY || true
+              echo "\`\`\`" >> $GITHUB_STEP_SUMMARY || true
+              exit 1
+            fi
             echo "✅ Swift tests passed"
             
             test_count=$(grep -o "Test Suite.*passed" "$TEST_LOG" | tail -1 || echo "")

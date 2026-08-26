@@ -30,56 +30,6 @@ extern "C" {
 
 #include "verify.h"
 
-// Execution-payload field gindexes. These are computed as `(25 << 5) | <field_idx>`
-// where 25 is the gindex of `executionPayload` inside `BeaconBlockBody` and
-// `<field_idx>` is the SSZ field index inside `ExecutionPayload`. They are
-// fork-stable as long as neither container reorders or grows past the next
-// power-of-two boundary; if a future fork changes the layout, all the
-// constants below must be revisited together.
-//
-// TODO(gloas): EIP-7732 removes `executionPayload` from the beacon block body,
-// so these gindices no longer resolve to a valid EL field once
-// `C4_FORK_GLOAS` activates. The follow-up strategy is to prove
-// `signed_execution_payload_bid.message.parent_block_hash` via SSZ (gindex
-// 2856 in the Gloas body, depth 11 -- see `EXECUTION_BLOCK_HASH_GINDEX_GLOAS`
-// in `specs/gloas/light-client/sync-protocol.md`) and reconstruct the EL
-// header via RLP + keccak against the resulting block hash.
-#define GINDEX_RECEIPT_ROOT 803
-#define GINDEX_LOGS_BLOOM   804
-#define GINDEX_BLOCKUMBER   806
-#define GINDEX_TIMESTAMP    809
-#define GINDEX_BLOCHASH     812
-#define GINDEX_TXINDEX_G    1704984576L // gindex of the first tx
-
-/*
-   SSZ_BYTES32("blockHash"),                                                  // the blockHash of the execution block containing the transaction
-    SSZ_UINT64("blockNumber"),                                                 // the number of the execution block containing the transaction
-    SSZ_BYTES32("hash"),                                                       // the blockHash of the execution block containing the transaction
-    SSZ_UINT32("transactionIndex"),                                            // the index of the transaction in the block
-    SSZ_UINT8("type"),                                                         // the type of the transaction
-    SSZ_UINT64("nonce"),                                                       // the nonce of the transaction
-    SSZ_BYTES("input", 1073741824),                                            // the raw transaction payload
-    SSZ_BYTES32("r"),                                                          // the r value of the transaction
-    SSZ_BYTES32("s"),                                                          // the s value of the transaction
-    SSZ_UINT32("chainId"),                                                     // the s value of the transaction
-    SSZ_UINT8("v"),                                                            // the v value of the transaction
-    SSZ_UINT64("gas"),                                                         // the gas limnit
-    SSZ_ADDRESS("from"),                                                       // the sender of the transaction
-    SSZ_BYTES("to", 20),                                                       // the target of the transaction
-    SSZ_UINT256("value"),                                                      // the value of the transaction
-    SSZ_UINT64("gasPrice"),                                                    // the gas price of the transaction
-    SSZ_UINT64("maxFeePerGas"),                                                // the maxFeePerGas of the transaction
-    SSZ_UINT64("maxPriorityFeePerGas"),                                        // the maxPriorityFeePerGas of the transaction
-    SSZ_LIST("accessList", ETH_ACCESS_LIST_DATA_CONTAINER, 256),               // the access list of the transaction
-    SSZ_LIST("authorizationList", ETH_AUTHORIZATION_LIST_DATA_CONTAINER, 256), // the access list of the transaction
-    SSZ_LIST("blobVersionedHashes", ssz_bytes32, 16),                          // the blobVersionedHashes of the transaction
-    SSZ_UINT8("yParity"),                                                      // the yParity of the transaction
-    SSZ_BYTES32("sourceHash"),                                                 // unique identifier for deposit origin (OP Stack only)
-    SSZ_UINT256("mint"),                                                       // ETH value to mint on L2 (OP Stack only) - rendered as uint
-    SSZ_BOOLEAN("isSystemTx"),                                                 // system transaction flag as bytes (OP Stack only) - rendered as uint
-    SSZ_UINT8("depositReceiptVersion")
-*/
-
 #define TX_BLOCK_HASH               2
 #define TX_BLOCK_NUMBER             4
 #define TX_HASH                     8
@@ -112,16 +62,16 @@ extern "C" {
 bool    c4_tx_create_from_address(verify_ctx_t* ctx, bytes_t raw_tx, uint8_t* address); // using ecrecover
 bool    c4_tx_verify_tx_hash(verify_ctx_t* ctx, bytes_t raw);
 bool    c4_tx_verify_receipt_data(verify_ctx_t* ctx, ssz_ob_t receipt_data, bytes32_t block_hash, uint64_t block_number, uint32_t tx_index, bytes_t tx_raw, bytes_t receipt_raw);
-bool    c4_tx_verify_receipt_proof(verify_ctx_t* ctx, ssz_ob_t receipt_proof, uint32_t tx_index, bytes32_t receipt_root, bytes_t* receipt_raw);
+bool    c4_verify_mpt_proof(verify_ctx_t* ctx, ssz_ob_t receipt_proof, uint32_t tx_index, bytes32_t receipt_root, bytes_t* receipt_raw);
 bool    c4_tx_verify_log_data(verify_ctx_t* ctx, ssz_ob_t log, bytes32_t block_hash, uint64_t block_number, uint32_t tx_index, bytes_t tx_raw, bytes_t receipt_raw);
 bytes_t c4_eth_create_tx_path(uint32_t tx_index, buffer_t* buf);
 bool    c4_write_tx_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer, bytes_t raw_tx,
                                   bytes32_t tx_hash, bytes32_t block_hash, uint64_t block_number, uint32_t transaction_index, uint64_t base_fee);
 /** Build one ETH_RECEIPT_DATA SSZ from RLP receipt and tx; sets *out_cumulative_gas to receipt cumulativeGasUsed and *out_log_index to the next block-level log index. */
-bool    c4_write_receipt_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer, bytes_t tx_raw, bytes_t receipt_raw,
-                                       bytes32_t block_hash, uint64_t block_number, uint32_t tx_index,
-                                       uint64_t base_fee, uint64_t* out_cumulative_gas,
-                                       uint32_t* out_log_index);
+bool c4_write_receipt_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer, bytes_t tx_raw, bytes_t receipt_raw,
+                                    bytes32_t block_hash, uint64_t block_number, uint32_t tx_index,
+                                    uint64_t base_fee, uint64_t* out_cumulative_gas,
+                                    uint32_t* out_log_index);
 
 #ifdef __cplusplus
 }

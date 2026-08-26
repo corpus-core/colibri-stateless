@@ -347,9 +347,9 @@ static trace_entry_t* create_trace_entry(evmone_context_t* ctx, const struct evm
   entry->trace_address[ctx->trace_depth] = ctx->subtrace_count;
   ctx->subtrace_count++;
 
-  evmone_context_t* root       = context_root(ctx);
-  entry->next                  = root->traces;
-  root->traces                 = entry;
+  evmone_context_t* root = context_root(ctx);
+  entry->next            = root->traces;
+  root->traces           = entry;
   return entry;
 }
 
@@ -459,7 +459,7 @@ static void host_call(void* context, const struct evmone_message* msg, const uin
   // Spurious Dragon+: newly created accounts start at nonce 1 (revertible with child).
   if (is_create) {
     call_account_t* created = call_account_get_or_create(&child, msg->destination.bytes);
-    created->nonce = 1;
+    created->nonce          = 1;
     created->flags |= ACCOUNT_HAS_NONCE;
   }
 
@@ -511,6 +511,11 @@ static void host_call(void* context, const struct evmone_message* msg, const uin
 static void host_get_tx_context(void* context, evmone_tx_context* result) {
   evmone_context_t* ctx  = (evmone_context_t*) context;
   evmone_context_t* root = context_root(ctx);
+  //  evm_call_ctx_t*   call_ctx = (evm_call_ctx_t*) ctx->ctx->user_data;
+  //  if (!call_ctx) {
+  //    EVM_LOG("get_tx_context called but no call context found");
+  //    return;
+  //  }
   EVM_LOG("get_tx_context called");
   memset(result, 0, sizeof(evmone_tx_context));
   memcpy(result->tx_origin.bytes, root->tx_origin, 20);
@@ -525,6 +530,7 @@ static void host_get_tx_context(void* context, evmone_tx_context* result) {
   result->blob_hashes_count = 0;
   // SLOTNUM (EIP-7843) stays zero until Amsterdam is activated explicitly.
   result->block_slot_number = 0;
+
   // gas_price as big-endian uint256
   uint64_t gp = root->gas_price;
   for (int i = 31; i >= 0 && gp; i--) {
@@ -594,7 +600,7 @@ static int host_access_account(void* context, const evmc_address* addr) {
   if (!acc && ctx->pap_mode) {
     acc = eth_call_account_cache_load(ctx->ctx, addr->bytes);
     if (acc) {
-      acc->next     = root->accounts;
+      acc->next      = root->accounts;
       root->accounts = acc;
     }
   }
@@ -759,7 +765,7 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
   free_emitted_logs(evm->logs);
   evm->logs = NULL;
   free_trace_entries(evm->traces);
-  evm->traces = NULL;
+  evm->traces   = NULL;
   evm->gas_used = 0;
   evm->evm_done = false;
   evm->reverted = false; // defense-in-depth: prevent stale revert flag from leaking into early-return paths
@@ -803,7 +809,7 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
 
   // read gas_price from the transaction if provided
   context.gas_price = json_get_uint64(json_at(ctx->args, 0), "gasPrice");
-  bytes_t code = call_account_get_code(&context, to);
+  bytes_t code      = call_account_get_code(&context, to);
 
   // EIP-2929: pre-warm sender and destination
   {
@@ -812,7 +818,6 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
     call_account_t* dest_acc = call_account_list_get_or_create(&context.accounts, to);
     dest_acc->flags |= ACCOUNT_ACCESSED;
   }
-
 
   // EIP-7702: resolve delegation indicator for top-level call
   if (code.len == 23 && code.data[0] == 0xef && code.data[1] == 0x01 && code.data[2] == 0x00) {
@@ -909,8 +914,8 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
       if (result.output_data && result.output_size)
         context.traces->output = bytes_dup(bytes(result.output_data, result.output_size));
     }
-    evm->traces     = context.traces;
-    context.traces  = NULL;
+    evm->traces    = context.traces;
+    context.traces = NULL;
   }
 
   // The EVM may have created/modified accounts in context.accounts that

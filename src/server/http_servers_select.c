@@ -10,8 +10,8 @@
 #include "server.h"
 #include "server_handlers.h"
 #include "util/chain_props.h"
-#include "util/json.h"
 #include "util/compat.h"
+#include "util/json.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -20,9 +20,9 @@
 
 // Constants for load balancing
 #define MAX_CONSECUTIVE_FAILURES   2
-#define HEALTH_CHECK_PENALTY       0.5   // Weight penalty for unhealthy servers
-#define MIN_WEIGHT                 0.1   // Minimum weight to avoid division by zero
-#define USER_ERROR_RESET_THRESHOLD 0.8   // If 80%+ servers are unhealthy, assume user error
+#define HEALTH_CHECK_PENALTY       0.5    // Weight penalty for unhealthy servers
+#define MIN_WEIGHT                 0.1    // Minimum weight to avoid division by zero
+#define USER_ERROR_RESET_THRESHOLD 0.8    // If 80%+ servers are unhealthy, assume user error
 #define RECOVERY_TIMEOUT_MS        60000  // 60 seconds before allowing recovery attempts
 #define RECOVERY_SUCCESS_THRESHOLD 5      // Number of successful requests from other servers before allowing recovery
 #define ARCHIVE_PROBE_BLOCK_AGE    201600 // ~4 weeks of blocks at 12s block time
@@ -686,7 +686,7 @@ void c4_parse_server_config(server_list_t* list, char* servers) {
   // Get known client type suffixes for manual configuration
   const char** known_types = c4_get_known_config_names();
 
-  count           = 0;
+  count            = 0;
   char* save_parse = NULL;
   token            = c4_strtok_r(servers_copy, ",", &save_parse);
 
@@ -817,20 +817,23 @@ static rpc_probe_result_t* rpc_call_servers(server_list_t* servers, const char* 
   CURLM* multi = curl_multi_init();
   if (!multi) return NULL;
 
-  size_t               max_n    = servers->count;
-  detection_request_t* reqs     = (detection_request_t*) safe_calloc(max_n, sizeof(detection_request_t));
-  size_t               active   = 0;
+  size_t               max_n       = servers->count;
+  detection_request_t* reqs        = (detection_request_t*) safe_calloc(max_n, sizeof(detection_request_t));
+  size_t               active      = 0;
   size_t               payload_len = strlen(payload);
 
   for (size_t i = 0; i < servers->count; i++) {
     if (skip_mask & (1u << i)) continue;
     detection_request_t* r = &reqs[active];
-    r->server_index    = i;
-    r->response_buffer = (buffer_t) {0};
-    r->headers         = NULL;
-    r->detection_url   = strdup(servers->urls[i]);
-    r->easy_handle     = curl_easy_init();
-    if (!r->easy_handle) { safe_free(r->detection_url); continue; }
+    r->server_index        = i;
+    r->response_buffer     = (buffer_t) {0};
+    r->headers             = NULL;
+    r->detection_url       = strdup(servers->urls[i]);
+    r->easy_handle         = curl_easy_init();
+    if (!r->easy_handle) {
+      safe_free(r->detection_url);
+      continue;
+    }
 
     curl_easy_setopt(r->easy_handle, CURLOPT_URL, r->detection_url);
     curl_easy_setopt(r->easy_handle, CURLOPT_WRITEFUNCTION, detection_write_callback);
@@ -847,7 +850,11 @@ static rpc_probe_result_t* rpc_call_servers(server_list_t* servers, const char* 
     active++;
   }
 
-  if (active == 0) { safe_free(reqs); curl_multi_cleanup(multi); return NULL; }
+  if (active == 0) {
+    safe_free(reqs);
+    curl_multi_cleanup(multi);
+    return NULL;
+  }
 
   // Run all requests to completion
   int running;
@@ -878,7 +885,10 @@ static rpc_probe_result_t* rpc_call_servers(server_list_t* servers, const char* 
 
   // Cleanup curl resources (response buffers already transferred)
   for (size_t j = 0; j < active; j++) {
-    if (reqs[j].easy_handle) { curl_multi_remove_handle(multi, reqs[j].easy_handle); curl_easy_cleanup(reqs[j].easy_handle); }
+    if (reqs[j].easy_handle) {
+      curl_multi_remove_handle(multi, reqs[j].easy_handle);
+      curl_easy_cleanup(reqs[j].easy_handle);
+    }
     if (reqs[j].headers) curl_slist_free_all(reqs[j].headers);
     if (reqs[j].detection_url) safe_free(reqs[j].detection_url);
     buffer_free(&reqs[j].response_buffer);
@@ -1122,10 +1132,10 @@ void c4_detect_archive_status(server_list_t* servers) {
   }
 
   // Phase 1: Get latest block number from all non-pruned servers
-  size_t               phase1_n = 0;
-  rpc_probe_result_t*  phase1   = rpc_call_servers(servers,
-      "{\"jsonrpc\":\"2.0\",\"method\":\"eth_blockNumber\",\"params\":[],\"id\":1}",
-      pruned_mask, &phase1_n);
+  size_t              phase1_n = 0;
+  rpc_probe_result_t* phase1   = rpc_call_servers(servers,
+                                                  "{\"jsonrpc\":\"2.0\",\"method\":\"eth_blockNumber\",\"params\":[],\"id\":1}",
+                                                  pruned_mask, &phase1_n);
   if (!phase1) return;
 
   uint64_t max_block      = 0;
@@ -1414,7 +1424,7 @@ static bytes_t convert_lighthouse_to_ssz(data_request_t* req, json_t result, uin
   uint64_t            slots_per_epoch = slot_for_period(1, chain);
   c4_state_t          state           = {0};
   buffer_t            response        = {0};
-  int found = 0;
+  int                 found           = 0;
   json_for_each_value(result, entry) {
     json_t   data = json_get(entry, "data");
     uint64_t slot = json_get_uint64(json_get(json_get(data, "attested_header"), "beacon"), "slot");
@@ -1440,10 +1450,24 @@ static bytes_t convert_lighthouse_to_ssz(data_request_t* req, json_t result, uin
 
 char* c4_request_fix_url(char* url, single_request_t* r, beacon_client_type_t client_type) {
   static char buffer[1024];
-  buffer_t    buf = stack_buffer(buffer);
-  if ((client_type & BEACON_CLIENT_NIMBUS) && strncmp(url, "eth/v1/lodestar/historical_summaries/", 39) == 0) {
-    buffer_reset(&buf);
-    return bprintf(&buf, "nimbus/v1/debug/beacon/states/%s/historical_summaries", url + 39);
+  buffer_t    buf                 = stack_buffer(buffer);
+  const char  lodestar_states[]   = "eth/v1/lodestar/states/";
+  const char  historical_suffix[] = "/historical_summaries";
+  (void) r;
+
+  if ((client_type & BEACON_CLIENT_NIMBUS) && url && strncmp(url, lodestar_states, sizeof(lodestar_states) - 1) == 0) {
+    const char* state_id = url + sizeof(lodestar_states) - 1;
+    const char* slash    = strrchr(state_id, '/');
+    if (slash && strcmp(slash, historical_suffix) == 0) {
+      size_t id_len = (size_t) (slash - state_id);
+      char   id[128];
+      if (id_len > 0 && id_len < sizeof(id)) {
+        memcpy(id, state_id, id_len);
+        id[id_len] = 0;
+        buffer_reset(&buf);
+        return bprintf(&buf, "nimbus/v1/debug/beacon/states/%s/historical_summaries", id);
+      }
+    }
   }
 
   return url;

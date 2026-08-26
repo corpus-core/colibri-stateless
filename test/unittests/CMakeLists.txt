@@ -72,6 +72,8 @@ foreach(test_source ${TEST_SOURCES})
     if(ETH_OBLIVIOUS)
         target_compile_definitions(${test_name} PRIVATE ETH_OBLIVIOUS)
     endif()
+    # EL_HEADER_CACHE is a global add_definitions in the top-level CMakeLists,
+    # so tests (and bindings) inherit it automatically.
     
     if("${test_name}" STREQUAL "test_eth_precompiles")
         target_link_libraries(${test_name} PRIVATE eth_bn254 intx_wrapper eth_precompiles)

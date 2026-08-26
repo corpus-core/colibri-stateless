@@ -1,11 +1,11 @@
 #include "handler.h"
+#include "logger.h"
 #include "op_conf.h"
 #include "uv_util.h"
-#include "logger.h"
 #include <curl/curl.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdio.h>
 #include <uv.h>
 
 // ---- Remote fallback: fetch preconf from master kona-bridge via blocking curl ----
@@ -13,15 +13,15 @@
 typedef struct {
   uv_work_t         work;
   single_request_t* req;
-  char*             master_url;  // Full URL to fetch
-  char*             cache_path;  // Local path to cache the result (NULL = no caching)
+  char*             master_url; // Full URL to fetch
+  char*             cache_path; // Local path to cache the result (NULL = no caching)
   uint8_t*          data;
   uint32_t          data_len;
 } preconf_remote_fetch_t;
 
 static size_t preconf_curl_write(void* ptr, size_t size, size_t nmemb, void* ud) {
   preconf_remote_fetch_t* ctx  = (preconf_remote_fetch_t*) ud;
-  uint32_t                real = (uint32_t)(size * nmemb);
+  uint32_t                real = (uint32_t) (size * nmemb);
   uint8_t*                buf  = realloc(ctx->data, ctx->data_len + real);
   if (!buf) return 0;
   memcpy(buf + ctx->data_len, ptr, real);
@@ -43,8 +43,8 @@ static void preconf_remote_worker(uv_work_t* work) {
   curl_easy_setopt(curl, CURLOPT_TIMEOUT, 5L);
   curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
 
-  long    http_code = 0;
-  CURLcode res      = curl_easy_perform(curl);
+  long     http_code = 0;
+  CURLcode res       = curl_easy_perform(curl);
   curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
   curl_easy_cleanup(curl);
 
@@ -70,7 +70,7 @@ static void preconf_remote_complete(uv_work_t* work, int status) {
   preconf_remote_fetch_t* ctx = (preconf_remote_fetch_t*) work->data;
 
   if (status == 0 && ctx->data && ctx->data_len > 0) {
-    ctx->req->req->response = (bytes_t){.len = ctx->data_len, .data = ctx->data};
+    ctx->req->req->response = (bytes_t) {.len = ctx->data_len, .data = ctx->data};
     ctx->data               = NULL; // ownership transferred
   }
   else {

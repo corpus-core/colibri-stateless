@@ -87,7 +87,7 @@ test('throwing storage callbacks are treated as misses', async () => {
     const Colibri = ColibriModule.default;
 
     // Create a valid proof with working fixture storage first.
-    const { test_conf, conf } = setup_fixture(Colibri, 'eth_getBalance1');
+    const { test_conf, conf } = await setup_fixture(Colibri, 'eth_getBalance1');
     const proof = await new Colibri(conf).createProof(test_conf.method, test_conf.params);
     assert.ok(proof.length > 0);
 

@@ -23,6 +23,7 @@
 
 #include "beacon.h"
 #include "beacon_types.h"
+#include "el_header.h"
 #include "eth_account.h"
 #include "eth_req.h"
 #include "eth_tools.h"
@@ -54,7 +55,7 @@ static void add_dynamic_byte_list(json_t bytes_list, ssz_builder_t* builder, cha
   buffer_free(&tmp);
 }
 
-static c4_status_t create_eth_call_proof(prover_ctx_t* ctx, ssz_builder_t account_proofs, beacon_block_t* block_data, json_t block_number, blockroot_proof_t* historic_proof) {
+static c4_status_t create_eth_call_proof(prover_ctx_t* ctx, ssz_builder_t account_proofs, eth_block_t* block_data, json_t block_number, blockroot_proof_t* historic_proof) {
 
   ssz_builder_t eth_call_proof = ssz_builder_for_type(ETH_SSZ_VERIFY_CALL_PROOF);
   ssz_builder_t sync_proof     = NULL_SSZ_BUILDER;
@@ -63,7 +64,7 @@ static c4_status_t create_eth_call_proof(prover_ctx_t* ctx, ssz_builder_t accoun
   TRY_ASYNC(c4_get_syncdata_proof(ctx, &historic_proof->sync, &sync_proof));
 
   ssz_add_builders(&eth_call_proof, "accounts", account_proofs);
-  ssz_add_builders(&eth_call_proof, "state_proof", eth_ssz_create_state_proof(ctx, block_number, block_data, historic_proof, true));
+  eth_add_block_proof(ctx, &eth_call_proof, block_data, historic_proof);
 
   ctx->proof = eth_create_proof_request(
       ctx->chain_id,
@@ -71,14 +72,6 @@ static c4_status_t create_eth_call_proof(prover_ctx_t* ctx, ssz_builder_t accoun
       eth_call_proof,
       sync_proof);
 
-  return C4_SUCCESS;
-}
-
-static c4_status_t create_hybrid_call_proof(prover_ctx_t* ctx, ssz_builder_t account_proofs, beacon_block_t* block_data) {
-  ssz_builder_t hybrid_call_proof = ssz_builder_for_type(ETH_SSZ_VERIFY_HYBRID_CALL_PROOF);
-  ssz_add_builders(&hybrid_call_proof, "accounts", account_proofs);
-  ssz_add_bytes(&hybrid_call_proof, "header_data", block_data->execution.bytes);
-  ctx->proof = eth_create_proof_request(ctx->chain_id, NULL_SSZ_BUILDER, hybrid_call_proof, NULL_SSZ_BUILDER);
   return C4_SUCCESS;
 }
 
@@ -292,7 +285,7 @@ c4_status_t c4_proof_call(prover_ctx_t* ctx) {
   json_t                tx               = json_at(ctx->params, 0);
   json_t                block_number     = json_at(ctx->params, 1);
   json_t                state_overrides  = json_at(ctx->params, 2);
-  beacon_block_t        block            = {0};
+  eth_block_t           block            = {0};
   json_t                trace            = {0};
   ssz_builder_t         accounts         = {0};
   blockroot_proof_t     historic_proof   = {0};
@@ -319,8 +312,8 @@ c4_status_t c4_proof_call(prover_ctx_t* ctx) {
 
   TRY_ASYNC_CATCH(c4_beacon_get_block_for_eth(ctx, block_number, &block), eth_state_overrides_free(&overrides_parsed)); // get the beacon-block matching the block-tag (usually cached)
 
-  uint64_t target_block = ssz_get_uint64(&block.execution, "blockNumber");
-  bytes_t  miner        = ssz_get(&block.execution, "feeRecipient").bytes;
+  uint64_t target_block = eth_el_header_get_uint64(block.el_header, EL_BLOCK_NUMBER);
+  bytes_t  miner        = eth_el_header_get(block.el_header, EL_FEE_RECIPIENT);
   TRACE_ADD_UINT64(ctx, "target_block", target_block);
 
   TRACE_START(ctx, "fetch access list and eth_getProof");
@@ -331,16 +324,6 @@ c4_status_t c4_proof_call(prover_ctx_t* ctx) {
     TRY_ADD_ASYNC(status, eth_create_access_list(ctx, tx, &trace, target_block, state_overrides));
   else
     TRY_ADD_ASYNC(status, ctx->flags & C4_PROVER_FLAG_USE_DEBUG_TRACE ? eth_debug_trace_call(ctx, tx, &trace, target_block) : eth_create_access_list(ctx, tx, &trace, target_block, (json_t) {0}));
-
-  if (block.header_only) {
-    TRY_ASYNC_CATCH(status, c4_free_block_proof(&historic_proof); eth_state_overrides_free(&overrides_parsed));
-    TRY_ASYNC_CATCH(
-        c4_get_eth_proofs(ctx, trace, target_block, &accounts, miner.data, has_overrides ? &overrides_parsed : NULL),
-        ssz_builder_free(&accounts);
-        eth_state_overrides_free(&overrides_parsed););
-    eth_state_overrides_free(&overrides_parsed);
-    return create_hybrid_call_proof(ctx, accounts, &block);
-  }
 
   TRY_ADD_ASYNC(status, c4_check_blockroot_proof(ctx, &historic_proof, &block));
   TRY_ASYNC_CATCH(status, c4_free_block_proof(&historic_proof); eth_state_overrides_free(&overrides_parsed));

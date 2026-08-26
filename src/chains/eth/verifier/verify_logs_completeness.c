@@ -24,6 +24,7 @@
 #include "beacon_types.h"
 #include "bytes.h"
 #include "crypto.h"
+#include "el_header.h"
 #include "eth_account.h"
 #include "eth_bloom.h"
 #include "eth_tx.h"
@@ -32,96 +33,156 @@
 #include "patricia.h"
 #include "rlp.h"
 #include "ssz.h"
-#include "sync_committee.h"
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
-// Hard upper bound on the number of blocks a single completeness proof may span. This matches the
-// SSZ list capacity (4096) and caps allocation before the (untrusted) range is otherwise validated.
-#define VERIFY_LOGS_COMPLETENESS_MAX_BLOCKS 4096
+// Hard upper bound on the number of blocks a single completeness proof may span.
+// Progressive lists have no SSZ capacity, so these DoS guards are the only cap
+// before the (untrusted) range is otherwise validated.
+#define VERIFY_LOGS_COMPLETENESS_MAX_BLOCKS   4096
+#define VERIFY_LOGS_COMPLETENESS_MAX_RECEIPTS 65536
+#define VERIFY_LOGS_COMPLETENESS_MAX_HEADER   2048
 
-// Reconstructs the ascending parentRoot header chain (oldest `header` -> anchor) without verifying
-// the anchor's canonicity (that is done separately via the shared `header_proof` union).
-// Fills body_roots[0..count-1] with the bodyRoot of each in-range block (ascending) and writes the
-// reconstructed anchor (the newest header) into `anchor_bytes`/`*anchor_out`.
-static c4_status_t reconstruct_chain(verify_ctx_t* ctx, ssz_ob_t header, ssz_ob_t headers,
-                                     bytes32_t* body_roots, uint32_t count,
-                                     uint8_t anchor_bytes[112], ssz_ob_t* anchor_out) {
-  uint32_t  header_count    = ssz_len(headers);
-  bytes32_t last_block_root = {0};
-  ssz_ob_t  header_ob       = {.bytes = bytes(anchor_bytes, 112), .def = eth_ssz_type_for_denep(ETH_SSZ_BEACON_BLOCK_HEADER, C4_CHAIN_MAINNET)};
+// Walks the parentHash chain from the verified anchor back to fromBlock.
+// `headers` is ascending fromBlock .. toBlock-1. On success `el_headers[0..count-1]`
+// and `hashes[0..count-1]` are filled (borrowed views into the proof / anchor).
+static bool reconstruct_el_chain(verify_ctx_t* ctx, ssz_ob_t headers, uint32_t count,
+                                 bytes_t anchor_hdr, bytes32_t anchor_hash,
+                                 bytes_t* el_headers, bytes32_t* hashes) {
+  uint32_t  header_count = ssz_len(headers);
+  bytes32_t anchor_got   = {0};
+  if (header_count != count - 1) RETURN_VERIFY_ERROR(ctx, "completeness proof header chain length mismatch!");
+  if (!anchor_hdr.data || anchor_hdr.len == 0 || anchor_hdr.len > VERIFY_LOGS_COMPLETENESS_MAX_HEADER)
+    RETURN_VERIFY_ERROR(ctx, "invalid anchor execution header!");
+  keccak(anchor_hdr, anchor_got);
+  if (memcmp(anchor_got, anchor_hash, 32) != 0)
+    RETURN_VERIFY_ERROR(ctx, "anchor header hash mismatch!");
 
-  if (header_count != count - 1) THROW_ERROR("completeness proof header chain length mismatch!");
+  el_headers[count - 1] = anchor_hdr;
+  memcpy(hashes[count - 1], anchor_hash, 32);
 
-  // bodyRoot of the oldest block comes from the full header
-  memcpy(body_roots[0], ssz_get(&header, "bodyRoot").bytes.data, 32);
-  ssz_hash_tree_root(header, last_block_root);
-
-  // walk the parent_root chain from the oldest+1 up to the anchor (newest)
-  for (uint32_t i = 0; i < header_count; i++) {
-    ssz_ob_t h = ssz_at(headers, i);
-    memcpy(anchor_bytes, h.bytes.data, 16);           // slot and proposerIndex
-    memcpy(anchor_bytes + 16, last_block_root, 32);   // parentRoot = previous block root
-    memcpy(anchor_bytes + 48, h.bytes.data + 16, 64); // stateRoot and bodyRoot
-    ssz_hash_tree_root(header_ob, last_block_root);
-    memcpy(body_roots[i + 1], h.bytes.data + 48, 32); // bodyRoot of this block
+  for (uint32_t i = count; i-- > 1;) {
+    bytes_t   older  = ssz_at(headers, i - 1).bytes;
+    bytes32_t h      = {0};
+    bytes_t   parent = eth_el_header_get(el_headers[i], EL_PARENT_HASH);
+    if (!older.data || !older.len) RETURN_VERIFY_ERROR(ctx, "missing execution header in completeness chain!");
+    if (older.len > VERIFY_LOGS_COMPLETENESS_MAX_HEADER) RETURN_VERIFY_ERROR(ctx, "execution header too large!");
+    keccak(older, h);
+    if (parent.len != 32 || memcmp(h, parent.data, 32) != 0)
+      RETURN_VERIFY_ERROR(ctx, "completeness parentHash mismatch!");
+    uint64_t newer_num = eth_el_header_get_uint64(el_headers[i], EL_BLOCK_NUMBER);
+    uint64_t older_num = eth_el_header_get_uint64(older, EL_BLOCK_NUMBER);
+    if (older_num + 1 != newer_num)
+      RETURN_VERIFY_ERROR(ctx, "completeness blockNumber sequence has a gap!");
+    el_headers[i - 1] = older;
+    memcpy(hashes[i - 1], h, 32);
   }
-
-  // the anchor is the last reconstructed header, or the full header for a single-block range
-  *anchor_out = header_count ? header_ob : header;
-  return C4_SUCCESS;
+  return true;
 }
 
-static bool verify_negative_block(verify_ctx_t* ctx, ssz_ob_t block, bytes32_t body_root, bytes_t query_blooms) {
-  bytes_t   block_number = ssz_get(&block, "blockNumber").bytes;
-  bytes_t   logs_bloom   = ssz_get(&block, "logsBloom").bytes;
-  ssz_ob_t  proof        = ssz_get(&block, "proof");
-  uint8_t   leafes[64]   = {0};
-  gindex_t  gindexes[2]  = {GINDEX_BLOCKUMBER, GINDEX_LOGS_BLOOM};
-  bytes32_t root_hash    = {0};
-
+static bool verify_negative_block(verify_ctx_t* ctx, bytes_t el_header, bytes_t query_blooms) {
+  bytes_t logs_bloom = eth_el_header_get(el_header, EL_LOGS_BLOOM);
   if (logs_bloom.len != 256) RETURN_VERIFY_ERROR(ctx, "invalid logsBloom in completeness proof!");
-  memcpy(leafes, block_number.data, block_number.len);
-  // logsBloom is a 256-byte vector -> its leaf is the hash_tree_root of the vector, not the raw bytes.
-  ssz_hash_tree_root(ssz_get(&block, "logsBloom"), leafes + 32);
-
-  if (!ssz_verify_multi_merkle_proof(proof.bytes, bytes(leafes, sizeof(leafes)), gindexes, root_hash))
-    RETURN_VERIFY_ERROR(ctx, "invalid bloom-negative proof, missing nodes!");
-  if (memcmp(root_hash, body_root, 32) != 0)
-    RETURN_VERIFY_ERROR(ctx, "invalid bloom-negative proof, body root mismatch!");
-
   // Independently re-check the negativity claim against the proven logsBloom.
   if (!c4_eth_bloom_negative(query_blooms, logs_bloom))
     RETURN_VERIFY_ERROR(ctx, "block claimed bloom-negative but query bloom is a subset of logsBloom!");
   return true;
 }
 
-// Finds the raw transaction for the given index in the block's matched-tx list.
-static bytes_t find_tx_raw(ssz_ob_t txs, uint32_t tx_index) {
+// True if `tx_index` is present in the block's matched-tx index list.
+static bool has_tx(ssz_ob_t txs, uint32_t tx_index) {
   uint32_t n = ssz_len(txs);
   for (uint32_t i = 0; i < n; i++) {
-    ssz_ob_t tx = ssz_at(txs, i);
-    if (ssz_get_uint64(&tx, "transactionIndex") == tx_index)
-      return ssz_get(&tx, "transaction").bytes;
+    if (ssz_uint32(ssz_at(txs, i)) == tx_index) return true;
   }
-  return NULL_BYTES;
+  return false;
 }
 
-// Rebuilds the receipts trie, verifies the multi proof and appends the logs of every
-// bloom-positive receipt to `data_builder`. The final exact filtering is done once for the
-// whole range in `verify_logs_completeness`. `out_count` is incremented per appended log.
-static bool verify_full_block(verify_ctx_t* ctx, ssz_ob_t block, bytes32_t body_root,
+static bool receipt_get_bloom(verify_ctx_t* ctx, bytes_t receipt, bytes_t* bloom, int* num_logs, bytes_t* logs_rlp) {
+  if (receipt.len && receipt.data[0] < 0x80) { // strip the (optional) EIP-2718 type byte
+    receipt.data++;
+    receipt.len--;
+  }
+  if (rlp_decode(&receipt, 0, &receipt) != RLP_LIST) RETURN_VERIFY_ERROR(ctx, "invalid receipt encoding in completeness proof!");
+  if (rlp_decode(&receipt, 2, bloom) != RLP_ITEM || bloom->len != 256) RETURN_VERIFY_ERROR(ctx, "invalid receipt logsBloom!");
+  if (rlp_decode(&receipt, 3, logs_rlp) != RLP_LIST) RETURN_VERIFY_ERROR(ctx, "invalid receipt logs!");
+  *num_logs = rlp_decode(logs_rlp, -1, logs_rlp);
+  if (*num_logs < 0) RETURN_VERIFY_ERROR(ctx, "invalid receipt logs count!");
+  return true;
+}
+
+// Decodes every log of one receipt and appends it to `data_builder`.
+// On failure the current log's builders are freed and ctx already holds the error;
+// the caller must free `mpt_proof_t`. Partial appends stay in `data_builder`.
+static bool append_receipt_logs(verify_ctx_t* ctx, bytes_t logs_rlp, int num_logs,
+                                bytes32_t block_hash, uint64_t blk_num,
+                                bytes32_t tx_hash, uint32_t tx_index,
+                                uint32_t* block_log_index, ssz_builder_t* data_builder,
+                                uint32_t* out_count) {
+  const ssz_def_t* log_def = data_builder->def->def.vector.type;
+
+  for (int l = 0; l < num_logs; l++, (*block_log_index)++) {
+    bytes_t log_rlp = {0}, addr = {0}, topics_rlp = {0}, data = {0};
+    if (rlp_decode(&logs_rlp, l, &log_rlp) != RLP_LIST) RETURN_VERIFY_ERROR(ctx, "invalid log encoding!");
+    if (rlp_decode(&log_rlp, 0, &addr) != RLP_ITEM) RETURN_VERIFY_ERROR(ctx, "invalid log address!");
+    if (rlp_decode(&log_rlp, 1, &topics_rlp) != RLP_LIST) RETURN_VERIFY_ERROR(ctx, "invalid log topics!");
+    if (rlp_decode(&log_rlp, 2, &data) != RLP_ITEM) RETURN_VERIFY_ERROR(ctx, "invalid log data!");
+    int num_topics = rlp_decode(&topics_rlp, -1, &topics_rlp);
+    if (num_topics < 0) RETURN_VERIFY_ERROR(ctx, "invalid log topics count!");
+
+    ssz_builder_t log_builder = ssz_builder_for_def(log_def);
+    ssz_add_bytes(&log_builder, "blockHash", bytes(block_hash, 32));
+    ssz_add_uint64(&log_builder, blk_num);
+    ssz_add_bytes(&log_builder, "transactionHash", bytes(tx_hash, 32));
+    ssz_add_uint32(&log_builder, tx_index);
+    uint8_t addr20[20] = {0};
+    if (addr.len <= 20) memcpy(addr20 + (20 - addr.len), addr.data, addr.len);
+    ssz_add_bytes(&log_builder, "address", bytes(addr20, 20));
+    ssz_add_uint32(&log_builder, *block_log_index);
+    ssz_add_uint8(&log_builder, 0);
+    ssz_builder_t topics_builder = ssz_builder_for_def(ssz_get_def(log_def, "topics"));
+    for (int t = 0; t < num_topics; t++) {
+      bytes_t topic       = {0};
+      uint8_t topic32[32] = {0};
+      if (rlp_decode(&topics_rlp, t, &topic) != RLP_ITEM) {
+        ssz_builder_free(&topics_builder);
+        ssz_builder_free(&log_builder);
+        RETURN_VERIFY_ERROR(ctx, "invalid topic!");
+      }
+      if (topic.len <= 32) memcpy(topic32 + (32 - topic.len), topic.data, topic.len);
+      ssz_add_dynamic_list_bytes(&topics_builder, num_topics, bytes(topic32, 32));
+    }
+    ssz_add_builders(&log_builder, "topics", topics_builder);
+    ssz_add_bytes(&log_builder, "data", data);
+    ssz_add_dynamic_list_builders(data_builder, 0, log_builder);
+    (*out_count)++;
+  }
+  return true;
+}
+
+// Rebuilds the receipts trie, verifies matching txs against transactionsRoot and appends
+// the logs of every bloom-positive receipt to `data_builder`. The final exact filtering
+// is done once for the whole range in `verify_logs_completeness`. `out_count` is incremented
+// per appended log.
+static bool verify_full_block(verify_ctx_t* ctx, ssz_ob_t block, bytes_t el_header, bytes32_t block_hash,
                               ssz_builder_t* data_builder, bytes_t query_blooms, uint32_t* out_count) {
-  bytes_t  block_number = ssz_get(&block, "blockNumber").bytes;
-  bytes_t  block_hash   = ssz_get(&block, "blockHash").bytes;
   ssz_ob_t receipts     = ssz_get(&block, "receipts");
   ssz_ob_t txs          = ssz_get(&block, "txs");
-  ssz_ob_t proof        = ssz_get(&block, "proof");
   uint32_t num_receipts = ssz_len(receipts);
   uint32_t num_txs      = ssz_len(txs);
-  uint64_t blk_num      = ssz_get_uint64(&block, "blockNumber");
+  uint64_t blk_num      = eth_el_header_get_uint64(el_header, EL_BLOCK_NUMBER);
+
+  if (num_receipts > VERIFY_LOGS_COMPLETENESS_MAX_RECEIPTS)
+    RETURN_VERIFY_ERROR(ctx, "too many receipts in completeness full-receipts block!");
+  if (num_txs > num_receipts)
+    RETURN_VERIFY_ERROR(ctx, "too many txs in completeness full-receipts block!");
+
+  bytes_t expected_receipt_root = eth_el_header_get(el_header, EL_RECEIPTS_ROOT);
+  bytes_t expected_tx_root      = eth_el_header_get(el_header, EL_TRANSACTIONS_ROOT);
+  if (expected_receipt_root.len != 32) RETURN_VERIFY_ERROR(ctx, "invalid receiptsRoot in execution header!");
+  if (expected_tx_root.len != 32) RETURN_VERIFY_ERROR(ctx, "invalid transactionsRoot in execution header!");
 
   // rebuild the receipts Patricia trie and compute the receiptsRoot
   node_t*   trie_root    = NULL;
@@ -137,47 +198,26 @@ static bool verify_full_block(verify_ctx_t* ctx, ssz_ob_t block, bytes32_t body_
   else
     memcpy(receipt_root, EMPTY_ROOT_HASH, 32);
 
-  // verify multi proof: blockNumber, blockHash, receiptsRoot, matched transactions -> bodyRoot
-  uint8_t*  leafes    = safe_calloc(3 + num_txs, 32);
-  gindex_t* gindexes  = safe_calloc(3 + num_txs, sizeof(gindex_t));
-  bytes32_t root_hash = {0};
-  memcpy(leafes, block_number.data, block_number.len);
-  memcpy(leafes + 32, block_hash.data, block_hash.len);
-  memcpy(leafes + 64, receipt_root, 32);
-  gindexes[0] = GINDEX_BLOCKUMBER;
-  gindexes[1] = GINDEX_BLOCHASH;
-  gindexes[2] = GINDEX_RECEIPT_ROOT;
-  for (uint32_t i = 0; i < num_txs; i++) {
-    ssz_ob_t tx = ssz_at(txs, i);
-    ssz_hash_tree_root(ssz_ob(ssz_transactions_bytes, ssz_get(&tx, "transaction").bytes), leafes + 96 + 32 * i);
-    gindexes[3 + i] = GINDEX_TXINDEX_G + ssz_get_uint64(&tx, "transactionIndex");
-  }
-  bool ok = ssz_verify_multi_merkle_proof(proof.bytes, bytes(leafes, (3 + num_txs) * 32), gindexes, root_hash);
-  safe_free(leafes);
-  safe_free(gindexes);
-  if (!ok) RETURN_VERIFY_ERROR(ctx, "invalid full-receipts proof, missing nodes!");
-  if (memcmp(root_hash, body_root, 32) != 0) RETURN_VERIFY_ERROR(ctx, "invalid full-receipts proof, body root mismatch!");
+  if (memcmp(receipt_root, expected_receipt_root.data, 32) != 0)
+    RETURN_VERIFY_ERROR(ctx, "invalid full-receipts proof, receiptsRoot mismatch!");
 
-  const ssz_def_t* log_def         = data_builder->def->def.vector.type;
-  uint32_t         block_log_index = 0; // block-wide log index across all receipts
+  mpt_proof_t tx_proof;
+  uint32_t    block_log_index = 0; // block-wide log index across all receipts
+  mpt_proof_init(&tx_proof, ssz_get(&block, "transactionProof"), expected_tx_root.data);
 
   // walk every receipt in tx order; a matching log can only exist in a bloom-positive receipt,
   // so the prover legitimately omits transactions of bloom-negative receipts. Independently
   // re-checking each receipt's (authenticated) logsBloom is what makes the proof complete.
   for (uint32_t r = 0; r < num_receipts; r++) {
     bytes_t receipt  = ssz_at(receipts, r).bytes;
+    int     num_logs = 0;
     bytes_t logs_rlp = {0};
     bytes_t bloom    = {0};
 
-    if (receipt.len && receipt.data[0] < 0x80) { // strip the (optional) EIP-2718 type byte
-      receipt.data++;
-      receipt.len--;
+    if (!receipt_get_bloom(ctx, receipt, &bloom, &num_logs, &logs_rlp)) {
+      mpt_proof_free(&tx_proof);
+      return false;
     }
-    if (rlp_decode(&receipt, 0, &receipt) != RLP_LIST) RETURN_VERIFY_ERROR(ctx, "invalid receipt encoding in completeness proof!");
-    if (rlp_decode(&receipt, 2, &bloom) != RLP_ITEM || bloom.len != 256) RETURN_VERIFY_ERROR(ctx, "invalid receipt logsBloom!");
-    if (rlp_decode(&receipt, 3, &logs_rlp) != RLP_LIST) RETURN_VERIFY_ERROR(ctx, "invalid receipt logs!");
-    int num_logs = rlp_decode(&logs_rlp, -1, &logs_rlp);
-    if (num_logs < 0) num_logs = 0;
 
     // bloom-negative receipts cannot contain a matching log -> skip, but keep the log index in sync
     if (c4_eth_bloom_negative(query_blooms, bloom)) {
@@ -185,47 +225,26 @@ static bool verify_full_block(verify_ctx_t* ctx, ssz_ob_t block, bytes32_t body_
       continue;
     }
 
-    bytes_t raw_tx = find_tx_raw(txs, r);
-    if (!raw_tx.data) RETURN_VERIFY_ERROR(ctx, "bloom-positive receipt without provided transaction (incomplete proof)!");
+    if (!has_tx(txs, r)) {
+      mpt_proof_free(&tx_proof);
+      RETURN_VERIFY_ERROR(ctx, "bloom-positive receipt without provided transaction (incomplete proof)!");
+    }
+    bytes_t raw_tx = {0};
+    if (patricia_verify_multi(&tx_proof, c4_eth_create_tx_path(r, &path_buf), &raw_tx) != PATRICIA_FOUND) {
+      mpt_proof_free(&tx_proof);
+      RETURN_VERIFY_ERROR(ctx, "invalid transaction proof in completeness full-receipts block!");
+    }
     bytes32_t tx_hash = {0};
     keccak(raw_tx, tx_hash);
 
-    for (int l = 0; l < num_logs; l++, block_log_index++) {
-      bytes_t log_rlp = {0}, addr = {0}, topics_rlp = {0}, data = {0};
-      if (rlp_decode(&logs_rlp, l, &log_rlp) != RLP_LIST) RETURN_VERIFY_ERROR(ctx, "invalid log encoding!");
-      if (rlp_decode(&log_rlp, 0, &addr) != RLP_ITEM) RETURN_VERIFY_ERROR(ctx, "invalid log address!");
-      if (rlp_decode(&log_rlp, 1, &topics_rlp) != RLP_LIST) RETURN_VERIFY_ERROR(ctx, "invalid log topics!");
-      if (rlp_decode(&log_rlp, 2, &data) != RLP_ITEM) RETURN_VERIFY_ERROR(ctx, "invalid log data!");
-      int num_topics = rlp_decode(&topics_rlp, -1, &topics_rlp);
-
-      ssz_builder_t log_builder = ssz_builder_for_def(log_def);
-      ssz_add_bytes(&log_builder, "blockHash", block_hash);
-      ssz_add_uint64(&log_builder, blk_num);
-      ssz_add_bytes(&log_builder, "transactionHash", bytes(tx_hash, 32));
-      ssz_add_uint32(&log_builder, r);
-      uint8_t addr20[20] = {0};
-      if (addr.len <= 20) memcpy(addr20 + (20 - addr.len), addr.data, addr.len);
-      ssz_add_bytes(&log_builder, "address", bytes(addr20, 20));
-      ssz_add_uint32(&log_builder, block_log_index);
-      ssz_add_uint8(&log_builder, 0);
-      ssz_builder_t topics_builder = ssz_builder_for_def(ssz_get_def(log_def, "topics"));
-      for (int t = 0; t < num_topics; t++) {
-        bytes_t topic       = {0};
-        uint8_t topic32[32] = {0};
-        if (rlp_decode(&topics_rlp, t, &topic) != RLP_ITEM) {
-          ssz_builder_free(&topics_builder);
-          ssz_builder_free(&log_builder);
-          RETURN_VERIFY_ERROR(ctx, "invalid topic!");
-        }
-        if (topic.len <= 32) memcpy(topic32 + (32 - topic.len), topic.data, topic.len);
-        ssz_add_dynamic_list_bytes(&topics_builder, num_topics, bytes(topic32, 32));
-      }
-      ssz_add_builders(&log_builder, "topics", topics_builder);
-      ssz_add_bytes(&log_builder, "data", data);
-      ssz_add_dynamic_list_builders(data_builder, 0, log_builder);
-      (*out_count)++;
+    if (!append_receipt_logs(ctx, logs_rlp, num_logs, block_hash, blk_num, tx_hash, r,
+                             &block_log_index, data_builder, out_count)) {
+      mpt_proof_free(&tx_proof);
+      return false;
     }
   }
+  mpt_proof_free(&tx_proof);
+
   return true;
 }
 
@@ -248,59 +267,15 @@ static bool bind_range_endpoint(verify_ctx_t* ctx, json_t tag, uint64_t proof_va
   return proof_value == anchor_value; // "latest"/"safe"/"finalized"
 }
 
-// Verifies the anchor `tag_proof` (ETH_STATE_BLOCK_UNION) and runs the `latest` freshness gate.
-//   - `timestamp` variant: the anchor's execution timestamp is proven against its bodyRoot via
-//     `tag_proof_branch`; the proven value feeds `eth_check_latest_freshness`.
-//   - `checkpoint_proof` variant (`safe`/`finalized`): structurally prepared but not verified yet.
-//   - `none` variant (pinned block): no timestamp -> the gate fails closed if the host demanded
-//     freshness for an open-ended tag.
-//
-// `safe`/`finalized` bind the range endpoint to the beacon checkpoint, which requires the (not yet
-// implemented) `checkpoint_proof` variant. Until then these tags are rejected fail-closed: accepting
-// the `timestamp` variant for them would let a prover anchor at an arbitrary older canonical block
-// (no freshness enforced for non-`latest` tags) and silently omit newer logs.
-static bool verify_tag_proof_freshness(verify_ctx_t* ctx, ssz_ob_t proof, json_t filter, bytes32_t anchor_body_root) {
-  json_t   to_tag    = json_get(filter, "toBlock");
-  bool     is_latest = to_tag.type == JSON_TYPE_NOT_FOUND || eth_json_is_latest(to_tag);
-  bool     is_pinned = to_tag.type == JSON_TYPE_STRING && to_tag.len > 2 && to_tag.start[1] == '0' && to_tag.start[2] == 'x';
-  if (!is_latest && !is_pinned)
-    RETURN_VERIFY_ERROR(ctx, "toBlock tag not yet supported for completeness (only a pinned block or 'latest')");
-
-  ssz_ob_t tag       = ssz_get(&proof, "tag_proof");
-  bool     is_ts     = tag.def == eth_ssz_verification_type(ETH_SSZ_DATA_STATE_BLOCK_TIMESTAMP);
-  uint64_t anchor_ts = 0;
-
-  if (is_ts) {
-    ssz_ob_t  branch    = ssz_get(&proof, "tag_proof_branch");
-    gindex_t  gindex[1] = {GINDEX_TIMESTAMP};
-    uint8_t   leaf[32]  = {0};
-    bytes32_t root      = {0};
-    if (tag.bytes.len >= 8) memcpy(leaf, tag.bytes.data, 8); // uint64 leaf: 8 bytes LE, zero-padded to 32
-    if (!ssz_verify_multi_merkle_proof(branch.bytes, bytes(leaf, 32), gindex, root))
-      RETURN_VERIFY_ERROR(ctx, "invalid tag_proof, missing nodes!");
-    if (memcmp(root, anchor_body_root, 32) != 0)
-      RETURN_VERIFY_ERROR(ctx, "invalid tag_proof, anchor body root mismatch!");
-    anchor_ts = ssz_uint64(tag);
-  }
-  else if (tag.def && tag.def->name && strcmp(tag.def->name, "checkpoint_proof") == 0)
-    RETURN_VERIFY_ERROR(ctx, "checkpoint tag_proof not yet supported for completeness");
-  else if (tag.def && tag.def->type != SSZ_TYPE_NONE)
-    RETURN_VERIFY_ERROR(ctx, "unexpected tag_proof variant in completeness proof!");
-
-  return eth_check_latest_freshness(ctx, is_latest, is_ts, anchor_ts);
-}
-
 bool verify_logs_completeness(verify_ctx_t* ctx) {
   ssz_ob_t proof   = ctx->proof;
-  ssz_ob_t header  = ssz_get(&proof, "header");
   ssz_ob_t headers = ssz_get(&proof, "headers");
   ssz_ob_t blocks  = ssz_get(&proof, "blocks");
 
   // The claim is the requested range (from the RPC request); the proof carries no range endpoints.
-  // The block count is derived from the (proven) parentRoot chain length.
+  // The block count is derived from the (proven) parentHash chain length.
   uint64_t count = (uint64_t) ssz_len(headers) + 1;
-  // Hard upper bound before any allocation: the SSZ list caps at 4096, but lists of dynamic (union)
-  // elements are not length-checked by ssz_is_valid, so reject oversized ranges up front (DoS guard).
+  // Hard upper bound before any allocation: progressive lists are not length-capped by SSZ.
   if (count > VERIFY_LOGS_COMPLETENESS_MAX_BLOCKS) RETURN_VERIFY_ERROR(ctx, "completeness range too large!");
 
   json_t filter = json_at(ctx->args, 0);
@@ -308,54 +283,60 @@ bool verify_logs_completeness(verify_ctx_t* ctx) {
 
   if ((uint64_t) ssz_len(blocks) != count) RETURN_VERIFY_ERROR(ctx, "completeness proof block count mismatch!");
 
-  // reconstruct the parentRoot chain -> per-block bodyRoots + the reconstructed anchor (newest) header
-  bytes32_t* body_roots       = safe_calloc((size_t) count, sizeof(bytes32_t));
-  uint8_t    anchor_bytes[112] = {0};
-  ssz_ob_t   anchor           = {0};
-  if (reconstruct_chain(ctx, header, headers, body_roots, (uint32_t) count, anchor_bytes, &anchor) != C4_SUCCESS) {
-    safe_free(body_roots);
+  json_t to_tag    = json_get(filter, "toBlock");
+  bool   is_latest = to_tag.type == JSON_TYPE_NOT_FOUND || eth_json_is_latest(to_tag);
+  bool   is_pinned = to_tag.type == JSON_TYPE_STRING && to_tag.len > 2 && to_tag.start[1] == '0' && to_tag.start[2] == 'x';
+  if (!is_latest && !is_pinned)
+    RETURN_VERIFY_ERROR(ctx, "toBlock tag not yet supported for completeness (only a pinned block or 'latest')");
+
+  bytes_t   anchor_hdr  = {0};
+  bytes32_t anchor_hash = {0};
+  ssz_ob_t  block_proof = ssz_get(&proof, "block");
+  if (!block_proof.def) RETURN_VERIFY_ERROR(ctx, "missing block proof in completeness proof!");
+  if (c4_verify_block(ctx, block_proof, &anchor_hdr, anchor_hash) != C4_SUCCESS)
+    return false;
+
+  bytes_t*   el_headers = safe_calloc((size_t) count, sizeof(bytes_t));
+  bytes32_t* hashes     = safe_calloc((size_t) count, sizeof(bytes32_t));
+  if (!reconstruct_el_chain(ctx, headers, (uint32_t) count, anchor_hdr, anchor_hash, el_headers, hashes)) {
+    safe_free(el_headers);
+    safe_free(hashes);
     return false;
   }
 
-  // Anchor the chain via the shared header_proof union (signature / header-chain / historic summaries),
-  // exactly like every other proof type. May return C4_PENDING (need sync committee) or C4_ERROR;
-  // both propagate to the caller via ctx->state.
-  if (c4_verify_header(ctx, anchor, proof) != C4_SUCCESS) {
-    safe_free(body_roots);
-    return false;
-  }
-
-  bytes_t query_blooms = c4_eth_filter_query_blooms(filter);
-
-  const ssz_def_t* logs_def         = eth_ssz_verification_type(ETH_SSZ_DATA_LOGS);
-  ssz_builder_t    data_builder     = ssz_builder_for_def(logs_def);
-  uint32_t         log_count        = 0;
-  uint64_t         from_num         = 0;
-  uint64_t         to_num           = 0;
-  bytes32_t        anchor_body_root = {0};
-  bool             success          = true;
+  bytes_t          query_blooms = c4_eth_filter_query_blooms(filter);
+  const ssz_def_t* logs_def     = eth_ssz_verification_type(ETH_SSZ_DATA_LOGS);
+  ssz_builder_t    data_builder = ssz_builder_for_def(logs_def);
+  uint32_t         log_count    = 0;
+  uint64_t         from_num     = eth_el_header_get_uint64(el_headers[0], EL_BLOCK_NUMBER);
+  uint64_t         to_num       = eth_el_header_get_uint64(el_headers[count - 1], EL_BLOCK_NUMBER);
+  bool             success      = true;
 
   for (uint64_t i = 0; i < count; i++) {
     ssz_ob_t union_ob = ssz_at(blocks, (uint32_t) i);
     ssz_ob_t block    = ssz_union(union_ob);
-    if (!block.def) { success = false; break; }
-
-    // blockNumber is bound to this block's bodyRoot by the per-block multi proof, so from_num/to_num
-    // become cryptographically trusted once the block is verified.
-    uint64_t bn = ssz_get_uint64(&block, "blockNumber");
-    if (i == 0) from_num = bn;
-    // the gap-free blockNumber sequence together with the parentRoot chain rules out skipped blocks
-    if (bn != from_num + i) { success = false; break; }
-    if (i + 1 == count) {
-      to_num = bn;
-      memcpy(anchor_body_root, body_roots[i], 32); // keep the anchor bodyRoot for the tag_proof below
+    if (!block.def) {
+      success = false;
+      break;
     }
 
-    if (strcmp(block.def->name, "FullReceipts") == 0) {
-      if (!verify_full_block(ctx, block, body_roots[i], &data_builder, query_blooms, &log_count)) { success = false; break; }
+    uint64_t bn = eth_el_header_get_uint64(el_headers[i], EL_BLOCK_NUMBER);
+    if (bn != from_num + i) {
+      success = false;
+      break;
     }
-    else if (strcmp(block.def->name, "BloomNegative") == 0) {
-      if (!verify_negative_block(ctx, block, body_roots[i], query_blooms)) { success = false; break; }
+
+    if (block.def->type == SSZ_TYPE_NONE) {
+      if (!verify_negative_block(ctx, el_headers[i], query_blooms)) {
+        success = false;
+        break;
+      }
+    }
+    else if (strcmp(block.def->name, "FullReceipts") == 0) {
+      if (!verify_full_block(ctx, block, el_headers[i], hashes[i], &data_builder, query_blooms, &log_count)) {
+        success = false;
+        break;
+      }
     }
     else {
       success = false;
@@ -363,21 +344,21 @@ bool verify_logs_completeness(verify_ctx_t* ctx) {
     }
   }
 
-  safe_free(body_roots);
+  safe_free(el_headers);
+  safe_free(hashes);
   safe_free(query_blooms.data);
 
-  // Bind the proven range (now cryptographically established via the bodyRoots) to the range the
-  // client actually requested (see bind_range_endpoint). Without this a malicious prover could
-  // shrink the range and still produce a valid-looking proof.
+  // Bind the proven range (now cryptographically established via the parentHash chain) to
+  // the range the client actually requested (see bind_range_endpoint).
   if (success &&
       (!bind_range_endpoint(ctx, json_get(filter, "fromBlock"), from_num, to_num) ||
        !bind_range_endpoint(ctx, json_get(filter, "toBlock"), to_num, to_num)))
     success = false;
 
-  // Freshness gate for an open-ended `toBlock` (absent -> defaults to "latest"): the anchor is only
-  // proven canonical, not recent, so a stale-but-signed anchor could otherwise omit recent logs. The
-  // anchor's block-tag is proven via the shared ETH_STATE_BLOCK_UNION (`tag_proof`).
-  if (success && !verify_tag_proof_freshness(ctx, proof, filter, anchor_body_root)) success = false;
+  // Freshness gate for an open-ended `toBlock` (absent -> defaults to "latest"): the timestamp
+  // is a field of the verified anchor EL header.
+  if (success && !eth_check_latest_freshness(ctx, is_latest, true, eth_el_header_get_uint64(anchor_hdr, EL_TIMESTAMP)))
+    success = false;
 
   if (!success) {
     safe_free(data_builder.fixed.data.data);

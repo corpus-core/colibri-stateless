@@ -28,7 +28,29 @@
 #include <stdlib.h>
 #include <string.h>
 
-void c4_append_prover_request_props(buffer_t* payload, bytes_t client_state, chain_id_t chain_id, uint32_t flags, bytes_t witness_key) {
+bytes_t c4_state_cache_get(c4_state_t* state, bytes32_t key) {
+  data_request_t* data_request = c4_state_get_data_request_by_id(state, key);
+  return data_request ? data_request->response : NULL_BYTES;
+}
+
+bytes_t c4_state_cache_set(c4_state_t* state, bytes32_t key, bytes_t value) {
+  data_request_t* data_request = c4_state_get_data_request_by_id(state, key);
+  if (data_request) {
+    if (data_request->response.data != value.data) safe_free(data_request->response.data);
+    data_request->response = value;
+    return value;
+  }
+  data_request = safe_calloc(1, sizeof(data_request_t));
+  memcpy(data_request->id, key, C4_BYTES32_SIZE);
+  data_request->response = value;
+  data_request->encoding = C4_DATA_ENCODING_SSZ;
+  data_request->type     = C4_DATA_TYPE_CACHE;
+  data_request->response = value;
+  c4_state_add_request(state, data_request);
+  return value;
+}
+
+void c4_append_prover_request_props(buffer_t* payload, bytes_t client_state, chain_id_t chain_id, uint32_t flags, bytes_t witness_key, bytes_t last_block_hash) {
   if (!payload) return;
   bprintf(payload, ",\"version\":%d", c4_current_version_number());
 
@@ -51,6 +73,8 @@ void c4_append_prover_request_props(buffer_t* payload, bytes_t client_state, cha
     bprintf(payload, ",\"logs_completeness\":true");
   if (witness_key.data && witness_key.len)
     bprintf(payload, ",\"signers\":\"0x%x\"", witness_key);
+  if (last_block_hash.data && last_block_hash.len == 32)
+    bprintf(payload, ",\"last_block_hash\":\"0x%x\"", last_block_hash);
 }
 
 void c4_request_free(data_request_t* req) {

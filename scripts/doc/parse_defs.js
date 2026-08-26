@@ -58,12 +58,19 @@ function get_typename(type, args) {
     switch (type) {
         case "OptMask":
             return 'Uint' + (parseInt(args[0]) * 8)
-        case "Union":
-            return toCamelCase(args[0])
+        case "Union": {
+            let n = toCamelCase(args[0])
+            if (!n.endsWith('Union')) n += 'Union'
+            return n
+        }
         case "List":
             return 'List [' + toCamelCase(args[0]) + ', ' + args[1] + ']'
         case "Vector":
             return 'Vector [' + toCamelCase(args[0]) + ', ' + args[1] + ']'
+        case "ProgList":
+            return 'ProgressiveList [' + toCamelCase(args[0]) + ']'
+        case "ProgBytes":
+            return 'ProgressiveByteList'
         case "ByteVector":
             return 'ByteVector [' + args[0] + ']'
         case "BitList":
@@ -186,7 +193,7 @@ function handle_doc_comment(line, doc_comment, sections, file, line_number) {
 }
 function parse_ssz_file(file) {
     const lines = fs.readFileSync(get_full_src_path(file), 'utf8').split('\n');
-    for (let i=0; i<lines.length; i++) {
+    for (let i = 0; i < lines.length; i++) {
         if (lines[i].startsWith('#include ')) {
             const include_file = lines[i].split('#include ')[1].trim()
             if (!include_file.endsWith('.md')) continue
@@ -236,6 +243,10 @@ function parse_ssz_file(file) {
             let type_name = match[1]
             let union = type_name.endsWith('_UNION')
             type_name = toCamelCase(type_name)
+            // ETH_BLOCK_PROOF and ETH_BLOCK_PROOF_UNION would otherwise both
+            // become EthBlockProof after stripping `_UNION`, which makes union
+            // inlining recurse infinitely.
+            if (union && !type_name.endsWith('Union')) type_name += 'Union'
             def = {
                 file,
                 type: type_name,

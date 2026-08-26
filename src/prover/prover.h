@@ -67,20 +67,21 @@ extern "C" {
  * a bitmask holding flags used during the prover context.
  */
 typedef enum {
-  C4_PROVER_FLAG_INCLUDE_CODE       = 1 << 0, // includes the code of the contracts when creating the proof for eth_call, otherwise the verifier will need to fetch and cache the code as needed
-  C4_PROVER_FLAG_UV_SERVER_CTX      = 1 << 1, // the proofser is running in a UV-server and if the we expect cpu-intensice operations, we should return pending after setting the C4_PROVER_FLAG_UV_WORKER_REQUIRED flag.
-  C4_PROVER_FLAG_UV_WORKER_REQUIRED = 1 << 2, // requests the proof execution to run in a worker thread instead of the main eventloop.
-  C4_PROVER_FLAG_CHAIN_STORE        = 1 << 3, // allows the prover to use internal request with data from the chain stroe
-  C4_PROVER_FLAG_UNSTABLE_LATEST    = 1 << 4, // usually we use latest-1, but if this is set we return the real "latest"
-  C4_PROVER_FLAG_INCLUDE_SYNC       = 1 << 5, // if true, the sync data will be included in the proof (requires the client_state to be set)
-  C4_PROVER_FLAG_USE_DEBUG_TRACE    = 1 << 6, // if true, eth_call uses legacy debug_traceCall (prestateTracer) instead of the default eth_createAccessList
-  C4_PROVER_FLAG_ZK_PROOF           = 1 << 7, // if true, the the prover will try to store the zk_proof within the sync_section
-  C4_PROVER_FLAG_CALL_BLOCK_CONTEXT = 1 << 8, // if true, eth_call state_proof uses blockContext union variant and multi-proof with execution payload fields
-  C4_PROVER_FLAG_HYBRID             = 1 << 9, // hybrid mode: header proof from remote server, execution data from RPC provider
+  C4_PROVER_FLAG_INCLUDE_CODE       = 1 << 0,  // includes the code of the contracts when creating the proof for eth_call, otherwise the verifier will need to fetch and cache the code as needed
+  C4_PROVER_FLAG_UV_SERVER_CTX      = 1 << 1,  // the proofser is running in a UV-server and if the we expect cpu-intensice operations, we should return pending after setting the C4_PROVER_FLAG_UV_WORKER_REQUIRED flag.
+  C4_PROVER_FLAG_UV_WORKER_REQUIRED = 1 << 2,  // requests the proof execution to run in a worker thread instead of the main eventloop.
+  C4_PROVER_FLAG_CHAIN_STORE        = 1 << 3,  // allows the prover to use internal request with data from the chain stroe
+  C4_PROVER_FLAG_UNSTABLE_LATEST    = 1 << 4,  // usually we use latest-1, but if this is set we return the real "latest"
+  C4_PROVER_FLAG_INCLUDE_SYNC       = 1 << 5,  // if true, the sync data will be included in the proof (requires the client_state to be set)
+  C4_PROVER_FLAG_USE_DEBUG_TRACE    = 1 << 6,  // if true, eth_call uses legacy debug_traceCall (prestateTracer) instead of the default eth_createAccessList
+  C4_PROVER_FLAG_ZK_PROOF           = 1 << 7,  // if true, the the prover will try to store the zk_proof within the sync_section
+  C4_PROVER_FLAG_CALL_BLOCK_CONTEXT = 1 << 8,  // unused: eth_call now reads EVM block context from the verified RLP EL header
+  C4_PROVER_FLAG_HYBRID             = 1 << 9,  // hybrid mode: header proof from remote server, execution data from RPC provider
   C4_PROVER_FLAG_PROXY              = 1 << 10, // server: request used client-supplied RPC/Beacon URLs (proxy mode)
   C4_PROVER_FLAG_LIGHT_CLIENT       = 1 << 11, // light client mode: extended header cache TTL for "latest" (full block_time instead of half)
   C4_PROVER_FLAG_LOGS_COMPLETENESS  = 1 << 12, // if true, eth_getLogs generates a completeness proof over the requested block range (proves no matching log was omitted)
   C4_PROVER_FLAG_INPUT_VALIDATED    = 1 << 13, // internal/transient: set once the request input params have been validated (see CHECK_JSON_INPUT). Prevents re-validation on async re-entries and nested dispatch. Not a request option and never serialized.
+  C4_PROVER_FLAG_NIMBUS             = 1 << 14, // Nimbus CL compatibility: find child headers via slot scan instead of `headers?parent_root=` (status-im/nimbus-eth2#7305) and use the Nimbus historical_summaries URL.
 } prover_flag_types_t;
 
 /**
@@ -118,12 +119,6 @@ typedef union {
   uint64_t uint64[4];
 } prover_cache_key_t;
 
-// Warning: Cache implementation assumes single-threaded access via libuv event loop.
-// Multi-threaded usage requires external synchronization.
-#if defined(PROVER_CACHE) && !defined(HTTP_SERVER)
-#warning "PROVER_CACHE without HTTP_SERVER may have thread-safety issues. Consider using with libuv-based HTTP_SERVER."
-#endif
-
 typedef void (*cache_free_cb)(void*);
 typedef struct cache_entry {
   prover_cache_key_t  key;       // cache key
@@ -145,14 +140,15 @@ typedef struct cache_entry {
 typedef struct prover_trace_span prover_trace_span_t;
 #endif
 typedef struct {
-  char*          method;       // rpc-method
-  json_t         params;       // rpc- params
-  bytes_t        proof;        // result or proof as bytes
-  chain_id_t     chain_id;     // target chain
-  c4_state_t     state;        // prover ctx state, holding errors and requests.
-  prover_flags_t flags;        // prover flags
-  bytes_t        client_state; // optional client_state representing the synced periods and trusted blockhashes
-  bytes_t        witness_key;  // witness key for the prover
+  char*          method;          // rpc-method
+  json_t         params;          // rpc- params
+  bytes_t        proof;           // result or proof as bytes
+  chain_id_t     chain_id;        // target chain
+  c4_state_t     state;           // prover ctx state, holding errors and requests.
+  prover_flags_t flags;           // prover flags
+  bytes_t        client_state;    // optional client_state representing the synced periods and trusted blockhashes
+  bytes32_t      last_block_hash; // the block hash of the last execution block known and cached by the verifier. If set and matches the request block hash, the prover will not append the block proof again.
+  bytes_t        witness_key;     // witness key for the prover
 #ifdef PROVER_CACHE
   cache_entry_t* cache; // cache for the prover (only active in the server context)
 #endif
@@ -184,7 +180,7 @@ prover_ctx_t* c4_prover_create(char* method, char* params, chain_id_t chain_id, 
  * cleanup for the ctx
  * @param ctx the prover context
  */
-void c4_prover_free(prover_ctx_t* ctx) M_TAKE(1);
+void c4_prover_free(prover_ctx_t* ctx);
 
 /**
  * tries to create the proof, but if there are pending requests, they need to fetched before calling it again.
@@ -232,7 +228,7 @@ const void* c4_prover_cache_get_local(prover_ctx_t* ctx, bytes32_t key);
  * @param duration_ms cache TTL in milliseconds (0 = local-only, never moved to global)
  * @param free function to free the value when cache entry is removed
  */
-void c4_prover_cache_set(prover_ctx_t* ctx, bytes32_t key, void* value, uint32_t size, uint64_t duration_ms, cache_free_cb free) M_TAKE(3);
+void c4_prover_cache_set(prover_ctx_t* ctx, bytes32_t key, void* value, uint32_t size, uint64_t duration_ms, cache_free_cb free);
 
 /**
  * Clean up expired entries from global cache and enforce size limits.
@@ -257,6 +253,14 @@ void c4_prover_cache_invalidate(bytes32_t key);
  */
 void c4_prover_cache_stats(uint64_t* entries, uint64_t* size, uint64_t* max_size, uint64_t* capacity);
 #endif
+
+/**
+ * Clears chain-specific in-process prover caches.
+ *
+ * Each chain module may register a `RESET_CACHES` hook via CMake. Hooks
+ * are invoked in registration order. Persistent storage is left untouched.
+ */
+void c4_reset_prover_caches(void);
 
 // Time helpers made available to headers that need them
 uint64_t current_ms();

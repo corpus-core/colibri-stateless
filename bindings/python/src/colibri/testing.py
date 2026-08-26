@@ -573,6 +573,12 @@ async def run_test_case(test_case):
     
     # Lazy import to avoid circular import issues
     from .client import Colibri
+    try:
+        from . import _native
+        if _native and hasattr(_native, 'reset_caches'):
+            _native.reset_caches()
+    except ImportError:
+        pass
     
     from .types import PrivacyMode
 

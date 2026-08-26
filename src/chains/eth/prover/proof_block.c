@@ -35,177 +35,43 @@
 #include <stdlib.h>
 #include <string.h>
 
-static c4_status_t create_hybrid_header_data_proof(prover_ctx_t* ctx, eth_ssz_type_t type, bytes_t header_data) {
-  ssz_builder_t proof_builder = ssz_builder_for_type(type);
-  ssz_add_bytes(&proof_builder, "header_data", header_data);
-  ctx->proof = eth_create_proof_request(ctx->chain_id, NULL_SSZ_BUILDER, proof_builder, NULL_SSZ_BUILDER);
-  return C4_SUCCESS;
-}
-
-static c4_status_t create_hybrid_block_proof(prover_ctx_t* ctx, beacon_block_t* block) {
-  ssz_builder_t proof_builder = ssz_builder_for_type(ETH_SSZ_VERIFY_HYBRID_BLOCK_PROOF);
-  ssz_add_ob(&proof_builder, "executionPayload", block->execution);
-  ctx->proof = eth_create_proof_request(ctx->chain_id, NULL_SSZ_BUILDER, proof_builder, NULL_SSZ_BUILDER);
-  return C4_SUCCESS;
-}
-
 c4_status_t c4_proof_block(prover_ctx_t* ctx) {
-  beacon_block_t    block          = {0};
-  bytes32_t         body_root      = {0};
+  eth_block_t       block          = {0};
   ssz_builder_t     block_proof    = ssz_builder_for_type(ETH_SSZ_VERIFY_BLOCK_PROOF);
   blockroot_proof_t historic_proof = {0};
   ssz_builder_t     sync_proof     = NULL_SSZ_BUILDER;
-
-  if (ctx->flags & C4_PROVER_FLAG_HYBRID) {
-    TRY_ASYNC(c4_beacon_get_execution_for_eth(ctx, json_at(ctx->params, 0), &block));
-    return create_hybrid_block_proof(ctx, &block);
-  }
-
-  // fetch the block
-  TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, json_at(ctx->params, 0), &block));
-
-  TRY_ASYNC(c4_check_blockroot_proof(ctx, &historic_proof, &block));
-  TRY_ASYNC(c4_get_syncdata_proof(ctx, &historic_proof.sync, &sync_proof));
-
-  // create merkle proof
-  gindex_t ep_gindex              = ssz_gindex(block.body.def, 1, "executionPayload");
-  bytes_t  execution_payload_proof = NULL_BYTES;
-  eth_cu_add_proof(ctx);
-#ifdef PROVER_CACHE
-  if (block.merkle_cache.valid)
-    execution_payload_proof = ssz_create_multi_proof_from_body_cache(&block.merkle_cache, body_root, &ep_gindex, 1);
-  if (!execution_payload_proof.data)
-#endif
-    execution_payload_proof = ssz_create_proof(block.body, body_root, ep_gindex);
-
-  // build the proof
-  ssz_add_builders(&block_proof, "executionPayload", (ssz_builder_t) {.def = block.execution.def, .fixed = {.data = bytes_dup(block.execution.bytes)}});
-  ssz_add_bytes(&block_proof, "proof", execution_payload_proof);
-  safe_free(execution_payload_proof.data);
-  ssz_add_builders(&block_proof, "header", c4_proof_add_header(block.header, body_root));
-  ssz_add_header_proof(&block_proof, &block, historic_proof);
-
-  ctx->proof = eth_create_proof_request(
-      ctx->chain_id,
-      NULL_SSZ_BUILDER,
-      block_proof,
-      sync_proof);
-
-  c4_free_block_proof(&historic_proof);
-
-  return C4_SUCCESS;
-}
-
-c4_status_t c4_proof_block_number(prover_ctx_t* ctx) {
-  beacon_block_t    block          = {0};
-  bytes32_t         body_root      = {0};
-  ssz_builder_t     block_proof    = ssz_builder_for_type(ETH_SSZ_VERIFY_BLOCK_NUMBER_PROOF);
-  blockroot_proof_t historic_proof = {0};
-  ssz_builder_t     sync_proof     = NULL_SSZ_BUILDER;
-
-  // fetch the block
-  TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, json_parse("\"latest\""), &block));
-
-  if (block.header_only)
-    return create_hybrid_header_data_proof(ctx, ETH_SSZ_VERIFY_HYBRID_BLOCK_HEADER_PROOF, block.execution.bytes);
-
-  TRY_ASYNC(c4_check_blockroot_proof(ctx, &historic_proof, &block));
-  TRY_ASYNC(c4_get_syncdata_proof(ctx, &historic_proof.sync, &sync_proof));
-
-  // create merkle proof
-  gindex_t bn_gi[2] = {ssz_gindex(block.body.def, 2, "executionPayload", "blockNumber"),
-                        ssz_gindex(block.body.def, 2, "executionPayload", "timestamp")};
-  bytes_t  execution_payload_proof = NULL_BYTES;
-  eth_cu_add_multi_proof(ctx, 2);
-#ifdef PROVER_CACHE
-  if (block.merkle_cache.valid)
-    execution_payload_proof = ssz_create_multi_proof_from_body_cache(&block.merkle_cache, body_root, bn_gi, 2);
-  if (!execution_payload_proof.data)
-#endif
-    execution_payload_proof = ssz_create_multi_proof(block.body, body_root, 2, bn_gi[0], bn_gi[1]);
-
-  // build the proof
-  ssz_add_bytes(&block_proof, "blockNumber", ssz_get(&block.execution, "blockNumber").bytes);
-  ssz_add_bytes(&block_proof, "timestamp", ssz_get(&block.execution, "timestamp").bytes);
-  ssz_add_bytes(&block_proof, "proof", execution_payload_proof);
-  ssz_add_builders(&block_proof, "header", c4_proof_add_header(block.header, body_root));
-  ssz_add_header_proof(&block_proof, &block, historic_proof);
-  safe_free(execution_payload_proof.data);
-
-  ctx->proof = eth_create_proof_request(
-      ctx->chain_id,
-      NULL_SSZ_BUILDER,
-      block_proof,
-      sync_proof);
-
-  c4_free_block_proof(&historic_proof);
-
-  return C4_SUCCESS;
-}
-
-c4_status_t c4_proof_block_header(prover_ctx_t* ctx) {
-  beacon_block_t    block          = {0};
-  bytes32_t         body_root      = {0};
-  ssz_builder_t     header_proof   = ssz_builder_for_type(ETH_SSZ_VERIFY_BLOCK_HEADER_PROOF);
-  ssz_builder_t     data           = ssz_builder_for_type(ETH_SSZ_DATA_BLOCK_HEADER);
-  blockroot_proof_t historic_proof = {0};
-  ssz_builder_t     sync_proof     = NULL_SSZ_BUILDER;
   json_t            block_arg      = json_len(ctx->params) > 0 ? json_at(ctx->params, 0) : json_parse("\"latest\"");
+  // full block methods carry transactions + withdrawals in the body, header-only methods
+  // (eth_blockNumber, eth_getBlockHeader, eth_blobBaseFee, ...) use the NONE variant.
+  bool include_body = strcmp(ctx->method, "eth_getBlockByHash") == 0 ||
+                      strcmp(ctx->method, "eth_getBlockByNumber") == 0 ||
+                      strcmp(ctx->method, "colibri_proofBlock") == 0;
 
   // fetch the block (default to "latest" if no params given, e.g. for eth_blobBaseFee)
-  TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, block_arg, &block));
-
-  if (block.header_only)
-    return create_hybrid_header_data_proof(ctx, ETH_SSZ_VERIFY_HYBRID_BLOCK_HEADER_PROOF, block.execution.bytes);
-
+  TRY_ASYNC(include_body ? c4_beacon_get_block_for_eth_with_body(ctx, block_arg, &block) : c4_beacon_get_block_for_eth(ctx, block_arg, &block));
   TRY_ASYNC(c4_check_blockroot_proof(ctx, &historic_proof, &block));
   TRY_ASYNC(c4_get_syncdata_proof(ctx, &historic_proof.sync, &sync_proof));
 
-  // create multi-merkle proof for 14 selected execution payload fields
-  const gindex_t* gi                      = c4_block_header_gindexes(ctx->chain_id, ssz_get_uint64(&block.header, "slot"));
-  bytes_t         execution_payload_proof = NULL_BYTES;
-  eth_cu_add_multi_proof(ctx, BLOCK_HEADER_FIELD_COUNT);
-#ifdef PROVER_CACHE
-  if (block.merkle_cache.valid)
-    execution_payload_proof = ssz_create_multi_proof_from_body_cache(&block.merkle_cache, body_root, gi, BLOCK_HEADER_FIELD_COUNT);
-  if (!execution_payload_proof.data)
-#endif
-    execution_payload_proof = ssz_create_multi_proof(block.body, body_root, BLOCK_HEADER_FIELD_COUNT,
-                                                     gi[0], gi[1], gi[2], gi[3], gi[4], gi[5],
-                                                     gi[6], gi[7], gi[8], gi[9], gi[10], gi[11],
-                                                     gi[12], gi[13]);
-
-  // build the data
-  ssz_add_bytes(&data, "parentHash", ssz_get(&block.execution, "parentHash").bytes);
-  ssz_add_bytes(&data, "stateRoot", ssz_get(&block.execution, "stateRoot").bytes);
-  ssz_add_bytes(&data, "receiptsRoot", ssz_get(&block.execution, "receiptsRoot").bytes);
-  ssz_add_bytes(&data, "logsBloom", ssz_get(&block.execution, "logsBloom").bytes);
-  ssz_add_bytes(&data, "blockNumber", ssz_get(&block.execution, "blockNumber").bytes);
-  ssz_add_bytes(&data, "gasLimit", ssz_get(&block.execution, "gasLimit").bytes);
-  ssz_add_bytes(&data, "gasUsed", ssz_get(&block.execution, "gasUsed").bytes);
-  ssz_add_bytes(&data, "timestamp", ssz_get(&block.execution, "timestamp").bytes);
-  ssz_add_bytes(&data, "baseFeePerGas", ssz_get(&block.execution, "baseFeePerGas").bytes);
-  ssz_add_bytes(&data, "blockHash", ssz_get(&block.execution, "blockHash").bytes);
-  ssz_add_bytes(&data, "blobGasUsed", ssz_get(&block.execution, "blobGasUsed").bytes);
-  ssz_add_bytes(&data, "excessBlobGas", ssz_get(&block.execution, "excessBlobGas").bytes);
-  ssz_add_bytes(&data, "feeRecipient", ssz_get(&block.execution, "feeRecipient").bytes);
-  bytes32_t tx_root = {0};
-  ssz_hash_tree_root(ssz_get(&block.execution, "transactions"), tx_root);
-  ssz_add_bytes(&data, "transactionsRoot", bytes(tx_root, 32));
-
-  // build the proof
-  ssz_add_bytes(&header_proof, "proof", execution_payload_proof);
-  ssz_add_builders(&header_proof, "header", c4_proof_add_header(block.header, body_root));
-  ssz_add_header_proof(&header_proof, &block, historic_proof);
-  safe_free(execution_payload_proof.data);
+  if (include_body) {
+    if (block.el_body.def == NULL) THROW_ERROR("execution payload is null");
+    ssz_builder_t content_proof = ssz_builder_for_def(ssz_get_def(ssz_get_def(block_proof.def, "body"), "content"));
+    ssz_add_ob(&content_proof, "transactions", ssz_get(&block.el_body, "transactions"));
+    ssz_add_ob(&content_proof, "withdrawals", ssz_get(&block.el_body, "withdrawals"));
+    ssz_add_builders(&block_proof, "body", content_proof);
+  }
+  else {
+    // body union variant 0 (NONE): a single selector byte, no payload
+    uint8_t none_body = 0;
+    ssz_add_bytes(&block_proof, "body", bytes(&none_body, 1));
+  }
+  eth_add_block_proof(ctx, &block_proof, &block, &historic_proof);
 
   ctx->proof = eth_create_proof_request(
       ctx->chain_id,
-      data,
-      header_proof,
+      NULL_SSZ_BUILDER,
+      block_proof,
       sync_proof);
 
   c4_free_block_proof(&historic_proof);
-
   return C4_SUCCESS;
 }

@@ -410,6 +410,12 @@ public class Colibri {
         // Placeholder for initialization if needed
     }
 
+    /// Clears in-process prover/verifier caches. Call between fixture-backed
+    /// tests that share one process.
+    public static func resetCaches() {
+        c4_reset_caches()
+    }
+
     // MARK: - Verify Flags
 
     /// Computes the lower bound for `block.timestamp` accepted on `"latest"`
@@ -798,9 +804,12 @@ public class Colibri {
                     
                     // 🎯 MOCK SUPPORT: Check if request handler is set
                     if let requestHandler = self.requestHandler {
-                        // Create DataRequest for mock handler
+                        // Pass the C-relative URL through unchanged. Fixture names are
+                        // derived from `req->url` (e.g. `eth/v1/beacon/headers/...`);
+                        // prefixing the default prover host produced
+                        // `https___mainnet_colibri-proof_tech_...` misses.
                         let dataRequest = DataRequest(
-                            url: uri.isEmpty ? servers.first ?? "" : "\(servers.first ?? "")/\(uri)",
+                            url: uri,
                             method: method,
                             payload: request["payload"] as? [String: Any],
                             encoding: request["encoding"] as? String,

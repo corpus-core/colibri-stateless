@@ -115,6 +115,8 @@ void main() {
       final pap = (content['pap'] as bool?) ?? false;
       final remoteProver = (content['remote_prover'] as bool?) ?? false;
 
+      Colibri.resetNativeCaches(libraryPath: _resolveLibraryPath());
+
       /// Storage is backed by fixture files to emulate chain data.
       final storage = FileBackedStorage(dir);
       /// HTTP requests are served from test/data fixtures.
@@ -178,6 +180,7 @@ void main() {
     final dir = fallbackDir;
     final name = dir.path.split(Platform.pathSeparator).last;
     test('prover failure falls back to createProof: $name', () async {
+      Colibri.resetNativeCaches(libraryPath: _resolveLibraryPath());
       final testJson = File('${dir.path}${Platform.pathSeparator}test.json');
       final content = jsonDecode(testJson.readAsStringSync()) as Map<String, dynamic>;
 

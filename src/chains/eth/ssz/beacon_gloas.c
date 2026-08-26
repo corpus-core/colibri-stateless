@@ -24,12 +24,10 @@
 // title: Beacon Types
 // description: The SSZ types for the Beacon chain for the Gloas Fork (EIP-7688 + EIP-7732 ePBS).
 
-// Preparation only: `C4_FORK_GLOAS` has no epoch assigned yet in any chain spec
-// (`fork_epochs[C4_FORK_GLOAS-1] == NOT_ASSIGNED_YET`), so none of these definitions
-// are reachable at runtime. They implement the Gloas structure from
-// `build/consensus-specs/specs/gloas/` so the code compiles once an epoch is
-// scheduled. See `specs/gloas/beacon-chain.md` and
-// `specs/gloas/light-client/sync-protocol.md` for the source of truth.
+// Gloas SSZ types from `build/consensus-specs/specs/gloas/`. Mainnet / Sepolia /
+// Gnosis still have `fork_epochs[C4_FORK_GLOAS-1] == NOT_ASSIGNED_YET`; Platåberget
+// activates Gloas at epoch 1536, so these definitions are reachable there.
+// See `specs/gloas/beacon-chain.md` and `specs/gloas/light-client/sync-protocol.md`.
 
 #include "beacon_types.h"
 #include "ssz.h" // Ensure ssz_uint64_def is available
@@ -45,8 +43,8 @@
 // (gindex 2856, depth 11).
 
 const ssz_def_t GLOAS_LIGHT_CLIENT_HEADER[3] = {
-    SSZ_CONTAINER("beacon", BEACON_BLOCK_HEADER), // the header of the beacon block
-    SSZ_BYTES32("executionBlockHash"),            // Hash32 of the execution block (replaces full ExecutionPayloadHeader)
+    SSZ_CONTAINER("beacon", BEACON_BLOCK_HEADER),    // the header of the beacon block
+    SSZ_BYTES32("executionBlockHash"),               // Hash32 of the execution block (replaces full ExecutionPayloadHeader)
     SSZ_VECTOR("executionBranch", ssz_bytes32, 11)}; // Merkle branch proving execution_block_hash against body_root
 
 // Gloas gindices (from specs/gloas/light-client/sync-protocol.md):
@@ -63,7 +61,7 @@ const ssz_def_t GLOAS_LIGHT_CLIENT_UPDATE[7] = {
     SSZ_CONTAINER("nextSyncCommittee", SYNC_COMMITTEE),
     SSZ_VECTOR("nextSyncCommitteeBranch", ssz_bytes32, 11), // depth 11 in Gloas
     SSZ_CONTAINER("finalizedHeader", GLOAS_LIGHT_CLIENT_HEADER),
-    SSZ_VECTOR("finalityBranch", ssz_bytes32, 9),           // depth 9 in Gloas
+    SSZ_VECTOR("finalityBranch", ssz_bytes32, 9), // depth 9 in Gloas
     SSZ_CONTAINER("syncAggregate", SYNC_AGGREGATE),
     SSZ_UINT64("signatureSlot")};
 
@@ -162,7 +160,7 @@ static const ssz_def_t GLOAS_INDEX_ATTESTATION_BASE[] = {
     SSZ_PROG_LIST("attestingIndices", ssz_uint64_def),
     SSZ_CONTAINER("data", ATTESTATION_DATA),
     SSZ_BYTE_VECTOR("signature", 96)};
-static const ssz_def_t GLOAS_INDEX_ATTESTATION_BASE_CONTAINER = SSZ_CONTAINER("IndexedAttestationBase", GLOAS_INDEX_ATTESTATION_BASE);
+static const ssz_def_t                                   GLOAS_INDEX_ATTESTATION_BASE_CONTAINER = SSZ_CONTAINER("IndexedAttestationBase", GLOAS_INDEX_ATTESTATION_BASE);
 static const ssz_def_t GLOAS_INDEX_ATTESTATION_CONTAINER C4_UNUSED =
     SSZ_PROG_CONTAINER("IndexedAttestation", GLOAS_INDEX_ATTESTATION_BASE_CONTAINER, 0x7ULL); // [1]*3
 
@@ -250,7 +248,7 @@ static const ssz_def_t GLOAS_EXECUTION_PAYLOAD_BASE[] = {
     SSZ_UINT64("gasLimit"),
     SSZ_UINT64("gasUsed"),
     SSZ_UINT64("timestamp"),
-    SSZ_BYTES("extraData", 32),                               // ExtraData = ByteList[32] (unchanged since Bellatrix)
+    SSZ_BYTES("extraData", 32), // ExtraData = ByteList[32] (unchanged since Bellatrix)
     SSZ_UINT256("baseFeePerGas"),
     SSZ_BYTES32("blockHash"),
     SSZ_PROG_LIST("transactions", TRANSACTION_BYTES),         // [Modified in Gloas:EIP7688]
@@ -324,9 +322,11 @@ static const ssz_def_t GLOAS_EXECUTION_PAYLOAD_ENVELOPE_BASE_CONTAINER =
 static const ssz_def_t GLOAS_EXECUTION_PAYLOAD_ENVELOPE_CONTAINER C4_UNUSED =
     SSZ_PROG_CONTAINER("ExecutionPayloadEnvelope", GLOAS_EXECUTION_PAYLOAD_ENVELOPE_BASE_CONTAINER, 0x1FULL); // [1]*5
 
-static const ssz_def_t GLOAS_SIGNED_EXECUTION_PAYLOAD_ENVELOPE[] C4_UNUSED = {
+static const ssz_def_t GLOAS_SIGNED_EXECUTION_PAYLOAD_ENVELOPE[] = {
     SSZ_PROG_CONTAINER("message", GLOAS_EXECUTION_PAYLOAD_ENVELOPE_BASE_CONTAINER, 0x1FULL),
     SSZ_BYTE_VECTOR("signature", 96)};
+static const ssz_def_t GLOAS_SIGNED_EXECUTION_PAYLOAD_ENVELOPE_CONTAINER =
+    SSZ_CONTAINER("SignedExecutionPayloadEnvelope", GLOAS_SIGNED_EXECUTION_PAYLOAD_ENVELOPE);
 
 // --- BeaconBlockBody (Gloas): progressive container with 13 fields ---
 //
@@ -396,6 +396,8 @@ const ssz_def_t* eth_ssz_type_for_gloas(eth_ssz_type_t type, chain_id_t chain_id
       // that ask for the execution payload container therefore get the payload
       // field of the envelope (index 0 of the base container).
       return &GLOAS_EXECUTION_PAYLOAD_ENVELOPE_BASE[0];
+    case ETH_SSZ_SIGNED_EXECUTION_PAYLOAD_ENVELOPE_CONTAINER:
+      return &GLOAS_SIGNED_EXECUTION_PAYLOAD_ENVELOPE_CONTAINER;
 #else
     (void) chain_id;
 #endif

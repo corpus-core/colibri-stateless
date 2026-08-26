@@ -23,6 +23,7 @@
 
 #include "call_ctx.h"
 #include "../precompiles/precompiles.h"
+#include "el_header.h"
 #include "eth_account.h"
 #include "eth_verify.h"
 #include "plugin.h"
@@ -32,47 +33,35 @@
 
 // :: Account lookup helpers (traverse parent chain)
 
-static bool eth_get_call_block_context_from_header_data(ssz_ob_t header_data, eth_call_block_context_t* out) {
-  if (!header_data.bytes.data) return false;
+static bool eth_get_call_block_context_from_header_data(bytes_t el_header, eth_call_block_context_t* out) {
+  if (!el_header.data) return false;
 
-  out->block_number    = ssz_get_uint64(&header_data, "blockNumber");
-  out->timestamp       = ssz_get_uint64(&header_data, "timestamp");
-  out->gas_limit       = ssz_get_uint64(&header_data, "gasLimit");
-  out->excess_blob_gas = ssz_get_uint64(&header_data, "excessBlobGas");
+  out->block_number    = eth_el_header_get_uint64(el_header, EL_BLOCK_NUMBER);
+  out->timestamp       = eth_el_header_get_uint64(el_header, EL_TIMESTAMP);
+  out->gas_limit       = eth_el_header_get_uint64(el_header, EL_GAS_LIMIT);
+  out->excess_blob_gas = eth_el_header_get_uint64(el_header, EL_EXCESS_BLOB_GAS);
 
-  bytes_t coinbase = ssz_get(&header_data, "feeRecipient").bytes;
+  bytes_t coinbase = eth_el_header_get(el_header, EL_FEE_RECIPIENT);
   if (coinbase.data && coinbase.len >= 20) memcpy(out->coinbase, coinbase.data, 20);
-  memset(out->prev_randao, 0, 32); // not available in ETH_BLOCK_HEADER_DATA
-  bytes_t base_fee = ssz_get(&header_data, "baseFeePerGas").bytes;
+  memcpy(out->prev_randao, eth_el_header_get(el_header, EL_PREV_RANDAO).data, 32); // not available in ETH_BLOCK_HEADER_DATA
+  bytes_t base_fee = eth_el_header_get(el_header, EL_BASE_FEE_PER_GAS);
   if (base_fee.data && base_fee.len >= 32) memcpy(out->base_fee_per_gas, base_fee.data, 32);
-  bytes_t bh = ssz_get(&header_data, "blockHash").bytes;
-  if (bh.data && bh.len >= 32) memcpy(out->block_hash, bh.data, 32);
+  keccak(el_header, out->block_hash);
 
   return true;
 }
 
 bool eth_get_call_block_context_from_proof(verify_ctx_t* ctx, eth_call_block_context_t* out) {
-  if (!ctx->proof.def || ctx->proof.def->type == SSZ_TYPE_NONE) return false;
-
-  if (ctx->flags & VERIFY_FLAG_HYBRID) {
-    ssz_ob_t hd = ssz_get(&ctx->proof, "header_data");
-    if (hd.bytes.data) return eth_get_call_block_context_from_header_data(hd, out);
+  evm_call_ctx_t* call_ctx = (evm_call_ctx_t*) ctx->user_data;
+  if (!call_ctx) return false;
+  if (!call_ctx->el_header.data) {
+    if (ctx->proof.def && ctx->proof.def->type != SSZ_TYPE_NONE) {
+      if (c4_verify_block(ctx, ssz_get(&ctx->proof, "block"), &call_ctx->el_header, &call_ctx->el_block_hash) != C4_SUCCESS) return false;
+    }
+    else
+      return false;
   }
-  ssz_ob_t sp = ssz_get(&ctx->proof, "state_proof");
-  ssz_ob_t bc = ssz_get(&sp, "block");
-  if (!bc.def || !ssz_is_type(&bc, eth_ssz_verification_type(ETH_SSZ_DATA_CALL_BLOCK_CONTEXT)))
-    return false;
-
-  out->block_number    = ssz_get_uint64(&bc, "blockNumber");
-  out->timestamp       = ssz_get_uint64(&bc, "timestamp");
-  out->gas_limit       = ssz_get_uint64(&bc, "gasLimit");
-  out->excess_blob_gas = ssz_get_uint64(&bc, "excessBlobGas");
-  memcpy(out->coinbase, ssz_get(&bc, "coinbase").bytes.data, 20);
-  memcpy(out->prev_randao, ssz_get(&bc, "prevRandao").bytes.data, 32);
-  memcpy(out->base_fee_per_gas, ssz_get(&bc, "baseFeePerGas").bytes.data, 32);
-  memcpy(out->block_hash, ssz_get(&bc, "blockHash").bytes.data, 32);
-
-  return true;
+  return eth_get_call_block_context_from_header_data(call_ctx->el_header, out);
 }
 
 call_account_t* call_account_find(evmone_context_t* ctx, const address_t address) {
@@ -449,11 +438,11 @@ void init_evmone_context(evmone_context_t* out, verify_ctx_t* ctx, evm_call_ctx_
   out->ctx             = ctx;
   out->accounts        = evm->accounts;
   out->chain_id        = ctx->chain_id;
-  out->block_gas_limit = 30000000; // safe default
+  out->block_gas_limit = 300000000; // max limit
   out->capture_events  = capture_events;
   out->pap_mode        = evm->pap_mode;
 
-  // extract block context from state_proof.block when union selector is 3 (blockContext)
+  // extract EVM block context from the verified RLP EL header (via ETH_BLOCK_PROOF_UNION)
   eth_call_block_context_t bctx = {0};
   if (eth_get_call_block_context_from_proof(ctx, &bctx)) {
     out->block_number    = bctx.block_number;

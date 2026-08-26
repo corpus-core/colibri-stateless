@@ -45,7 +45,7 @@ static pap_cache_t g_cache = {0};
 
 static void cache_free(void) {
   safe_free(g_cache.ssz_data.data);
-  g_cache = (pap_cache_t){0};
+  g_cache = (pap_cache_t) {0};
 }
 
 static void tx_cache_storage_key(chain_id_t chain_id, char* buf, size_t buf_len) {
@@ -58,13 +58,13 @@ static void tx_cache_storage_key(chain_id_t chain_id, char* buf, size_t buf_len)
 
 static bool parse_snapshot(bytes_t ssz_data) {
   if (!ssz_data.data || ssz_data.len == 0) return false;
-  g_cache.snapshot = (ssz_ob_t){.bytes = ssz_data, .def = &PAP_TX_CACHE_SNAPSHOT};
+  g_cache.snapshot = (ssz_ob_t) {.bytes = ssz_data, .def = &PAP_TX_CACHE_SNAPSHOT};
   return ssz_len(g_cache.snapshot) > 0;
 }
 
 static void update_max_block(void) {
   g_cache.max_block = 0;
-  uint32_t n = ssz_len(g_cache.snapshot);
+  uint32_t n        = ssz_len(g_cache.snapshot);
   for (uint32_t i = 0; i < n; i++) {
     ssz_ob_t block = ssz_at(g_cache.snapshot, i);
     uint64_t bn    = ssz_get_uint64(&block, "block_number");
@@ -136,10 +136,10 @@ bool pap_tx_cache_get(chain_id_t chain_id, bytes32_t tx_hash,
 
   uint32_t num_blocks = ssz_len(g_cache.snapshot);
   for (uint32_t b = 0; b < num_blocks; b++) {
-    ssz_ob_t block    = ssz_at(g_cache.snapshot, b);
-    uint64_t blk_num  = ssz_get_uint64(&block, "block_number");
-    ssz_ob_t hashes   = ssz_get(&block, "tx_hashes");
-    uint32_t num_txs  = ssz_len(hashes);
+    ssz_ob_t block   = ssz_at(g_cache.snapshot, b);
+    uint64_t blk_num = ssz_get_uint64(&block, "block_number");
+    ssz_ob_t hashes  = ssz_get(&block, "tx_hashes");
+    uint32_t num_txs = ssz_len(hashes);
     for (uint32_t t = 0; t < num_txs; t++) {
       ssz_ob_t h = ssz_at(hashes, t);
       if (h.bytes.len == 32 && memcmp(h.bytes.data, tx_hash, 32) == 0) {
@@ -249,7 +249,7 @@ uint64_t pap_tx_cache_last_updated(chain_id_t chain_id) {
 /* ── pending transaction list ── */
 
 #define PAP_PENDING_MAX_ENTRIES 256
-#define PAP_PENDING_ENTRY_SIZE 40 /* 32 (tx_hash) + 8 (timestamp LE) */
+#define PAP_PENDING_ENTRY_SIZE  40 /* 32 (tx_hash) + 8 (timestamp LE) */
 
 static void pending_storage_key(chain_id_t chain_id, char* buf, size_t buf_len) {
   buffer_t b = (buffer_t) {.data = bytes((uint8_t*) buf, 0), .allocated = -(int32_t) buf_len};
@@ -259,7 +259,7 @@ static void pending_storage_key(chain_id_t chain_id, char* buf, size_t buf_len) 
 static ssz_ob_t pending_load_list(chain_id_t chain_id) {
   storage_plugin_t plugin = {0};
   c4_get_storage_config(&plugin);
-  if (!plugin.get) return (ssz_ob_t){0};
+  if (!plugin.get) return (ssz_ob_t) {0};
 
   char     key[32] = {0};
   buffer_t buf     = {0};
@@ -267,17 +267,17 @@ static ssz_ob_t pending_load_list(chain_id_t chain_id) {
 
   if (!plugin.get(key, &buf) || buf.data.len == 0) {
     buffer_free(&buf);
-    return (ssz_ob_t){0};
+    return (ssz_ob_t) {0};
   }
 
   if (buf.data.len > (uint32_t) PAP_PENDING_MAX_ENTRIES * PAP_PENDING_ENTRY_SIZE) {
     buffer_free(&buf);
-    return (ssz_ob_t){0};
+    return (ssz_ob_t) {0};
   }
 
   bytes_t owned = bytes_dup(buf.data);
   buffer_free(&buf);
-  return (ssz_ob_t){.bytes = owned, .def = &PAP_PENDING_TX_LIST};
+  return (ssz_ob_t) {.bytes = owned, .def = &PAP_PENDING_TX_LIST};
 }
 
 static void pending_save_list(chain_id_t chain_id, bytes_t ssz_data) {
@@ -359,8 +359,8 @@ void pap_tx_cache_remove_pending(chain_id_t chain_id, bytes32_t tx_hash) {
   ssz_ob_t list = pending_load_list(chain_id);
   if (!list.bytes.data) return;
 
-  buffer_t out   = {0};
-  uint32_t num   = ssz_len(list);
+  buffer_t out = {0};
+  uint32_t num = ssz_len(list);
   for (uint32_t i = 0; i < num; i++) {
     ssz_ob_t entry = ssz_at(list, i);
     ssz_ob_t hash  = ssz_get(&entry, "tx_hash");

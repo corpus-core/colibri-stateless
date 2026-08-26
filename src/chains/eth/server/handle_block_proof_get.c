@@ -9,6 +9,7 @@
 #include "util/bytes.h"
 #include "util/chain_props.h"
 #include "util/compat.h"
+#include "version.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -181,6 +182,34 @@ bool c4_handle_proof_get_request(client_t* client) {
   // signers (optional) from the query string
   bytes_t wk = parse_signers_query(qmark ? qmark + 1 : NULL);
 
+  // Legacy 2.x clients: rebuild a sanitized sub-path from the already-validated segments and
+  // forward the request to the configured v2 prover. We never forward `client->request.path`
+  // directly to avoid path traversal (e.g. `GET /proof/../metrics`) and to strip any unrelated
+  // query parameters — only the validated `signers=0x<hex>` is preserved.
+  //
+  // GET responses are potentially cache-friendly (see `c4_eth_block_cache_control`), so we
+  // short-circuit the "v2_prover not configured" case here to attach `Cache-Control: no-store`
+  // via `proof_get_error`. Once forwarding is attempted, the upstream response drives caching.
+  if (version_num < c4_version_number(3, 0, 0)) {
+    const char* v2 = http_server.v2_prover;
+    if (!v2 || !*v2) {
+      proof_get_error(client, 503, "Legacy prover is not configured on this server");
+      if (cs.data) safe_free(cs.data);
+      if (wk.data) safe_free(wk.data);
+      return true;
+    }
+    buffer_t sub = {0};
+    bprintf(&sub, "%s%s/%s/%s/%s/%s", PROOF_GET_PREFIX, s_method, s_block, s_version, s_zk, s_c4);
+    if (wk.data && wk.len) bprintf(&sub, "?signers=0x%x", wk);
+    bool handled = c4_try_forward_legacy_proof(client, version_num, (const char*) sub.data.data);
+    buffer_free(&sub);
+    if (handled) {
+      if (cs.data) safe_free(cs.data);
+      if (wk.data) safe_free(wk.data);
+      return true;
+    }
+  }
+
   // s_block is validated to be alphanumeric-only, so it cannot break out of the JSON string.
   // eth_getBlockByNumber keeps the includeTx=false suffix to match the payload the client would
   // send in POST mode; header/receipts only take the block identifier.
@@ -191,8 +220,10 @@ bool c4_handle_proof_get_request(client_t* client) {
   char cc_buf[96];
   c4_eth_block_cache_control(cc_buf, sizeof cc_buf, s_block, (chain_id_t) http_server.chain_id);
 
+  // GET responses are shared-cache friendly: never include the client-specific
+  // last_block_hash here, the proof always carries the full block proof.
   c4_proof_request_dispatch(client, method_str, params_str, version_num, extra_flags,
-                            cs, wk, NULL, NULL, cc_buf);
+                            cs, wk, NULL_BYTES, NULL, NULL, cc_buf);
 
   if (cs.data) safe_free(cs.data);
   if (wk.data) safe_free(wk.data);

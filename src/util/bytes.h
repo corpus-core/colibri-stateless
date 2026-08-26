@@ -33,6 +33,7 @@ extern "C" {
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 // Only define the attribute if the clang analyzer is running
 #ifdef __clang_analyzer__
@@ -52,23 +53,19 @@ extern "C" {
 #define RETURNS_NONNULL
 #endif
 
-// Ownership attributes for static analysis
+// Ownership attributes for static analysis.
+// M_RET marks malloc-like allocators (uninitialized memory). Do not put it on
+// calloc wrappers: ownership_returns(malloc) makes the analyzer treat the
+// result as uninitialized and report garbage-value false positives.
+// Do not use ownership_takes (M_TAKE): the clang malloc checker treats it as
+// an immediate free and reports use-after-free when the callee holds the
+// pointer (cache, request lists, etc.).
 #if defined(__clang_analyzer__)
-// Generic macros for custom classes (e.g. "file", "socket", "malloc")
-#define OWNERSHIP_RETURNS(c)  __attribute__((ownership_returns(c)))
-#define OWNERSHIP_TAKES(c, i) __attribute__((ownership_takes(c, i)))
-#define OWNERSHIP_HOLDS(c, i) __attribute__((ownership_holds(c, i)))
-
-// Short aliases specifically for memory (malloc class)
-#define M_RET     __attribute__((ownership_returns(malloc)))
-#define M_TAKE(i) __attribute__((ownership_takes(malloc, i)))
+#define OWNERSHIP_RETURNS(c) __attribute__((ownership_returns(c)))
+#define M_RET                __attribute__((ownership_returns(malloc)))
 #else
 #define OWNERSHIP_RETURNS(c)
-#define OWNERSHIP_TAKES(c, i)
-#define OWNERSHIP_HOLDS(c, i)
-
 #define M_RET
-#define M_TAKE(i)
 #endif
 
 // : APIs
@@ -244,7 +241,7 @@ void* safe_malloc(size_t size) RETURNS_NONNULL M_RET;
  * @param size the size of the memory to allocate
  * @return the pointer to the allocated memory (never NULL for non-zero sizes)
  */
-void* safe_calloc(size_t num, size_t size) M_RET;
+void* safe_calloc(size_t num, size_t size);
 
 /**
  * calls realloc and check if the returned pointer is not NULL.
@@ -413,6 +410,13 @@ void buffer_add_bytes(buffer_t* buf, uint32_t len, ...);
     fwrite(__str, 1, __buf.data.len, file);                  \
     buffer_free(&__buf);                                     \
   } while (0)
+
+static inline bytes_t bytes_cpy(void* dst, size_t offset, bytes_t src) {
+  uint8_t* dest = ((uint8_t*) dst) + offset;
+  memcpy(dest, src.data, src.len);
+  bytes_t out = {.len = src.len, .data = dest};
+  return out;
+}
 
 #ifdef __cplusplus
 }

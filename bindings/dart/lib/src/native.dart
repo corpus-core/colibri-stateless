@@ -144,6 +144,9 @@ typedef _CreateRpcCtx = ffi.Pointer<ffi.Void> Function(
 typedef _SetCheckpointNative = ffi.Void Function(ffi.Uint64, ffi.Pointer<ffi.Int8>);
 typedef _SetCheckpoint = void Function(int, ffi.Pointer<ffi.Int8>);
 
+typedef _ResetCachesNative = ffi.Void Function();
+typedef _ResetCaches = void Function();
+
 typedef _RpcSetWitnessKeysNative = ffi.Void Function(ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Int8>);
 typedef _RpcSetWitnessKeys = void Function(ffi.Pointer<ffi.Void>, ffi.Pointer<ffi.Int8>);
 
@@ -256,6 +259,7 @@ class ColibriNative {
     _freeRpcCtx = _lib.lookupFunction<_FreeCtxNative, _FreeCtx>('c4_free_rpc_ctx');
     _setCheckpoint =
         _lib.lookupFunction<_SetCheckpointNative, _SetCheckpoint>('c4_set_checkpoint');
+    _resetCaches = _lib.lookupFunction<_ResetCachesNative, _ResetCaches>('c4_reset_caches');
     _rpcSetWitnessKeys =
         _lib.lookupFunction<_RpcSetWitnessKeysNative, _RpcSetWitnessKeys>('c4_rpc_set_witness_keys');
     _rpcSetProxyUrls =
@@ -285,6 +289,7 @@ class ColibriNative {
   late final _ExecuteStatus _rpcExecuteJsonStatus;
   late final _FreeCtx _freeRpcCtx;
   late final _SetCheckpoint _setCheckpoint;
+  late final _ResetCaches _resetCaches;
   late final _RpcSetWitnessKeys _rpcSetWitnessKeys;
   late final _RpcSetProxyUrls _rpcSetProxyUrls;
   late final _SetMinLatestBlockTs _rpcSetMinLatestBlockTs;
@@ -518,6 +523,9 @@ class ColibriNative {
 
   /// Free the unified RPC context.
   void freeRpcCtx(ffi.Pointer<ffi.Void> ctx) => _freeRpcCtx(ctx);
+
+  /// Clears in-process prover/verifier caches (for fixture isolation).
+  void resetCaches() => _resetCaches();
 
   /// Set a trusted checkpoint for a chain (context-independent).
   void setCheckpoint(int chainId, String checkpoint) {

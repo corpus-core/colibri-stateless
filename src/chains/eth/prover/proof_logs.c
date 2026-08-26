@@ -23,6 +23,7 @@
 
 #include "beacon.h"
 #include "beacon_types.h"
+#include "el_header.h"
 #include "eth_compute_units.h"
 #include "eth_req.h"
 #include "eth_tools.h"
@@ -46,8 +47,7 @@ typedef struct proof_logs_tx {
   uint64_t              block_number;
   bytes32_t             tx_hash;
   uint32_t              tx_index;
-  ssz_ob_t              proof;
-  bytes_t               raw_tx;
+  uint32_t              log_index;
   struct proof_logs_tx* next;
 } proof_logs_tx_t;
 
@@ -59,9 +59,11 @@ typedef struct proof_logs_block {
   json_t                   block_receipts;
   proof_logs_tx_t*         txs;
   uint32_t                 tx_count;
-  beacon_block_t           beacon_block;
+  eth_block_t              beacon_block;
   bytes32_t                body_root;
   blockroot_proof_t        block_proof;
+  ssz_ob_t                 receipt_proof;
+  ssz_ob_t                 tx_proof;
 } proof_logs_block_t;
 
 typedef enum {
@@ -87,11 +89,12 @@ static inline uint32_t get_block_count(proof_logs_block_t* blocks) {
 static void free_blocks(proof_logs_block_t* blocks) {
   while (blocks) {
     while (blocks->txs) {
-      if (blocks->txs->proof.bytes.data) safe_free(blocks->txs->proof.bytes.data);
       proof_logs_tx_t* next = blocks->txs->next;
       safe_free(blocks->txs);
       blocks->txs = next;
     }
+    if (blocks->receipt_proof.bytes.data) safe_free(blocks->receipt_proof.bytes.data);
+    if (blocks->tx_proof.bytes.data) safe_free(blocks->tx_proof.bytes.data);
     if (blocks->proof.data) safe_free(blocks->proof.data);
     c4_free_block_proof(&blocks->block_proof);
     proof_logs_block_t* next = blocks->next;
@@ -138,22 +141,20 @@ static inline void add_blocks(proof_logs_block_t** blocks, json_t logs) {
   }
 }
 
-static c4_status_t get_receipts(prover_ctx_t* ctx, proof_logs_block_t* blocks, bool hybrid) {
+static c4_status_t get_receipts(prover_ctx_t* ctx, proof_logs_block_t* blocks) {
   c4_status_t status   = C4_SUCCESS;
   uint8_t     tmp[100] = {0};
   buffer_t    buf      = stack_buffer(tmp);
   for (proof_logs_block_t* block = blocks; block; block = block->next) {
     buffer_reset(&buf);
     json_t block_number = json_parse(bprintf(&buf, "\"0x%lx\"", block->block_number));
-    if (hybrid)
-      TRY_ADD_ASYNC(status, c4_beacon_get_execution_for_eth(ctx, block_number, &block->beacon_block));
-    else
-      TRY_ADD_ASYNC(status, c4_beacon_get_block_for_eth(ctx, block_number, &block->beacon_block));
+    TRY_ADD_ASYNC(status, c4_beacon_get_block_for_eth_with_body(ctx, block_number, &block->beacon_block));
 #ifdef PROVER_CACHE
     // we get the merkle tree from the cache if available now so we can use it later in the worker thread
     bytes32_t cachekey;
-    if (status == C4_SUCCESS && block->beacon_block.execution.bytes.data &&
-        c4_prover_cache_get(ctx, c4_eth_receipt_cachekey(cachekey, ssz_get(&block->beacon_block.execution, "receiptsRoot").bytes.data)))
+    if (status == C4_SUCCESS && block->beacon_block.el_header.data &&
+        c4_prover_cache_get(ctx, c4_eth_receipt_cachekey(cachekey, block->beacon_block.el_block_hash)) &&
+        c4_prover_cache_get(ctx, c4_eth_tx_cachekey(cachekey, block->beacon_block.el_block_hash)))
       continue;
 #endif
 
@@ -162,30 +163,15 @@ static c4_status_t get_receipts(prover_ctx_t* ctx, proof_logs_block_t* blocks, b
   return status;
 }
 
-static c4_status_t proof_create_multiproof(prover_ctx_t* ctx, proof_logs_block_t* block) {
-
-  int       i      = 0;
-  gindex_t* gindex = safe_calloc(3 + block->tx_count, sizeof(gindex_t));
-  gindex[0]        = ssz_gindex(block->beacon_block.body.def, 2, "executionPayload", "blockNumber");
-  gindex[1]        = ssz_gindex(block->beacon_block.body.def, 2, "executionPayload", "blockHash");
-  gindex[2]        = ssz_gindex(block->beacon_block.body.def, 2, "executionPayload", "receiptsRoot");
-  for (proof_logs_tx_t* tx = block->txs; tx; tx = tx->next, i++)
-    gindex[i + 3] = ssz_gindex(block->beacon_block.body.def, 3, "executionPayload", "transactions", tx->tx_index);
-
-  eth_cu_add_multi_proof(ctx, 3 + block->tx_count);
-  block->proof = ssz_create_multi_proof_for_gindexes(block->beacon_block.body, block->body_root, gindex, 3 + block->tx_count);
-  safe_free(gindex);
-
-  return C4_SUCCESS;
-}
-
 static c4_status_t proof_block(prover_ctx_t* ctx, proof_logs_block_t* block) {
-  node_t*   root         = NULL;
+  node_t* receipt_root = NULL;
+  node_t* tx_root      = NULL;
+
   bytes32_t tmp          = {0};
   buffer_t  receipts_buf = {0};
   buffer_t  buf          = stack_buffer(tmp);
 
-  block->block_hash = ssz_get(&block->beacon_block.execution, "blockHash").bytes;
+  block->block_hash = bytes(block->beacon_block.el_block_hash, 32);
 
   TRY_ASYNC(c4_check_blockroot_proof(ctx, &block->block_proof, &block->beacon_block));
 
@@ -197,138 +183,66 @@ static c4_status_t proof_block(prover_ctx_t* ctx, proof_logs_block_t* block) {
   eth_cu_add_patricia(ctx, (uint32_t) json_len(block->block_receipts), block->tx_count);
 
 #ifdef PROVER_CACHE
-  bytes32_t cachekey;
-  root = (node_t*) c4_prover_cache_get(ctx, c4_eth_receipt_cachekey(cachekey, block->block_hash.data));
-  if (!root) {
+  bytes32_t cachekey_receipts;
+  bytes32_t cachekey_txs;
+  receipt_root = (node_t*) c4_prover_cache_get(ctx, c4_eth_receipt_cachekey(cachekey_receipts, block->block_hash.data));
+  tx_root      = (node_t*) c4_prover_cache_get(ctx, c4_eth_tx_cachekey(cachekey_txs, block->block_hash.data));
+  if (!receipt_root || !tx_root) {
     REQUEST_WORKER_THREAD(ctx);
     int len = 0;
 #endif
-    // create receipts tree
-    json_for_each_value(block->block_receipts, r) {
-      patricia_set_value(&root,
-                         c4_eth_create_tx_path(json_get_uint32(r, "transactionIndex"), &buf),
-                         c4_serialize_receipt(r, &receipts_buf));
+    if (!receipt_root) {
+      // create receipts tree
+      json_for_each_value(block->block_receipts, r) {
+        patricia_set_value(&receipt_root,
+                           c4_eth_create_tx_path(json_get_uint32(r, "transactionIndex"), &buf),
+                           c4_serialize_receipt(r, &receipts_buf));
 #ifdef PROVER_CACHE
-      len++;
+        len++;
 #endif
+      }
+#ifdef PROVER_CACHE
+      c4_prover_cache_set(ctx, cachekey_receipts, receipt_root, 500 * len + 200, 200 * 1000, (cache_free_cb) patricia_node_free);
     }
-#ifdef PROVER_CACHE
-    c4_prover_cache_set(ctx, cachekey, root, 500 * len + 200, 200 * 1000, (cache_free_cb) patricia_node_free);
-  }
 #endif
+  }
+  if (!tx_root) {
+    ssz_ob_t txs = ssz_get(&block->beacon_block.el_body, "transactions");
+    uint32_t len = ssz_len(txs);
+    for (int i = 0; i < len; i++)
+      patricia_set_value(&tx_root,
+                         c4_eth_create_tx_path(i, &buf),
+                         ssz_at(txs, i).bytes);
+
+#ifdef PROVER_CACHE
+    c4_prover_cache_set(ctx, cachekey_txs, tx_root, 500 * len + 200, 200 * 1000, (cache_free_cb) patricia_node_free);
+#endif
+  }
 
   TRACE_START(ctx, "create_receipt_proofs");
   TRACE_ADD_UINT64(ctx, "block", block->block_number);
   TRACE_ADD_UINT64(ctx, "tx_count", block->tx_count);
+  mpt_builder_t receipt_builder = {0};
+  mpt_builder_t tx_builder      = {0};
+  mpt_builder_init(&receipt_builder, receipt_root);
+  mpt_builder_init(&tx_builder, tx_root);
 
   proof_logs_tx_t* next_tx = NULL;
   for (proof_logs_tx_t* tx = block->txs; tx; tx = next_tx) {
-    next_tx    = tx->next;
-    tx->proof  = patricia_create_merkle_proof(root, c4_eth_create_tx_path(tx->tx_index, &buf));
-    tx->raw_tx = ssz_at(ssz_get(&block->beacon_block.execution, "transactions"), tx->tx_index).bytes;
+    bytes_t path = c4_eth_create_tx_path(tx->tx_index, &buf);
+    next_tx      = tx->next;
+    mpt_builder_add_proof(&receipt_builder, path);
+    mpt_builder_add_proof(&tx_builder, path);
   }
+  block->receipt_proof = mpt_builder_finish(&receipt_builder);
+  block->tx_proof      = mpt_builder_finish(&tx_builder);
 
-  TRACE_START(ctx, "create_multiproof");
-  TRACE_ADD_UINT64(ctx, "block", block->block_number);
-  TRACE_ADD_UINT64(ctx, "gindex_count", 3 + block->tx_count);
-
-  proof_create_multiproof(ctx, block);
 #ifndef PROVER_CACHE
-  patricia_node_free(root);
+  patricia_node_free(receipt_root);
+  patricia_node_free(tx_root);
 #endif
   buffer_free(&buf);
   buffer_free(&receipts_buf);
-
-  return C4_SUCCESS;
-}
-
-static c4_status_t proof_block_hybrid(prover_ctx_t* ctx, proof_logs_block_t* block) {
-  node_t*   root         = NULL;
-  bytes32_t tmp          = {0};
-  buffer_t  receipts_buf = {0};
-  buffer_t  buf          = stack_buffer(tmp);
-
-  block->block_hash = ssz_get(&block->beacon_block.execution, "blockHash").bytes;
-
-#ifdef PROVER_CACHE
-  bytes32_t cachekey;
-  root = (node_t*) c4_prover_cache_get(ctx, c4_eth_receipt_cachekey(cachekey, block->block_hash.data));
-  if (!root) {
-    REQUEST_WORKER_THREAD(ctx);
-    int len = 0;
-#endif
-    json_for_each_value(block->block_receipts, r) {
-      patricia_set_value(&root,
-                         c4_eth_create_tx_path(json_get_uint32(r, "transactionIndex"), &buf),
-                         c4_serialize_receipt(r, &receipts_buf));
-#ifdef PROVER_CACHE
-      len++;
-#endif
-    }
-#ifdef PROVER_CACHE
-    c4_prover_cache_set(ctx, cachekey, root, 500 * len + 200, 200 * 1000, (cache_free_cb) patricia_node_free);
-  }
-#endif
-
-  ssz_ob_t transactions = ssz_get(&block->beacon_block.execution, "transactions");
-
-  proof_logs_tx_t* next_tx = NULL;
-  for (proof_logs_tx_t* tx = block->txs; tx; tx = next_tx) {
-    next_tx    = tx->next;
-    tx->proof  = patricia_create_merkle_proof(root, c4_eth_create_tx_path(tx->tx_index, &buf));
-    tx->raw_tx = ssz_at(transactions, tx->tx_index).bytes;
-  }
-
-  int       i      = 0;
-  gindex_t* gindex = safe_calloc(block->tx_count, sizeof(gindex_t));
-  for (proof_logs_tx_t* tx = block->txs; tx; tx = tx->next, i++)
-    gindex[i] = ssz_gindex(transactions.def, 1, tx->tx_index);
-
-  bytes32_t tx_root = {0};
-  block->proof = ssz_create_multi_proof_for_gindexes(transactions, tx_root, gindex, block->tx_count);
-  safe_free(gindex);
-
-#ifndef PROVER_CACHE
-  patricia_node_free(root);
-#endif
-  buffer_free(&buf);
-  buffer_free(&receipts_buf);
-
-  return C4_SUCCESS;
-}
-
-static c4_status_t serialize_hybrid_log_proof(prover_ctx_t* ctx, proof_logs_block_t* blocks, json_t logs) {
-  ssz_builder_t    block_list  = ssz_builder_for_type(ETH_SSZ_VERIFY_HYBRID_LOGS_PROOF);
-  uint32_t         block_count = get_block_count(blocks);
-  const ssz_def_t* block_def   = block_list.def->def.vector.type;
-  const ssz_def_t* txs_def     = ssz_get_def(block_def, "txs");
-
-  for (proof_logs_block_t* block = blocks; block; block = block->next) {
-    ssz_builder_t block_ssz = ssz_builder_for_def(block_def);
-
-    ssz_ob_t header_data = c4_build_header_data_from_execution(block->beacon_block.execution);
-    ssz_add_bytes(&block_ssz, "header_data", header_data.bytes);
-    safe_free(header_data.bytes.data);
-
-    ssz_add_bytes(&block_ssz, "txProof", block->proof);
-
-    ssz_builder_t tx_list = ssz_builder_for_def(txs_def);
-    for (proof_logs_tx_t* tx = block->txs; tx; tx = tx->next) {
-      ssz_builder_t tx_ssz = ssz_builder_for_def(txs_def->def.vector.type);
-      ssz_add_bytes(&tx_ssz, "transaction", tx->raw_tx);
-      ssz_add_uint32(&tx_ssz, tx->tx_index);
-      ssz_add_bytes(&tx_ssz, "proof", tx->proof.bytes);
-      ssz_add_dynamic_list_builders(&tx_list, block->tx_count, tx_ssz);
-    }
-    ssz_add_builders(&block_ssz, "txs", tx_list);
-    ssz_add_dynamic_list_builders(&block_list, block_count, block_ssz);
-  }
-
-  ctx->proof = eth_create_proof_request(
-      ctx->chain_id,
-      proof_logs_block_proof_type(ctx) == ETH_GET_LOGS ? FROM_JSON(logs, ETH_SSZ_DATA_LOGS) : NULL_SSZ_BUILDER,
-      block_list,
-      NULL_SSZ_BUILDER);
 
   return C4_SUCCESS;
 }
@@ -343,21 +257,20 @@ static c4_status_t serialize_log_proof(prover_ctx_t* ctx, proof_logs_block_t* bl
 
   for (proof_logs_block_t* block = blocks; block; block = block->next) {
     ssz_builder_t block_ssz = ssz_builder_for_def(block_def);
-    ssz_add_uint64(&block_ssz, block->block_number);
-    ssz_add_bytes(&block_ssz, "blockHash", block->block_hash);
-    ssz_add_bytes(&block_ssz, "proof", block->proof);
-    ssz_add_builders(&block_ssz, "header", c4_proof_add_header(block->beacon_block.header, block->body_root));
-    ssz_add_header_proof(&block_ssz, &block->beacon_block, block->block_proof);
-
-    ssz_builder_t tx_list = ssz_builder_for_def(txs_def);
+    ssz_builder_t tx_list   = ssz_builder_for_def(txs_def);
     for (proof_logs_tx_t* tx = block->txs; tx; tx = tx->next) {
       ssz_builder_t tx_ssz = ssz_builder_for_def(txs_def->def.vector.type);
-      ssz_add_bytes(&tx_ssz, "transaction", tx->raw_tx);
-      ssz_add_uint32(&tx_ssz, tx->tx_index);
-      ssz_add_bytes(&tx_ssz, "proof", tx->proof.bytes);
+      // TODO: fill in the logIndex and gasUsed
+      ssz_add_uint32(&tx_ssz, tx->log_index); // logIndex
+      ssz_add_uint32(&tx_ssz, tx->tx_index);  // transactionIndex
       ssz_add_dynamic_list_builders(&tx_list, block->tx_count, tx_ssz);
     }
+    ssz_add_uint64(&block_ssz, block->block_number);
+    ssz_add_bytes(&block_ssz, "transactionProof", block->tx_proof.bytes);
+    ssz_add_bytes(&block_ssz, "receiptProof", block->receipt_proof.bytes);
     ssz_add_builders(&block_ssz, "txs", tx_list);
+    eth_add_block_proof(ctx, &block_ssz, &block->beacon_block, &block->block_proof);
+
     ssz_add_dynamic_list_builders(&block_list, block_count, block_ssz);
   }
 
@@ -381,7 +294,6 @@ c4_status_t c4_proof_logs(prover_ctx_t* ctx) {
   if ((ctx->flags & C4_PROVER_FLAG_LOGS_COMPLETENESS) && proof_logs_block_proof_type(ctx) == ETH_GET_LOGS)
     return c4_proof_logs_completeness(ctx);
 
-  bool                hybrid        = (ctx->flags & C4_PROVER_FLAG_HYBRID) != 0;
   json_t              logs          = {0};
   proof_logs_block_t* blocks        = NULL;
   const chain_spec_t* chain         = c4_eth_get_chain_spec(ctx->chain_id);
@@ -407,31 +319,20 @@ c4_status_t c4_proof_logs(prover_ctx_t* ctx) {
   TRACE_START(ctx, "get_receipts");
 
   add_blocks(&blocks, logs); // find which blocks do we need
-  TRY_ASYNC_CATCH(get_receipts(ctx, blocks, hybrid), free_blocks(blocks));
-
-  if (hybrid) {
-    for (proof_logs_block_t* block = blocks; block; block = block->next)
-      TRY_ASYNC_CATCH(proof_block_hybrid(ctx, block), free_blocks(blocks));
-
-    serialize_hybrid_log_proof(ctx, blocks, logs);
-    free_blocks(blocks);
-    return C4_SUCCESS;
-  }
+  TRY_ASYNC_CATCH(get_receipts(ctx, blocks), free_blocks(blocks));
 
   // now we have all the blockreceipts and the beaconblock.
-  if (ctx->flags & C4_PROVER_FLAG_INCLUDE_SYNC && ctx->client_state.data && ctx->client_state.len) {
-    for (proof_logs_block_t* block = blocks; block; block = block->next) {
-      if (!highest_block || block->beacon_block.slot > highest_block->beacon_block.slot) highest_block = block;
-    }
-    for (proof_logs_block_t* block = blocks; block; block = block->next)
-      block->block_proof.sync.required_period = highest_block->beacon_block.slot >> (chain->slots_per_epoch_bits + chain->epochs_per_period_bits);
+  for (proof_logs_block_t* block = blocks; block; block = block->next) {
+    if (!highest_block || block->beacon_block.slot > highest_block->beacon_block.slot) highest_block = block;
   }
+  for (proof_logs_block_t* block = blocks; block; block = block->next)
+    block->block_proof.sync.required_period = highest_block->beacon_block.slot >> (chain->slots_per_epoch_bits + chain->epochs_per_period_bits);
 
   // create the merkle proofs for all the blocks
   for (proof_logs_block_t* block = blocks; block; block = block->next)
     TRY_ASYNC_CATCH(proof_block(ctx, block), free_blocks(blocks));
 
-  if (ctx->flags & C4_PROVER_FLAG_INCLUDE_SYNC && highest_block)
+  if (highest_block)
     TRY_ASYNC(c4_get_syncdata_proof(ctx, &highest_block->block_proof.sync, &sync_proof));
 
   TRACE_START(ctx, "serialize_proof");

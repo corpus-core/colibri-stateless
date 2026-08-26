@@ -111,10 +111,7 @@ static void reset_local_filecache() {
       .set             = file_set,
       .max_sync_states = 3};
   c4_set_storage_config(&plgn);
-
-#ifdef PROVER_CACHE
-  c4_prover_cache_cleanup(UINT64_MAX, 0);
-#endif
+  c4_reset_caches();
 }
 static uint64_t now() {
 #ifndef _WIN32
@@ -336,7 +333,19 @@ static void run_rpc_test(char* dirname, prover_flags_t flags, verify_flags_t ver
   json_t     trusted_blockhash = json_get(test, "trusted_blockhash");
   chain_id_t chain_id          = (chain_id_t) json_get_uint64(test, "chain_id");
   char*      expected_result   = bprintf(NULL, "%J", json_get(test, "expected_result"));
-  json_t     remote_prover     = json_get(test, "remote_prover");
+  json_t           remote_prover = json_get(test, "remote_prover");
+  json_t           prover_mode   = json_get(test, "prover_mode");
+  c4_prover_mode_t mode          = C4_PROVER_MODE_LOCAL;
+  if (prover_mode.type == JSON_TYPE_STRING) {
+    if (prover_mode.len == 8 && strncmp(prover_mode.start, "\"remote\"", 8) == 0)
+      mode = C4_PROVER_MODE_REMOTE;
+    else if (prover_mode.len == 8 && strncmp(prover_mode.start, "\"hybrid\"", 8) == 0)
+      mode = C4_PROVER_MODE_HYBRID;
+    else if (prover_mode.len == 7 && strncmp(prover_mode.start, "\"proxy\"", 7) == 0)
+      mode = C4_PROVER_MODE_PROXY;
+  }
+  else if (remote_prover.type == JSON_TYPE_BOOLEAN && remote_prover.len && remote_prover.start[0] == 't')
+    mode = C4_PROVER_MODE_REMOTE;
 
   if (trusted_blockhash.type == JSON_TYPE_STRING && trusted_blockhash.len == 68) {
     bytes32_t checkpoint;
@@ -344,7 +353,7 @@ static void run_rpc_test(char* dirname, prover_flags_t flags, verify_flags_t ver
     c4_eth_set_trusted_checkpoint(chain_id, checkpoint);
   }
 
-  verify_count(dirname, method, args, chain_id, 1, flags, verify_flags, expected_result, remote_prover.type == JSON_TYPE_BOOLEAN && *remote_prover.start=='t');
+  verify_count(dirname, method, args, chain_id, 1, flags, verify_flags, expected_result, mode);
 
   safe_free(method);
   safe_free(args);

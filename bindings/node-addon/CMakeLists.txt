@@ -52,6 +52,9 @@ target_include_directories(colibri_native PRIVATE
 )
 
 target_link_libraries(colibri_native PRIVATE prover verifier eth_verifier)
+if(TARGET eth_prover)
+    target_link_libraries(colibri_native PRIVATE eth_prover)
+endif()
 
 if(APPLE)
     # N-API symbols live in the hosting Node.js binary and are resolved at load time.

@@ -601,10 +601,8 @@ static void handle_curl_events() {
     // Update via unified end hook (also adjusts AIMD and method stats)
     {
       char*       rpc_method = extract_rpc_method(r->req);
-      bool        is_null = (http_code >= 200 && http_code < 300
-                         && rpc_method && r->buffer.data.data && r->buffer.data.len > 0
-                         && strstr((const char*) r->buffer.data.data, "\"result\":null"));
-      const char* ctx    = is_null ? "null_result" : NULL;
+      bool        is_null    = (http_code >= 200 && http_code < 300 && rpc_method && r->buffer.data.data && r->buffer.data.len > 0 && strstr((const char*) r->buffer.data.data, "\"result\":null"));
+      const char* ctx        = is_null ? "null_result" : NULL;
       c4_on_request_end(servers, r->req->response_node_index, response_time,
                         health_success, response_type, http_code,
                         rpc_method, ctx);

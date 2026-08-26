@@ -34,7 +34,6 @@ globs: ["src/**/*.c", "src/**/*.h", "test/**/*.c", "libs/**/*.c", "libs/**/*.h"]
 - `NONNULL` / `NONNULL_FOR((n))` -- mark parameters that must not be NULL.
 - `RETURNS_NONNULL` -- function never returns NULL.
 - `M_RET` -- function returns allocated memory (caller must free).
-- `M_TAKE(n)` -- function takes ownership of parameter n.
 - `COUNTED_BY(len)` -- array size annotation for bounds checking.
 
 ## Formatting

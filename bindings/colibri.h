@@ -1288,6 +1288,15 @@ void* c4_create_rpc_ctx(char* method, char* params, uint64_t chain_id, uint32_t 
 void c4_set_checkpoint(uint64_t chain_id, const char* trusted_checkpoint);
 
 /**
+ * Clears all in-process prover and verifier caches.
+ *
+ * Use this between fixture-backed tests that share one process. Must not
+ * run concurrently with proof generation (`rpc()` / `c4_prover_execute`).
+ * Persistent storage (`states_*`, `sync_*`, `header_tags_*`) is left untouched.
+ */
+void c4_reset_caches(void);
+
+/**
  * Sets witness/signer keys on an RPC context (hex-encoded).
  *
  * Used for sync committee weak subjectivity signing during proof generation

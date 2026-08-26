@@ -25,7 +25,9 @@
 #include "../util/crypto.h"
 #include "../util/ssz.h"
 #include "beacon_types.h"
+#include "el_header.h"
 #include "eth_verify.h"
+#include "header_cache.h"
 #include "logger.h"
 #include "sync_committee.h"
 #include <stdbool.h>
@@ -119,8 +121,24 @@ static c4_status_t c4_verify_historic_proof(verify_ctx_t* ctx, ssz_ob_t header, 
   bytes32_t state_root    = {0};
   ssz_ob_t  signed_header = ssz_get(&historic_proof, "header");
 
+  // Derive the expected combined gindex locally. Never trust the value carried
+  // in the proof: without this cross-check an attacker could supply any Merkle
+  // path that terminates at some other `bytes32` position inside the BeaconState
+  // tree (e.g. `block_roots[i]`, `state_roots[i]`,
+  // `latest_block_header.parent_root`, ...) and have the verifier accept an
+  // arbitrary `block_root` as a "historic block". The verifier below hashes
+  // against `expected_gindex`, so both the position and the leaf are bound.
+  uint64_t block_slot    = ssz_get_uint64(&header, "slot");
+  uint64_t state_slot    = ssz_get_uint64(&signed_header, "slot");
+  gindex_t expected_gidx = c4_historic_block_gindex(ctx->chain_id, block_slot, state_slot);
+  uint64_t proof_gidx    = ssz_get_uint64(&historic_proof, "gindex");
+  if (expected_gidx == 0)
+    THROW_ERROR("invalid slot for historic proof gindex!");
+  if (proof_gidx != (uint64_t) expected_gidx)
+    THROW_ERROR("invalid gindex for historic proof!");
+
   ssz_hash_tree_root(header, block_root);
-  ssz_verify_single_merkle_proof(ssz_get(&historic_proof, "proof").bytes, block_root, ssz_get_uint64(&historic_proof, "gindex"), state_root);
+  ssz_verify_single_merkle_proof(ssz_get(&historic_proof, "proof").bytes, block_root, expected_gidx, state_root);
 
   if (memcmp(state_root, ssz_get(&signed_header, "stateRoot").bytes.data, 32))
     THROW_ERROR("invalid state root for historic proof!");
@@ -129,14 +147,14 @@ static c4_status_t c4_verify_historic_proof(verify_ctx_t* ctx, ssz_ob_t header, 
 }
 
 c4_status_t c4_verify_header(verify_ctx_t* ctx, ssz_ob_t header, ssz_ob_t block_proof) {
-  ssz_ob_t header_proof             = ssz_get(&block_proof, "header_proof");
+  ssz_ob_t header_proof             = ssz_get(&block_proof, "headerProof");
   ssz_ob_t sync_committee_bits      = ssz_get(&header_proof, "sync_committee_bits");
   ssz_ob_t sync_committee_signature = ssz_get(&header_proof, "sync_committee_signature");
 
   if (strcmp(header_proof.def->name, "signature_proof") == 0) // direct proof - the signature matches the current header
     return c4_verify_blockroot_signature(ctx, &header, &sync_committee_bits, &sync_committee_signature, 0, NULL);
 
-  if (strcmp(header_proof.def->name, "header_proof") == 0) // header proof - the signature matches the signed header in the header_proof
+  if (strcmp(header_proof.def->name, "headerProof") == 0) // header proof - the signature matches the signed header in the header_proof
     return c4_verify_headers_proof(ctx, header, sync_committee_bits, sync_committee_signature, header_proof);
 
   // historic proof
@@ -199,4 +217,95 @@ c4_status_t c4_verify_blockroot_signature(verify_ctx_t* ctx, ssz_ob_t* header, s
 #endif
 
   return C4_SUCCESS;
+}
+
+// Resolves the blockHash union variant: the proof references the block only by hash,
+// which means the prover assumed the verifier has already verified and cached this
+// header (hybrid mode or a client-provided last_block_hash).
+static c4_status_t verify_block_by_blockhash(verify_ctx_t* ctx, ssz_ob_t block, bytes_t* el_header, bytes32_t block_hash) {
+  if (block.bytes.len != 32) THROW_ERROR("invalid block hash length!");
+
+  // the header may already be attached to this ctx as a cache snapshot
+  // (re-execution after C4_PENDING or multiple proofs referencing the same block)
+  data_request_t* snapshot = c4_state_get_data_request_by_id(&ctx->state, block.bytes.data);
+  if (snapshot && snapshot->type == C4_DATA_TYPE_CACHE && snapshot->response.data) {
+    *el_header = snapshot->response;
+    memcpy(block_hash, block.bytes.data, 32);
+    return C4_SUCCESS;
+  }
+
+#ifdef EL_HEADER_CACHE
+  bytes_t cached = c4_header_cache_get_el_header(ctx->chain_id, block.bytes.data, NULL);
+  if (cached.data) {
+    // hand the copy over to the state as a C4_DATA_TYPE_CACHE snapshot: it stays valid
+    // for the lifetime of the verify_ctx and is freed automatically by c4_state_free().
+    snapshot           = safe_calloc(1, sizeof(data_request_t));
+    snapshot->chain_id = ctx->chain_id;
+    snapshot->type     = C4_DATA_TYPE_CACHE;
+    snapshot->encoding = C4_DATA_ENCODING_SSZ;
+    snapshot->response = cached;
+    memcpy(snapshot->id, block.bytes.data, 32);
+    c4_state_add_request(&ctx->state, snapshot);
+
+    *el_header = cached;
+    memcpy(block_hash, block.bytes.data, 32);
+    return C4_SUCCESS;
+  }
+#endif
+  // TODO(cache-miss fallback): instead of failing, a remote-prover verifier could issue
+  // an eth_getBlockHeader data request here and verify the full block proof (handles the
+  // rare eviction race between advertising last_block_hash and receiving the response).
+  THROW_ERROR("referenced block header not found in the verifier cache!");
+}
+
+// Verifies the clProof union variant: checks the RLP header against the beacon block
+// (merkle proof to the body root) and verifies the CL header signature chain.
+static c4_status_t verify_block_by_blockproof(verify_ctx_t* ctx, ssz_ob_t block, bytes_t* el_header, bytes32_t block_hash) {
+  bytes_t   raw_header = ssz_get(&block, "elHeader").bytes;
+  bytes32_t body_root  = {0};
+  gindex_t  gindex     = ssz_get_uint64(&block, "gindex");
+  ssz_ob_t  cl_header  = ssz_get(&block, "clHeader");
+  keccak(raw_header, block_hash);
+  ssz_verify_single_merkle_proof(
+      ssz_get(&block, "blockhashBranch").bytes, block_hash,
+      gindex,
+      body_root);
+
+  if (memcmp(body_root, ssz_get(&cl_header, "bodyRoot").bytes.data, 32))
+    THROW_ERROR("invalid body root for cl proof!");
+
+  // Pin the branch target to the fork-specific EL block-hash leaf inside
+  // `BeaconBlockBody`. Without this cross-check a crafted proof could point at
+  // any other bytes32 in the body (e.g. `graffiti`, `execution_payload.extra_data`)
+  // and pass off arbitrary 32 bytes as the block hash. See `beacon_types.h` for
+  // the exact per-fork semantics (Deneb..Fulu: `execution_payload.block_hash`,
+  // Gloas: `signed_execution_payload_bid.message.parent_block_hash`).
+  gindex_t expected_gindex = c4_execution_block_hash_gindex(ctx->chain_id, ssz_get_uint64(&cl_header, "slot"));
+  if (expected_gindex == 0)
+    THROW_ERROR("unsupported fork for cl proof gindex!");
+  if (gindex != expected_gindex)
+    THROW_ERROR("invalid gindex for cl proof!");
+
+  TRY_ASYNC(c4_verify_header(ctx, cl_header, block));
+
+#ifdef EL_HEADER_CACHE
+  // the header is now fully verified: cache it so follow-up proofs can reference
+  // this block by hash only (blockHash variant of ETH_BLOCK_PROOF_UNION).
+  // A block number of 0 indicates an unparsable header field, do not key the cache on it.
+  uint64_t block_number = eth_el_header_get_uint64(raw_header, EL_BLOCK_NUMBER);
+  if (block_number) c4_header_cache_put(ctx->chain_id, block_number, block_hash, raw_header, NULL);
+#endif
+  *el_header = raw_header; // borrowed from the proof, valid for the lifetime of the ctx
+  return C4_SUCCESS;
+}
+
+c4_status_t c4_verify_block(verify_ctx_t* ctx, ssz_ob_t block, bytes_t* el_header, bytes32_t block_hash) {
+  if (!block.def) THROW_ERROR("invalid block type!");
+  if (strcmp(block.def->name, "blockHash") == 0)
+    return verify_block_by_blockhash(ctx, block, el_header, block_hash);
+
+  if (strcmp(block.def->name, "clProof") == 0)
+    return verify_block_by_blockproof(ctx, block, el_header, block_hash);
+
+  THROW_ERROR("invalid block type!");
 }

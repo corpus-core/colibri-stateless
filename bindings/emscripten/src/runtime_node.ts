@@ -63,6 +63,7 @@ type NativeBinding = {
     reqSetError(reqPtr: string, error: string, nodeIndex: number): void;
 
     setCheckpoint(chainId: bigint, checkpoint: string | null): void;
+    resetCaches(): void;
     decodeProof(data: Uint8Array): string | null;
     registerStorage(storage: Storage): void;
     version(): number;
@@ -121,6 +122,7 @@ function createNativeRuntime(binding: NativeBinding): C4Runtime {
         rpcCtxSetMinLatestBlockTs: binding.rpcCtxSetMinLatestBlockTs,
 
         setCheckpoint: binding.setCheckpoint,
+        resetCaches: binding.resetCaches,
 
         reqSetResponse: (req: DataRequest, data: Uint8Array, nodeIndex: number) =>
             binding.reqSetResponse(String(req.req_ptr), data, nodeIndex),

@@ -34,8 +34,8 @@
 #include "../util/state.h"
 #include "prover.h"
 #include PROVERS_PATH
-#include "logger.h"
 #include "../util/version.h"
+#include "logger.h"
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>

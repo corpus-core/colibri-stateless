@@ -262,6 +262,8 @@ class ColibriTest {
             convertJsonToJava(paramsJson.get(i)) // Use the helper from Colibri.kt
         }
 
+        Colibri.resetCaches()
+
         // --- Storage Setup --- 
         // Create storage instance linked to the specific test directory
         val storage = InMemoryStorage(testDir)

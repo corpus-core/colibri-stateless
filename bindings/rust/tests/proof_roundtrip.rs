@@ -10,12 +10,13 @@ use colibri_stateless::testing::{
     discover_tests, find_test_data_root, FileBackedMockRequestHandler, FileBackedMockStorage,
     TestCase,
 };
-use colibri_stateless::{Colibri, ColibriError, PrivacyMode};
+use colibri_stateless::{reset_caches, Colibri, ColibriError, PrivacyMode};
 use serial_test::serial;
 
 const FIXTURE_NAME: &str = "eth_getBalance1";
 
 fn build_client(tc: &TestCase) -> Colibri {
+    reset_caches();
     let mock_storage = FileBackedMockStorage::new(tc.directory.clone());
     let handler = Arc::new(FileBackedMockRequestHandler::new(tc.directory.clone()));
 

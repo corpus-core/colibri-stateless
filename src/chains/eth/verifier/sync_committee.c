@@ -124,7 +124,7 @@ INTERNAL c4_status_t c4_verify_checkpoint_proof(verify_ctx_t* ctx, ssz_ob_t chec
   // 4. Anchor the header itself against the canonical chain via checkpointz. Wrap ERROR
   //    in RETURN_VERIFY_ERROR_STATUS so callers that inspect `ctx->success` see a uniform
   //    signal regardless of which step failed.
-  bytes32_t   header_root = {0};
+  bytes32_t header_root = {0};
   ssz_hash_tree_root(header, header_root);
   c4_status_t anchor_status = c4_verify_checkpointz_root(ctx, slot, header_root);
   if (anchor_status == C4_ERROR)
@@ -204,7 +204,7 @@ static bool update_light_client_update(verify_ctx_t* ctx, ssz_ob_t* update) {
   return c4_set_sync_period(period, ssz_get(&sync_committee, "pubkeys").bytes, ctx->chain_id, previous_pubkeys_hash);
 }
 static bool verify_signatures(verify_ctx_t* ctx, ssz_ob_t checkpoint_ob, ssz_ob_t attested_header, ssz_ob_t signatures) {
-  if (!checkpoint_ob.def || strcmp(checkpoint_ob.def->name, "header_proof"))
+  if (!checkpoint_ob.def || strcmp(checkpoint_ob.def->name, "headerProof"))
     RETURN_VERIFY_ERROR(ctx, "invalid checkpoint, must be a header_proof!");
   ssz_ob_t  signed_header = ssz_get(&checkpoint_ob, "header");
   bytes32_t checkpoint    = {0};
@@ -436,13 +436,13 @@ static c4_status_t update_from_zk_sync_data(verify_ctx_t* ctx) {
         // `period_store_zk_ssz.c`), NOT the attested header (typically mid-epoch);
         // checkpointz only serves epoch-boundary blocks. `historic_proof` carries the
         // same `header` field as `header_proof`, so both share the anchor logic.
-        bool     have_header_field = checkpoint.def && (strcmp(checkpoint.def->name, "header_proof") == 0 ||
-                                                        strcmp(checkpoint.def->name, "historic_proof") == 0);
-        ssz_ob_t anchor_header     = have_header_field
-                                         ? ssz_get(&checkpoint, "header")
-                                         : header; // signature_proof has no embedded anchor header; falls back to attested
-        uint64_t  anchor_slot  = ssz_get_uint64(&anchor_header, "slot");
-        bytes32_t anchor_root  = {0};
+        bool      have_header_field = checkpoint.def && (strcmp(checkpoint.def->name, "headerProof") == 0 ||
+                                                    strcmp(checkpoint.def->name, "historic_proof") == 0);
+        ssz_ob_t  anchor_header     = have_header_field
+                                          ? ssz_get(&checkpoint, "header")
+                                          : header; // signature_proof has no embedded anchor header; falls back to attested
+        uint64_t  anchor_slot       = ssz_get_uint64(&anchor_header, "slot");
+        bytes32_t anchor_root       = {0};
         ssz_hash_tree_root(anchor_header, anchor_root);
         c4_status_t wsp_status = c4_verify_checkpointz_root(ctx, anchor_slot, anchor_root);
         if (wsp_status == C4_PENDING) return C4_PENDING;
@@ -492,21 +492,16 @@ INTERNAL c4_status_t c4_update_from_sync_data(verify_ctx_t* ctx) {
 }
 
 fork_id_t c4_eth_get_fork_for_lcu(chain_id_t chain_id, bytes_t data) {
-  // TODO(gloas): This detector reads the leading SSZ offset assuming the outer
-  //              LightClientUpdate/Bootstrap is variable-size (dynamic
-  //              ExecutionPayloadHeader inside LightClientHeader). EIP-7732
-  //              replaces that header field with a fixed `executionBlockHash`
-  //              plus a `Vector[Bytes32, 11]` branch, making Gloas LC blobs
-  //              fully fixed-size and this offset probe useless. Before Gloas
-  //              gets an activation epoch on any chain, the fork must be
-  //              derived from the SSZ union tag delivered on the wire (see
-  //              `C4_ETH_SYNCDATA_UPDATE_UNION` / `..._BOOTSTRAP_UNION` in
-  //              `verify_types.c`), not from the payload body. Guarded by
-  //              `test_gloas_activation_epoch_still_reserved`.
   if (data.len < 4) return 0;
+  uint64_t slot   = 0;
   uint32_t offset = uint32_from_le(data.data);
-  if (offset + 8 > data.len) return 0;
-  uint64_t            slot = uint64_from_le(data.data + offset);
+  if (offset + 8 > data.len)
+    // this is most likely a gloas bootstrap!
+    // TODO(gloas): this may break if the lower 4 bytes of the slot are smaller than the lcu length.
+    // so in 99% of the cases it will work, but we should find a better way to detect the fork.
+    slot = uint64_from_le(data.data);
+  else
+    slot = uint64_from_le(data.data + offset);
   const chain_spec_t* spec = c4_eth_get_chain_spec(chain_id);
   return c4_chain_fork_id(chain_id, epoch_for_slot(slot, spec));
 }

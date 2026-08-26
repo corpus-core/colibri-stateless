@@ -160,6 +160,9 @@ extern "C" {
     /// NULL to keep the default). Global, not per-context.
     pub fn c4_set_checkpoint(chain_id: u64, trusted_checkpoint: *const c_char);
 
+    /// Clear in-process prover/verifier caches (test isolation).
+    pub fn c4_reset_caches();
+
     // ------------------------------------------------------------------
     // Storage plugin (src/util/plugin.h)
     // ------------------------------------------------------------------

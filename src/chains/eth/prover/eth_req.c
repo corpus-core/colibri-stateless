@@ -84,6 +84,13 @@ c4_status_t eth_getBlockReceipts(prover_ctx_t* ctx, json_t block, json_t* receip
   return C4_SUCCESS;
 }
 
+c4_status_t eth_get_block(prover_ctx_t* ctx, json_t block, bool full_tx, json_t* result) {
+  uint8_t  tmp[200] = {0};
+  buffer_t buffer   = stack_buffer(tmp);
+  return c4_send_eth_rpc(ctx, (char*) (block.len == 68 ? "eth_getBlockByHash" : "eth_getBlockByNumber"), bprintf(&buffer, "[%J,%s]", block, full_tx ? "true" : "false"), block.len == 68 ? DEFAULT_TTL : 12, result, NULL);
+  // TODO validate the json result
+}
+
 c4_status_t eth_get_logs(prover_ctx_t* ctx, json_t params, json_t* logs) {
   // Use a growable heap buffer: eth_getLogs params can be large (many addresses/topics)
   // and would be silently truncated by a fixed stack buffer, producing an invalid request.

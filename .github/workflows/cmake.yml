@@ -39,6 +39,7 @@ jobs:
             -DETH_OBLIVIOUS=OFF \
             -DEVMLIGHT=OFF \
             -DPROVER=OFF \
+            -DPROVER_CACHE=OFF \
             -DCLI=OFF \
             -DETH_ZKPROOF=false \
             -DPRECOMPILE_ZERO_HASHES=OFF \

@@ -39,8 +39,8 @@ static const ssz_def_t OP_STATE_BLOCK_UNION[] = {
 // Union type for preconfirmation payload format.
 // Preconfirmations can be stored either compressed (ZSTD) or uncompressed.
 static const ssz_def_t OP_PRECONF_PAYLOAD_UNION[] = {
-    SSZ_BYTES("compressed_zstd", 1073741824),  // ZSTD-compressed execution payload (domain + payload)
-    SSZ_BYTES("uncompressed", 1073741824),     // uncompressed execution payload (domain + payload)
+    SSZ_BYTES("compressed_zstd", 1073741824), // ZSTD-compressed execution payload (domain + payload)
+    SSZ_BYTES("uncompressed", 1073741824),    // uncompressed execution payload (domain + payload)
 };
 
 // Preconfirmation structure containing a sequencer-signed execution payload.
@@ -102,9 +102,9 @@ static const ssz_def_t OP_LOGS_TX_CONTAINER = SSZ_CONTAINER("LogsTx", OP_LOGS_TX
 // A single block with its proof containing all the receipts or txs required to prove the logs.
 static const ssz_def_t OP_LOGS_BLOCK[] = {
     SSZ_UNION("block_proof", OP_BLOCKPROOF_UNION), // proof for the block (preconfirmation)
-    SSZ_LIST("txs", OP_LOGS_TX_CONTAINER, 256)   // the transactions of the block with their proofs
+    SSZ_LIST("txs", OP_LOGS_TX_CONTAINER, 256)     // the transactions of the block with their proofs
 };
-        
+
 // Container type for a block containing multiple transaction log proofs
 static const ssz_def_t OP_LOGS_BLOCK_CONTAINER = SSZ_CONTAINER("LogsBlock", OP_LOGS_BLOCK);
 

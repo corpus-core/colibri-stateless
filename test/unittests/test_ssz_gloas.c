@@ -30,9 +30,9 @@
 //   3. Ensure the light-client containers accept sane payloads (structural
 //      validation + hash_tree_root does not crash).
 
-#include "c4_assert.h" // provides read_testdata() and ASSERT_HEX_STRING_EQUAL()
 #include "beacon_types.h"
 #include "bytes.h"
+#include "c4_assert.h" // provides read_testdata() and ASSERT_HEX_STRING_EQUAL()
 #include "chains.h"
 #include "ssz.h"
 #include "state.h"
@@ -67,52 +67,52 @@ static const ssz_def_t GLOAS_TEST_SYNC_COMMITTEE_FIELDS[] = {
 
 // Positions match `specs/gloas/beacon-chain.md` line 816 (BeaconState, 46 fields).
 static const ssz_def_t GLOAS_TEST_BEACON_STATE_BASE[] = {
-    SSZ_UINT64("genesis_time"),                     // 0
-    SSZ_BYTES32("genesis_validators_root"),         // 1
-    SSZ_UINT64("slot"),                             // 2
-    SSZ_UINT64("fork"),                             // 3
-    SSZ_UINT64("latest_block_header"),              // 4
-    SSZ_UINT64("block_roots"),                      // 5
-    SSZ_UINT64("state_roots"),                      // 6
-    SSZ_UINT64("historical_roots"),                 // 7
-    SSZ_UINT64("eth1_data"),                        // 8
-    SSZ_UINT64("eth1_data_votes"),                  // 9
-    SSZ_UINT64("eth1_deposit_index"),               // 10
-    SSZ_UINT64("validators"),                       // 11
-    SSZ_UINT64("balances"),                         // 12
-    SSZ_UINT64("randao_mixes"),                     // 13
-    SSZ_UINT64("slashings"),                        // 14
-    SSZ_UINT64("previous_epoch_participation"),     // 15
-    SSZ_UINT64("current_epoch_participation"),      // 16
-    SSZ_UINT64("justification_bits"),               // 17
-    SSZ_UINT64("previous_justified_checkpoint"),    // 18
-    SSZ_UINT64("current_justified_checkpoint"),     // 19
-    SSZ_CONTAINER("finalized_checkpoint", GLOAS_TEST_CHECKPOINT_FIELDS),      // 20
-    SSZ_UINT64("inactivity_scores"),                // 21
-    SSZ_CONTAINER("current_sync_committee", GLOAS_TEST_SYNC_COMMITTEE_FIELDS),// 22
-    SSZ_CONTAINER("next_sync_committee", GLOAS_TEST_SYNC_COMMITTEE_FIELDS),   // 23
-    SSZ_BYTES32("latest_block_hash"),               // 24
-    SSZ_UINT64("next_withdrawal_index"),            // 25
-    SSZ_UINT64("next_withdrawal_validator_index"),  // 26
-    SSZ_UINT64("historical_summaries"),             // 27
-    SSZ_UINT64("deposit_requests_start_index"),     // 28
-    SSZ_UINT64("deposit_balance_to_consume"),       // 29
-    SSZ_UINT64("exit_balance_to_consume"),          // 30
-    SSZ_UINT64("earliest_exit_epoch"),              // 31
-    SSZ_UINT64("consolidation_balance_to_consume"), // 32
-    SSZ_UINT64("earliest_consolidation_epoch"),     // 33
-    SSZ_UINT64("pending_deposits"),                 // 34
-    SSZ_UINT64("pending_partial_withdrawals"),      // 35
-    SSZ_UINT64("pending_consolidations"),           // 36
-    SSZ_UINT64("proposer_lookahead"),               // 37
-    SSZ_UINT64("builders"),                         // 38
-    SSZ_UINT64("next_withdrawal_builder_index"),    // 39
-    SSZ_UINT64("execution_payload_availability"),   // 40
-    SSZ_UINT64("builder_pending_payments"),         // 41
-    SSZ_UINT64("builder_pending_withdrawals"),      // 42
-    SSZ_UINT64("latest_execution_payload_bid"),     // 43
-    SSZ_UINT64("payload_expected_withdrawals"),     // 44
-    SSZ_UINT64("ptc_window")                        // 45
+    SSZ_UINT64("genesis_time"),                                                // 0
+    SSZ_BYTES32("genesis_validators_root"),                                    // 1
+    SSZ_UINT64("slot"),                                                        // 2
+    SSZ_UINT64("fork"),                                                        // 3
+    SSZ_UINT64("latest_block_header"),                                         // 4
+    SSZ_UINT64("block_roots"),                                                 // 5
+    SSZ_UINT64("state_roots"),                                                 // 6
+    SSZ_UINT64("historical_roots"),                                            // 7
+    SSZ_UINT64("eth1_data"),                                                   // 8
+    SSZ_UINT64("eth1_data_votes"),                                             // 9
+    SSZ_UINT64("eth1_deposit_index"),                                          // 10
+    SSZ_UINT64("validators"),                                                  // 11
+    SSZ_UINT64("balances"),                                                    // 12
+    SSZ_UINT64("randao_mixes"),                                                // 13
+    SSZ_UINT64("slashings"),                                                   // 14
+    SSZ_UINT64("previous_epoch_participation"),                                // 15
+    SSZ_UINT64("current_epoch_participation"),                                 // 16
+    SSZ_UINT64("justification_bits"),                                          // 17
+    SSZ_UINT64("previous_justified_checkpoint"),                               // 18
+    SSZ_UINT64("current_justified_checkpoint"),                                // 19
+    SSZ_CONTAINER("finalized_checkpoint", GLOAS_TEST_CHECKPOINT_FIELDS),       // 20
+    SSZ_UINT64("inactivity_scores"),                                           // 21
+    SSZ_CONTAINER("current_sync_committee", GLOAS_TEST_SYNC_COMMITTEE_FIELDS), // 22
+    SSZ_CONTAINER("next_sync_committee", GLOAS_TEST_SYNC_COMMITTEE_FIELDS),    // 23
+    SSZ_BYTES32("latest_block_hash"),                                          // 24
+    SSZ_UINT64("next_withdrawal_index"),                                       // 25
+    SSZ_UINT64("next_withdrawal_validator_index"),                             // 26
+    SSZ_UINT64("historical_summaries"),                                        // 27
+    SSZ_UINT64("deposit_requests_start_index"),                                // 28
+    SSZ_UINT64("deposit_balance_to_consume"),                                  // 29
+    SSZ_UINT64("exit_balance_to_consume"),                                     // 30
+    SSZ_UINT64("earliest_exit_epoch"),                                         // 31
+    SSZ_UINT64("consolidation_balance_to_consume"),                            // 32
+    SSZ_UINT64("earliest_consolidation_epoch"),                                // 33
+    SSZ_UINT64("pending_deposits"),                                            // 34
+    SSZ_UINT64("pending_partial_withdrawals"),                                 // 35
+    SSZ_UINT64("pending_consolidations"),                                      // 36
+    SSZ_UINT64("proposer_lookahead"),                                          // 37
+    SSZ_UINT64("builders"),                                                    // 38
+    SSZ_UINT64("next_withdrawal_builder_index"),                               // 39
+    SSZ_UINT64("execution_payload_availability"),                              // 40
+    SSZ_UINT64("builder_pending_payments"),                                    // 41
+    SSZ_UINT64("builder_pending_withdrawals"),                                 // 42
+    SSZ_UINT64("latest_execution_payload_bid"),                                // 43
+    SSZ_UINT64("payload_expected_withdrawals"),                                // 44
+    SSZ_UINT64("ptc_window")                                                   // 45
 };
 
 static const ssz_def_t GLOAS_TEST_BEACON_STATE_BASE_CONTAINER =
@@ -136,6 +136,12 @@ void test_gloas_state_gindexes(void) {
   // field 1 of the Checkpoint container → 367 * 2 + 1 = 735.
   TEST_ASSERT_EQUAL_UINT64(367, ssz_gindex(&GLOAS_TEST_BEACON_STATE, 1, "finalized_checkpoint"));
   TEST_ASSERT_EQUAL_UINT64(735, ssz_gindex(&GLOAS_TEST_BEACON_STATE, 2, "finalized_checkpoint", "root"));
+
+  // `historical_summaries` sits at field 27 (progressive chunk gindex 1926) below the
+  // `active_fields` mix-in (data root at gindex 2) → 2 * 1024 + 1926 - 2048 = 2950.
+  // The list itself keeps its classical merkleization (EIP-7688 keeps it a plain List),
+  // so `historic_proof.c` only needs the fork-aware outer gindex here.
+  TEST_ASSERT_EQUAL_UINT64(2950, ssz_gindex(&GLOAS_TEST_BEACON_STATE, 1, "historical_summaries"));
 }
 
 // -----------------------------------------------------------------------------
@@ -276,20 +282,26 @@ void test_gloas_gindex_helpers_pre_gloas_branches(void) {
   uint64_t electra_slot = slot_for_epoch(400000ULL, spec); // Electra (>= 364032, < 411392)
   uint64_t fulu_slot    = slot_for_epoch(500000ULL, spec); // Fulu (>= 411392)
 
-  // Deneb: (54, 55, 105)
+  // Deneb: (54, 55, 105, 59, 812)
   TEST_ASSERT_EQUAL_UINT64(54, c4_current_sync_committee_gindex(C4_CHAIN_MAINNET, deneb_slot));
   TEST_ASSERT_EQUAL_UINT64(55, c4_next_sync_committee_gindex(C4_CHAIN_MAINNET, deneb_slot));
   TEST_ASSERT_EQUAL_UINT64(105, c4_finalized_root_gindex(C4_CHAIN_MAINNET, deneb_slot));
+  TEST_ASSERT_EQUAL_UINT64(59, c4_historical_summaries_gindex(C4_CHAIN_MAINNET, deneb_slot));
+  TEST_ASSERT_EQUAL_UINT64(812, c4_execution_block_hash_gindex(C4_CHAIN_MAINNET, deneb_slot));
 
-  // Electra: (86, 87, 169)
+  // Electra: (86, 87, 169, 91, 812)
   TEST_ASSERT_EQUAL_UINT64(86, c4_current_sync_committee_gindex(C4_CHAIN_MAINNET, electra_slot));
   TEST_ASSERT_EQUAL_UINT64(87, c4_next_sync_committee_gindex(C4_CHAIN_MAINNET, electra_slot));
   TEST_ASSERT_EQUAL_UINT64(169, c4_finalized_root_gindex(C4_CHAIN_MAINNET, electra_slot));
+  TEST_ASSERT_EQUAL_UINT64(91, c4_historical_summaries_gindex(C4_CHAIN_MAINNET, electra_slot));
+  TEST_ASSERT_EQUAL_UINT64(812, c4_execution_block_hash_gindex(C4_CHAIN_MAINNET, electra_slot));
 
   // Fulu keeps the Electra state layout for these fields.
   TEST_ASSERT_EQUAL_UINT64(86, c4_current_sync_committee_gindex(C4_CHAIN_MAINNET, fulu_slot));
   TEST_ASSERT_EQUAL_UINT64(87, c4_next_sync_committee_gindex(C4_CHAIN_MAINNET, fulu_slot));
   TEST_ASSERT_EQUAL_UINT64(169, c4_finalized_root_gindex(C4_CHAIN_MAINNET, fulu_slot));
+  TEST_ASSERT_EQUAL_UINT64(91, c4_historical_summaries_gindex(C4_CHAIN_MAINNET, fulu_slot));
+  TEST_ASSERT_EQUAL_UINT64(812, c4_execution_block_hash_gindex(C4_CHAIN_MAINNET, fulu_slot));
 
   // Cross-check on Gnosis (different slots_per_epoch_bits / epochs_per_period_bits).
   const chain_spec_t* g_spec = c4_eth_get_chain_spec(C4_CHAIN_GNOSIS);
@@ -299,6 +311,133 @@ void test_gloas_gindex_helpers_pre_gloas_branches(void) {
   TEST_ASSERT_EQUAL_UINT64(86, c4_current_sync_committee_gindex(C4_CHAIN_GNOSIS, gnosis_electra_slot));
   TEST_ASSERT_EQUAL_UINT64(87, c4_next_sync_committee_gindex(C4_CHAIN_GNOSIS, gnosis_electra_slot));
   TEST_ASSERT_EQUAL_UINT64(169, c4_finalized_root_gindex(C4_CHAIN_GNOSIS, gnosis_electra_slot));
+  TEST_ASSERT_EQUAL_UINT64(91, c4_historical_summaries_gindex(C4_CHAIN_GNOSIS, gnosis_electra_slot));
+  TEST_ASSERT_EQUAL_UINT64(812, c4_execution_block_hash_gindex(C4_CHAIN_GNOSIS, gnosis_electra_slot));
+
+  // Platåberget schedules Gloas at epoch 1536 → covers the Gloas helper branch.
+  const chain_spec_t* p_spec = c4_eth_get_chain_spec(C4_CHAIN_PLATABERGET);
+  TEST_ASSERT_NOT_NULL(p_spec);
+  uint64_t plataberget_gloas_slot = slot_for_epoch(2000ULL, p_spec);
+  TEST_ASSERT_EQUAL_UINT64(2945, c4_current_sync_committee_gindex(C4_CHAIN_PLATABERGET, plataberget_gloas_slot));
+  TEST_ASSERT_EQUAL_UINT64(2946, c4_next_sync_committee_gindex(C4_CHAIN_PLATABERGET, plataberget_gloas_slot));
+  TEST_ASSERT_EQUAL_UINT64(735, c4_finalized_root_gindex(C4_CHAIN_PLATABERGET, plataberget_gloas_slot));
+  TEST_ASSERT_EQUAL_UINT64(2950, c4_historical_summaries_gindex(C4_CHAIN_PLATABERGET, plataberget_gloas_slot));
+  TEST_ASSERT_EQUAL_UINT64(2856, c4_execution_block_hash_gindex(C4_CHAIN_PLATABERGET, plataberget_gloas_slot));
+
+  // A Platåberget slot BEFORE Gloas activation (epoch 1536) must still return
+  // the pre-Gloas leaf (812), otherwise the prover would build the branch at
+  // the wrong depth on the pre-Gloas half of the chain.
+  uint64_t plataberget_pre_gloas_slot = slot_for_epoch(1000ULL, p_spec);
+  TEST_ASSERT_EQUAL_UINT64(812, c4_execution_block_hash_gindex(C4_CHAIN_PLATABERGET, plataberget_pre_gloas_slot));
+}
+
+// -----------------------------------------------------------------------------
+// Historic-block gindex helper (attack surface for HISTORIC_PROOF_DIRECT)
+// -----------------------------------------------------------------------------
+//
+// `c4_historic_block_gindex` is the single source of truth for what a
+// well-formed historic-direct proof must hash against. The verifier cross-checks
+// the gindex carried in the proof against this helper's return value so a
+// crafted proof cannot smuggle in a Merkle path that terminates at some other
+// bytes32 position inside the BeaconState tree (block_roots[i], state_roots[i],
+// latest_block_header.parent_root, ...).
+
+static const ssz_def_t HISTORIC_TEST_HISTORICAL_SUMMARY[] = {
+    SSZ_BYTES32("block_summary_root"),
+    SSZ_BYTES32("state_summary_root")};
+static const ssz_def_t HISTORIC_TEST_HISTORICAL_SUMMARY_CONTAINER =
+    SSZ_CONTAINER("HISTORICAL_SUMMARY", HISTORIC_TEST_HISTORICAL_SUMMARY);
+static const ssz_def_t HISTORIC_TEST_SUMMARIES_LIST =
+    SSZ_LIST("summaries", HISTORIC_TEST_HISTORICAL_SUMMARY_CONTAINER, 1 << 24);
+static const ssz_def_t HISTORIC_TEST_BLOCKS_VECTOR =
+    SSZ_VECTOR("blocks", ssz_bytes32, 8192);
+
+// Recompute the expected gindex the same way the (pre-fix) prover did, so a
+// silent change in `SSZ_LIST`/`SSZ_VECTOR` merkleization or in the fork -> gindex
+// mapping fails the test rather than silently drifting.
+static uint64_t recompute_historic_gindex(chain_id_t chain_id, uint64_t block_slot, uint64_t state_slot) {
+  const chain_spec_t* chain = c4_eth_get_chain_spec(chain_id);
+  if (!chain) return 0;
+  uint64_t capella_epoch = chain->fork_epochs[C4_FORK_CAPELLA - 1];
+  if (capella_epoch >= GLOAS_TEST_NOT_ASSIGNED_YET) return 0;
+  uint64_t offset_period = capella_epoch >> chain->epochs_per_period_bits;
+  uint64_t block_period  = block_slot >> (chain->slots_per_epoch_bits + chain->epochs_per_period_bits);
+  if (block_period < offset_period) return 0;
+  uint64_t summary_idx    = block_period - offset_period;
+  uint64_t block_idx      = block_slot & 0x1FFFULL;
+  gindex_t summaries_gidx = c4_historical_summaries_gindex(chain_id, state_slot);
+  gindex_t period_gidx    = ssz_gindex(&HISTORIC_TEST_SUMMARIES_LIST, 2, (int) summary_idx, "block_summary_root");
+  gindex_t block_gidx     = ssz_gindex(&HISTORIC_TEST_BLOCKS_VECTOR, 1, (int) block_idx);
+  return (uint64_t) ssz_add_gindex(ssz_add_gindex(summaries_gidx, period_gidx), block_gidx);
+}
+
+void test_historic_block_gindex_matches_manual_recompute(void) {
+  const chain_spec_t* spec = c4_eth_get_chain_spec(C4_CHAIN_MAINNET);
+  TEST_ASSERT_NOT_NULL(spec);
+
+  // Pick a block slot deep inside Deneb (epoch 300000) and a state slot in
+  // Deneb / Electra / Fulu / Gloas so the helper exercises every summaries_gidx
+  // branch (59 / 91 / 91 / 2950).
+  uint64_t block_slot_deneb   = slot_for_epoch(300000ULL, spec);
+  uint64_t state_slot_deneb   = block_slot_deneb;
+  uint64_t state_slot_electra = slot_for_epoch(400000ULL, spec);
+  uint64_t state_slot_fulu    = slot_for_epoch(500000ULL, spec);
+
+  TEST_ASSERT_EQUAL_UINT64(
+      recompute_historic_gindex(C4_CHAIN_MAINNET, block_slot_deneb, state_slot_deneb),
+      (uint64_t) c4_historic_block_gindex(C4_CHAIN_MAINNET, block_slot_deneb, state_slot_deneb));
+  TEST_ASSERT_EQUAL_UINT64(
+      recompute_historic_gindex(C4_CHAIN_MAINNET, block_slot_deneb, state_slot_electra),
+      (uint64_t) c4_historic_block_gindex(C4_CHAIN_MAINNET, block_slot_deneb, state_slot_electra));
+  TEST_ASSERT_EQUAL_UINT64(
+      recompute_historic_gindex(C4_CHAIN_MAINNET, block_slot_deneb, state_slot_fulu),
+      (uint64_t) c4_historic_block_gindex(C4_CHAIN_MAINNET, block_slot_deneb, state_slot_fulu));
+
+  // Sanity: at least the Deneb/Electra combinations must resolve to a non-zero
+  // gindex. Zero would silently disable the verifier's cross-check.
+  TEST_ASSERT_NOT_EQUAL_UINT64(0, c4_historic_block_gindex(C4_CHAIN_MAINNET, block_slot_deneb, state_slot_deneb));
+  TEST_ASSERT_NOT_EQUAL_UINT64(0, c4_historic_block_gindex(C4_CHAIN_MAINNET, block_slot_deneb, state_slot_electra));
+
+  // A different state slot inside a different fork MUST change the outer
+  // summaries_gidx (Deneb 59 vs. Electra 91) and therefore the combined gindex.
+  TEST_ASSERT_NOT_EQUAL_UINT64(
+      (uint64_t) c4_historic_block_gindex(C4_CHAIN_MAINNET, block_slot_deneb, state_slot_deneb),
+      (uint64_t) c4_historic_block_gindex(C4_CHAIN_MAINNET, block_slot_deneb, state_slot_electra));
+
+  // A different block slot in the same period must yield a different combined
+  // gindex too -- otherwise the verifier could not distinguish sibling blocks
+  // inside the same 8192-slot vector.
+  TEST_ASSERT_NOT_EQUAL_UINT64(
+      (uint64_t) c4_historic_block_gindex(C4_CHAIN_MAINNET, block_slot_deneb, state_slot_deneb),
+      (uint64_t) c4_historic_block_gindex(C4_CHAIN_MAINNET, block_slot_deneb + 1, state_slot_deneb));
+
+  // Gloas branch via Platåberget (scheduled at epoch 1536).
+  const chain_spec_t* p_spec = c4_eth_get_chain_spec(C4_CHAIN_PLATABERGET);
+  TEST_ASSERT_NOT_NULL(p_spec);
+  uint64_t p_block_slot      = slot_for_epoch(1800ULL, p_spec); // before Gloas activation
+  uint64_t p_state_slot      = slot_for_epoch(2000ULL, p_spec); // after Gloas activation
+  uint64_t plataberget_gloas = (uint64_t) c4_historic_block_gindex(C4_CHAIN_PLATABERGET, p_block_slot, p_state_slot);
+  TEST_ASSERT_EQUAL_UINT64(
+      recompute_historic_gindex(C4_CHAIN_PLATABERGET, p_block_slot, p_state_slot),
+      plataberget_gloas);
+  TEST_ASSERT_NOT_EQUAL_UINT64(0, plataberget_gloas);
+}
+
+void test_historic_block_gindex_rejects_bad_inputs(void) {
+  const chain_spec_t* spec = c4_eth_get_chain_spec(C4_CHAIN_MAINNET);
+  TEST_ASSERT_NOT_NULL(spec);
+  uint64_t deneb_slot = slot_for_epoch(300000ULL, spec);
+
+  // Unknown chain id -> 0 (verifier must treat as error, never fall through).
+  TEST_ASSERT_EQUAL_UINT64(0, (uint64_t) c4_historic_block_gindex(CHAIN(999999), deneb_slot, deneb_slot));
+
+  // Block slot before Capella activation (Capella epoch = 194048, so any epoch
+  // < 194048 predates historical_summaries and must return 0).
+  uint64_t pre_capella_slot = slot_for_epoch(100000ULL, spec);
+  TEST_ASSERT_EQUAL_UINT64(0, (uint64_t) c4_historic_block_gindex(C4_CHAIN_MAINNET, pre_capella_slot, deneb_slot));
+
+  // Slot 0 (genesis) is trivially before Capella.
+  TEST_ASSERT_EQUAL_UINT64(0, (uint64_t) c4_historic_block_gindex(C4_CHAIN_MAINNET, 0, deneb_slot));
 }
 
 // -----------------------------------------------------------------------------
@@ -306,10 +445,11 @@ void test_gloas_gindex_helpers_pre_gloas_branches(void) {
 // -----------------------------------------------------------------------------
 //
 // Several code paths carry `TODO(gloas)` markers that must be revisited before
-// Gloas is scheduled on any chain (see `eth_tx.h`, `eth_account.h`,
-// `beacon_types.c::c4_block_header_gindexes`, `historic_proof.c::summaries_gidx`).
-// This test fails as soon as any chain_spec assigns a real epoch to Gloas, so a
-// contributor who schedules Gloas cannot forget the follow-up work.
+// Gloas is scheduled on a production chain (see `eth_tx.h`, `eth_account.h`,
+// `beacon_types.c::c4_block_header_gindexes`).
+// This test fails as soon as mainnet/Sepolia/Gnosis assign a real Gloas epoch.
+// Platåberget already activates Gloas at epoch 1536; that schedule is covered
+// in `test_eth_chain_spec.c`.
 
 void test_gloas_activation_epoch_still_reserved(void) {
   const chain_id_t chains[] = {
@@ -326,8 +466,8 @@ void test_gloas_activation_epoch_still_reserved(void) {
         GLOAS_TEST_NOT_ASSIGNED_YET,
         spec->fork_epochs[C4_FORK_GLOAS - 1],
         "A chain has scheduled Gloas: revisit TODO(gloas) markers in eth_tx.h, "
-        "eth_account.h, beacon_types.c (c4_block_header_gindexes) and "
-        "historic_proof.c (summaries_gidx) before activation.");
+        "eth_account.h and beacon_types.c (c4_block_header_gindexes) before "
+        "activation.");
   }
 }
 
@@ -478,20 +618,20 @@ void test_gloas_lc_bootstrap_hash_tree_root(void) {
   // table is required.
   static uint8_t buf[496 + 24624 + 352] = {0};
   // Header: match the layout of test_gloas_lc_header_hash_tree_root.
-  buf[0]           = 0x2a; // slot = 42
-  buf[8]           = 0x07; // proposer_index = 7
-  memset(buf + 16, 0xaa, 32);        // parent_root
-  memset(buf + 48, 0xbb, 32);        // state_root
-  memset(buf + 80, 0xcc, 32);        // body_root
-  memset(buf + 112, 0xdd, 32);       // executionBlockHash
+  buf[0] = 0x2a;               // slot = 42
+  buf[8] = 0x07;               // proposer_index = 7
+  memset(buf + 16, 0xaa, 32);  // parent_root
+  memset(buf + 48, 0xbb, 32);  // state_root
+  memset(buf + 80, 0xcc, 32);  // body_root
+  memset(buf + 112, 0xdd, 32); // executionBlockHash
   for (int i = 0; i < 11; i++)
     memset(buf + 144 + i * 32, (uint8_t) (0xe0 + i), 32);
   // SyncCommittee pubkeys: cycle through non-zero bytes so hash_tree_root has
   // something to chew on (validity check does not care about the actual keys).
   for (int i = 0; i < 512; i++)
     memset(buf + 496 + i * 48, (uint8_t) (i & 0xff), 48);
-  memset(buf + 496 + 512 * 48, 0x11, 48);        // aggregate pubkey
-  memset(buf + 496 + 24624, 0x22, 352);          // currentSyncCommitteeBranch (11 * 32)
+  memset(buf + 496 + 512 * 48, 0x11, 48); // aggregate pubkey
+  memset(buf + 496 + 24624, 0x22, 352);   // currentSyncCommitteeBranch (11 * 32)
 
   const ssz_def_t bootstrap_def = SSZ_CONTAINER("LightClientBootstrap", GLOAS_LIGHT_CLIENT_BOOTSTRAP);
   ssz_ob_t        bootstrap     = {.bytes = bytes(buf, sizeof(buf)), .def = &bootstrap_def};
@@ -523,18 +663,18 @@ void test_gloas_lc_header_hash_tree_root(void) {
   // Followed by executionBlockHash (32) and executionBranch (11 * 32 = 352).
   // Total: 112 + 32 + 352 = 496 bytes.
   uint8_t buf[496] = {0};
-  buf[0]           = 0x2a; // slot = 42
-  buf[8]           = 0x07; // proposer_index = 7
-  memset(buf + 16, 0xaa, 32);        // parent_root
-  memset(buf + 48, 0xbb, 32);        // state_root
-  memset(buf + 80, 0xcc, 32);        // body_root
-  memset(buf + 112, 0xdd, 32);       // executionBlockHash
+  buf[0]           = 0x2a;     // slot = 42
+  buf[8]           = 0x07;     // proposer_index = 7
+  memset(buf + 16, 0xaa, 32);  // parent_root
+  memset(buf + 48, 0xbb, 32);  // state_root
+  memset(buf + 80, 0xcc, 32);  // body_root
+  memset(buf + 112, 0xdd, 32); // executionBlockHash
   for (int i = 0; i < 11; i++) {
     memset(buf + 144 + i * 32, (uint8_t) (0xe0 + i), 32);
   }
 
   const ssz_def_t header_def = SSZ_CONTAINER("LightClientHeader", GLOAS_LIGHT_CLIENT_HEADER);
-  ssz_ob_t         header    = {.bytes = bytes(buf, sizeof(buf)), .def = &header_def};
+  ssz_ob_t        header     = {.bytes = bytes(buf, sizeof(buf)), .def = &header_def};
 
   c4_state_t state = {0};
   TEST_ASSERT_TRUE_MESSAGE(ssz_is_valid(header, true, &state),
@@ -752,7 +892,7 @@ void test_gloas_signed_beacon_block_ssz_roundtrip(void) {
   ssz_ob_t payload_atts = ssz_get(&body, "payloadAttestations");
   TEST_ASSERT_NOT_NULL(payload_atts.def);
   TEST_ASSERT_EQUAL_UINT32(1, ssz_len(payload_atts));
-  ssz_ob_t patt = ssz_at(payload_atts, 0);
+  ssz_ob_t patt      = ssz_at(payload_atts, 0);
   ssz_ob_t patt_data = ssz_get(&patt, "data");
   TEST_ASSERT_NOT_NULL(patt_data.def);
   TEST_ASSERT_EQUAL_UINT64(222962, ssz_get_uint64(&patt_data, "slot"));
@@ -791,6 +931,8 @@ int main(void) {
   RUN_TEST(test_gloas_bootstrap_union_layout);
   RUN_TEST(test_gloas_update_union_layout);
   RUN_TEST(test_gloas_gindex_helpers_pre_gloas_branches);
+  RUN_TEST(test_historic_block_gindex_matches_manual_recompute);
+  RUN_TEST(test_historic_block_gindex_rejects_bad_inputs);
   RUN_TEST(test_gloas_activation_epoch_still_reserved);
   RUN_TEST(test_all_forks_bootstrap_branch_depths);
 #ifdef PROVER

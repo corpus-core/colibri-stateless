@@ -5,8 +5,8 @@
 
 #define _GNU_SOURCE
 #include "cache.h"
-#include "server.h"
 #include "logger.h"
+#include "server.h"
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,9 +15,9 @@
 
 // Platform-specific includes
 #ifdef _WIN32
+#include "../util/win_compat.h"
 #include <winsock2.h>
 #include <ws2tcpip.h>
-#include "../util/win_compat.h"
 #else
 #include <arpa/inet.h>
 #include <netdb.h>
@@ -25,13 +25,13 @@
 #include <sys/socket.h>
 #endif
 
-#define UV_TRY(cmd, msg, catch)                       \
-  do {                                               \
-    int r = cmd;                                     \
-    if (r != 0) {                                    \
+#define UV_TRY(cmd, msg, catch)                          \
+  do {                                                   \
+    int r = cmd;                                         \
+    if (r != 0) {                                        \
       log_error(":: error %s: %s", msg, uv_strerror(r)); \
-      catch;                                         \
-    }                                                \
+      catch;                                             \
+    }                                                    \
   } while (0)
 // Connection structure
 typedef struct mc_conn_s {

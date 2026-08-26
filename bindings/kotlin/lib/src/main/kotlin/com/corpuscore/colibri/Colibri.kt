@@ -184,6 +184,14 @@ class Colibri(
             // Optionally, trigger C-side re-configuration if needed, but likely handled at init.
         }
 
+        /**
+         * Clears in-process prover/verifier caches. Call between fixture-backed
+         * tests that share one JVM process.
+         */
+        fun resetCaches() {
+            com.corpuscore.colibri.c4.c4_reset_caches()
+        }
+
         /** Default prover URLs for supported chains. */
         fun defaultProvers(chainId: BigInteger): Array<String> = when (chainId) {
             BigInteger.ONE -> arrayOf(

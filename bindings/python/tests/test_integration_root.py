@@ -15,7 +15,7 @@ from colibri.testing import (
     FileBasedMockStorage,
     FileBasedMockRequestHandler
 )
-from colibri import Colibri
+from colibri import Colibri, reset_caches
 
 
 class TestIntegration:
@@ -23,6 +23,7 @@ class TestIntegration:
     
     def setup_method(self):
         """Setup for each test method"""
+        reset_caches()
         self.test_data_root = Path(__file__).parent / '..' / '..' / '..' / 'test' / 'data'
         self.test_data_root = self.test_data_root.resolve()
         
@@ -192,7 +193,10 @@ class TestIntegrationCases:
 
 class TestSpecificIntegrationCases:
     """Specific integration tests for important cases"""
-    
+
+    def setup_method(self):
+        reset_caches()
+
     @pytest.mark.asyncio
     async def test_eth_blockNumber_integration(self):
         """Test eth_blockNumber with real test data"""

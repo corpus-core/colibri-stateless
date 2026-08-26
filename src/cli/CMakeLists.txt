@@ -86,6 +86,7 @@ if (CLI)
             prover
             verifier
             eth_verifier
+            eth_prover
             )
 
     else()
@@ -97,6 +98,7 @@ if (CLI)
             prover
             verifier
             eth_verifier
+            eth_prover
             )
 
     endif()

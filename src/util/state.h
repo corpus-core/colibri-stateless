@@ -296,8 +296,8 @@ void c4_request_free(data_request_t* req);
 /**
  * Appends common remote-prover JSON fields to an open object (after `method` / `params`).
  *
- * Writes: `,"version"`, optional `,"c4"`, optional `zk_proof`, `include_code`, `signers`.
- * Caller must finish the JSON object with `}`.
+ * Writes: `,"version"`, optional `,"c4"`, optional `zk_proof`, `include_code`, `signers`
+ * and optional `last_block_hash`. Caller must finish the JSON object with `}`.
  *
  * @param payload growable buffer; current content must not include the closing `}`
  * @param client_state pre-captured snapshot of the chain's client_state; pass `NULL_BYTES`
@@ -305,8 +305,11 @@ void c4_request_free(data_request_t* req);
  * @param chain_id chain used for fallback `c4_get_client_state` when no snapshot is given
  * @param flags bitmask using `C4_PROVER_REQ_FLAG_*` (same bit layout as `prover_flags_t`)
  * @param witness_key witness bytes for `signers` (may be `NULL_BYTES`)
+ * @param last_block_hash 32-byte hash of the newest execution block header the client has
+ *                        verified and cached; allows the prover to omit the block proof
+ *                        (`blockHash` union variant). Pass `NULL_BYTES` to omit the field.
  */
-void c4_append_prover_request_props(buffer_t* payload, bytes_t client_state, chain_id_t chain_id, uint32_t flags, bytes_t witness_key);
+void c4_append_prover_request_props(buffer_t* payload, bytes_t client_state, chain_id_t chain_id, uint32_t flags, bytes_t witness_key, bytes_t last_block_hash);
 
 /**
  * Finds a data request by its unique identifier.
@@ -319,6 +322,25 @@ void c4_append_prover_request_props(buffer_t* payload, bytes_t client_state, cha
  * @return Pointer to the matching request, or NULL if not found
  */
 data_request_t* c4_state_get_data_request_by_id(c4_state_t* state, bytes32_t id);
+
+/**
+ * Gets a value from the cache.
+ *
+ * @param state Pointer to the state object
+ * @param key 32-byte identifier to search for
+ * @return The value, or NULL_BYTES if not found
+ */
+bytes_t c4_state_cache_get(c4_state_t* state, bytes32_t key);
+
+/**
+ * Sets a value in the cache.
+ *
+ * @param state Pointer to the state object
+ * @param key 32-byte identifier to store the value under
+ * @param value The value to store
+ * @return The value, or NULL_BYTES if not found
+ */
+bytes_t c4_state_cache_set(c4_state_t* state, bytes32_t key, bytes_t value);
 
 /**
  * Finds a data request by its URL.
@@ -376,7 +398,7 @@ bool c4_state_retry_after(data_request_t* req, uint32_t delay_ms, uint16_t max_r
  * @param state Pointer to the state object
  * @param data_request Pointer to the request to add (ownership transfers to state)
  */
-void c4_state_add_request(c4_state_t* state, data_request_t* data_request) M_TAKE(2);
+void c4_state_add_request(c4_state_t* state, data_request_t* data_request);
 
 /**
  * Gets the first pending request from the state.

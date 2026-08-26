@@ -26,8 +26,8 @@
 #include <unistd.h>
 #endif
 
-prover_stats_t  prover_stats          = {0};
-static uint64_t last_verified_period  = 0;
+prover_stats_t  prover_stats         = {0};
+static uint64_t last_verified_period = 0;
 // True once we have located (or built) a valid Groth16 proof to recurse on.
 // Stays false when no baseline proof exists yet in the period_store (e.g. during
 // initial backfill with gaps), so the checkpoint handler can retry init later.

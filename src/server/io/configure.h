@@ -30,6 +30,7 @@ void c4_configure_add_section(char* name);
 int conf_string(char** target, char* env_name, char* arg_nane, char shortcut, char* descr);
 int conf_key(bytes32_t target, char* env_name, char* arg_nane, char shortcut, char* descr);
 int conf_int(int* target, char* env_name, char* arg_nane, char shortcut, char* descr, int min, int max);
+int conf_uint64(uint64_t* target, char* env_name, char* arg_nane, char shortcut, char* descr, uint64_t min, uint64_t max);
 #define conf_bool(target, env_name, arg_nane, shortcut, descr) conf_int((int*) target, env_name, arg_nane, shortcut, descr, 0, 1)
 
 #endif

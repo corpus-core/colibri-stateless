@@ -35,9 +35,7 @@ bool verify_receipt_proof(verify_ctx_t* ctx);
 bool verify_logs_proof(verify_ctx_t* ctx);
 bool verify_logs_completeness(verify_ctx_t* ctx);
 bool verify_call_proof(verify_ctx_t* ctx);
-bool verify_block_proof(verify_ctx_t* ctx);
-bool verify_block_number_proof(verify_ctx_t* ctx);
-bool verify_block_header_proof(verify_ctx_t* ctx);
+bool verify_block_proof(verify_ctx_t* ctx); // verifies ETH_BLOCK_PROOF (body union NONE for header-only methods)
 bool verify_block_receipts_proof(verify_ctx_t* ctx);
 bool verify_eth_local(verify_ctx_t* ctx);
 
@@ -47,16 +45,21 @@ bool verify_pap_tx(verify_ctx_t* ctx);
 
 // helper
 #define ETH_BLOCK_DATA_MASK_ALL                  0xFFFFFFFF
-#define ETH_BLOCK_DATA_MASK_ALL_WITHOUT_REQUESTS (ETH_BLOCK_DATA_MASK_ALL & ~(1 << 25))
+#define ETH_BLOCK_DATA_MASK_ALL_WITHOUT_REQUESTS ((ETH_BLOCK_DATA_MASK_ALL & ~(1 << 25)) & ~(1 << 26))
 
 c4_status_t c4_verify_blockroot_signature(verify_ctx_t* ctx, ssz_ob_t* header, ssz_ob_t* sync_committee_bits, ssz_ob_t* sync_committee_signature, uint64_t slot, bytes32_t pubkey_hash);
 c4_status_t c4_verify_header(verify_ctx_t* ctx, ssz_ob_t header, ssz_ob_t block_proof);
-void        eth_set_block_data(verify_ctx_t* ctx, uint32_t mask, ssz_ob_t block, bytes32_t parent_root, bytes32_t withdrawel_root, bool include_txs);
+// verifies an ETH_BLOCK_PROOF_UNION. On success `el_header` holds the verified RLP header
+// and `block_hash` its keccak hash. The header is NOT owned by the caller: it either points
+// into the proof (clProof variant) or into a C4_DATA_TYPE_CACHE snapshot attached to
+// ctx->state (blockHash variant), so it stays valid for the lifetime of the verify_ctx and
+// is freed automatically with it.
+c4_status_t c4_verify_block(verify_ctx_t* ctx, ssz_ob_t block, bytes_t* el_header, bytes32_t block_hash);
+bool        eth_set_block_data(verify_ctx_t* ctx, bytes_t el_header, bool include_txs, ssz_ob_t* body, uint32_t mask);
 bool        eth_calculate_domain(chain_id_t chain_id, uint64_t slot, bytes32_t domain);
 bool        c4_eth_verify_accounts(verify_ctx_t* ctx, ssz_ob_t accounts, bytes32_t state_root);
-bool        verify_block_proof_for_block(verify_ctx_t* ctx, ssz_ob_t block_proof, json_t block_number, bytes32_t execution_payload_root);
 bool        c4_eth_matches_blocknumber(verify_ctx_t* ctx, ssz_ob_t block, json_t req_block);
-bool        verify_block_receipts_proof_for(verify_ctx_t* ctx, ssz_ob_t receipts_proof);
+bool        verify_block_receipts_proof_for(verify_ctx_t* ctx, ssz_ob_t receipts_proof, bytes_t* el_header, bytes32_t block_hash);
 
 typedef struct evm_call_ctx evm_call_ctx_t;
 
@@ -190,5 +193,12 @@ void eth_oblivious_retry_observe(chain_id_t chain, uint16_t retry_count);
 bool eth_is_oblivious_unavailable(json_t response);
 
 #endif // ETH_OBLIVIOUS
+
+/**
+ * Clears ETH in-process verifier caches (header cache, PAP tx cache).
+ *
+ * Registered via CMake `RESET_CACHES`. Persistent storage is left untouched.
+ */
+void c4_eth_reset_caches(void);
 
 #endif // eth_verify_h__

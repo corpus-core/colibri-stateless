@@ -24,6 +24,7 @@
 #include "beacon.h"
 #include "beacon_types.h"
 #include "chains.h"
+#include "el_header.h"
 #include "eth_account.h"
 #include "eth_req.h"
 #include "eth_tools.h"
@@ -66,7 +67,7 @@ static ssz_builder_t create_storage_proof(prover_ctx_t* ctx, const ssz_def_t* de
   return storage_proof;
 }
 
-static c4_status_t create_eth_account_proof(prover_ctx_t* ctx, json_t eth_proof, beacon_block_t* block_data, json_t address, json_t block_number, blockroot_proof_t historic_proof) {
+static c4_status_t create_eth_account_proof(prover_ctx_t* ctx, json_t eth_proof, eth_block_t* block_data, json_t address, json_t block_number, blockroot_proof_t historic_proof) {
 
   json_t        json_code         = {0};
   buffer_t      tmp               = {0};
@@ -84,7 +85,7 @@ static c4_status_t create_eth_account_proof(prover_ctx_t* ctx, json_t eth_proof,
   add_dynamic_byte_list(json_get(eth_proof, "accountProof"), &eth_account_proof, "accountProof");
   ssz_add_bytes(&eth_account_proof, "address", json_as_bytes(address, &tmp));
   ssz_add_builders(&eth_account_proof, "storageProof", create_storage_proof(ctx, ssz_get_def(eth_account_proof.def, "storageProof"), json_get(eth_proof, "storageProof")));
-  ssz_add_builders(&eth_account_proof, "state_proof", eth_ssz_create_state_proof(ctx, block_number, block_data, &historic_proof, false));
+  eth_add_block_proof(ctx, &eth_account_proof, block_data, &historic_proof);
 
   // build the data only if we have code
   if (strcmp(ctx->method, "eth_getCode") == 0) {
@@ -103,30 +104,6 @@ static c4_status_t create_eth_account_proof(prover_ctx_t* ctx, json_t eth_proof,
   return C4_SUCCESS;
 }
 
-static c4_status_t create_hybrid_account_proof(prover_ctx_t* ctx, json_t eth_proof, beacon_block_t* block_data, json_t address) {
-  json_t        json_code             = {0};
-  buffer_t      tmp                   = {0};
-  ssz_builder_t eth_data              = {0};
-  ssz_builder_t hybrid_account_proof  = ssz_builder_for_type(ETH_SSZ_VERIFY_HYBRID_ACCOUNT_PROOF);
-  ssz_builder_t sync_proof            = NULL_SSZ_BUILDER;
-
-  if (strcmp(ctx->method, "eth_getCode") == 0) TRY_ASYNC(eth_get_code(ctx, address, &json_code, 0));
-
-  add_dynamic_byte_list(json_get(eth_proof, "accountProof"), &hybrid_account_proof, "accountProof");
-  ssz_add_bytes(&hybrid_account_proof, "address", json_as_bytes(address, &tmp));
-  ssz_add_builders(&hybrid_account_proof, "storageProof", create_storage_proof(ctx, ssz_get_def(hybrid_account_proof.def, "storageProof"), json_get(eth_proof, "storageProof")));
-  ssz_add_bytes(&hybrid_account_proof, "header_data", block_data->execution.bytes);
-
-  if (strcmp(ctx->method, "eth_getCode") == 0) {
-    eth_data.def = eth_ssz_verification_type(ETH_SSZ_DATA_BYTES);
-    json_as_bytes(json_code, &eth_data.fixed);
-  }
-
-  ctx->proof = eth_create_proof_request(ctx->chain_id, eth_data, hybrid_account_proof, sync_proof);
-  buffer_free(&tmp);
-  return C4_SUCCESS;
-}
-
 c4_status_t c4_proof_account(prover_ctx_t* ctx) {
   bool              is_storage_at  = strcmp(ctx->method, "eth_getStorageAt") == 0;
   bool              is_proof       = strcmp(ctx->method, "eth_getProof") == 0;
@@ -134,7 +111,7 @@ c4_status_t c4_proof_account(prover_ctx_t* ctx) {
   json_t            storage_keys   = is_storage_at || is_proof ? json_at(ctx->params, 1) : (json_t) {0};
   json_t            block_number   = json_at(ctx->params, is_storage_at || is_proof ? 2 : 1);
   json_t            eth_proof      = {0};
-  beacon_block_t    block          = {0};
+  eth_block_t       block          = {0};
   blockroot_proof_t historic_proof = {0};
   c4_status_t       status         = C4_SUCCESS;
 
@@ -146,16 +123,12 @@ c4_status_t c4_proof_account(prover_ctx_t* ctx) {
     CHECK_JSON_INPUT(ctx->params, "[address,block]", "Invalid arguments for AccountProof: ");
 
   TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, block_number, &block));
-  TRY_ADD_ASYNC(status, eth_get_proof(ctx, address, storage_keys, &eth_proof, ssz_get_uint64(&block.execution, "blockNumber")));
-
-  if (block.header_only)
-    return status == C4_SUCCESS ? create_hybrid_account_proof(ctx, eth_proof, &block, address) : status;
-
+  // Read the number from the RLP EL header so hybrid mode (where `block.execution` is
+  // empty because the remote prover delivered only the header) does not dereference a
+  // NULL SSZ def. `proof_call.c` uses the same accessor for the same reason.
+  TRY_ADD_ASYNC(status, eth_get_proof(ctx, address, storage_keys, &eth_proof, eth_el_header_get_uint64(block.el_header, EL_BLOCK_NUMBER)));
   TRY_ADD_ASYNC(status, c4_check_blockroot_proof(ctx, &historic_proof, &block));
-  if (status != C4_SUCCESS) {
-    c4_free_block_proof(&historic_proof);
-    return status;
-  }
+  TRY_ASYNC_CATCH(status, c4_free_block_proof(&historic_proof));
 
   status = create_eth_account_proof(ctx, eth_proof, &block, address, block_number, historic_proof);
   c4_free_block_proof(&historic_proof);

@@ -63,11 +63,14 @@ export C4_STATES_DIR="$TEMP_STATE_DIR"
 echo -e "${BLUE}📁 Creating test directory...${NC}"
 mkdir -p "$TEST_DATA_DIR"
 
+# Extra verifier flags, e.g. CREATE_TEST_FLAGS="-P -p http://localhost:8090/ -m remote -A 0"
+CREATE_TEST_FLAGS="${CREATE_TEST_FLAGS:-}"
+
 # Verify proof and let verifier automatically create test.json
 # Note: -t expects testname, not full path. Verifier writes to test/data/<testname>/test.json
 echo -e "${BLUE}🔍 Verifying proof and generating test.json...${NC}"
-echo "$BUILD_DIR/bin/colibri-verifier"  -t "$TESTNAME" "$RPC_METHOD" $RPC_ARGS 
-"$BUILD_DIR/bin/colibri-verifier"  -t "$TESTNAME" "$RPC_METHOD" $RPC_ARGS | tee "$RESULT_FILE"
+echo "$BUILD_DIR/bin/colibri-verifier" $CREATE_TEST_FLAGS -t "$TESTNAME" "$RPC_METHOD" $RPC_ARGS
+"$BUILD_DIR/bin/colibri-verifier" $CREATE_TEST_FLAGS -t "$TESTNAME" "$RPC_METHOD" $RPC_ARGS | tee "$RESULT_FILE"
 if [ $? -ne 0 ]; then
     echo -e "${RED}❌ Verification failed!${NC}"
     exit 1

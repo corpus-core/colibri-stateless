@@ -49,7 +49,7 @@ static const ssz_def_t PAP_TX_CACHE_BLOCK_FIELDS[] = {
 };
 
 static const ssz_def_t PAP_TX_CACHE_BLOCK    = SSZ_CONTAINER("block", PAP_TX_CACHE_BLOCK_FIELDS);
-static const ssz_def_t PAP_TX_CACHE_SNAPSHOT  = SSZ_LIST("blocks", PAP_TX_CACHE_BLOCK, 10000);
+static const ssz_def_t PAP_TX_CACHE_SNAPSHOT = SSZ_LIST("blocks", PAP_TX_CACHE_BLOCK, 10000);
 
 /**
  * SSZ type definitions for the PAP pending transaction list.

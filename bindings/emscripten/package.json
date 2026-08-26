@@ -23,6 +23,7 @@
         "test:node": "node --test test/rpc.test.mjs test/cjs_bridge.test.mjs test/runtime_selection.test.mjs",
         "test:node:native": "node --test test/native.test.mjs",
         "test:integration": "C4_RUN_INTEGRATION=1 node --test test/integration.test.mjs",
+        "test:rpc-integration": "C4_RUN_RPC_INTEGRATION=1 node --test --test-concurrency=1 --test-timeout=3600000 test/rpc_integration.test.mjs",
         "test:ccip": "C4_RUN_INTEGRATION=1 node --test test/ens_ccip.test.mjs",
         "test:webpack": "npm run webpack:install && npm run webpack:build",
         "webpack:install": "cd test/webpack && npm install --legacy-peer-deps",

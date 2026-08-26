@@ -63,35 +63,35 @@ extern "C" {
 
 // ::: Sub-request costs (network + provider billing surrogate)
 
-#define CU_INTERNAL_REQUEST   1  // c4_send_internal_request (period_store, internal sub-prover)
-#define CU_BEACON_JSON        5  // c4_send_beacon_json (small JSON GET, e.g. header lookup)
-#define CU_BEACON_SSZ        15  // c4_send_beacon_ssz (full SignedBeaconBlock or LCU)
+#define CU_INTERNAL_REQUEST 1  // c4_send_internal_request (period_store, internal sub-prover)
+#define CU_BEACON_JSON      5  // c4_send_beacon_json (small JSON GET, e.g. header lookup)
+#define CU_BEACON_SSZ       15 // c4_send_beacon_ssz (full SignedBeaconBlock or LCU)
 
-#define CU_RPC_DEFAULT       10  // eth_getBlockBy*, eth_getTransactionBy*, eth_chainId, web3_sha3, ...
-#define CU_RPC_GET_CODE      15  // eth_getCode
-#define CU_RPC_RECEIPT       15  // eth_getTransactionReceipt
-#define CU_RPC_GET_PROOF     50  // eth_getProof (incl. storage keys)
-#define CU_RPC_BLOCK_RECEIPTS 50 // eth_getBlockReceipts
-#define CU_RPC_LOGS          75  // eth_getLogs
-#define CU_RPC_ACCESS_LIST  150  // eth_createAccessList
-#define CU_RPC_TRACE_CALL   300  // debug_traceCall (most expensive provider call)
+#define CU_RPC_DEFAULT        10  // eth_getBlockBy*, eth_getTransactionBy*, eth_chainId, web3_sha3, ...
+#define CU_RPC_GET_CODE       15  // eth_getCode
+#define CU_RPC_RECEIPT        15  // eth_getTransactionReceipt
+#define CU_RPC_GET_PROOF      50  // eth_getProof (incl. storage keys)
+#define CU_RPC_BLOCK_RECEIPTS 50  // eth_getBlockReceipts
+#define CU_RPC_LOGS           75  // eth_getLogs
+#define CU_RPC_ACCESS_LIST    150 // eth_createAccessList
+#define CU_RPC_TRACE_CALL     300 // debug_traceCall (most expensive provider call)
 
 // ::: SSZ / Merkle proof costs (server CPU)
 
-#define CU_SSZ_PROOF              3  // ssz_create_proof (single gindex)
-#define CU_SSZ_MULTI_PROOF_BASE   2  // ssz_create_multi_proof base cost
-#define CU_SSZ_MULTI_PROOF_LEAF   1  // per extra gindex in a multi-proof
+#define CU_SSZ_PROOF            3 // ssz_create_proof (single gindex)
+#define CU_SSZ_MULTI_PROOF_BASE 2 // ssz_create_multi_proof base cost
+#define CU_SSZ_MULTI_PROOF_LEAF 1 // per extra gindex in a multi-proof
 
 // ::: Patricia / receipt-trie costs (server CPU)
 
-#define CU_PATRICIA_INSERT        1  // per element inserted into the receipts/tx trie
-#define CU_PATRICIA_PROOF         5  // generation of one Patricia-Merkle proof
+#define CU_PATRICIA_INSERT 1 // per element inserted into the receipts/tx trie
+#define CU_PATRICIA_PROOF  5 // generation of one Patricia-Merkle proof
 
 // ::: Historic-proof costs (server CPU on top of the sub-requests they trigger)
 
-#define CU_HISTORIC_HEADER_HOP    5  // per step of the header-chain proof (depth bounded)
-#define CU_HISTORIC_DIRECT       40  // historical_summaries + period_store proof construction
-#define CU_ZK_PROOF_INCLUDE      80  // ZK-proof data attached to the sync section
+#define CU_HISTORIC_HEADER_HOP 5  // per step of the header-chain proof (depth bounded)
+#define CU_HISTORIC_DIRECT     40 // historical_summaries + period_store proof construction
+#define CU_ZK_PROOF_INCLUDE    80 // ZK-proof data attached to the sync section
 
 // ::: Helpers
 

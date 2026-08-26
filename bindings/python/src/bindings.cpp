@@ -202,6 +202,10 @@ void set_checkpoint_wrapper(uint64_t chain_id, const std::string& checkpoint) {
   c4_set_checkpoint(chain_id, checkpoint.empty() ? nullptr : checkpoint.c_str());
 }
 
+void reset_caches_wrapper() {
+  c4_reset_caches();
+}
+
 void rpc_set_witness_keys_wrapper(void* ctx, const std::string& keys) {
   c4_rpc_set_witness_keys(ctx, keys.empty() ? nullptr : keys.c_str());
 }
@@ -330,6 +334,9 @@ PYBIND11_MODULE(_native, m) {
   m.def("set_checkpoint", &set_checkpoint_wrapper,
         "Set a trusted checkpoint for a chain",
         py::arg("chain_id"), py::arg("checkpoint"));
+
+  m.def("reset_caches", &reset_caches_wrapper,
+        "Clear in-process prover/verifier caches (for test isolation)");
 
   m.def("rpc_set_witness_keys", &rpc_set_witness_keys_wrapper,
         "Set witness/signer keys on an RPC context",

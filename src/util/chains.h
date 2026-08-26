@@ -95,7 +95,7 @@ extern const chain_id_t C4_CHAIN_BOLT_TESTNET;
 extern const chain_id_t C4_CHAIN_BOLT_DEVNET;
 extern const chain_id_t C4_CHAIN_BOLT_STAGING;
 extern const chain_id_t C4_CHAIN_BOLT_MAINNET;
-
+extern const chain_id_t C4_CHAIN_PLATABERGET;
 // Generic chain properties (extensible)
 typedef struct {
   uint64_t     block_time; // in ms

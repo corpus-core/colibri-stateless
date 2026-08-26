@@ -72,26 +72,26 @@ static bool account_has_changes(const call_account_t* acc) {
 
 static const char* trace_type_string(uint8_t kind) {
   switch (kind) {
-    case TRACE_CALL:         return "CALL";
+    case TRACE_CALL: return "CALL";
     case TRACE_DELEGATECALL: return "DELEGATECALL";
-    case TRACE_CALLCODE:     return "CALLCODE";
-    case TRACE_CREATE:       return "CREATE";
-    case TRACE_CREATE2:      return "CREATE2";
-    case TRACE_STATICCALL:   return "STATICCALL";
-    default:                 return "CALL";
+    case TRACE_CALLCODE: return "CALLCODE";
+    case TRACE_CREATE: return "CREATE";
+    case TRACE_CREATE2: return "CREATE2";
+    case TRACE_STATICCALL: return "STATICCALL";
+    default: return "CALL";
   }
 }
 
-#define ETH_SIMULATION_TRACE_MASK_BASE         \
-  (ETH_SIMULATION_TRACE_MASK_FROM |            \
-   ETH_SIMULATION_TRACE_MASK_GAS |             \
-   ETH_SIMULATION_TRACE_MASK_GAS_USED |        \
-   ETH_SIMULATION_TRACE_MASK_INPUT |           \
-   ETH_SIMULATION_TRACE_MASK_OUTPUT |          \
-   ETH_SIMULATION_TRACE_MASK_SUBTRACES |       \
-   ETH_SIMULATION_TRACE_MASK_TO |              \
-   ETH_SIMULATION_TRACE_MASK_TRACE_ADDRESS |   \
-   ETH_SIMULATION_TRACE_MASK_TYPE |            \
+#define ETH_SIMULATION_TRACE_MASK_BASE       \
+  (ETH_SIMULATION_TRACE_MASK_FROM |          \
+   ETH_SIMULATION_TRACE_MASK_GAS |           \
+   ETH_SIMULATION_TRACE_MASK_GAS_USED |      \
+   ETH_SIMULATION_TRACE_MASK_INPUT |         \
+   ETH_SIMULATION_TRACE_MASK_OUTPUT |        \
+   ETH_SIMULATION_TRACE_MASK_SUBTRACES |     \
+   ETH_SIMULATION_TRACE_MASK_TO |            \
+   ETH_SIMULATION_TRACE_MASK_TRACE_ADDRESS | \
+   ETH_SIMULATION_TRACE_MASK_TYPE |          \
    ETH_SIMULATION_TRACE_MASK_VALUE)
 
 static void build_traces(ssz_builder_t* builder, trace_entry_t* traces) {
@@ -158,13 +158,13 @@ static void build_state_changes(ssz_builder_t* builder, call_account_t* accounts
 
     ssz_builder_t acc_builder = ssz_builder_for_def(changes_builder.def->def.vector.type);
 
-    uint8_t  acc_mask = ETH_SIMULATION_ACCOUNT_CHANGE_MASK_ADDRESS;
+    uint8_t  acc_mask             = ETH_SIMULATION_ACCOUNT_CHANGE_MASK_ADDRESS;
     uint32_t storage_change_count = 0;
     for (call_storage_t* s = acc->storage; s; s = s->next)
       if (s->modified) storage_change_count++;
 
-    if (storage_change_count)                      acc_mask |= ETH_SIMULATION_ACCOUNT_CHANGE_MASK_STORAGE;
-    if (acc->flags & ACCOUNT_NONCE_MODIFIED)   acc_mask |= ETH_SIMULATION_ACCOUNT_CHANGE_MASK_NONCE;
+    if (storage_change_count) acc_mask |= ETH_SIMULATION_ACCOUNT_CHANGE_MASK_STORAGE;
+    if (acc->flags & ACCOUNT_NONCE_MODIFIED) acc_mask |= ETH_SIMULATION_ACCOUNT_CHANGE_MASK_NONCE;
     if (acc->flags & ACCOUNT_BALANCE_MODIFIED) acc_mask |= ETH_SIMULATION_ACCOUNT_CHANGE_MASK_BALANCE;
 
     ssz_add_uint8(&acc_builder, acc_mask);
@@ -175,8 +175,8 @@ static void build_state_changes(ssz_builder_t* builder, call_account_t* accounts
     for (call_storage_t* s = acc->storage; s; s = s->next) {
       if (!s->modified) continue;
 
-      ssz_builder_t slot_builder = ssz_builder_for_def(storage_builder.def->def.vector.type);
-      keccak_entry_t* preimage   = find_keccak_preimage(keccak_entries, s->key);
+      ssz_builder_t   slot_builder = ssz_builder_for_def(storage_builder.def->def.vector.type);
+      keccak_entry_t* preimage     = find_keccak_preimage(keccak_entries, s->key);
 
       uint8_t slot_mask = ETH_SIMULATION_STORAGE_CHANGE_MASK_BASE;
       if (preimage) slot_mask |= ETH_SIMULATION_STORAGE_CHANGE_MASK_SLOT_SOURCE;
@@ -227,9 +227,9 @@ ssz_ob_t eth_build_simulation_result_ssz(bytes_t call_result, emitted_log_t* log
   if (traces) result_mask |= ETH_SIMULATION_RESULT_MASK_TRACE;
   if (has_state_changes) result_mask |= ETH_SIMULATION_RESULT_MASK_STATE_CHANGES;
   ssz_add_uint32(&builder, result_mask);
-  ssz_add_uint64(&builder, execution_payload ? ssz_get_uint64(execution_payload, "blockNumber") : 0);                                                                            // blockNumber (hidden by mask)
-  ssz_add_uint64(&builder, gas_used);                                                                                                                                            // cumulativeGasUsed (hidden by mask)
-  ssz_add_uint64(&builder, gas_used);                                                                                                                                            // gasUsed (visible)
+  ssz_add_uint64(&builder, execution_payload ? ssz_get_uint64(execution_payload, "blockNumber") : 0); // blockNumber (hidden by mask)
+  ssz_add_uint64(&builder, gas_used);                                                                 // cumulativeGasUsed (hidden by mask)
+  ssz_add_uint64(&builder, gas_used);                                                                 // gasUsed (visible)
 
   // 5. logs (Index 4) - List
   ssz_builder_t logs_builder = ssz_builder_for_def(ssz_get_def(builder.def, "logs"));

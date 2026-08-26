@@ -178,7 +178,8 @@ static const ssz_def_t ETH_BLOCK_DATA_TRANSACTION_UNION[] = {
 
 // :: Block Proof
 
-// Display the block data, which is based on the execution payload
+// Display the block data reconstructed from the verified RLP execution header
+// (and, for full-block methods, the proven transactions / withdrawals).
 static const ssz_def_t ETH_BLOCK_DATA[] = {
     SSZ_OPT_MASK("_optmask", 4),
     SSZ_UINT64("number"),                                        // the blocknumber
@@ -205,11 +206,12 @@ static const ssz_def_t ETH_BLOCK_DATA[] = {
     SSZ_BYTES32("transactionsRoot"),                             // the transactionsRoot
     SSZ_BYTES32("stateRoot"),                                    // the stateRoot
     SSZ_UINT64("blobGasUsed"),                                   // the gas used for the blob transactions
-    SSZ_BYTES32("requestsHash")                                  // the requestHash ( eip-7685 )
+    SSZ_BYTES32("requestsHash"),                                 // the requestHash ( eip-7685 )
+    SSZ_BYTES32("blockAccessListHash")                           // the blockAccessListHash ( EIP-7928 )
 
 };
 
-// Compact block header data containing selected fields from the ExecutionPayload.
+// Compact block header data reconstructed from the verified RLP execution header.
 // Used by eth_getBlockHeader, eth_gasPrice, eth_blobBaseFee, eth_maxPriorityFeePerGas,
 // and as a lightweight verified header cache for eth_call privacy mode and log filters.
 static const ssz_def_t ETH_BLOCK_HEADER_DATA[] = {
@@ -226,7 +228,10 @@ static const ssz_def_t ETH_BLOCK_HEADER_DATA[] = {
     SSZ_UINT64("blobGasUsed"),         // the gas used for the blob transactions
     SSZ_UINT64("excessBlobGas"),       // the excess blob gas of the block
     SSZ_ADDRESS("feeRecipient"),       // the address of the fee recipient (coinbase)
-    SSZ_BYTES32("transactionsRoot"),   // ssz_hash_tree_root(transactions) -- NOT the EL Patricia root
+    SSZ_BYTES32("transactionsRoot"),   // transactionsRoot
+    SSZ_BYTES32("requestsHash"),       // the requestHash ( eip-7685 )
+    SSZ_BYTES32("blockAccessListHash") // the blockAccessListHash ( EIP-7928 )
+
 };
 
 // :: Account Proof

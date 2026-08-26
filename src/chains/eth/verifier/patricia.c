@@ -29,10 +29,17 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define MAX_DEPTH      64
-#define NODE_BRANCH    17
-#define NODE_LEAF      2
-#define NODE_EXTENSION 3
+#define MAX_DEPTH           64
+#define NODE_BRANCH         17
+#define NODE_LEAF           2
+#define NODE_EXTENSION      3
+#define MPT_PROOF_MAX_NODES 65536
+
+/* last_node argument of handle_node: ordered proof still in progress, last
+ * ordered node, or hash-lookup walk (unordered multi-proof). */
+#define NODE_MORE   0
+#define NODE_LAST   1
+#define NODE_LOOKUP 2
 
 static int patricia_match_nibbles(uint8_t* a, uint8_t* b) {
   for (int i = 0;; i++) {
@@ -81,7 +88,7 @@ static int handle_node(bytes_t* raw, uint8_t** k, int last_node, bytes_t* last_v
         rlp_decode(&node, (**k) - 1, &node);
         *k += 1;
         node = bytes(node.data + node.len, val.data + val.len - node.data); // decode the embedded node
-        return handle_node(&node, k, **k == 0xFF || *(*k + 1) == 0xFF, last_val, next_hash, depth);
+        return handle_node(&node, k, last_node == NODE_LOOKUP ? NODE_LOOKUP : (**k == 0xFF || *(*k + 1) == 0xFF), last_val, next_hash, depth);
       }
       else if (val.len != 32) // we got a NULL, which means value does not exists
         return 2;
@@ -108,28 +115,26 @@ static int handle_node(bytes_t* raw, uint8_t** k, int last_node, bytes_t* last_v
           node.data += node.len;
           node.len = val.data + val.len - node.data;
 
-          return handle_node(&node, k, k && *k && *(k + 1) == NULL, last_val, next_hash, depth);
+          return handle_node(&node, k, last_node == NODE_LOOKUP ? NODE_LOOKUP : (k && *k && *(k + 1) == NULL), last_val, next_hash, depth);
         }
         else if (**k == 0xFF) { // we reached the end of the path
           if (is_leaf) {
             *last_val = val;
             return last_node ? 3 : 0;
           }
-          else if (last_node)
-            return 0; // this is an extension node, but the path is not complete
+          else if (last_node == NODE_LAST)
+            return 0; // ordered proof ended on an extension; value lives in the next node
 
           // follow the extension, which should lead to branch with the value.
-          *last_val = val;
-          memcpy(next_hash, val.data, (val.len >= 32) ? 32 : val.len);
+          if (val.len != 32) return 0;
+          memcpy(next_hash, val.data, 32);
           return 1;
-
-          //          if (!last_node || (expected_val == NULL && is_leaf)) return 0;
         }
         else if (is_leaf)           // we found a leaf matching the path, but the patch is not complete yet.
           return last_node ? 2 : 0; // it is either a proof, that the account does not exist or an error.
         else {                      // it is an extension and we follow the extension to the branch.
-          *last_val = val;
-          memcpy(next_hash, val.data, (val.len >= 32) ? 32 : val.len);
+          if (val.len != 32) return 0;
+          memcpy(next_hash, val.data, 32);
           return 1;
         }
       }
@@ -166,6 +171,83 @@ INTERNAL patricia_result_t patricia_verify(bytes32_t root, bytes_t path, ssz_ob_
 
   if (result && expected)
     *expected = result == 2 ? NULL_BYTES : last_value;
+
+  if (nibbles) safe_free(nibbles);
+  return result == 3 ? PATRICIA_FOUND : (patricia_result_t) result;
+}
+
+static int mpt_find_hash(const mpt_proof_t* proof, const uint8_t* hash) {
+  if (!proof || !proof->hashes || !hash) return -1;
+  for (uint32_t i = 0; i < proof->nodes_len; i++) {
+    if (memcmp(proof->hashes[i], hash, 32) == 0) return (int) i;
+  }
+  return -1;
+}
+
+INTERNAL void mpt_proof_init(mpt_proof_t* proof, ssz_ob_t nodes, bytes32_t root) {
+  uint32_t n;
+
+  if (!proof) return;
+  memset(proof, 0, sizeof(*proof));
+  proof->nodes = nodes;
+  if (root) memcpy(proof->root, root, 32);
+  if (!nodes.def || !nodes.bytes.data) return;
+  if (!ssz_is_valid(nodes, true, NULL)) return;
+
+  n = ssz_len(nodes);
+  if (!n || n > MPT_PROOF_MAX_NODES) return;
+
+  proof->hashes    = safe_malloc((size_t) n * sizeof(bytes32_t));
+  proof->nodes_len = n;
+  for (uint32_t i = 0; i < n; i++) {
+    ssz_ob_t node = ssz_at(nodes, i);
+    keccak(node.bytes, proof->hashes[i]);
+  }
+}
+
+INTERNAL void mpt_proof_free(mpt_proof_t* proof) {
+  if (!proof) return;
+  safe_free(proof->hashes);
+  proof->hashes    = NULL;
+  proof->nodes_len = 0;
+}
+
+INTERNAL patricia_result_t patricia_verify_multi(mpt_proof_t* proof, bytes_t path, bytes_t* leaf) {
+  int       result     = 0;
+  uint8_t*  nibbles    = NULL;
+  uint8_t*  key        = NULL;
+  bytes_t   last_value = NULL_BYTES;
+  bytes32_t next_hash;
+  size_t    depth = 0;
+  int       idx;
+
+  if (!proof) return PATRICIA_INVALID;
+
+  idx = mpt_find_hash(proof, proof->root);
+  if (idx < 0) return PATRICIA_INVALID;
+
+  nibbles = patricia_to_nibbles(path, 0);
+  key     = nibbles;
+  memcpy(next_hash, proof->root, 32);
+  result = 1;
+
+  while (result == 1) {
+    ssz_ob_t witness = ssz_at(proof->nodes, (uint32_t) idx);
+    if (!witness.bytes.data) {
+      result = 0;
+      break;
+    }
+    result = handle_node(&witness.bytes, &key, NODE_LOOKUP, &last_value, next_hash, &depth);
+    if (result != 1) break;
+    idx = mpt_find_hash(proof, next_hash);
+    if (idx < 0) {
+      result = 0;
+      break;
+    }
+  }
+
+  if (result && leaf)
+    *leaf = result == 2 ? NULL_BYTES : last_value;
 
   if (nibbles) safe_free(nibbles);
   return result == 3 ? PATRICIA_FOUND : (patricia_result_t) result;

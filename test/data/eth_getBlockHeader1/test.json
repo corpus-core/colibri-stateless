@@ -18,6 +18,8 @@
     "blobGasUsed": "0x100000",
     "excessBlobGas": "0xa6838a7",
     "feeRecipient": "0x4838b106fce9647bdf1e7877bf73ce8b0bad5f97",
-    "transactionsRoot": "0xf1d8c30581321be929fbd135fde4ae6eaf0a1209c3f73f75d716d8a7802da020"
+    "transactionsRoot": "0xd1d4df38659004ea7d50b17ed7a2edd997d7b075626e1c05d5d0ebf1d9308adc",
+    "requestsHash": "0xe3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "blockAccessListHash": "0x0000000000000000000000000000000000000000000000000000000000000000"
   }
 }

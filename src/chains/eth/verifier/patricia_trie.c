@@ -97,12 +97,27 @@ static void serialize_node(node_t* node, buffer_t* buf) {
   }
 }
 
-static void node_update_hash(node_t* node, bool follow_parent, ssz_builder_t* builder) {
-  buffer_t buf = {0};
+static bool node_update_hash(node_t* node, bool follow_parent, ssz_builder_t* builder) {
+  bool     added = true;
+  buffer_t buf   = {0};
   serialize_node(node, &buf);
   rlp_to_list(&buf);
   node->hash_len = buf.data.len;
-  if (builder) ssz_add_dynamic_list_bytes(builder, 0, buf.data);
+  if (builder) {
+    // check if the node is already in the builder
+    // but proofs are always build with no fixed length yet, so offset are still not set
+    for (int i = 0; i < builder->fixed.data.len / 4; i++) {
+      uint32_t start = uint32_from_le(builder->fixed.data.data + i * 4);
+      uint32_t end   = i == (builder->fixed.data.len / 4 - 1) ? builder->dynamic.data.len : uint32_from_le(builder->fixed.data.data + i * 4 + 4);
+      bytes_t  item  = bytes(builder->dynamic.data.data + start, end - start);
+      if (bytes_eq(item, buf.data)) {
+        added = false;
+        break;
+      }
+    }
+    if (added)
+      ssz_add_dynamic_list_bytes(builder, 0, buf.data);
+  }
   if (node->hash_len >= 32) {
     keccak(buf.data, node->hash);
     node->hash_len = 32;
@@ -112,6 +127,7 @@ static void node_update_hash(node_t* node, bool follow_parent, ssz_builder_t* bu
   buffer_free(&buf);
   if (node->parent && follow_parent)
     node_update_hash(node->parent, true, NULL);
+  return added;
 }
 
 INTERNAL void patricia_node_free(node_t* node) {
@@ -348,19 +364,12 @@ INTERNAL void patricia_set_value(node_t** root, bytes_t path, bytes_t value) {
   safe_free(nibbles.data);
 }
 
-INTERNAL ssz_ob_t patricia_create_merkle_proof(node_t* root, bytes_t path) {
-  ssz_def_t     def     = SSZ_LIST("bytes", ssz_bytes_list, 1024);
-  ssz_builder_t builder = {0};
-  buffer_t      buf     = {0};
-  nibbles_t     nibbles = path_to_nibbles(path, false);
-  int           offset  = 0;
-  int           len     = 0;
-  builder.def           = &def;
+static bool patricia_add_merkle_proof(node_t* root, bytes_t path, ssz_builder_t* builder, uint32_t* len) {
+  nibbles_t nibbles = path_to_nibbles(path, false);
+  int       offset  = 0;
   while (root && offset <= nibbles.len) {
-    // add the node
-    if (root->hash_len >= 32)
-      node_update_hash(root, false, &builder);
-    len++;
+    if (root->hash_len >= 32 && node_update_hash(root, false, builder))
+      (*len)++;
 
     if (offset == nibbles.len) break;
     if (root->type == NODE_TYPE_BRANCH) {
@@ -378,10 +387,49 @@ INTERNAL ssz_ob_t patricia_create_merkle_proof(node_t* root, bytes_t path) {
     }
   }
   safe_free(nibbles.data);
+  return true;
+}
 
-  ssz_builder_fix_list_offsets(&builder, (uint32_t) len);
+INTERNAL void mpt_builder_init(mpt_builder_t* builder, node_t* root) {
+  static const ssz_def_t def = SSZ_LIST("bytes", ssz_bytes_list, 1024);
+  if (!builder) return;
+  builder->builder   = ssz_builder_for_def(&def);
+  builder->len       = 0;
+  builder->root      = root;
+  builder->free_root = root == NULL;
+}
 
-  return ssz_builder_to_bytes(&builder);
+INTERNAL void mpt_builder_free(mpt_builder_t* builder) {
+  if (!builder) return;
+  if (builder->free_root) patricia_node_free(builder->root);
+  ssz_builder_free(&builder->builder);
+  memset(builder, 0, sizeof(*builder));
+}
+
+INTERNAL ssz_ob_t mpt_builder_finish(mpt_builder_t* builder) {
+  ssz_ob_t out = {0};
+  if (!builder) return out;
+  ssz_builder_fix_list_offsets(&builder->builder, builder->len);
+  if (builder->free_root) patricia_node_free(builder->root);
+  out = ssz_builder_to_bytes(&builder->builder);
+  /* Ownership of the SSZ bytes and the trie (if owned) has been released. */
+  memset(builder, 0, sizeof(*builder));
+  return out;
+}
+
+INTERNAL void mpt_builder_add_proof(mpt_builder_t* builder, bytes_t path) {
+  patricia_add_merkle_proof(builder->root, path, &builder->builder, &builder->len);
+}
+
+INTERNAL void mpt_builder_set_value(mpt_builder_t* builder, bytes_t path, bytes_t value) {
+  patricia_set_value(&builder->root, path, value);
+}
+
+INTERNAL ssz_ob_t patricia_create_merkle_proof(node_t* root, bytes_t path) {
+  mpt_builder_t builder = {0};
+  mpt_builder_init(&builder, root);
+  mpt_builder_add_proof(&builder, path);
+  return mpt_builder_finish(&builder);
 }
 
 INTERNAL bytes_t patricia_get_root(node_t* node) {

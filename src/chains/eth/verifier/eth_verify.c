@@ -25,7 +25,11 @@
 #include "beacon_types.h"
 #include "chains.h"
 #include "eth_bloom.h"
+#include "header_cache.h"
 #include "json.h"
+#ifdef PAP
+#include "pap_tx_cache.h"
+#endif
 #include "ssz.h"
 #include "sync_committee.h"
 #include "verify.h"
@@ -74,7 +78,7 @@ bool eth_is_oblivious_unavailable(json_t response) {
   if (message.type != JSON_TYPE_STRING) return false;
   // message.start/len spans the JSON string token (incl. quotes); a substring
   // search is sufficient to recognise the oblivious node's availability signal.
-  static const char marker[] = "data non availability";
+  static const char marker[]   = "data non availability";
   const uint32_t    marker_len = sizeof(marker) - 1;
   for (uint32_t i = 0; i + marker_len <= message.len; i++) {
     if (strncmp(message.start + i, marker, marker_len) == 0) return true;
@@ -314,25 +318,21 @@ bool c4_eth_verify(verify_ctx_t* ctx) {
   if (c4_update_from_sync_data(ctx) != C4_SUCCESS) return true;
 
 #ifdef ETH_TX
-  if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_HYBRID_TRANSACTION_PROOF)) ||
-      ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_TRANSACTION_PROOF)))
+  if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_TRANSACTION_PROOF)))
     verify_tx_proof(ctx);
   else
 #endif
 #ifdef ETH_RECEIPT
-      if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_HYBRID_RECEIPT_PROOF)) ||
-          ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_RECEIPT_PROOF)))
+      if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_RECEIPT_PROOF)))
     verify_receipt_proof(ctx);
-  else if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_BLOCK_RECEIPTS_PROOF)) ||
-          ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_HYBRID_BLOCK_RECEIPTS_PROOF)))
+  else if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_BLOCK_RECEIPTS_PROOF)))
     verify_block_receipts_proof(ctx);
   else
 #endif
 #ifdef ETH_LOGS
       if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_LOGS_COMPLETENESS_PROOF)))
     verify_logs_completeness(ctx);
-  else if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_LOGS_PROOF)) ||
-           ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_HYBRID_LOGS_PROOF))) {
+  else if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_LOGS_PROOF))) {
     // When completeness is required, a plain (per-log) logs proof is not sufficient.
     if (ctx->flags & VERIFY_FLAG_LOGS_COMPLETENESS) {
       ctx->state.error = strdup("logs completeness required, but the proof is a plain logs proof");
@@ -346,31 +346,17 @@ bool c4_eth_verify(verify_ctx_t* ctx) {
 #ifdef ETH_ACCOUNT
       if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_ACCOUNT_PROOF)))
     verify_account_proof(ctx);
-  else if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_HYBRID_ACCOUNT_PROOF)))
-    verify_hybrid_account_proof(ctx);
   else
 #endif
 #ifdef ETH_CALL
-      if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_HYBRID_CALL_PROOF)) ||
-          ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_CALL_PROOF)) ||
+      if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_CALL_PROOF)) ||
           (no_proof(ctx) && is_call_method(ctx->method)))
     verify_call_proof(ctx);
   else
 #endif
 #ifdef ETH_BLOCK
-      if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_HYBRID_BLOCK_PROOF)) ||
-          ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_BLOCK_PROOF)))
+      if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_BLOCK_PROOF)))
     verify_block_proof(ctx);
-  else if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_HYBRID_BLOCK_HEADER_PROOF))) {
-    if (ctx->method && strcmp(ctx->method, "eth_blockNumber") == 0)
-      verify_block_number_proof(ctx);
-    else
-      verify_block_header_proof(ctx);
-  }
-  else if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_BLOCK_NUMBER_PROOF)))
-    verify_block_number_proof(ctx);
-  else if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_BLOCK_HEADER_PROOF)))
-    verify_block_header_proof(ctx);
   else
 #endif
 #ifdef PAP
@@ -392,4 +378,11 @@ bool c4_eth_verify(verify_ctx_t* ctx) {
     ctx->success     = false;
   }
   return true;
+}
+
+void c4_eth_reset_caches(void) {
+  c4_header_cache_clear();
+#ifdef PAP
+  pap_tx_cache_reset();
+#endif
 }

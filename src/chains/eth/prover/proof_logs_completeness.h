@@ -54,9 +54,10 @@ uint32_t c4_eth_get_logs_completeness_max_blocks(void);
 /**
  * Generates an `eth_getLogs` completeness proof over the requested block range.
  *
- * Resolves `[fromBlock, toBlock]`, builds a parent_root header chain anchored to a
- * single signed beacon header, and serializes for every block either a bloom-negative
- * proof or the full set of receipts. The result is stored in `ctx->proof`.
+ * Resolves `[fromBlock, toBlock]`, proves the newest block via `ETH_BLOCK_PROOF_UNION`
+ * and the older blocks via an RLP `parentHash` chain, and serializes for every block
+ * either a bloom-negative marker or the full set of receipts plus Patricia proofs of
+ * matching transactions. The result is stored in `ctx->proof`.
  *
  * @param ctx the prover context (method must be `eth_getLogs`).
  * @return `C4_SUCCESS` when the proof is ready, `C4_PENDING` while fetching data, `C4_ERROR` on failure.
