@@ -118,12 +118,15 @@ static const ssz_def_t ETH_CL_BLOCK_PROOF[] = {
 };
 
 // Sequencer-signed execution payload (OP-Stack and other L2s). The payload bytes
-// are `[parentBeaconRoot(32) | SSZ execution_payload]`, optionally ZSTD-compressed.
+// are a fork-dependent prefix plus the SSZ execution payload, optionally ZSTD-compressed:
+//   Deneb:   [parentBeaconRoot(32) | payload]
+//   Electra: [parentBeaconRoot(32) | requestsHash(32) | payload]
+//   Gloas:   [parentBeaconRoot(32) | requestsHash(32) | slot(8 LE) | payload]
 // Index 2 of `ETH_BLOCK_PROOF_UNION` is frozen; verification is registered by the
 // chain module (no-op / error when no handler is registered).
 static const ssz_def_t ETH_SEQUENCER_PAYLOAD_UNION[] = {
-    SSZ_BYTES("compressed_zstd", 1073741824), // ZSTD-compressed [parentBeaconRoot | execution_payload]
-    SSZ_BYTES("uncompressed", 1073741824),    // uncompressed [parentBeaconRoot | execution_payload]
+    SSZ_BYTES("compressed_zstd", 1073741824), // ZSTD-compressed prefixed execution payload
+    SSZ_BYTES("uncompressed", 1073741824),    // uncompressed prefixed execution payload
 };
 static const ssz_def_t ETH_SEQUENCER_PROOF[] = {
     SSZ_UNION("payload", ETH_SEQUENCER_PAYLOAD_UNION), // execution payload (compressed or uncompressed)

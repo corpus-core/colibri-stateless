@@ -16,7 +16,7 @@ and ETH verify/prover implementations. The only OP-specific wire difference is
 ## Key Differences from Ethereum Module
 
 1. **Sequencer proofs**: non-hybrid proofs authenticate the EL block via a sequencer-signed execution payload (`sequencerProof`), not a beacon `clProof`.
-2. **ZSTD Compression**: the sequencer payload may be ZSTD-compressed (`[parentBeaconRoot | SSZ execution_payload]`).
+2. **ZSTD Compression**: the sequencer payload may be ZSTD-compressed. Extra EL-header fields that are not in the Deneb SSZ payload are prepended (`parentBeaconRoot`, then `requestsHash` from Isthmus/Electra, then `slot` for Gloas). Deneb vs Isthmus SSZ is selected by the first dynamic offset (528 vs 560).
 3. **Header cache**: after the first verified block, follow-up proofs use `blockHash` like ETH.
 4. **Kona Bridge**: Native P2P bridge (Rust/FFI) connects to OP-Stack sequencers for live preconf capture.
 

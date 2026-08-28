@@ -45,12 +45,22 @@ c4_status_t op_verify_sequencer_proof(verify_ctx_t* ctx, ssz_ob_t block, bytes_t
 
 /**
  * Builds the RLP EL header and `ETH_BLOCK_BODY_CONTENT` from uncompressed
- * preconf bytes `[parentBeaconRoot(32) | SSZ execution_payload]`.
- * Tries Deneb / Electra / Gloas RLP layouts until `keccak(header)` matches
- * `execution_payload.blockHash`.
+ * preconf bytes. Extra header fields that are not in the Deneb SSZ payload
+ * are prepended:
+ *
+ * - Deneb / Ecotone: `[parentBeaconRoot(32) | payload]`
+ * - Electra / Isthmus: `[parentBeaconRoot(32) | requestsHash(32) | payload]`
+ *   (legacy 32-byte prefix still accepted; `requestsHash` then defaults to
+ *   `sha256('')` as required by the OP Isthmus spec)
+ * - Gloas: `[parentBeaconRoot(32) | requestsHash(32) | slot(8 LE) | payload]`
+ *
+ * Tries prefix layouts, Deneb vs Isthmus SSZ (first dynamic offset 528 vs 560),
+ * and Deneb / Electra / Gloas RLP until `keccak(header)` matches
+ * `execution_payload.blockHash`. Isthmus payloads may carry `withdrawalsRoot`
+ * (L2ToL1MessagePasser storage root).
  *
  * @param state error sink
- * @param preconf uncompressed `[parentBeaconRoot | execution_payload]`
+ * @param preconf uncompressed prefixed execution payload
  * @param el_header_out owned RLP header (caller frees)
  * @param el_body_out owned body (caller frees `.bytes.data`)
  * @param block_hash_out 32-byte execution block hash

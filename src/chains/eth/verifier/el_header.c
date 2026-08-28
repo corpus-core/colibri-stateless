@@ -112,8 +112,10 @@ static c4_status_t eth_el_header_build(c4_state_t* state, bytes_t* el_header, fo
 // where requests with empty request_data are skipped. Since all request containers are
 // fixed-size, the raw SSZ list bytes are exactly the flat request_data encoding.
 static void get_requests_hash(bytes32_t out_hash, eth_el_header_ctx_t* ctx) {
+  // EIP-7685: no request lists → sha256(''). keccak('') is a different value
+  // (empty-code hash) and must not be used here.
   if (ctx->beacon_block.def == NULL) {
-    memcpy(out_hash, EMPTY_HASH, 32);
+    sha256(NULL_BYTES, out_hash);
     return;
   }
   ssz_ob_t           body               = ssz_get(&ctx->beacon_block, "body");
@@ -199,13 +201,28 @@ static bytes_t get_from_ep(void* data, buffer_t* buffer, char* name) {
   if (strcmp(name, EL_PARENT_BEACON_BLOCK_ROOT) == 0)
     return bytes(ctx->parent_root, 32);
   if (strcmp(name, EL_REQUESTS_HASH) == 0) {
+    if (ctx->has_requests_hash) return bytes(ctx->requests_hash, 32);
     buffer_reset(buffer);
     buffer_grow(buffer, 32);
     buffer->data.len = 32;
     get_requests_hash(buffer->data.data, ctx);
     return buffer->data;
   }
+  if (strcmp(name, EL_SLOT_NUMBER) == 0) {
+    if (ctx->has_slot && !ssz_get_def(ctx->execution_payload.def, name)) {
+      buffer_reset(buffer);
+      buffer_grow(buffer, 8);
+      uint64_to_be(buffer->data.data, ctx->slot);
+      buffer->data.len = 8;
+      return buffer->data;
+    }
+    if (!ssz_get_def(ctx->execution_payload.def, name)) return NULL_BYTES;
+  }
   if (strcmp(name, EL_WITHDRAWALS_ROOT) == 0) {
+    if (ssz_get_def(ctx->execution_payload.def, name)) {
+      ssz_ob_t from_payload = ssz_get(&ctx->execution_payload, name);
+      if (from_payload.bytes.len == 32) return from_payload.bytes;
+    }
     buffer_reset(buffer);
     buffer_grow(buffer, 32);
     buffer->data.len = 32;
@@ -220,11 +237,13 @@ static bytes_t get_from_ep(void* data, buffer_t* buffer, char* name) {
     return buffer->data;
   }
   if (strcmp(name, EL_BLOCK_ACCESS_LIST_HASH) == 0) {
-    ssz_ob_t block_access_list = ssz_get(&ctx->execution_payload, "blockAccessList");
+    bytes_t bal = NULL_BYTES;
+    if (ssz_get_def(ctx->execution_payload.def, "blockAccessList"))
+      bal = ssz_get(&ctx->execution_payload, "blockAccessList").bytes;
     buffer_reset(buffer);
     buffer_grow(buffer, 32);
     buffer->data.len = 32;
-    eth_get_block_access_list_hash(buffer->data.data, block_access_list.bytes);
+    eth_get_block_access_list_hash(buffer->data.data, bal);
     return buffer->data;
   }
 
