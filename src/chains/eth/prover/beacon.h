@@ -58,20 +58,38 @@ typedef struct {
   bytes32_t root; // root of the block
 } beacon_head_t;
 
+typedef enum {
+  C4_BLOCK_PROOF_TYPE_NONE      = 0, // hybrid / cache: only `el_header` is set, and `el_body` if requested
+  C4_BLOCK_PROOF_TYPE_BEACON    = 1, // `beacon` is set; a consensus-layer block proof can be built
+  C4_BLOCK_PROOF_TYPE_SEQUENCER = 2, // `sequencer` is set
+} c4_block_proof_type_t;
+
 typedef struct {
-  bool      header_only;              // true when only header data is available (hybrid mode)
-  bytes_t   el_header;                // the rlp serialized execution layer header
-  ssz_ob_t  el_body;                  // the body containing either the full execution paylod or at least the transaction and withdrawal fields
-  bytes32_t el_block_hash;            // the block hash of the execution block
-  bytes_t   block_hash_branch;        // the branch of the block hash, used for the block proof
-  uint64_t  block_hash_branch_gindex; // the gindex of the block hash branch, used for the block proof
-  uint64_t  slot;                     // slot of the block
-  bytes32_t cl_body_root;             // the body root of the block
-  ssz_ob_t  cl_header;                // block header
-  ssz_ob_t  cl_body;                  // body of the block (empty in hybrid mode)
-  ssz_ob_t  sync_aggregate;           // sync aggregate with the signature of the block (empty in hybrid mode)
-  bytes32_t sign_parent_root;         // the parentRoot of the block containing the signature
-  bytes32_t data_block_root;          // the blockroot used for the data block
+  bytes_t   block_hash_branch;        // merkle branch from execution blockHash to the CL body root
+  uint64_t  block_hash_branch_gindex; // gindex of that branch
+  bytes32_t cl_body_root;             // hash tree root of the beacon body
+  ssz_ob_t  cl_header;                // beacon block header
+  ssz_ob_t  cl_body;                  // beacon block body
+  ssz_ob_t  sync_aggregate;           // sync aggregate that signs this (or the parent) block
+  bytes32_t sign_parent_root;         // parentRoot of the block that carries the signature
+  bytes32_t data_block_root;          // block root of the data block
+} eth_block_beacon_t;
+
+typedef struct {
+  bytes_t payload;   // OP preconf payload (no signature), borrowed from the request
+  bytes_t signature; // 65-byte sequencer signature, borrowed from the request
+} eth_block_sequencer_t;
+
+typedef struct {
+  c4_block_proof_type_t proof_type;    // which side of the union is valid
+  bytes_t               el_header;     // RLP-serialized execution-layer header
+  ssz_ob_t              el_body;       // execution payload, or at least transactions + withdrawals
+  bytes32_t             el_block_hash; // keccak(el_header)
+  uint64_t              slot;          // beacon slot, or EL block number when no CL header exists
+  union {
+    eth_block_beacon_t    beacon;
+    eth_block_sequencer_t sequencer;
+  };
 } eth_block_t;
 
 // :: Verified Header Cache
@@ -84,6 +102,18 @@ typedef struct {
 
 // get the beacon block for the given eth block number or hash
 c4_status_t c4_eth_get_signblock_and_parent(prover_ctx_t* ctx, bytes32_t sig_root, bytes32_t data_root, ssz_ob_t* sig_block, ssz_ob_t* data_block, bytes32_t data_root_result);
+
+/**
+ * Resolves an execution-layer block identifier into `eth_block_t`.
+ * `proof_type` may be `BEACON` (default), `NONE` (hybrid / header cache), or
+ * `SEQUENCER` (OP preconf). Callers must check `proof_type` before reading
+ * `.beacon` or `.sequencer`.
+ *
+ * @param ctx prover context
+ * @param block JSON block identifier
+ * @param beacon_block output block
+ * @return `C4_SUCCESS`, `C4_PENDING`, or `C4_ERROR`
+ */
 c4_status_t c4_beacon_get_block_for_eth(prover_ctx_t* ctx, json_t block, eth_block_t* beacon_block);
 c4_status_t c4_beacon_get_block_for_eth_with_body(prover_ctx_t* ctx, json_t block, eth_block_t* beacon_block);
 
@@ -91,7 +121,7 @@ c4_status_t c4_beacon_get_block_for_eth_with_body(prover_ctx_t* ctx, json_t bloc
 
 /**
  * Resolves the block identifier and fetches/caches the verified block header
- * from the remote prover. Returns a header-only `eth_block_t`.
+ * from the remote prover. Returns an `eth_block_t` with `proof_type = NONE`.
  *
  * Handles all block identifier formats: `"latest"`, `"safe"`, `"justified"`,
  * `"finalized"`, block hash (`0x...` 32 bytes), and block number (`0x...`).
@@ -100,7 +130,7 @@ c4_status_t c4_beacon_get_block_for_eth_with_body(prover_ctx_t* ctx, json_t bloc
  *
  * @param ctx prover context (must have `C4_PROVER_FLAG_HYBRID` set)
  * @param block JSON block identifier
- * @param beacon_block output: populated with header-only data
+ * @param beacon_block output: populated with EL header (and body if requested)
  * @return `C4_SUCCESS` when header is ready, `C4_PENDING` while waiting, `C4_ERROR` on failure
  */
 c4_status_t c4_hybrid_get_block_for_eth(prover_ctx_t* ctx, json_t block, eth_block_t* beacon_block, bool with_body);

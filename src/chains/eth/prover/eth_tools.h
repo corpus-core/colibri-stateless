@@ -54,6 +54,43 @@ c4_status_t c4_eth_get_receipt_proof(prover_ctx_t* ctx, bytes32_t block_hash, js
 c4_status_t c4_get_eth_proofs(prover_ctx_t* ctx, json_t trace, uint64_t block_number, ssz_builder_t* builder, address_t miner, const eth_state_overrides_t* overrides);
 void        eth_add_block_proof(prover_ctx_t* ctx, ssz_builder_t* builder, eth_block_t* block_data, blockroot_proof_t* historic_block_proof);
 
+/**
+ * Returns true if the verifier is expected to already hold `block_data`'s EL header
+ * (`last_block_hash` match or hybrid header cache). Used to emit the `blockHash`
+ * union variant and to decide whether a full-block proof still needs a body.
+ *
+ * @param ctx prover context
+ * @param block_data the execution block being proven
+ * @return true if a `blockHash`-only proof is safe
+ */
+bool eth_verifier_has_block_header(prover_ctx_t* ctx, eth_block_t* block_data);
+
+/**
+ * Extra handler that appends a chain-specific `ETH_BLOCK_PROOF_UNION` variant
+ * (e.g. `sequencerProof`). Return true if the variant was written.
+ */
+typedef bool (*c4_add_block_proof_extra_fn)(prover_ctx_t* ctx, ssz_builder_t* builder, eth_block_t* block_data, blockroot_proof_t* historic);
+
+/**
+ * Extra handler that fills `eth_block_t` from a chain-specific source (e.g. OP preconf).
+ * Same contract as `c4_beacon_get_block_for_eth`: set `el_header`, `el_block_hash`,
+ * and optionally `el_body`. Set `proof_type` to `SEQUENCER` when sequencer data
+ * is present, otherwise `NONE`.
+ */
+typedef c4_status_t (*c4_get_el_block_extra_fn)(prover_ctx_t* ctx, json_t block, eth_block_t* out, bool with_body);
+
+/**
+ * Registers prover-side block-proof hooks for a chain type. Idempotent.
+ *
+ * @param chain_type chain type that owns the handlers
+ * @param add handler for `eth_add_block_proof`, or NULL
+ * @param get handler for `c4_beacon_get_block_for_eth`, or NULL
+ */
+void c4_register_block_proof_prover(chain_type_t chain_type, c4_add_block_proof_extra_fn add, c4_get_el_block_extra_fn get);
+
+c4_add_block_proof_extra_fn c4_block_proof_add_fn(chain_type_t chain_type);
+c4_get_el_block_extra_fn    c4_block_proof_get_fn(chain_type_t chain_type);
+
 #ifdef PROVER_CACHE
 uint8_t* c4_eth_receipt_cachekey(bytes32_t target, bytes32_t blockhash);
 uint8_t* c4_eth_tx_cachekey(bytes32_t target, bytes32_t blockhash);

@@ -392,13 +392,13 @@ static c4_status_t hybrid_fetch_and_verify(prover_ctx_t* ctx, json_t block, hybr
   return C4_PENDING;
 }
 
-// -- Hybrid: Resolve Block Identifier and Return Header-Only eth_block_t --
+// -- Hybrid: Resolve Block Identifier and Return eth_block_t (proof_type NONE) --
 
 static c4_status_t create_beacon_block(prover_ctx_t* ctx, eth_block_t* beacon_block, local_cache_entry_t* local) {
   memset(beacon_block, 0, sizeof(eth_block_t));
   memcpy(beacon_block->el_block_hash, local->block_hash, 32);
-  beacon_block->header_only = true;
-  beacon_block->el_header   = local->el_header;
+  beacon_block->proof_type = C4_BLOCK_PROOF_TYPE_NONE;
+  beacon_block->el_header  = local->el_header;
   if (local->el_body.def) beacon_block->el_body = local->el_body;
   beacon_block->slot = eth_el_header_get_uint64(local->el_header, EL_BLOCK_NUMBER);
   return C4_SUCCESS;

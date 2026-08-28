@@ -42,39 +42,27 @@ endif()
 
 set(VERIFIER_SOURCES
   verifier/op_verify.c
+  verifier/op_verify_block.c
   verifier/op_zstd.c
   verifier/op_chains_conf.c
-  ssz/op_types.c
 )
 
-
 if(ETH_ACCOUNT)
-  set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/op_verify_account.c)
   add_definitions(-DETH_ACCOUNT)
 endif()
-
 if(ETH_TX)
-  set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/op_verify_tx.c)
   add_definitions(-DETH_TX)
 endif()
-
 if(ETH_BLOCK)
-  set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/op_verify_block.c)
   add_definitions(-DETH_BLOCK)
 endif()
-
 if(ETH_RECEIPT)
-  set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/op_verify_receipt.c)
   add_definitions(-DETH_RECEIPT)
 endif()
-
 if(ETH_LOGS)
-  set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/op_verify_logs.c)
   add_definitions(-DETH_LOGS)
 endif()
-
 if(ETH_CALL)
-  set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/op_verify_call.c verifier/op_verify_simulate.c)
   add_definitions(-DETH_CALL)
 endif()
 
@@ -92,14 +80,8 @@ add_verifier(
 add_prover(
   NAME op_prover
   SOURCES 
-    prover/op_tools.c
     prover/op_prover.c
     prover/op_proof_block.c
-    prover/op_proof_transaction.c
-    prover/op_proof_receipt.c
-    prover/op_proof_logs.c
-    prover/op_proof_call.c
-    prover/op_proof_account.c
   DEPENDS util eth_prover op_verifier
   PROOF op_prover_execute
 )
@@ -134,5 +116,3 @@ add_server_handler(
   METRICS_FUNC op_server_metrics
   CONFIG_FUNC op_configure
 )
-
-# Go bridge dependencies removed - using Kona-Bridge only

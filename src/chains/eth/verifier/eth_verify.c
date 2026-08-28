@@ -310,13 +310,7 @@ const ssz_def_t* c4_eth_get_request_type(chain_type_t chain_type) {
   return chain_type == C4_CHAIN_TYPE_ETHEREUM ? eth_ssz_verification_type(ETH_SSZ_VERIFY_REQUEST) : NULL;
 }
 
-bool c4_eth_verify(verify_ctx_t* ctx) {
-  if (c4_chain_type(ctx->chain_id) != C4_CHAIN_TYPE_ETHEREUM || c4_eth_get_chain_spec(ctx->chain_id) == NULL) return false;
-  // c4_update_from_sync_data may emit a pending request (e.g. checkpointz for the WSP check).
-  // c4_verify() resolves the resulting state by checking ctx->state for errors or pending requests
-  // before returning to the caller.
-  if (c4_update_from_sync_data(ctx) != C4_SUCCESS) return true;
-
+bool c4_eth_dispatch_proof(verify_ctx_t* ctx) {
 #ifdef ETH_TX
   if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_TRANSACTION_PROOF)))
     verify_tx_proof(ctx);
@@ -378,6 +372,15 @@ bool c4_eth_verify(verify_ctx_t* ctx) {
     ctx->success     = false;
   }
   return true;
+}
+
+bool c4_eth_verify(verify_ctx_t* ctx) {
+  if (c4_chain_type(ctx->chain_id) != C4_CHAIN_TYPE_ETHEREUM || c4_eth_get_chain_spec(ctx->chain_id) == NULL) return false;
+  // c4_update_from_sync_data may emit a pending request (e.g. checkpointz for the WSP check).
+  // c4_verify() resolves the resulting state by checking ctx->state for errors or pending requests
+  // before returning to the caller.
+  if (c4_update_from_sync_data(ctx) != C4_SUCCESS) return true;
+  return c4_eth_dispatch_proof(ctx);
 }
 
 void c4_eth_reset_caches(void) {

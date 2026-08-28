@@ -117,11 +117,26 @@ static const ssz_def_t ETH_CL_BLOCK_PROOF[] = {
     SSZ_UNION("headerProof", ETH_HEADER_PROOFS_UNION) // authenticates clHeader
 };
 
+// Sequencer-signed execution payload (OP-Stack and other L2s). The payload bytes
+// are `[parentBeaconRoot(32) | SSZ execution_payload]`, optionally ZSTD-compressed.
+// Index 2 of `ETH_BLOCK_PROOF_UNION` is frozen; verification is registered by the
+// chain module (no-op / error when no handler is registered).
+static const ssz_def_t ETH_SEQUENCER_PAYLOAD_UNION[] = {
+    SSZ_BYTES("compressed_zstd", 1073741824), // ZSTD-compressed [parentBeaconRoot | execution_payload]
+    SSZ_BYTES("uncompressed", 1073741824),    // uncompressed [parentBeaconRoot | execution_payload]
+};
+static const ssz_def_t ETH_SEQUENCER_PROOF[] = {
+    SSZ_UNION("payload", ETH_SEQUENCER_PAYLOAD_UNION), // execution payload (compressed or uncompressed)
+    SSZ_BYTE_VECTOR("signature", 65),                  // sequencer secp256k1 signature (r, s, v)
+};
+
 // Shared block proof used by account, tx, receipt, logs, call and block proofs.
-// Either a full consensus-layer proof, or a hash if the verifier already cached that header.
+// Either a full consensus-layer proof, a hash if the verifier already cached that header,
+// or a sequencer-signed execution payload (L2).
 static const ssz_def_t ETH_BLOCK_PROOF_UNION[] = {
-    SSZ_BYTES32("blockHash"),                     // cached: verifier already holds this verified EL header
-    SSZ_CONTAINER("clProof", ETH_CL_BLOCK_PROOF), // full consensus-layer proof of the EL header
+    SSZ_BYTES32("blockHash"),                           // 0: cached: verifier already holds this verified EL header
+    SSZ_CONTAINER("clProof", ETH_CL_BLOCK_PROOF),       // 1: full consensus-layer proof of the EL header
+    SSZ_CONTAINER("sequencerProof", ETH_SEQUENCER_PROOF), // 2: sequencer-signed execution payload (OP-Stack)
 };
 
 // A Signature Proof simply contains the BLS signature of the sync committee for the header to verify.

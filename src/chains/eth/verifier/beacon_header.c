@@ -299,6 +299,16 @@ static c4_status_t verify_block_by_blockproof(verify_ctx_t* ctx, ssz_ob_t block,
   return C4_SUCCESS;
 }
 
+#ifndef C4_BLOCK_PROOF_HOOKS
+#define C4_BLOCK_PROOF_HOOKS 16
+#endif
+static c4_verify_block_extra_fn verify_block_hooks[C4_BLOCK_PROOF_HOOKS];
+
+void c4_register_block_proof_verify(chain_type_t chain_type, c4_verify_block_extra_fn fn) {
+  if ((unsigned) chain_type >= C4_BLOCK_PROOF_HOOKS) return;
+  verify_block_hooks[chain_type] = fn;
+}
+
 c4_status_t c4_verify_block(verify_ctx_t* ctx, ssz_ob_t block, bytes_t* el_header, bytes32_t block_hash) {
   if (!block.def) THROW_ERROR("invalid block type!");
   if (strcmp(block.def->name, "blockHash") == 0)
@@ -306,6 +316,10 @@ c4_status_t c4_verify_block(verify_ctx_t* ctx, ssz_ob_t block, bytes_t* el_heade
 
   if (strcmp(block.def->name, "clProof") == 0)
     return verify_block_by_blockproof(ctx, block, el_header, block_hash);
+
+  unsigned type = (unsigned) c4_chain_type(ctx->chain_id);
+  if (type < C4_BLOCK_PROOF_HOOKS && verify_block_hooks[type])
+    return verify_block_hooks[type](ctx, block, el_header, block_hash);
 
   THROW_ERROR("invalid block type!");
 }

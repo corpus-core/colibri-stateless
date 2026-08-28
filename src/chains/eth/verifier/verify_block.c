@@ -28,6 +28,7 @@
 #include "eth_account.h"
 #include "eth_tx.h"
 #include "eth_verify.h"
+#include "header_cache.h"
 #include "json.h"
 #include "patricia.h"
 #include "rlp.h"
@@ -218,8 +219,23 @@ bool verify_block_proof(verify_ctx_t* ctx) {
   if (json_len(ctx->args) > (is_full_block ? 2 : 1)) RETURN_VERIFY_ERROR(ctx, "invalid arguments for block proof");
   if (c4_verify_block(ctx, ssz_get(&ctx->proof, "block"), &el_header, block_hash) != C4_SUCCESS) return false;
 
-  ssz_ob_t body     = ssz_get(&ctx->proof, "body");
-  bool     has_body = body.def && strcmp(body.def->name, "content") == 0;
+  ssz_ob_t body          = ssz_get(&ctx->proof, "body");
+  bool     has_body      = body.def && strcmp(body.def->name, "content") == 0;
+  bytes_t  cached_header = NULL_BYTES;
+  ssz_ob_t cached_body   = {0};
+  if (!has_body && is_full_block) {
+#ifdef EL_HEADER_CACHE
+    // sequencerProof (and follow-up blockHash proofs) omit the body; recover it from
+    // the header cache populated by the verified block. Roots are still checked below.
+    cached_header = c4_header_cache_get_el_header(ctx->chain_id, block_hash, &cached_body);
+    if (cached_body.def && cached_body.bytes.data) {
+      body     = cached_body;
+      has_body = true;
+    }
+    safe_free(cached_header.data);
+#endif
+    if (!has_body) RETURN_VERIFY_ERROR(ctx, "missing body for block proof");
+  }
   if (has_body) {
     // the body payload is untrusted until its roots match the verified header
     bytes32_t transaction_root = {0};
@@ -227,16 +243,24 @@ bool verify_block_proof(verify_ctx_t* ctx) {
     include_txs                = json_as_bool(json_at(ctx->args, 1));
     eth_get_transactions_root(transaction_root, ssz_get(&body, "transactions"));
     eth_get_withdrawals_root(withdrawal_root, ssz_get(&body, "withdrawals"));
-    if (memcmp(transaction_root, eth_el_header_get(el_header, EL_TRANSACTIONS_ROOT).data, 32) != 0) RETURN_VERIFY_ERROR(ctx, "invalid transaction root!");
-    if (memcmp(withdrawal_root, eth_el_header_get(el_header, EL_WITHDRAWALS_ROOT).data, 32) != 0) RETURN_VERIFY_ERROR(ctx, "invalid withdrawal root!");
+    if (memcmp(transaction_root, eth_el_header_get(el_header, EL_TRANSACTIONS_ROOT).data, 32) != 0) {
+      safe_free(cached_body.bytes.data);
+      RETURN_VERIFY_ERROR(ctx, "invalid transaction root!");
+    }
+    if (memcmp(withdrawal_root, eth_el_header_get(el_header, EL_WITHDRAWALS_ROOT).data, 32) != 0) {
+      safe_free(cached_body.bytes.data);
+      RETURN_VERIFY_ERROR(ctx, "invalid withdrawal root!");
+    }
   }
-  else if (is_full_block)
-    RETURN_VERIFY_ERROR(ctx, "missing body for block proof");
 
   bytes_t   header = {0};
   fork_id_t fork   = (rlp_decode(&el_header, 0, &header) == RLP_LIST && rlp_decode(&header, -1, &header) == 23) ? C4_FORK_GLOAS : C4_FORK_FULU;
 
-  if (!eth_set_block_data(ctx, el_header, include_txs, has_body ? &body : NULL, fork == C4_FORK_GLOAS ? ETH_BLOCK_DATA_MASK_ALL : ETH_BLOCK_DATA_MASK_ALL_WITHOUT_REQUESTS)) return false;
+  if (!eth_set_block_data(ctx, el_header, include_txs, has_body ? &body : NULL, fork == C4_FORK_GLOAS ? ETH_BLOCK_DATA_MASK_ALL : ETH_BLOCK_DATA_MASK_ALL_WITHOUT_REQUESTS)) {
+    safe_free(cached_body.bytes.data);
+    return false;
+  }
+  safe_free(cached_body.bytes.data);
   if (json_len(ctx->args) >= 1 && !c4_eth_matches_blocknumber(ctx, ctx->data, json_at(ctx->args, 0))) return false;
   if (!eth_check_latest_freshness(ctx, json_len(ctx->args) == 0 || eth_json_is_latest(json_at(ctx->args, 0)), true, eth_el_header_get_uint64(el_header, EL_TIMESTAMP))) return false;
   ctx->success = true;

@@ -25,11 +25,13 @@
 #include "beacon.h"
 #include "beacon_types.h"
 #include "bytes.h"
+#include "chains.h"
 #include "eth_account.h"
 #include "eth_compute_units.h"
 #include "eth_tx.h"
 #include "prover.h"
 #include "version.h"
+#include <string.h>
 
 static void set_data(ssz_builder_t* req, const char* name, ssz_builder_t data) {
   if (data.def)
@@ -67,10 +69,34 @@ uint8_t* c4_eth_tx_cachekey(bytes32_t target, bytes32_t blockhash) {
 }
 #endif
 
-void eth_add_block_proof(prover_ctx_t* ctx, ssz_builder_t* builder, eth_block_t* block_data, blockroot_proof_t* historic_block_proof) {
-  // the blockHash-only variant is safe whenever the verifier already holds the verified
-  // header: either the client advertised it as its last verified block (remote mode) or
-  // prover and verifier run in the same process and share the header cache (hybrid mode).
+#ifndef C4_BLOCK_PROOF_HOOKS
+#define C4_BLOCK_PROOF_HOOKS 16
+#endif
+
+typedef struct {
+  c4_add_block_proof_extra_fn add;
+  c4_get_el_block_extra_fn    get;
+} block_proof_prover_hooks_t;
+
+static block_proof_prover_hooks_t prover_hooks[C4_BLOCK_PROOF_HOOKS];
+
+void c4_register_block_proof_prover(chain_type_t chain_type, c4_add_block_proof_extra_fn add, c4_get_el_block_extra_fn get) {
+  if ((unsigned) chain_type >= C4_BLOCK_PROOF_HOOKS) return;
+  prover_hooks[chain_type].add = add;
+  prover_hooks[chain_type].get = get;
+}
+
+c4_add_block_proof_extra_fn c4_block_proof_add_fn(chain_type_t chain_type) {
+  if ((unsigned) chain_type >= C4_BLOCK_PROOF_HOOKS) return NULL;
+  return prover_hooks[chain_type].add;
+}
+
+c4_get_el_block_extra_fn c4_block_proof_get_fn(chain_type_t chain_type) {
+  if ((unsigned) chain_type >= C4_BLOCK_PROOF_HOOKS) return NULL;
+  return prover_hooks[chain_type].get;
+}
+
+bool eth_verifier_has_block_header(prover_ctx_t* ctx, eth_block_t* block_data) {
   bool verifier_has_header = !bytes_all_zero(bytes(block_data->el_block_hash, 32)) &&
                              memcmp(ctx->last_block_hash, block_data->el_block_hash, 32) == 0;
 #ifdef EL_HEADER_CACHE
@@ -79,20 +105,39 @@ void eth_add_block_proof(prover_ctx_t* ctx, ssz_builder_t* builder, eth_block_t*
     // proof is verified locally right after.
     verifier_has_header = c4_header_cache_has_el_header(ctx->chain_id, block_data->el_block_hash);
 #endif
+  return verifier_has_header;
+}
 
-  if (verifier_has_header) {
+void eth_add_block_proof(prover_ctx_t* ctx, ssz_builder_t* builder, eth_block_t* block_data, blockroot_proof_t* historic_block_proof) {
+  // the blockHash-only variant is safe whenever the verifier already holds the verified
+  // header: either the client advertised it as its last verified block (remote mode) or
+  // prover and verifier run in the same process and share the header cache (hybrid mode).
+  if (eth_verifier_has_block_header(ctx, block_data)) {
     // union variant 0 (blockHash): selector byte + 32-byte hash
     uint8_t block_hash_union[33] = {0};
     memcpy(block_hash_union + 1, block_data->el_block_hash, 32);
     ssz_add_bytes(builder, "block", bytes(block_hash_union, sizeof(block_hash_union)));
+    return;
   }
-  else {
-    ssz_builder_t block_proof = ssz_builder_for_type(ETH_SSZ_CL_BLOCK_PROOF);
-    ssz_add_bytes(&block_proof, "elHeader", block_data->el_header);
-    ssz_add_ob(&block_proof, "clHeader", block_data->cl_header);
-    ssz_add_bytes(&block_proof, "blockhashBranch", block_data->block_hash_branch);
-    ssz_add_uint64(&block_proof, block_data->block_hash_branch_gindex);
-    ssz_add_header_proof(&block_proof, block_data, *historic_block_proof);
-    ssz_add_builders(builder, "block", block_proof);
+
+  c4_add_block_proof_extra_fn extra = c4_block_proof_add_fn(c4_chain_type(ctx->chain_id));
+  if (extra) {
+    // a registered hook owns the non-hash variant; do not fall back to clProof
+    if (!extra(ctx, builder, block_data, historic_block_proof))
+      c4_state_add_error(&ctx->state, "chain-specific block proof failed");
+    return;
   }
+
+  if (block_data->proof_type != C4_BLOCK_PROOF_TYPE_BEACON) {
+    c4_state_add_error(&ctx->state, "clProof requires beacon proof data");
+    return;
+  }
+
+  ssz_builder_t block_proof = ssz_builder_for_type(ETH_SSZ_CL_BLOCK_PROOF);
+  ssz_add_bytes(&block_proof, "elHeader", block_data->el_header);
+  ssz_add_ob(&block_proof, "clHeader", block_data->beacon.cl_header);
+  ssz_add_bytes(&block_proof, "blockhashBranch", block_data->beacon.block_hash_branch);
+  ssz_add_uint64(&block_proof, block_data->beacon.block_hash_branch_gindex);
+  ssz_add_header_proof(&block_proof, block_data, *historic_block_proof);
+  ssz_add_builders(builder, "block", block_proof);
 }

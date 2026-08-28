@@ -901,8 +901,9 @@ static char* el_rpc_without_slot(const uint8_t* hash, const uint8_t* parent_cl) 
 static eth_block_t dummy_block_with_state_root(const uint8_t* state_root, ssz_def_t* header_def, uint8_t* header_bytes) {
   memset(header_bytes, 0, 112);
   memcpy(header_bytes + 48, state_root, 32);
-  eth_block_t block = {0};
-  block.cl_header   = (ssz_ob_t) {.bytes = {.data = header_bytes, .len = 112}, .def = header_def};
+  eth_block_t block     = {0};
+  block.proof_type      = C4_BLOCK_PROOF_TYPE_BEACON;
+  block.beacon.cl_header = (ssz_ob_t) {.bytes = {.data = header_bytes, .len = 112}, .def = header_def};
   return block;
 }
 

@@ -28,39 +28,38 @@
 extern "C" {
 #endif
 
+#include "beacon.h"
+#include "eth_tools.h"
 #include "prover.h"
-#include "ssz.h"
-
-c4_status_t c4_op_proof_block(prover_ctx_t* ctx);
-c4_status_t c4_op_proof_transaction(prover_ctx_t* ctx);
-c4_status_t c4_op_proof_receipt(prover_ctx_t* ctx);
-c4_status_t c4_op_proof_logs(prover_ctx_t* ctx);
-c4_status_t c4_op_proof_call(prover_ctx_t* ctx);
-c4_status_t c4_op_proof_blocknumber(prover_ctx_t* ctx);
-c4_status_t c4_op_proof_account(prover_ctx_t* ctx);
-
-c4_status_t c4_op_create_block_proof(prover_ctx_t* ctx, json_t block_number, ssz_builder_t* block_proof);
 
 /**
- * Add the given preconf block proof builder as a `block_proof` union variant to the parent builder.
+ * Fills `eth_block_t` from the OP preconf endpoint (or the header cache when
+ * the verifier already advertised this block). Registered as the GET_BLOCK hook.
  *
- * Inspects the prover's `client_state`. If the client already has the same execution payload
- * cached (status `C4_STATE_SYNC_EXECUTION_PAYLOAD`, matching block reference), the union variant
- * `none` is added instead of the full `preconf` payload to save bandwidth.
- *
- * The cache decision is metadata-only and avoids any extra zstd decompression of the preconf
- * payload. Only specific hex block numbers / hashes can hit the cache; "latest"-style requests
- * always emit the full preconf.
- *
- * The `preconf_proof` builder is consumed (its buffers are freed) regardless of which variant is used.
- *
- * @param ctx prover context (uses ctx->client_state)
- * @param requested the user-supplied JSON block reference (hex number, block hash, or tag)
- * @param parent the parent builder (e.g. the block_proof / receipt_proof / call_proof builder)
- * @param name name of the union field in the parent (typically "block_proof")
- * @param preconf_proof builder previously produced by `c4_op_create_block_proof`
+ * @param ctx prover context
+ * @param block JSON block identifier
+ * @param out output block (`proof_type` NONE or SEQUENCER, EL fields, optional sequencer data)
+ * @param with_body if true, `el_body` must contain transactions and withdrawals
+ * @return `C4_SUCCESS`, `C4_PENDING`, or `C4_ERROR`
  */
-void c4_op_add_block_proof(prover_ctx_t* ctx, json_t requested, ssz_builder_t* parent, const char* name, ssz_builder_t* preconf_proof);
+c4_status_t op_get_el_block(prover_ctx_t* ctx, json_t block, eth_block_t* out, bool with_body);
+
+/**
+ * Appends the `sequencerProof` variant of `ETH_BLOCK_PROOF_UNION`.
+ *
+ * @param ctx prover context
+ * @param builder parent proof builder (`block` union field)
+ * @param block_data block produced by `op_get_el_block`
+ * @param historic unused (no CL proof)
+ * @return true if the variant was written
+ */
+bool op_add_sequencer_proof(prover_ctx_t* ctx, ssz_builder_t* builder, eth_block_t* block_data, blockroot_proof_t* historic);
+
+/**
+ * Registers OP prover block-proof hooks. Idempotent.
+ */
+void op_register_block_proof_prover(void);
+
 #ifdef __cplusplus
 }
 #endif
