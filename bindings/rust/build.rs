@@ -194,7 +194,13 @@ fn build_with_cmake(repo_root: &Path, target: &str) -> LinkSetup {
     // We also need the prover / chain module archives that aren't
     // pulled in by "verifier" alone. A second build call reuses the
     // same build directory and just adds targets.
-    let extra_targets = ["prover", "eth_verifier", "eth_prover", "op_verifier", "op_prover"];
+    let extra_targets = [
+        "prover",
+        "eth_verifier",
+        "eth_prover",
+        "op_verifier",
+        "op_prover",
+    ];
     for tgt in extra_targets {
         // Use raw `cmake --build <dir> --target <t>` so we don't reset
         // build-system state. `--config` is required for multi-config
