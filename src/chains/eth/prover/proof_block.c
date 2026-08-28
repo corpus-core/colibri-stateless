@@ -52,9 +52,10 @@ c4_status_t c4_proof_block(prover_ctx_t* ctx) {
   TRY_ASYNC(c4_check_blockroot_proof(ctx, &historic_proof, &block));
   TRY_ASYNC(c4_get_syncdata_proof(ctx, &historic_proof.sync, &sync_proof));
 
-  // sequencerProof already carries transactions + withdrawals, so the body is omitted
-  // (the verifier recovers it from the header cache). Follow-up `blockHash` proofs still
-  // need the body when the verifier may not have cached it yet.
+  // sequencerProof already carries transactions + withdrawals, so the body is omitted.
+  // The OP hook rebuilds ETH_SSZ_EL_BLOCK_CONTENT from the signed execution payload
+  // and the verifier recovers it from the header cache. Follow-up `blockHash` proofs
+  // still need the body when the verifier may not have cached it yet.
 #ifdef EL_HEADER_CACHE
   bool omit_body = include_body &&
                    !eth_verifier_has_block_header(ctx, &block) &&

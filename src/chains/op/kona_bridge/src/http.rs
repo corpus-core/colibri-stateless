@@ -436,6 +436,7 @@ pub async fn run_http_primary_with_gossip_fallback(
                             stats_guard.processed_preconfs += 1;
                             stats_guard.http_received += 1;
                             stats_guard.http_processed += 1;
+                            stats_guard.record_processed_preconf(block_number);
                             
                             // Periodische Statusmeldung alle 200 Blöcke
                         if block_number >= last_status_block + STATUS_INTERVAL {

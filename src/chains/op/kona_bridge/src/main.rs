@@ -92,6 +92,7 @@ async fn main() -> anyhow::Result<()> {
         http_received: 0, http_processed: 0, gossip_received: 0, gossip_processed: 0,
         mode_switches: 0, current_mode: 0, total_gaps: 0, http_gaps: 0,
         gossip_gaps: 0, bitmask_gaps: 0,
+        last_block_number: 0, last_preconf_unix: 0,
     }));
     let running = Arc::new(Mutex::new(true));
     let (sse_tx, _) = broadcast::channel::<u64>(64);

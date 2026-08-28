@@ -92,7 +92,7 @@ option(BLS_DESERIALIZE "Store BLS keys deserialized. It is faster but uses 25k m
 option(PROVER_CACHE "Caches blockhashes and maps, which makes a lot of sense on a server" ON)
 option(PROVER_TRACE "Collect lightweight prover-internal spans for server export" OFF)
 option(CHAIN_ETH "includes the ETH verification support" ON)
-option(CHAIN_OP "includes the OP-Stack verification support" OFF)
+option(CHAIN_OP "includes the OP-Stack verification support (forced ON for language bindings)" OFF)
 option(ETH_ZKPROOF "includes the ETH ZK-Proof verification support" ON)
 option(ETH_ZKPROOF_BUILD_HOST "Build eth-sync-script host binary (Rust/SP1). Disable for clients/slaves or platforms where SP1 doesn't build." OFF)
 option(PAP "Enable Pragmatic Adaptive Privacy mode in verifier" ON)
@@ -128,6 +128,17 @@ option(SWIFT "Build Swift bindings" OFF)
 option(C4_PYTHON "Build Python bindings" OFF) # NOTE: ESP-IDF passes -DPYTHON=<python-executable> to CMake. Do not use PYTHON as a boolean option name.
 option(DART "Build Dart bindings" OFF)
 option(NODE_ADDON "Build the Node.js native addon (N-API)" OFF)
+
+# Bindings replay every test/data/*/test.json fixture, including OP-Stack
+# remote proofs. Without CHAIN_OP the generated dispatcher has no OP verifier
+# and those proofs fail with "unsupported chain".
+if(DART OR KOTLIN OR C4_PYTHON OR SWIFT OR NODE_ADDON OR WASM)
+  if(NOT CHAIN_OP)
+    message(STATUS "Enabling CHAIN_OP for language bindings (required to verify OP-Stack proofs)")
+  endif()
+  set(CHAIN_OP ON)
+endif()
+
 option(TEST "Build the unit tests" OFF)
 option(COVERAGE "Enable coverage tracking" OFF)
 option(SHAREDLIB "Build shared library" OFF)

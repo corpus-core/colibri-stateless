@@ -128,6 +128,8 @@ pub extern "C" fn kona_bridge_start(config: *const KonaBridgeConfig) -> *mut Kon
         http_gaps: 0,    // Verpasste Blöcke während HTTP-Modus
         gossip_gaps: 0,  // Verpasste Blöcke während Gossip-Modus
         bitmask_gaps: 0, // Präzise Gaps via Bitmask-Tracking
+        last_block_number: 0,
+        last_preconf_unix: 0,
     }));
 
     let running = Arc::new(Mutex::new(true));
@@ -419,6 +421,8 @@ pub extern "C" fn kona_bridge_get_stats(
             (*stats).http_gaps = bridge_stats.http_gaps;
             (*stats).gossip_gaps = bridge_stats.gossip_gaps;
             (*stats).bitmask_gaps = bitmask_gaps;
+            (*stats).last_block_number = bridge_stats.last_block_number;
+            (*stats).last_preconf_unix = bridge_stats.last_preconf_unix;
         }
         0
     } else {

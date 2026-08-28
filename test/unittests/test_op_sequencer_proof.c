@@ -267,6 +267,41 @@ static matching_el_t build_matching_el(uint64_t block_number) {
   return out;
 }
 
+// Isthmus payload whose header.withdrawalsRoot is a L2ToL1 storage root (0xEE..),
+// not the EIP-4895 merkle of the (empty) withdrawals list.
+static matching_el_t build_matching_isthmus_el(uint64_t block_number) {
+  matching_el_t out            = {0};
+  uint8_t       req[32]        = {0};
+  uint8_t       wd_root[32]    = {0};
+  uint8_t       dummy_hash[32] = {0};
+  memset(req, 0xCD, 32);
+  memset(wd_root, 0xEE, 32);
+  dummy_hash[0] = 0x11;
+
+  ssz_ob_t            draft = build_isthmus_payload(dummy_hash, block_number, wd_root);
+  eth_el_header_ctx_t ectx  = {0};
+  ectx.execution_payload    = draft;
+  ectx.fork                 = C4_FORK_ELECTRA;
+  memcpy(ectx.parent_root, PARENT_ROOT_AB, 32);
+  ectx.has_requests_hash = true;
+  memcpy(ectx.requests_hash, req, 32);
+  bytes_t header = NULL_BYTES;
+  TEST_ASSERT_EQUAL_INT(C4_SUCCESS, eth_el_header_build_from_ep(&header, &ectx));
+  keccak(header, out.hash);
+  safe_free(header.data);
+  safe_free(draft.bytes.data);
+
+  ssz_ob_t matched = build_isthmus_payload(out.hash, block_number, wd_root);
+  out.preconf      = wrap_preconf_electra(matched, req);
+  safe_free(matched.bytes.data);
+
+  TEST_ASSERT_EQUAL_INT(C4_SUCCESS, op_el_from_preconf_bytes(NULL, out.preconf, &out.header, &out.body, out.hash));
+  TEST_ASSERT_NOT_NULL(out.header.data);
+  TEST_ASSERT_NOT_NULL(out.body.bytes.data);
+  TEST_ASSERT_EQUAL_MEMORY(wd_root, eth_el_header_get(out.header, EL_WITHDRAWALS_ROOT).data, 32);
+  return out;
+}
+
 static ssz_ob_t build_block_hash_proof(const uint8_t block_hash[32]) {
   ssz_builder_t proof = ssz_builder_for_type(ETH_SSZ_VERIFY_BLOCK_PROOF);
   uint8_t       none  = 0;
@@ -676,6 +711,89 @@ void test_verify_block_proof_body_from_cache(void) {
   matching_el_free(&el);
 }
 
+void test_verify_block_proof_isthmus_body_from_cache(void) {
+  matching_el_t el     = build_matching_isthmus_el(TEST_BLOCK_NUMBER);
+  bytes32_t     merkle = {0};
+  eth_get_withdrawals_root(merkle, ssz_get(&el.body, "withdrawals"));
+  TEST_ASSERT_TRUE_MESSAGE(
+      memcmp(merkle, eth_el_header_get(el.header, EL_WITHDRAWALS_ROOT).data, 32) != 0,
+      "fixture must use an Isthmus storage-root withdrawalsRoot, not EIP-4895 merkle");
+
+  c4_header_cache_put(g_ctx.chain_id, TEST_BLOCK_NUMBER, el.hash, el.header, &el.body);
+
+  g_ctx.proof  = build_block_hash_proof(el.hash);
+  g_ctx.method = "eth_getBlockByNumber";
+  g_ctx.args   = json_parse("[\"0x2a\",false]");
+
+  TEST_ASSERT_TRUE_MESSAGE(verify_block_proof(&g_ctx), g_ctx.state.error ? g_ctx.state.error : "verify_block_proof failed");
+  TEST_ASSERT_TRUE(g_ctx.success);
+  TEST_ASSERT_NOT_NULL(g_ctx.data.bytes.data);
+  TEST_ASSERT_EQUAL_MEMORY(eth_el_header_get(el.header, EL_WITHDRAWALS_ROOT).data,
+                           ssz_get(&g_ctx.data, "withdrawalsRoot").bytes.data, 32);
+
+  safe_free(g_ctx.proof.bytes.data);
+  g_ctx.proof.bytes.data = NULL;
+  matching_el_free(&el);
+}
+
+// Same Isthmus-style header/body as above, but on ETH the EIP-4895 merkle check
+// must still reject a withdrawalsRoot that is not the trie of the withdrawals list.
+void test_verify_block_proof_eth_rejects_isthmus_withdrawals_mismatch(void) {
+  matching_el_t el     = build_matching_isthmus_el(TEST_BLOCK_NUMBER);
+  bytes32_t     merkle = {0};
+  eth_get_withdrawals_root(merkle, ssz_get(&el.body, "withdrawals"));
+  TEST_ASSERT_TRUE_MESSAGE(
+      memcmp(merkle, eth_el_header_get(el.header, EL_WITHDRAWALS_ROOT).data, 32) != 0,
+      "fixture must use an Isthmus storage-root withdrawalsRoot, not EIP-4895 merkle");
+
+  g_ctx.chain_id = C4_CHAIN_MAINNET;
+  c4_header_cache_put(g_ctx.chain_id, TEST_BLOCK_NUMBER, el.hash, el.header, &el.body);
+
+  g_ctx.proof  = build_block_hash_proof(el.hash);
+  g_ctx.method = "eth_getBlockByNumber";
+  g_ctx.args   = json_parse("[\"0x2a\",false]");
+
+  TEST_ASSERT_FALSE(verify_block_proof(&g_ctx));
+  TEST_ASSERT_NOT_NULL(g_ctx.state.error);
+  TEST_ASSERT_NOT_NULL(strstr(g_ctx.state.error, "invalid withdrawal root"));
+
+  safe_free(g_ctx.proof.bytes.data);
+  g_ctx.proof.bytes.data = NULL;
+  matching_el_free(&el);
+}
+
+void test_verify_block_proof_op_rejects_nonempty_withdrawals(void) {
+  matching_el_t el     = build_matching_isthmus_el(TEST_BLOCK_NUMBER);
+  ssz_builder_t body_b = ssz_builder_for_type(ETH_SSZ_EL_BLOCK_CONTENT);
+  ssz_add_bytes(&body_b, "transactions", ssz_get(&el.body, "transactions").bytes);
+
+  ssz_builder_t wds = ssz_builder_for_def(ssz_get_def(body_b.def, "withdrawals"));
+  ssz_builder_t w   = ssz_builder_for_def(&DENEP_WITHDRAWAL_CONTAINER);
+  uint8_t       addr[20] = {0};
+  ssz_add_uint64(&w, 0);
+  ssz_add_uint64(&w, 0);
+  ssz_add_bytes(&w, "address", bytes(addr, sizeof(addr)));
+  ssz_add_uint64(&w, 1);
+  ssz_add_dynamic_list_builders(&wds, 1, w);
+  ssz_add_builders(&body_b, "withdrawals", wds);
+  ssz_ob_t spoofed = ssz_builder_to_bytes(&body_b);
+
+  c4_header_cache_put(g_ctx.chain_id, TEST_BLOCK_NUMBER, el.hash, el.header, &spoofed);
+  safe_free(spoofed.bytes.data);
+
+  g_ctx.proof  = build_block_hash_proof(el.hash);
+  g_ctx.method = "eth_getBlockByNumber";
+  g_ctx.args   = json_parse("[\"0x2a\",false]");
+
+  TEST_ASSERT_FALSE(verify_block_proof(&g_ctx));
+  TEST_ASSERT_NOT_NULL(g_ctx.state.error);
+  TEST_ASSERT_NOT_NULL(strstr(g_ctx.state.error, "invalid withdrawal root"));
+
+  safe_free(g_ctx.proof.bytes.data);
+  g_ctx.proof.bytes.data = NULL;
+  matching_el_free(&el);
+}
+
 void test_verify_block_proof_missing_body_without_cache(void) {
   matching_el_t el = build_matching_el(TEST_BLOCK_NUMBER);
   c4_header_cache_put(g_ctx.chain_id, TEST_BLOCK_NUMBER, el.hash, el.header, NULL);
@@ -823,6 +941,9 @@ int main(void) {
 #ifdef EL_HEADER_CACHE
   RUN_TEST(test_blockhash_followup_after_cached_sequencer_header);
   RUN_TEST(test_verify_block_proof_body_from_cache);
+  RUN_TEST(test_verify_block_proof_isthmus_body_from_cache);
+  RUN_TEST(test_verify_block_proof_eth_rejects_isthmus_withdrawals_mismatch);
+  RUN_TEST(test_verify_block_proof_op_rejects_nonempty_withdrawals);
   RUN_TEST(test_verify_block_proof_missing_body_without_cache);
   RUN_TEST(test_verify_block_proof_cached_body_root_mismatch);
   RUN_TEST(test_op_get_el_block_from_header_cache);

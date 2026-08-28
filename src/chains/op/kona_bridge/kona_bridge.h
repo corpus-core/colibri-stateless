@@ -48,6 +48,8 @@ typedef struct {
   uint32_t http_gaps;          /* Verpasste Blöcke während HTTP-Modus */
   uint32_t gossip_gaps;        /* Verpasste Blöcke während Gossip-Modus */
   uint32_t bitmask_gaps;       /* Präzise Gaps via Bitmask-Tracking */
+  uint64_t last_block_number;  /* Highest processed L2 block; 0 if none */
+  uint64_t last_preconf_unix;  /* Unix seconds of last processed preconf; 0 if none */
 } KonaBridgeStats;
 
 /**

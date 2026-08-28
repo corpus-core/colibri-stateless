@@ -225,8 +225,11 @@ bool verify_block_proof(verify_ctx_t* ctx) {
   ssz_ob_t cached_body   = {0};
   if (!has_body && is_full_block) {
 #ifdef EL_HEADER_CACHE
-    // sequencerProof (and follow-up blockHash proofs) omit the body; recover it from
-    // the header cache populated by the verified block. Roots are still checked below.
+    // sequencerProof omits proof.body because the signed execution payload already
+    // carries transactions + withdrawals. The OP hook rebuilds ETH_SSZ_EL_BLOCK_CONTENT
+    // from that payload and stores it in the header cache; recover it here.
+    // proof.body, when present, and cache-loaded bodies stay untrusted until the
+    // roots below match the verified header.
     cached_header = c4_header_cache_get_el_header(ctx->chain_id, block_hash, &cached_body);
     if (cached_body.def && cached_body.bytes.data) {
       body     = cached_body;
@@ -239,17 +242,27 @@ bool verify_block_proof(verify_ctx_t* ctx) {
   if (has_body) {
     // the body payload is untrusted until its roots match the verified header
     bytes32_t transaction_root = {0};
-    bytes32_t withdrawal_root  = {0};
     include_txs                = json_as_bool(json_at(ctx->args, 1));
     eth_get_transactions_root(transaction_root, ssz_get(&body, "transactions"));
-    eth_get_withdrawals_root(withdrawal_root, ssz_get(&body, "withdrawals"));
     if (memcmp(transaction_root, eth_el_header_get(el_header, EL_TRANSACTIONS_ROOT).data, 32) != 0) {
       safe_free(cached_body.bytes.data);
       RETURN_VERIFY_ERROR(ctx, "invalid transaction root!");
     }
-    if (memcmp(withdrawal_root, eth_el_header_get(el_header, EL_WITHDRAWALS_ROOT).data, 32) != 0) {
-      safe_free(cached_body.bytes.data);
-      RETURN_VERIFY_ERROR(ctx, "invalid withdrawal root!");
+    // Bind the withdrawals list. On ETH the merkle must equal the header
+    // withdrawalsRoot (EIP-4895). On OP Isthmus that header field is the
+    // L2ToL1MessagePasser storage root, so equality is not required — but the
+    // list is still consensus-empty, so the merkle must be EMPTY_ROOT_HASH.
+    // proof.body and persisted cache bodies are prover-controlled; do not
+    // accept a non-empty spoofed list just because the header is Isthmus.
+    bytes32_t withdrawal_root = {0};
+    eth_get_withdrawals_root(withdrawal_root, ssz_get(&body, "withdrawals"));
+    bytes_t header_wd = eth_el_header_get(el_header, EL_WITHDRAWALS_ROOT);
+    if (header_wd.len != 32 || memcmp(withdrawal_root, header_wd.data, 32) != 0) {
+      if (c4_chain_type(ctx->chain_id) != C4_CHAIN_TYPE_OP ||
+          memcmp(withdrawal_root, EMPTY_ROOT_HASH, 32) != 0) {
+        safe_free(cached_body.bytes.data);
+        RETURN_VERIFY_ERROR(ctx, "invalid withdrawal root!");
+      }
     }
   }
 

@@ -91,7 +91,7 @@ jobs:
         run: |
           # Short build dir ("na") keeps the deep evmone FetchContent paths
           # below Windows' MAX_PATH limit.
-          cmake -S . -B build/na -DCMAKE_BUILD_TYPE=Release -DNODE_ADDON=1
+          cmake -S . -B build/na -DCMAKE_BUILD_TYPE=Release -DNODE_ADDON=1 -DCHAIN_OP=ON
           cmake --build build/na --config Release --parallel --target colibri_native
         env:
           C4_VERSION: ${{ steps.version.outputs.version }}
@@ -168,7 +168,7 @@ jobs:
 
       - name: Build with Emscripten (Split WASM for npm)
         run: |
-          emcmake cmake -B build -DWASM=true -DWASM_EMBED=OFF -DCLI=false -DTEST=false -DCURL=false -DCMAKE_BUILD_TYPE=MINSIZREL -DC4W_PREBUILDS_DIR=$GITHUB_WORKSPACE/native-prebuilds -S .
+          emcmake cmake -B build -DWASM=true -DWASM_EMBED=OFF -DCLI=false -DTEST=false -DCURL=false -DCHAIN_OP=ON -DCMAKE_BUILD_TYPE=MINSIZREL -DC4W_PREBUILDS_DIR=$GITHUB_WORKSPACE/native-prebuilds -S .
           cmake --build build
         env:
           C4_VERSION: ${{ steps.version.outputs.version }}

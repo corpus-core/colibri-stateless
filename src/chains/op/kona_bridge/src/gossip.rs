@@ -569,6 +569,7 @@ pub async fn run_gossip_network(
                         let mut stats_guard = stats.lock().unwrap();
                         stats_guard.processed_preconfs += 1;
                         stats_guard.gossip_processed += 1;
+                        stats_guard.record_processed_preconf(number);
 
                         if let Some(ref bitmask_tracker_arc) = bitmask_tracker {
                             let mut tracker = bitmask_tracker_arc.lock().unwrap();

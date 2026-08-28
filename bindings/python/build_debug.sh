@@ -64,6 +64,7 @@ cd "$BUILD_DIR"
 cmake \
     -DCMAKE_BUILD_TYPE=Debug \
     -DC4_PYTHON=ON \
+    -DCHAIN_OP=ON \
     -DCURL=OFF \
     -DCLI=OFF \
     -DCMAKE_C_FLAGS_DEBUG="-g3 -O0 -fno-omit-frame-pointer -DDEBUG" \

@@ -279,6 +279,8 @@ c4_status_t op_verify_sequencer_proof(verify_ctx_t* ctx, ssz_ob_t block, bytes_t
   }
 
 #ifdef EL_HEADER_CACHE
+  // Body is rebuilt from the signed execution payload (txs + withdrawals). The
+  // proof omits proof.body; verify_block_proof recovers this snapshot from the cache.
   uint64_t block_number = eth_el_header_get_uint64(header, EL_BLOCK_NUMBER);
   if (block_number) c4_header_cache_put(ctx->chain_id, block_number, block_hash, header, &body);
 #endif

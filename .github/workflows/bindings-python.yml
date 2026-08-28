@@ -178,7 +178,7 @@ jobs:
           REM Let CMake pick the installed Visual Studio generator automatically.
           REM Hard-coding "Visual Studio 17 2022" breaks whenever the windows-latest
           REM image moves to a newer Visual Studio (e.g. VS 2026 / "Visual Studio 18 2026").
-          cmake -S . -B build -DC4_PYTHON=ON -DCMAKE_BUILD_TYPE=Release
+          cmake -S . -B build -DC4_PYTHON=ON -DCHAIN_OP=ON -DCMAKE_BUILD_TYPE=Release
           if %errorlevel% neq 0 (
             echo CMake configuration failed with error %errorlevel%
             echo Current directory: %cd%

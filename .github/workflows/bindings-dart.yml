@@ -47,7 +47,7 @@ jobs:
       - name: Build native library for Dart
         run: |
           echo "Building Colibri native library (DART=ON)..."
-          cmake -S . -B build-dart -DDART=ON -DCMAKE_BUILD_TYPE=Release
+          cmake -S . -B build-dart -DDART=ON -DCHAIN_OP=ON -DCMAKE_BUILD_TYPE=Release
           cmake --build build-dart --target colibri_dart
           echo "Checking native output..."
           ls -la bindings/dart/native/ || true

@@ -90,16 +90,18 @@ foreach(test_source ${TEST_SOURCES})
         target_link_libraries(${test_name} PRIVATE eth_bn254 intx_wrapper util)
     endif()
 
-    if("${test_name}" STREQUAL "test_op_sequencer_proof")
+    if("${test_name}" MATCHES "^test_op_")
         if(CHAIN_OP)
-            target_link_libraries(${test_name} PRIVATE op_verifier op_prover)
-            target_include_directories(${test_name} PRIVATE
-                ${CMAKE_SOURCE_DIR}/src/chains/eth/verifier
-                ${CMAKE_SOURCE_DIR}/src/chains/eth/ssz
-                ${CMAKE_SOURCE_DIR}/src/chains/eth/prover
-                ${CMAKE_SOURCE_DIR}/src/chains/op/verifier
-                ${CMAKE_SOURCE_DIR}/src/chains/op/prover
-            )
+            if("${test_name}" STREQUAL "test_op_sequencer_proof")
+                target_link_libraries(${test_name} PRIVATE op_verifier op_prover)
+                target_include_directories(${test_name} PRIVATE
+                    ${CMAKE_SOURCE_DIR}/src/chains/eth/verifier
+                    ${CMAKE_SOURCE_DIR}/src/chains/eth/ssz
+                    ${CMAKE_SOURCE_DIR}/src/chains/eth/prover
+                    ${CMAKE_SOURCE_DIR}/src/chains/op/verifier
+                    ${CMAKE_SOURCE_DIR}/src/chains/op/prover
+                )
+            endif()
         else()
             target_compile_definitions(${test_name} PRIVATE NO_CHAIN_OP=1)
         endif()

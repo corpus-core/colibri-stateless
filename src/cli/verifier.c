@@ -415,10 +415,11 @@ int main(int argc, char* argv[]) {
     // revert as a regression fixture.
     if (test_dir) {
       char* filename = bprintf(NULL, "%s/test.json", test_dir);
-      char* content  = bprintf(NULL, "{\n  \"method\":\"%s\",\n  \"params\":%J,\n  \"chain_id\": %l,\n  \"pap\": %s,\n  \"prover_mode\": \"%s\",\n  \"reverted\": true,\n  \"revert_data\": %Z\n}",
+      char* content  = bprintf(NULL, "{\n  \"method\":\"%s\",\n  \"params\":%J,\n  \"chain_id\": %l,\n  \"pap\": %s,\n  \"prover_mode\": \"%s\",\n  \"remote_prover\": %s,\n  \"reverted\": true,\n  \"revert_data\": %Z\n}",
                                ctx->verifier.method, ctx->verifier.args, chain_id,
                               verify_flags & VERIFY_FLAG_PAP ? "true" : "false",
                               prover_mode == C4_PROVER_MODE_LOCAL ? "local" : (prover_mode == C4_PROVER_MODE_HYBRID ? "hybrid" : "remote"),
+                              (prover_mode == C4_PROVER_MODE_REMOTE || prover_mode == C4_PROVER_MODE_PROXY) ? "true" : "false",
                                ctx->verifier.data);
       bytes_write(bytes(content, strlen(content)), fopen(filename, "w"), true);
       safe_free(filename);
@@ -440,10 +441,11 @@ int main(int argc, char* argv[]) {
   if (status == C4_SUCCESS) {
     if (test_dir) {
       char* filename = bprintf(NULL, "%s/test.json", test_dir);
-      char* content  = bprintf(NULL, "{\n  \"method\":\"%s\",\n  \"params\":%J,\n  \"chain_id\": %l,\n  \"pap\": %s,\n  \"prover_mode\": \"%s\",\n  \"expected_result\": %Z\n}",
+      char* content  = bprintf(NULL, "{\n  \"method\":\"%s\",\n  \"params\":%J,\n  \"chain_id\": %l,\n  \"pap\": %s,\n  \"prover_mode\": \"%s\",\n  \"remote_prover\": %s,\n  \"expected_result\": %Z\n}",
                                ctx->verifier.method, ctx->verifier.args, chain_id,
                               verify_flags & VERIFY_FLAG_PAP ? "true" : "false",
                               prover_mode == C4_PROVER_MODE_LOCAL ? "local" : (prover_mode == C4_PROVER_MODE_HYBRID ? "hybrid" : "remote"),
+                              (prover_mode == C4_PROVER_MODE_REMOTE || prover_mode == C4_PROVER_MODE_PROXY) ? "true" : "false",
                                ctx->verifier.data);
       bytes_write(bytes(content, strlen(content)), fopen(filename, "w"), true);
       safe_free(filename);

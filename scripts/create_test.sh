@@ -1,11 +1,22 @@
 #!/bin/bash
 
 # Script to create test data for RPC tests
-# Usage: ./create_test.sh <testname> <rpc_method> <rpc_args...>
+# Usage: ./create_test.sh <testname> <rpc_method> [rpc_args...]
 #
 # Example:
 #   ./create_test.sh eth_getBlockByNumber1 eth_getBlockByNumber latest false
 #   ./create_test.sh eth_call1 eth_call '{"to":"0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48","data":"0x70a08231..."}' latest
+#
+# Environment:
+#   CREATE_TEST_FLAGS   Extra flags for colibri-verifier (quoted words are not supported).
+#                       Example: CREATE_TEST_FLAGS="-p http://localhost:8090 -m remote -A 0"
+#   CREATE_TEST_CHAIN   Chain id or name passed as `-c` (default: unset, CLI default is mainnet).
+#                       Example: CREATE_TEST_CHAIN=8453
+#
+# OP-Stack proofs need the server's internal preconf handler, so local proving is
+# not fixture-friendly. Record a remote-prover replay instead:
+#   CREATE_TEST_CHAIN=8453 CREATE_TEST_FLAGS="-p http://localhost:8090 -m remote -A 0" \
+#     ./scripts/create_test.sh op_eth_blockNumber eth_blockNumber
 #
 # This script:
 # 1. Creates a proof using colibri-prover
@@ -23,13 +34,15 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # Check arguments
-if [ "$#" -lt 3 ]; then
+if [ "$#" -lt 2 ]; then
     echo -e "${RED}Error: Not enough arguments${NC}"
-    echo "Usage: $0 <testname> <rpc_method> <rpc_args...>"
+    echo "Usage: $0 <testname> <rpc_method> [rpc_args...]"
     echo ""
     echo "Examples:"
     echo "  $0 eth_getBlockByNumber1 eth_getBlockByNumber latest false"
     echo "  $0 eth_call1 eth_call '{\"to\":\"0xA0b...\",\"data\":\"0x70a08231...\"}' latest"
+    echo "  CREATE_TEST_CHAIN=8453 CREATE_TEST_FLAGS=\"-p http://localhost:8090 -m remote -A 0\" \\"
+    echo "    $0 op_eth_blockNumber eth_blockNumber"
     exit 1
 fi
 
@@ -65,13 +78,20 @@ mkdir -p "$TEST_DATA_DIR"
 
 # Extra verifier flags, e.g. CREATE_TEST_FLAGS="-P -p http://localhost:8090/ -m remote -A 0"
 CREATE_TEST_FLAGS="${CREATE_TEST_FLAGS:-}"
+CREATE_TEST_CHAIN="${CREATE_TEST_CHAIN:-}"
+CHAIN_ARGS=()
+if [ -n "$CREATE_TEST_CHAIN" ]; then
+    CHAIN_ARGS=(-c "$CREATE_TEST_CHAIN")
+fi
 
 # Verify proof and let verifier automatically create test.json
 # Note: -t expects testname, not full path. Verifier writes to test/data/<testname>/test.json
 echo -e "${BLUE}🔍 Verifying proof and generating test.json...${NC}"
-echo "$BUILD_DIR/bin/colibri-verifier" $CREATE_TEST_FLAGS -t "$TESTNAME" "$RPC_METHOD" $RPC_ARGS
-"$BUILD_DIR/bin/colibri-verifier" $CREATE_TEST_FLAGS -t "$TESTNAME" "$RPC_METHOD" $RPC_ARGS | tee "$RESULT_FILE"
-if [ $? -ne 0 ]; then
+# shellcheck disable=SC2086
+echo "$BUILD_DIR/bin/colibri-verifier" "${CHAIN_ARGS[@]}" $CREATE_TEST_FLAGS -t "$TESTNAME" "$RPC_METHOD" $RPC_ARGS
+# shellcheck disable=SC2086
+"$BUILD_DIR/bin/colibri-verifier" "${CHAIN_ARGS[@]}" $CREATE_TEST_FLAGS -t "$TESTNAME" "$RPC_METHOD" $RPC_ARGS | tee "$RESULT_FILE"
+if [ "${PIPESTATUS[0]}" -ne 0 ]; then
     echo -e "${RED}❌ Verification failed!${NC}"
     exit 1
 fi
