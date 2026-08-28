@@ -3,32 +3,45 @@ name = "kona_bridge"
 version = "0.2.0"
 edition = "2021"
 
-# TODO: Dependency migration to alloy 1.x + kona d7d4b5d requires kona-p2p → kona-node-service + kona-disc
-# refactoring of gossip.rs. Tracked separately.
+# Newest cargo-consumable Kona: last commit on the archived op-rs/kona repo
+# (2026-01-16, before the move into ethereum-optimism/optimism).
+# Later kona-node tags (v1.3+ / v1.6.4) live only in the optimism monorepo under
+# rust/, which has no root Cargo.toml, so they cannot be git-depended on.
+#
+# Wires the split crates (kona-disc / kona-gossip / kona-peers / kona-registry)
+# on alloy 1.x + libp2p 0.56 + discv5 0.10.2. We do not depend on
+# kona-node-service: it pulls rollup-boost (broken vergen build) and its
+# NetworkActor drops the P2P signature we write into .raw preconf files.
 [dependencies]
-alloy = { version = "=0.15.10" }
-kona-p2p = { git = "https://github.com/op-rs/kona", rev = "b079a57fcfbb444d051e859f1e80f445daf5a2c7" }
-kona-registry = { git = "https://github.com/op-rs/kona", rev = "b079a57fcfbb444d051e859f1e80f445daf5a2c7" }
-op-alloy-rpc-types-engine = "0.15.2"
+alloy-primitives = { version = "1.4.1", features = ["k256"] }
 
-libp2p = { version = "0.55.0", features = ["macros", "tokio", "tcp", "noise", "gossipsub", "ping"] }
-discv5 = "0.9.1"
-tokio = { version = "1.44.2", features = ["full"] }
-axum = "0.8.3"
+kona-disc = { git = "https://github.com/op-rs/kona", rev = "2586fc56ea0b0f17a8b47c44196012e33a321ea7" }
+kona-gossip = { git = "https://github.com/op-rs/kona", rev = "2586fc56ea0b0f17a8b47c44196012e33a321ea7" }
+kona-peers = { git = "https://github.com/op-rs/kona", rev = "2586fc56ea0b0f17a8b47c44196012e33a321ea7" }
+kona-registry = { git = "https://github.com/op-rs/kona", rev = "2586fc56ea0b0f17a8b47c44196012e33a321ea7" }
+
+op-alloy-rpc-types-engine = { version = "0.22.4", features = ["std"] }
+ethereum_ssz = "0.9"
+
+libp2p = { version = "0.56", features = ["macros", "tokio", "tcp", "noise", "gossipsub", "ping", "identify", "secp256k1"] }
+discv5 = "0.10.2"
+k256 = { version = "0.13", features = ["ecdsa"] }
+tokio = { version = "1", features = ["full"] }
+axum = "0.8"
 tokio-stream = { version = "0.1", features = ["sync"] }
 futures-util = "0.3"
 
-tracing = "0.1.41"
-tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
-serde = { version = "1.0.219", features = ["derive"] }
-serde_json = "1.0.85"
-clap = { version = "4.5.4", features = ["derive", "env"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+clap = { version = "4", features = ["derive", "env"] }
 
 zstd = "0.13"
-tempfile = "3.0"
+tempfile = "3"
 hex = "0.4"
-reqwest = { version = "0.11", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 md5 = "0.7"
 anyhow = "1"
 

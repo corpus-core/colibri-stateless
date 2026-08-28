@@ -187,7 +187,7 @@ typedef struct {
   bytes32_t hash;
 } matching_el_t;
 
-static matching_el_t build_matching_el_for_fork(fork_id_t fork, bytes_t (*wrap)(ssz_ob_t, const uint8_t*, uint64_t),
+static matching_el_t build_matching_el_for_fork(fork_id_t      fork, bytes_t (*wrap)(ssz_ob_t, const uint8_t*, uint64_t),
                                                 const uint8_t* requests_hash, uint64_t slot) {
   matching_el_t out            = {0};
   uint8_t       dummy_hash[32] = {0};
@@ -238,10 +238,10 @@ static void matching_el_free(matching_el_t* m) {
 }
 
 static matching_el_t build_matching_el(uint64_t block_number) {
-  matching_el_t out          = {0};
+  matching_el_t out            = {0};
   uint8_t       dummy_hash[32] = {0};
-  dummy_hash[0]              = 0x11;
-  ssz_ob_t draft             = build_deneb_payload(dummy_hash, block_number);
+  dummy_hash[0]                = 0x11;
+  ssz_ob_t draft               = build_deneb_payload(dummy_hash, block_number);
   TEST_ASSERT_TRUE(ssz_is_valid(draft, true, NULL));
 
   eth_el_header_ctx_t ectx = {0};
@@ -340,9 +340,9 @@ void test_invalid_zstd(void) {
 }
 
 void test_invalid_signature(void) {
-  uint8_t  sig[65] = {0};
-  uint8_t  raw[64] = {0};
-  raw[0]           = 1;
+  uint8_t sig[65]      = {0};
+  uint8_t raw[64]      = {0};
+  raw[0]               = 1;
   ssz_ob_t  proof      = build_sequencer_proof(bytes(raw, sizeof(raw)), true, bytes(sig, 65));
   bytes_t   el_header  = NULL_BYTES;
   bytes32_t block_hash = {0};
@@ -361,28 +361,65 @@ void test_op_request_type_is_eth(void) {
 }
 
 void test_preconf_too_short(void) {
-  uint8_t  raw[32] = {0};
-  bytes_t  header  = NULL_BYTES;
-  ssz_ob_t body    = {0};
-  bytes32_t hash   = {0};
+  uint8_t   raw[32] = {0};
+  bytes_t   header  = NULL_BYTES;
+  ssz_ob_t  body    = {0};
+  bytes32_t hash    = {0};
   TEST_ASSERT_EQUAL_INT(C4_ERROR, op_el_from_preconf_bytes(&g_ctx.state, bytes(raw, sizeof(raw)), &header, &body, hash));
   TEST_ASSERT_NOT_NULL(g_ctx.state.error);
   TEST_ASSERT_NOT_NULL(strstr(g_ctx.state.error, "preconf payload too short"));
 }
 
-void test_keccak_mismatch(void) {
-  uint8_t  dummy[32] = {0};
-  dummy[0]           = 0xDE;
-  dummy[1]           = 0xAD;
-  ssz_ob_t ep        = build_deneb_payload(dummy, TEST_BLOCK_NUMBER);
-  TEST_ASSERT_TRUE_MESSAGE(ssz_is_valid(ep, true, NULL), "synthetic Deneb payload must be valid SSZ");
-  bytes_t  preconf = wrap_preconf(ep);
-  bytes_t  header  = NULL_BYTES;
-  ssz_ob_t body    = {0};
+void test_preconf_not_ssz(void) {
+  /* Long enough that extraData offset at payload[436] is inspected (not just "too short"). */
+  uint8_t raw[600];
+  memset(raw, '{', sizeof(raw));
+  bytes_t   header = NULL_BYTES;
+  ssz_ob_t  body   = {0};
   bytes32_t hash   = {0};
+  TEST_ASSERT_EQUAL_INT(C4_ERROR, op_el_from_preconf_bytes(&g_ctx.state, bytes(raw, sizeof(raw)), &header, &body, hash));
+  TEST_ASSERT_NOT_NULL(g_ctx.state.error);
+  TEST_ASSERT_NOT_NULL(strstr(g_ctx.state.error, "not a valid Deneb/Isthmus SSZ"));
+  TEST_ASSERT_NULL(strstr(g_ctx.state.error, "blockHash does not match keccak"));
+}
+
+void test_preconf_json_after_parent_root(void) {
+  /* Live Base failure: kona_bridge wrote parentBeaconRoot (32) || serde_json, not SSZ. */
+  uint8_t raw[700];
+  memset(raw, 0xAB, 32);
+  static const char json[] =
+      "{\"parentHash\":\"0x01\",\"feeRecipient\":\"0x00\",\"stateRoot\":\"0x00\","
+      "\"receiptsRoot\":\"0x00\",\"blockNumber\":\"0x2a\",\"extraData\":\"0x\","
+      "\"transactions\":[],\"withdrawals\":[],\"blobGasUsed\":\"0x0\"}";
+  memcpy(raw + 32, json, sizeof(json) - 1);
+  memset(raw + 32 + sizeof(json) - 1, ' ', sizeof(raw) - 32 - (sizeof(json) - 1) - 1);
+  raw[sizeof(raw) - 1] = '}';
+
+  bytes_t   header = NULL_BYTES;
+  ssz_ob_t  body   = {0};
+  bytes32_t hash   = {0};
+  TEST_ASSERT_EQUAL_INT(C4_ERROR, op_el_from_preconf_bytes(&g_ctx.state, bytes(raw, sizeof(raw)), &header, &body, hash));
+  TEST_ASSERT_NOT_NULL(g_ctx.state.error);
+  TEST_ASSERT_NOT_NULL(strstr(g_ctx.state.error, "not a valid Deneb/Isthmus SSZ"));
+  TEST_ASSERT_NULL(strstr(g_ctx.state.error, "blockHash does not match keccak"));
+  TEST_ASSERT_NULL(header.data);
+  TEST_ASSERT_NULL(body.bytes.data);
+}
+
+void test_keccak_mismatch(void) {
+  uint8_t dummy[32] = {0};
+  dummy[0]          = 0xDE;
+  dummy[1]          = 0xAD;
+  ssz_ob_t ep       = build_deneb_payload(dummy, TEST_BLOCK_NUMBER);
+  TEST_ASSERT_TRUE_MESSAGE(ssz_is_valid(ep, true, NULL), "synthetic Deneb payload must be valid SSZ");
+  bytes_t   preconf = wrap_preconf(ep);
+  bytes_t   header  = NULL_BYTES;
+  ssz_ob_t  body    = {0};
+  bytes32_t hash    = {0};
   TEST_ASSERT_EQUAL_INT(C4_ERROR, op_el_from_preconf_bytes(&g_ctx.state, preconf, &header, &body, hash));
   TEST_ASSERT_NOT_NULL(g_ctx.state.error);
   TEST_ASSERT_NOT_NULL(strstr(g_ctx.state.error, "blockHash does not match keccak"));
+  TEST_ASSERT_NULL(strstr(g_ctx.state.error, "not a valid Deneb/Isthmus SSZ"));
   TEST_ASSERT_NULL(header.data);
   TEST_ASSERT_NULL(body.bytes.data);
   safe_free(ep.bytes.data);
@@ -399,17 +436,17 @@ void test_keccak_match_deneb(void) {
 }
 
 void test_keccak_match_deneb_nonempty_extra_and_tx(void) {
-  uint8_t extra[]  = {'O', 'P'};
-  uint8_t raw_tx[] = {0x02, 0x01, 0x02, 0x03};
+  uint8_t extra[]   = {'O', 'P'};
+  uint8_t raw_tx[]  = {0x02, 0x01, 0x02, 0x03};
   uint8_t dummy[32] = {0};
   dummy[0]          = 0x11;
 
-  ssz_ob_t            draft = build_deneb_payload_ex(dummy, TEST_BLOCK_NUMBER, bytes(extra, sizeof(extra)),
-                                                    bytes(raw_tx, sizeof(raw_tx)));
+  ssz_ob_t draft = build_deneb_payload_ex(dummy, TEST_BLOCK_NUMBER, bytes(extra, sizeof(extra)),
+                                          bytes(raw_tx, sizeof(raw_tx)));
   TEST_ASSERT_TRUE(ssz_is_valid(draft, true, NULL));
-  eth_el_header_ctx_t ectx  = {0};
-  ectx.execution_payload    = draft;
-  ectx.fork                 = C4_FORK_DENEB;
+  eth_el_header_ctx_t ectx = {0};
+  ectx.execution_payload   = draft;
+  ectx.fork                = C4_FORK_DENEB;
   memcpy(ectx.parent_root, PARENT_ROOT_AB, 32);
   bytes_t   header = NULL_BYTES;
   bytes32_t hash   = {0};
@@ -441,13 +478,13 @@ void test_keccak_match_isthmus_payload(void) {
   uint8_t dummy[32] = {0};
   dummy[0]          = 0x11;
 
-  ssz_ob_t            draft = build_isthmus_payload(dummy, TEST_BLOCK_NUMBER, wd_root);
+  ssz_ob_t draft = build_isthmus_payload(dummy, TEST_BLOCK_NUMBER, wd_root);
   TEST_ASSERT_TRUE(ssz_is_valid(draft, true, NULL));
-  eth_el_header_ctx_t ectx  = {0};
-  ectx.execution_payload    = draft;
-  ectx.fork                 = C4_FORK_ELECTRA;
+  eth_el_header_ctx_t ectx = {0};
+  ectx.execution_payload   = draft;
+  ectx.fork                = C4_FORK_ELECTRA;
   memcpy(ectx.parent_root, PARENT_ROOT_AB, 32);
-  ectx.has_requests_hash    = true;
+  ectx.has_requests_hash = true;
   memcpy(ectx.requests_hash, req, 32);
   bytes_t   header = NULL_BYTES;
   bytes32_t hash   = {0};
@@ -477,16 +514,47 @@ void test_keccak_match_electra_prefix(void) {
   matching_el_free(&el);
 }
 
-void test_keccak_match_electra_legacy_empty_requests(void) {
-  uint8_t empty_req[32] = {0};
-  sha256(NULL_BYTES, empty_req);
+void test_payload_first_offset_deneb_vs_isthmus(void) {
+  uint8_t dummy[32]   = {0};
+  uint8_t wd_root[32] = {0};
+  dummy[0]            = 0x11;
+  memset(wd_root, 0xEE, 32);
 
-  uint8_t dummy[32] = {0};
-  dummy[0]          = 0x11;
-  ssz_ob_t draft    = build_deneb_payload(dummy, TEST_BLOCK_NUMBER);
-  eth_el_header_ctx_t ectx = {0};
-  ectx.execution_payload   = draft;
-  ectx.fork                = C4_FORK_ELECTRA;
+  ssz_ob_t deneb   = build_deneb_payload(dummy, TEST_BLOCK_NUMBER);
+  ssz_ob_t isthmus = build_isthmus_payload(dummy, TEST_BLOCK_NUMBER, wd_root);
+  TEST_ASSERT_TRUE(deneb.bytes.len >= 440);
+  TEST_ASSERT_TRUE(isthmus.bytes.len >= 440);
+  TEST_ASSERT_EQUAL_UINT32_MESSAGE(528u, uint32_from_le(deneb.bytes.data + 436),
+                                   "Deneb extraData offset must be the 528-byte fixed length");
+  TEST_ASSERT_EQUAL_UINT32_MESSAGE(560u, uint32_from_le(isthmus.bytes.data + 436),
+                                   "Isthmus extraData offset must be 560 (+ withdrawalsRoot)");
+
+  uint8_t  extra[]  = {'O', 'P'};
+  uint8_t  raw_tx[] = {0x02, 0x01, 0x02, 0x03};
+  ssz_ob_t deneb_ex = build_deneb_payload_ex(dummy, TEST_BLOCK_NUMBER, bytes(extra, sizeof(extra)),
+                                             bytes(raw_tx, sizeof(raw_tx)));
+  TEST_ASSERT_TRUE(deneb_ex.bytes.len >= 440);
+  TEST_ASSERT_EQUAL_UINT32_MESSAGE(528u, uint32_from_le(deneb_ex.bytes.data + 436),
+                                   "non-empty extraData/tx must not change the Deneb first offset");
+  safe_free(deneb.bytes.data);
+  safe_free(isthmus.bytes.data);
+  safe_free(deneb_ex.bytes.data);
+}
+
+void test_keccak_match_electra_legacy_empty_requests(void) {
+  uint8_t empty_req[32]  = {0};
+  uint8_t empty_code[32] = {0};
+  sha256(NULL_BYTES, empty_req);
+  keccak(NULL_BYTES, empty_code);
+  TEST_ASSERT_TRUE_MESSAGE(memcmp(empty_req, empty_code, 32) != 0,
+                           "sha256('') must not equal keccak('') / empty-code hash");
+
+  uint8_t dummy[32]         = {0};
+  dummy[0]                  = 0x11;
+  ssz_ob_t            draft = build_deneb_payload(dummy, TEST_BLOCK_NUMBER);
+  eth_el_header_ctx_t ectx  = {0};
+  ectx.execution_payload    = draft;
+  ectx.fork                 = C4_FORK_ELECTRA;
   memcpy(ectx.parent_root, PARENT_ROOT_AB, 32);
   ectx.has_requests_hash = true;
   memcpy(ectx.requests_hash, empty_req, 32);
@@ -504,15 +572,71 @@ void test_keccak_match_electra_legacy_empty_requests(void) {
   matching_el_t el = {0};
   TEST_ASSERT_EQUAL_INT(C4_SUCCESS, op_el_from_preconf_bytes(NULL, preconf, &el.header, &el.body, el.hash));
   TEST_ASSERT_EQUAL_MEMORY(empty_req, eth_el_header_get(el.header, EL_REQUESTS_HASH).data, 32);
+  TEST_ASSERT_EQUAL_MEMORY(PARENT_ROOT_AB, eth_el_header_get(el.header, EL_PARENT_BEACON_BLOCK_ROOT).data, 32);
   el.preconf = preconf;
   matching_el_free(&el);
 }
 
+void test_keccak_match_isthmus_legacy_empty_requests(void) {
+  uint8_t empty_req[32] = {0};
+  uint8_t wd_root[32]   = {0};
+  sha256(NULL_BYTES, empty_req);
+  memset(wd_root, 0xEE, 32);
+
+  uint8_t dummy[32]         = {0};
+  dummy[0]                  = 0x11;
+  ssz_ob_t            draft = build_isthmus_payload(dummy, TEST_BLOCK_NUMBER, wd_root);
+  eth_el_header_ctx_t ectx  = {0};
+  ectx.execution_payload    = draft;
+  ectx.fork                 = C4_FORK_ELECTRA;
+  memcpy(ectx.parent_root, PARENT_ROOT_AB, 32);
+  ectx.has_requests_hash = true;
+  memcpy(ectx.requests_hash, empty_req, 32);
+  bytes_t   header = NULL_BYTES;
+  bytes32_t hash   = {0};
+  TEST_ASSERT_EQUAL_INT(C4_SUCCESS, eth_el_header_build_from_ep(&header, &ectx));
+  keccak(header, hash);
+  safe_free(header.data);
+  safe_free(draft.bytes.data);
+
+  ssz_ob_t matched = build_isthmus_payload(hash, TEST_BLOCK_NUMBER, wd_root);
+  bytes_t  preconf = wrap_preconf(matched);
+  safe_free(matched.bytes.data);
+
+  matching_el_t el = {0};
+  TEST_ASSERT_EQUAL_INT(C4_SUCCESS, op_el_from_preconf_bytes(NULL, preconf, &el.header, &el.body, el.hash));
+  TEST_ASSERT_EQUAL_MEMORY(hash, el.hash, 32);
+  TEST_ASSERT_EQUAL_MEMORY(empty_req, eth_el_header_get(el.header, EL_REQUESTS_HASH).data, 32);
+  TEST_ASSERT_EQUAL_MEMORY(wd_root, eth_el_header_get(el.header, EL_WITHDRAWALS_ROOT).data, 32);
+  el.preconf = preconf;
+  matching_el_free(&el);
+}
+
+void test_el_header_electra_empty_beacon_uses_sha256(void) {
+  uint8_t dummy[32]         = {0};
+  dummy[0]                  = 0x11;
+  ssz_ob_t            draft = build_deneb_payload(dummy, TEST_BLOCK_NUMBER);
+  eth_el_header_ctx_t ectx  = {0};
+  ectx.execution_payload    = draft;
+  ectx.fork                 = C4_FORK_ELECTRA;
+  memcpy(ectx.parent_root, PARENT_ROOT_AB, 32);
+
+  bytes_t header = NULL_BYTES;
+  TEST_ASSERT_EQUAL_INT(C4_SUCCESS, eth_el_header_build_from_ep(&header, &ectx));
+  uint8_t empty_req[32] = {0};
+  sha256(NULL_BYTES, empty_req);
+  bytes_t got = eth_el_header_get(header, EL_REQUESTS_HASH);
+  TEST_ASSERT_EQUAL_UINT32(32, got.len);
+  TEST_ASSERT_EQUAL_MEMORY(empty_req, got.data, 32);
+  safe_free(header.data);
+  safe_free(draft.bytes.data);
+}
+
 void test_keccak_match_gloas_prefix(void) {
-  uint8_t  req[32] = {0};
+  uint8_t req[32] = {0};
   memset(req, 0xCD, 32);
-  uint64_t slot    = 12345;
-  matching_el_t el = build_matching_el_for_fork(C4_FORK_GLOAS, wrap_gloas_adapter, req, slot);
+  uint64_t      slot = 12345;
+  matching_el_t el   = build_matching_el_for_fork(C4_FORK_GLOAS, wrap_gloas_adapter, req, slot);
   TEST_ASSERT_EQUAL_UINT64(slot, eth_el_header_get_uint64(el.header, EL_SLOT_NUMBER));
   TEST_ASSERT_EQUAL_MEMORY(req, eth_el_header_get(el.header, EL_REQUESTS_HASH).data, 32);
   matching_el_free(&el);
@@ -572,8 +696,8 @@ void test_verify_block_proof_missing_body_without_cache(void) {
 void test_verify_block_proof_cached_body_root_mismatch(void) {
   matching_el_t el = build_matching_el(TEST_BLOCK_NUMBER);
 
-  ssz_builder_t body_b = ssz_builder_for_type(ETH_SSZ_EL_BLOCK_CONTENT);
-  ssz_builder_t txs    = ssz_builder_for_def(ssz_get_def(body_b.def, "transactions"));
+  ssz_builder_t body_b   = ssz_builder_for_type(ETH_SSZ_EL_BLOCK_CONTENT);
+  ssz_builder_t txs      = ssz_builder_for_def(ssz_get_def(body_b.def, "transactions"));
   uint8_t       raw_tx[] = {0x01, 0x02, 0x03};
   ssz_add_dynamic_list_bytes(&txs, 1, bytes(raw_tx, sizeof(raw_tx)));
   ssz_add_builders(&body_b, "transactions", txs);
@@ -642,21 +766,21 @@ void test_op_add_sequencer_proof_requires_payload(void) {
 }
 
 void test_op_add_sequencer_proof_writes_union_index_2(void) {
-  prover_ctx_t      pctx     = {0};
-  eth_block_t       block    = {0};
-  blockroot_proof_t historic = {0};
+  prover_ctx_t      pctx      = {0};
+  eth_block_t       block     = {0};
+  blockroot_proof_t historic  = {0};
   uint8_t           payload[] = {1, 2, 3, 4};
   uint8_t           sig[65]   = {0};
   sig[64]                     = 27;
-  block.proof_type          = C4_BLOCK_PROOF_TYPE_SEQUENCER;
-  block.sequencer.payload   = bytes(payload, sizeof(payload));
-  block.sequencer.signature = bytes(sig, 65);
+  block.proof_type            = C4_BLOCK_PROOF_TYPE_SEQUENCER;
+  block.sequencer.payload     = bytes(payload, sizeof(payload));
+  block.sequencer.signature   = bytes(sig, 65);
 
   ssz_builder_t parent = ssz_builder_for_type(ETH_SSZ_VERIFY_BLOCK_PROOF);
   uint8_t       none   = 0;
   ssz_add_bytes(&parent, "body", bytes(&none, 1));
   TEST_ASSERT_TRUE(op_add_sequencer_proof(&pctx, &parent, &block, &historic));
-  ssz_ob_t proof = ssz_builder_to_bytes(&parent);
+  ssz_ob_t proof  = ssz_builder_to_bytes(&parent);
   ssz_ob_t ublock = ssz_get(&proof, "block");
   TEST_ASSERT_NOT_NULL(ublock.def);
   TEST_ASSERT_EQUAL_STRING("sequencerProof", ublock.def->name);
@@ -684,12 +808,17 @@ int main(void) {
   RUN_TEST(test_invalid_signature);
   RUN_TEST(test_op_request_type_is_eth);
   RUN_TEST(test_preconf_too_short);
+  RUN_TEST(test_preconf_not_ssz);
+  RUN_TEST(test_preconf_json_after_parent_root);
   RUN_TEST(test_keccak_mismatch);
   RUN_TEST(test_keccak_match_deneb);
   RUN_TEST(test_keccak_match_deneb_nonempty_extra_and_tx);
   RUN_TEST(test_keccak_match_isthmus_payload);
+  RUN_TEST(test_payload_first_offset_deneb_vs_isthmus);
   RUN_TEST(test_keccak_match_electra_prefix);
   RUN_TEST(test_keccak_match_electra_legacy_empty_requests);
+  RUN_TEST(test_keccak_match_isthmus_legacy_empty_requests);
+  RUN_TEST(test_el_header_electra_empty_beacon_uses_sha256);
   RUN_TEST(test_keccak_match_gloas_prefix);
 #ifdef EL_HEADER_CACHE
   RUN_TEST(test_blockhash_followup_after_cached_sequencer_header);

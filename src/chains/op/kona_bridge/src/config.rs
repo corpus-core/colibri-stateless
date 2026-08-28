@@ -1,9 +1,12 @@
 // config.rs - Chain-Konfigurationen für OP-Stack-Chains
 
-use alloy::primitives::{address, Address};
+use alloy_primitives::{address, Address};
 use discv5::Enr;
 
-/// Chain-spezifische Konfiguration
+/// Chain-specific configuration used by the bridge.
+///
+/// Gossip bootstraps from `kona_peers::BootNodes::from_chain_id`. `bootnodes`
+/// is an optional extra set (empty by default) that is merged on top.
 #[derive(Clone)]
 pub struct ChainConfig {
     pub unsafe_signer: Address,
@@ -44,37 +47,17 @@ impl ChainConfig {
             "op-mainnet" => ChainConfig {
                 unsafe_signer: address!("AAAA45d9549EDA09E70937013520214382Ffc4A2"),
                 chain_id: 10,
-                // Use the same working bootnodes as Unichain for now
-                bootnodes: vec![
-                    "enr:-Iq4QNqqxkwND5YdrKxSVR8RoZHwU6Qa42ff_0XNjD428_n9OTEy3N9iR4uZTfQxACB00fT7Y8__q238kpb6TcsRvw-GAZZoqRJLgmlkgnY0gmlwhDQOHieJc2VjcDI1NmsxoQLqnqr2lfrL5TCQvrelsEEagUWbv25sqsFR5YfudxIKG4N1ZHCCdl8",
-                    "enr:-Iq4QBtf4EkiX7NfYxCn6CKIh3ZJqjk70NWS9hajT1k3W7-3ePWBc5-g19tBqYAMWlfSSz3sir024EQc5YH3TAxVY76GAZZopWrWgmlkgnY0gmlwhAOUZK2Jc2VjcDI1NmsxoQN3trHnKYTV1Q4ArpNP_qmCkCIm_pL6UNpCM0wnUNjkBYN1ZHCCdl8",
-                ]
-                .iter()
-                .map(|v| v.parse().unwrap())
-                .collect(),
+                bootnodes: Vec::new(),
             },
             "base" => ChainConfig {
                 unsafe_signer: address!("Af6E19BE0F9cE7f8afd49a1824851023A8249e8a"),
                 chain_id: 8453,
-                // Use the same working bootnodes as Unichain for now
-                bootnodes: vec![
-                    "enr:-Iq4QNqqxkwND5YdrKxSVR8RoZHwU6Qa42ff_0XNjD428_n9OTEy3N9iR4uZTfQxACB00fT7Y8__q238kpb6TcsRvw-GAZZoqRJLgmlkgnY0gmlwhDQOHieJc2VjcDI1NmsxoQLqnqr2lfrL5TCQvrelsEEagUWbv25sqsFR5YfudxIKG4N1ZHCCdl8",
-                    "enr:-Iq4QBtf4EkiX7NfYxCn6CKIh3ZJqjk70NWS9hajT1k3W7-3ePWBc5-g19tBqYAMWlfSSz3sir024EQc5YH3TAxVY76GAZZopWrWgmlkgnY0gmlwhAOUZK2Jc2VjcDI1NmsxoQN3trHnKYTV1Q4ArpNP_qmCkCIm_pL6UNpCM0wnUNjkBYN1ZHCCdl8",
-                ]
-                .iter()
-                .map(|v| v.parse().unwrap())
-                .collect(),
+                bootnodes: Vec::new(),
             },
             "unichain" => ChainConfig {
                 unsafe_signer: address!("833C6f278474A78658af91aE8edC926FE33a230e"),
                 chain_id: 130,
-                bootnodes: vec![
-                    "enr:-Iq4QNqqxkwND5YdrKxSVR8RoZHwU6Qa42ff_0XNjD428_n9OTEy3N9iR4uZTfQxACB00fT7Y8__q238kpb6TcsRvw-GAZZoqRJLgmlkgnY0gmlwhDQOHieJc2VjcDI1NmsxoQLqnqr2lfrL5TCQvrelsEEagUWbv25sqsFR5YfudxIKG4N1ZHCCdl8",
-                    "enr:-Iq4QBtf4EkiX7NfYxCn6CKIh3ZJqjk70NWS9hajT1k3W7-3ePWBc5-g19tBqYAMWlfSSz3sir024EQc5YH3TAxVY76GAZZopWrWgmlkgnY0gmlwhAOUZK2Jc2VjcDI1NmsxoQN3trHnKYTV1Q4ArpNP_qmCkCIm_pL6UNpCM0wnUNjkBYN1ZHCCdl8",
-                ]
-                .iter()
-                .map(|v| v.parse().unwrap())
-                .collect(),
+                bootnodes: Vec::new(),
             },
             "worldchain" => ChainConfig {
                 unsafe_signer: address!("2270d6eC8E760daA317DD978cFB98C8f144B1f3A"),

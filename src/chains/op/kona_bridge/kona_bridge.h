@@ -23,7 +23,7 @@ typedef struct {
   uint32_t    ttl_minutes;            /* TTL für Preconfs in Minuten */
   uint32_t    cleanup_interval;       /* Cleanup-Intervall in Minuten */
   uint32_t    http_poll_interval;     /* HTTP-Polling Intervall in Sekunden (default: 2) */
-  uint32_t    http_failure_threshold; /* Anzahl HTTP-Fehler vor Gossip-Umschaltung (default: 5) */
+  uint32_t    http_failure_threshold; /* 0 = gossip-only; >0 = HTTP-first then gossip */
   const char* output_dir;             /* Output-Verzeichnis (kann NULL sein für Default) */
   const char* sequencer_address;      /* Expected Sequencer Address (kann NULL sein) */
   const char* chain_name;             /* Chain Name für Logging (kann NULL sein) */
@@ -133,7 +133,7 @@ int get_kona_bridge_stats(KonaBridgeStats* stats);
     .ttl_minutes            = 30,      \
     .cleanup_interval       = 5,       \
     .http_poll_interval     = 2,       \
-    .http_failure_threshold = 5,       \
+    .http_failure_threshold = 0,       \
     .output_dir             = NULL,    \
     .sequencer_address      = NULL,    \
     .chain_name             = NULL}
@@ -146,7 +146,7 @@ int get_kona_bridge_stats(KonaBridgeStats* stats);
     .ttl_minutes            = 30,                                           \
     .cleanup_interval       = 5,                                            \
     .http_poll_interval     = 2,                                            \
-    .http_failure_threshold = 5,                                            \
+    .http_failure_threshold = 0,                                            \
     .output_dir             = NULL,                                         \
     .sequencer_address      = "0xAf6E19BE0F9cE7f8afd49a1824851023A8249e8a", \
     .chain_name             = "Base"}

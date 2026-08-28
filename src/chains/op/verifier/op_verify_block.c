@@ -155,10 +155,11 @@ c4_status_t op_el_from_preconf_bytes(c4_state_t* state, bytes_t preconf,
       {&ISTHMUS_EXECUTION_PAYLOAD_CONTAINER, OP_EP_ISTHMUS_FIXED},
       {&DENEB_EXECUTION_PAYLOAD_CONTAINER, OP_EP_DENEB_FIXED},
   };
-  bytes_t   header  = NULL_BYTES;
-  bytes32_t hash    = {0};
-  ssz_ob_t  ep      = {0};
-  bool      matched = false;
+  bytes_t   header     = NULL_BYTES;
+  bytes32_t hash       = {0};
+  ssz_ob_t  ep         = {0};
+  bool      matched    = false;
+  bool      parsed_ssz = false;
 
   for (size_t li = 0; li < sizeof(OP_PRECONF_LAYOUTS) / sizeof(OP_PRECONF_LAYOUTS[0]) && !matched; li++) {
     const op_preconf_layout_t* layout = &OP_PRECONF_LAYOUTS[li];
@@ -167,6 +168,7 @@ c4_status_t op_el_from_preconf_bytes(c4_state_t* state, bytes_t preconf,
 
     for (size_t pi = 0; pi < sizeof(payloads) / sizeof(payloads[0]) && !matched; pi++) {
       if (!try_parse_payload(payload, payloads[pi].def, payloads[pi].fixed_len, &ep)) continue;
+      parsed_ssz = true;
 
       bytes_t expected_hash = ssz_get(&ep, "blockHash").bytes;
       if (expected_hash.len != 32) continue;
@@ -175,7 +177,7 @@ c4_status_t op_el_from_preconf_bytes(c4_state_t* state, bytes_t preconf,
       ectx.execution_payload   = ep;
       ectx.state               = state;
       memcpy(ectx.parent_root, preconf.data, 32);
-      ectx.has_requests_hash   = true;
+      ectx.has_requests_hash = true;
       if (layout->has_requests_hash)
         memcpy(ectx.requests_hash, preconf.data + 32, 32);
       else
@@ -201,7 +203,12 @@ c4_status_t op_el_from_preconf_bytes(c4_state_t* state, bytes_t preconf,
 
   if (!matched) {
     safe_free(header.data);
-    if (state) c4_state_add_error(state, "execution payload blockHash does not match keccak(RLP header)");
+    if (state) {
+      c4_state_add_error(
+          state,
+          parsed_ssz ? "execution payload blockHash does not match keccak(RLP header)"
+                     : "preconf is not a valid Deneb/Isthmus SSZ execution payload");
+    }
     return C4_ERROR;
   }
 

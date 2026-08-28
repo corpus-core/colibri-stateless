@@ -36,7 +36,7 @@ pub async fn run_http_server(
     let app = Router::new()
         .route("/preconf/latest",     get(serve_latest))
         .route("/preconf/pre_latest", get(serve_pre_latest))
-        .route("/preconf/:block_hex", get(serve_block))
+        .route("/preconf/{block_hex}", get(serve_block))
         .route("/stats",              get(serve_stats))
         .route("/sse",                get(sse_handler))
         .with_state(state);

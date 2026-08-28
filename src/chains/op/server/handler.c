@@ -1,6 +1,5 @@
 #include "handler.h"
 #include "../verifier/op_chains_conf.h"
-#include "kona_preconf_capture.h"
 #include "logger.h"
 #include "op_conf.h"
 #include "util/bytes.h"
@@ -16,141 +15,16 @@
 // Timer für verzögerte Initialisierung
 static uv_timer_t delayed_init_timer;
 
-static void start_preconf_capture(http_server_t* server) {
-  uv_loop_t* loop = uv_default_loop();
-
-  log_info("🦀 Starting Kona-P2P bridge (with HTTP fallback support)");
-
-#ifdef KONA_BRIDGE_AVAILABLE
-  int kona_result = start_kona_preconf_capture(loop, http_server.chain_id, op_config.preconf_storage_dir);
-  if (kona_result == 0) {
-    log_info("✅ Kona-P2P bridge started successfully");
-    return;
-  }
-  else {
-    log_error("❌ Kona-P2P bridge failed to start");
-  }
-#else
-  log_error("❌ Kona-P2P bridge not available - rebuild with KONA_BRIDGE_AVAILABLE");
-#endif
-}
-
 void op_server_init(http_server_t* server) {
   OP_HANDLER_CHECK(server);
 
   log_info("Initializing OP-Stack server handlers...");
   c4_register_internal_handler(c4_handle_preconf);
-
-  start_preconf_capture(server);
 }
 
 void op_server_shutdown(http_server_t* server) {
   OP_HANDLER_CHECK(server);
 
   log_info("🛑 Shutting down OP server handler...");
-
-  // Stop Kona preconf capture if running
-#ifdef KONA_BRIDGE_AVAILABLE
-  stop_kona_preconf_capture();
-#endif
-
   log_info("✅ OP server handler shutdown complete");
-}
-
-void op_server_metrics(http_server_t* server, buffer_t* data) {
-  OP_HANDLER_CHECK(server);
-
-#ifdef KONA_BRIDGE_AVAILABLE
-  KonaBridgeStats stats = {0};
-  if (get_kona_preconf_capture_stats(&stats) == 0) {
-    // OP Stack Preconfirmation Metrics
-    bprintf(data, "# HELP colibri_op_preconf_peers Connected peers in the OP preconf network.\n");
-    bprintf(data, "# TYPE colibri_op_preconf_peers gauge\n");
-    bprintf(data, "colibri_op_preconf_peers{chain_id=\"%d\"} %d\n", (uint32_t) server->chain_id, stats.connected_peers);
-
-    bprintf(data, "# HELP colibri_op_preconf_received_total Total number of preconfirmations received.\n");
-    bprintf(data, "# TYPE colibri_op_preconf_received_total counter\n");
-    bprintf(data, "colibri_op_preconf_received_total{chain_id=\"%d\"} %d\n", (uint32_t) server->chain_id, stats.received_preconfs);
-
-    bprintf(data, "# HELP colibri_op_preconf_processed_total Total number of preconfirmations successfully processed.\n");
-    bprintf(data, "# TYPE colibri_op_preconf_processed_total counter\n");
-    bprintf(data, "colibri_op_preconf_processed_total{chain_id=\"%d\"} %d\n", (uint32_t) server->chain_id, stats.processed_preconfs);
-
-    bprintf(data, "# HELP colibri_op_preconf_failed_total Total number of preconfirmations that failed processing.\n");
-    bprintf(data, "# TYPE colibri_op_preconf_failed_total counter\n");
-    bprintf(data, "colibri_op_preconf_failed_total{chain_id=\"%d\"} %d\n", (uint32_t) server->chain_id, stats.failed_preconfs);
-
-    // NOTE: Success rates should be calculated in Grafana using rate() functions
-    // for real-time performance instead of cumulative averages.
-    //
-    // Recommended Grafana queries for real-time metrics:
-    //
-    // Real-time success rate (current performance):
-    //   rate(colibri_op_preconf_processed_total[5m]) /
-    //   (rate(colibri_op_preconf_processed_total[5m]) + rate(colibri_op_preconf_http_gaps_total[5m]) + rate(colibri_op_preconf_gossip_gaps_total[5m]))
-    //
-    // Real-time HTTP efficiency:
-    //   rate(colibri_op_preconf_http_processed_total[5m]) / rate(colibri_op_preconf_http_received_total[5m])
-    //
-    // Real-time block rate (should be ~2 blocks/s for 2s block time):
-    //   rate(colibri_op_preconf_processed_total[5m])
-
-    // Raw counters provided below for Grafana rate() calculations
-    // No pre-calculated success rates to avoid cumulative average confusion
-
-    // HTTP efficiency should also be calculated in Grafana for real-time view
-
-    // HTTP/Gossip Mode-specific metrics
-    bprintf(data, "# HELP colibri_op_preconf_http_received_total Total number of preconfirmations received via HTTP.\n");
-    bprintf(data, "# TYPE colibri_op_preconf_http_received_total counter\n");
-    bprintf(data, "colibri_op_preconf_http_received_total{chain_id=\"%d\"} %d\n", (uint32_t) server->chain_id, stats.http_received);
-
-    bprintf(data, "# HELP colibri_op_preconf_http_processed_total Total number of preconfirmations processed via HTTP.\n");
-    bprintf(data, "# TYPE colibri_op_preconf_http_processed_total counter\n");
-    bprintf(data, "colibri_op_preconf_http_processed_total{chain_id=\"%d\"} %d\n", (uint32_t) server->chain_id, stats.http_processed);
-
-    bprintf(data, "# HELP colibri_op_preconf_gossip_received_total Total number of preconfirmations received via Gossip.\n");
-    bprintf(data, "# TYPE colibri_op_preconf_gossip_received_total counter\n");
-    bprintf(data, "colibri_op_preconf_gossip_received_total{chain_id=\"%d\"} %d\n", (uint32_t) server->chain_id, stats.gossip_received);
-
-    bprintf(data, "# HELP colibri_op_preconf_gossip_processed_total Total number of preconfirmations processed via Gossip.\n");
-    bprintf(data, "# TYPE colibri_op_preconf_gossip_processed_total counter\n");
-    bprintf(data, "colibri_op_preconf_gossip_processed_total{chain_id=\"%d\"} %d\n", (uint32_t) server->chain_id, stats.gossip_processed);
-
-    bprintf(data, "# HELP colibri_op_preconf_mode_switches_total Total number of HTTP to Gossip mode switches.\n");
-    bprintf(data, "# TYPE colibri_op_preconf_mode_switches_total counter\n");
-    bprintf(data, "colibri_op_preconf_mode_switches_total{chain_id=\"%d\"} %d\n", (uint32_t) server->chain_id, stats.mode_switches);
-
-    bprintf(data, "# HELP colibri_op_preconf_current_mode Current mode of preconfirmation reception (0=HTTP, 1=Gossip, 2=HTTP+Gossip).\n");
-    bprintf(data, "# TYPE colibri_op_preconf_current_mode gauge\n");
-    bprintf(data, "colibri_op_preconf_current_mode{chain_id=\"%d\"} %d\n", (uint32_t) server->chain_id, stats.current_mode);
-
-    // Gap Metrics - zeigen verpasste Blöcke
-    // total_gaps = received - processed (echte verpasste Blöcke)
-    uint32_t real_total_gaps = stats.received_preconfs > stats.processed_preconfs ? stats.received_preconfs - stats.processed_preconfs : 0;
-    bprintf(data, "# HELP colibri_op_preconf_gaps_total Total number of missed blocks (received but not processed).\n");
-    bprintf(data, "# TYPE colibri_op_preconf_gaps_total counter\n");
-    bprintf(data, "colibri_op_preconf_gaps_total{chain_id=\"%d\"} %d\n", (uint32_t) server->chain_id, real_total_gaps);
-
-    bprintf(data, "# HELP colibri_op_preconf_http_gaps_total Number of blocks missed during HTTP mode.\n");
-    bprintf(data, "# TYPE colibri_op_preconf_http_gaps_total counter\n");
-    bprintf(data, "colibri_op_preconf_http_gaps_total{chain_id=\"%d\"} %d\n", (uint32_t) server->chain_id, stats.http_gaps);
-
-    bprintf(data, "# HELP colibri_op_preconf_gossip_gaps_total Number of blocks missed during Gossip mode.\n");
-    bprintf(data, "# TYPE colibri_op_preconf_gossip_gaps_total counter\n");
-    bprintf(data, "colibri_op_preconf_gossip_gaps_total{chain_id=\"%d\"} %d\n", (uint32_t) server->chain_id, stats.gossip_gaps);
-
-    bprintf(data, "# HELP colibri_op_preconf_bitmask_gaps_total Precise gaps detected via bitmask tracking.\n");
-    bprintf(data, "# TYPE colibri_op_preconf_bitmask_gaps_total counter\n");
-    bprintf(data, "colibri_op_preconf_bitmask_gaps_total{chain_id=\"%d\"} %d\n", (uint32_t) server->chain_id, stats.bitmask_gaps);
-
-    bprintf(data, "\n");
-  }
-#else
-  // Kona-Bridge not available - add placeholder metrics
-  bprintf(data, "# HELP colibri_op_preconf_peers Connected peers in the OP preconf network.\n");
-  bprintf(data, "# TYPE colibri_op_preconf_peers gauge\n");
-  bprintf(data, "colibri_op_preconf_peers{chain_id=\"%d\"} 0\n", (uint32_t) server->chain_id);
-  bprintf(data, "\n");
-#endif
 }

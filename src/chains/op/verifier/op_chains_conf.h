@@ -25,14 +25,14 @@ typedef struct {
   uint32_t kona_ttl_minutes;            // TTL für Preconfs (default: 60)
   uint32_t kona_cleanup_interval;       // Cleanup Intervall (default: 5)
   uint32_t kona_http_poll_interval;     // HTTP-Polling Intervall in Sekunden (default: 1)
-  uint32_t kona_http_failure_threshold; // HTTP-Fehler vor Gossip-Umschaltung (default: 5)
+  uint32_t kona_http_failure_threshold; // 0 = gossip-only; >0 = HTTP-first then gossip (default: 0)
 #endif
 } op_chain_config_t;
 
 // Macro to define chain configurations conditionally
 #ifdef PROVER
 #define OP_CHAIN_CONFIG(id, signer, chain_name, endpoint, hf) \
-  {.chain_id = (id), .sequencer_address = (signer), .name = (chain_name), .http_endpoint = (endpoint), .hardfork_version = (hf), .kona_disc_port = 9090, .kona_gossip_port = 9091, .kona_ttl_minutes = 60, .kona_cleanup_interval = 5, .kona_http_poll_interval = 1, .kona_http_failure_threshold = 5}
+  {.chain_id = (id), .sequencer_address = (signer), .name = (chain_name), .http_endpoint = (endpoint), .hardfork_version = (hf), .kona_disc_port = 9090, .kona_gossip_port = 9091, .kona_ttl_minutes = 60, .kona_cleanup_interval = 5, .kona_http_poll_interval = 1, .kona_http_failure_threshold = 0}
 #else
 #define OP_CHAIN_CONFIG(id, signer, chain_name, endpoint, hf) \
   {.chain_id = (id), .sequencer_address = (signer)}

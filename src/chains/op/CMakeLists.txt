@@ -86,22 +86,9 @@ add_prover(
   PROOF op_prover_execute
 )
 
-# Build bridges first, so we can determine dependencies
-if(HTTP_SERVER)
-    # Kona-Bridge (neue, native OP-Stack-kompatible Bridge)
-    add_subdirectory(kona_bridge)
-    
-    # Go-Bridge removed - using Kona-Bridge only
-endif()
 
 # Determine dependencies based on available bridges
 set(OP_SERVER_DEPENDS op_prover)
-if(HTTP_SERVER AND TARGET kona_preconf_capture)
-    list(APPEND OP_SERVER_DEPENDS kona_preconf_capture)
-    message(STATUS "✅ Kona-P2P bridge will be linked to op_server_handler")
-elseif(HTTP_SERVER)
-    message(STATUS "⚠️  Kona-P2P bridge not available, using Go bridge only")
-endif()
 
 # Create server handler with correct dependencies
 add_server_handler(
@@ -113,6 +100,5 @@ add_server_handler(
   DEPENDS ${OP_SERVER_DEPENDS}
   INIT_FUNC op_server_init
   SHUTDOWN_FUNC op_server_shutdown
-  METRICS_FUNC op_server_metrics
   CONFIG_FUNC op_configure
 )
