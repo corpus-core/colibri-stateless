@@ -1,4 +1,4 @@
-FROM rust:1.88-slim AS builder
+FROM rust:1.91-slim AS builder
 
 RUN apt-get update && apt-get install -y \
     pkg-config libssl-dev \
@@ -10,16 +10,19 @@ ENV PKG_CONFIG_ALLOW_CROSS=1
 
 WORKDIR /build
 
-# Cache dependencies first
+# Cache crate downloads. The dummy binary must not ship: after COPY, touch
+# sources so cargo sees them as newer than the dummy artifact (COPY preserves
+# host mtimes, which are often older than the RUN that compiled the stub).
 COPY Cargo.toml Cargo.lock ./
 RUN mkdir src && echo "fn main(){}" > src/main.rs && \
     touch src/lib.rs src/config.rs src/gossip.rs src/http.rs \
-          src/processing.rs src/server.rs src/types.rs src/utils.rs && \
-    cargo build --release --bin kona-preconf-service 2>/dev/null; true
+    src/processing.rs src/server.rs src/types.rs src/utils.rs && \
+    cargo build --release --bin kona-preconf-service; true
 
-# Build real binary
 COPY src/ src/
-RUN cargo build --release --bin kona-preconf-service
+RUN find src -name '*.rs' -exec touch {} + \
+    && cargo build --release --bin kona-preconf-service \
+    && test "$(wc -c < target/release/kona-preconf-service)" -gt 5000000
 
 # ---- Runtime image ----
 FROM debian:bookworm-slim

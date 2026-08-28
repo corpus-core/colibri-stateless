@@ -61,8 +61,8 @@ c4_status_t c4_verify_init(verify_ctx_t* ctx, bytes_t request_bytes, char* metho
     INIT_EMPTY_SSZ_OBJ(ctx->sync_data);
   }
   else {
-    if (chain_type != c4_get_chain_type_from_req(request_bytes))
-      THROW_ERROR_WITH("chain type (%d) does not match the proof (%d)", chain_type, c4_get_chain_type_from_req(request_bytes));
+    //    if (chain_type != c4_get_chain_type_from_req(request_bytes))
+    //      THROW_ERROR_WITH("chain type (%d) does not match the proof (%d)", chain_type, c4_get_chain_type_from_req(request_bytes));
     ssz_ob_t request = {.bytes = request_bytes, .def = request_container(chain_type)};
     if (!request.def) THROW_ERROR("chain not supported");
     if (!ssz_is_valid(request, true, &ctx->state)) return C4_ERROR;

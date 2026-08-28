@@ -50,6 +50,7 @@ async fn main() -> anyhow::Result<()> {
                 )
             }),
         )
+        .with_writer(std::io::stderr)
         .with_target(false)
         .compact()
         .init();

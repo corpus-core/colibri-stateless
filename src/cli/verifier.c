@@ -326,6 +326,7 @@ int main(int argc, char* argv[]) {
 #ifdef USE_CURL
   if (curl_has_oblivious_nodes()) verify_flags |= VERIFY_FLAG_OBLIVIOUS | VERIFY_FLAG_PAP;
 #endif
+  if (c4_chain_type(chain_id) == C4_CHAIN_TYPE_OP) has_checkpoint = true;
 
   if (has_checkpoint)
     c4_eth_set_trusted_checkpoint(chain_id, trusted_checkpoint);
