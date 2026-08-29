@@ -31,6 +31,7 @@ class ColibriServer < Formula
     sha256 "3c163891446e529604b590f9ad097b2e98b5ef7e4d3ddcf1cf98b62ca668f23e"
   end
   
+  # Required for CHAIN_OP (OP-Stack preconf ZSTD decompression).
   resource "zstd" do
     url "https://github.com/facebook/zstd/archive/refs/tags/v1.5.6.tar.gz"
     sha256 "30f35f71c1203369dc979ecde0400ffea93c27391bfd2ac5a9715d2173d92ff7"
@@ -74,6 +75,7 @@ class ColibriServer < Formula
       system "cmake", "..",
              "-DCMAKE_BUILD_TYPE=Release",
              "-DHTTP_SERVER=ON",
+             "-DCHAIN_OP=ON",
              "-DPROVER=ON",
              "-DPROVER_CACHE=ON",
              "-DVERIFIER=ON",

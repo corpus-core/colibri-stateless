@@ -125,7 +125,7 @@ static c4_status_t handle_head(prover_ctx_t* ctx, beacon_head_t* b) {
   uint64_t timestamp           = eth_el_header_get_uint64(beacon_block.el_header, EL_TIMESTAMP);
   uint64_t beacon_block_number = eth_el_header_get_uint64(beacon_block.el_header, EL_BLOCK_NUMBER);
 
-  c4_beacon_cache_update_blockdata(ctx, &beacon_block, c4_watcher_check_block_number ? 0 : timestamp, beacon_block.sign_parent_root);
+  c4_beacon_cache_update_blockdata(ctx, &beacon_block, c4_watcher_check_block_number ? 0 : timestamp, beacon_block.beacon.sign_parent_root);
 
   // now set the latest block number
   uint64_t latest_block_number = min64(beacon_block_number, c4_watcher_check_block_number ? json_as_uint64(latest_block) : beacon_block_number);

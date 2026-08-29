@@ -182,7 +182,7 @@ fn build_with_cmake(repo_root: &Path, target: &str) -> LinkSetup {
         .define("CURL", "OFF")
         .define("CLI", "OFF")
         .define("HTTP_SERVER", "OFF")
-        .define("CHAIN_OP", "OFF")
+        .define("CHAIN_OP", "ON")
         .define("CMAKE_BUILD_TYPE", "Release")
         .define("CMAKE_POSITION_INDEPENDENT_CODE", "ON")
         // `build` builds ALL_BUILD implicitly, which contains every
@@ -194,7 +194,13 @@ fn build_with_cmake(repo_root: &Path, target: &str) -> LinkSetup {
     // We also need the prover / chain module archives that aren't
     // pulled in by "verifier" alone. A second build call reuses the
     // same build directory and just adds targets.
-    let extra_targets = ["prover", "eth_verifier", "eth_prover"];
+    let extra_targets = [
+        "prover",
+        "eth_verifier",
+        "eth_prover",
+        "op_verifier",
+        "op_prover",
+    ];
     for tgt in extra_targets {
         // Use raw `cmake --build <dir> --target <t>` so we don't reset
         // build-system state. `--config` is required for multi-config
@@ -274,6 +280,7 @@ fn compile_wrapper(repo_root: &Path, dst: &Path) -> PathBuf {
         .include(dst.join("build"));
     // Match core defines used by the CMake build.
     build.define("CHAIN_ETH", None);
+    build.define("CHAIN_OP", None);
     build.define("VERIFIER", None);
     build.define("PROVER", None);
     // Must match CMake `option(PROVER_CACHE)` (default ON). The wrapper itself

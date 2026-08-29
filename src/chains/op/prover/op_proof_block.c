@@ -23,139 +23,165 @@
 
 #include "beacon.h"
 #include "beacon_types.h"
-#include "eth_req.h"
+#include "bytes.h"
+#include "crypto.h"
+#include "el_header.h"
 #include "eth_tools.h"
+#include "header_cache.h"
 #include "json.h"
-#include "logger.h"
-#include "op_proof_types.h"
 #include "op_prover.h"
-#include "op_tools.h"
-#include "op_types.h"
+#include "op_verify.h"
 #include "prover.h"
 #include "ssz.h"
-#include "sync_committee.h"
-#include "version.h"
-#include <inttypes.h> // Include this header for PRIu64 and PRIx64
-#include <stdlib.h>
 #include <string.h>
 
-/**
- * Decide whether the verifier already has the requested execution payload cached
- * and, if so, copy the cached blockhash into `out_hint`.
- *
- * The decision is metadata-only: it compares the user-supplied JSON block reference
- * (hex block number or 32-byte block hash) directly against the cached
- * `(block_number, blockhash)` tuple in `ctx->client_state`. This deliberately
- * avoids decompressing the (~100 kB) preconf payload because:
- *   - block-by-number / block-by-hash requests already carry the comparison key in
- *     the JSON, so no decompression is needed.
- *   - "latest" / "earliest" / "pending" are intentionally NOT optimised here:
- *     deciding cache-hit for those would require decompressing the freshly fetched
- *     preconf, which is the work we want to avoid.
- *
- * @param ctx prover context
- * @param requested user-supplied JSON block reference (e.g. `"0x1234"` or `"0xabcd...``)
- * @param out_hint receives the cached blockhash on hit (32 bytes)
- * @return true if the verifier already has this block cached
- */
-static bool client_already_has_block(prover_ctx_t* ctx, json_t requested, bytes32_t out_hint) {
-  if (!ctx->client_state.data || !ctx->client_state.len) return false;
-  if (!requested.start || requested.len < 4) return false;
-  // only hex block references (number or hash) can be matched without decompression
-  if (requested.start[1] != '0' || requested.start[2] != 'x') return false;
+typedef struct {
+  bytes_t   el_header;
+  ssz_ob_t  el_body;
+  bytes_t   sequencer_payload;
+  bytes_t   sequencer_signature;
+  bytes32_t el_block_hash;
+} op_el_snap_t;
 
-  c4_chain_state_t cs = c4_state_deserialize(ctx->client_state);
-  if (cs.status != C4_STATE_SYNC_EXECUTION_PAYLOAD) return false;
+static void snap_id(json_t block, bool with_body, bytes32_t id) {
+  uint8_t buf[80] = {0};
+  buf[0]          = with_body ? 1 : 0;
+  uint32_t n      = block.len < 64 ? (uint32_t) block.len : 64;
+  if (block.start && n) memcpy(buf + 1, block.start, n);
+  keccak(bytes(buf, 1 + n), id);
+}
 
-  bool hit = false;
-  if (requested.len == 68) { // 0x + 64 hex chars + 2 quotes -> 32-byte block hash
+static void fill_from_snap(eth_block_t* out, const op_el_snap_t* snap) {
+  memset(out, 0, sizeof(*out));
+  out->el_header = snap->el_header;
+  out->el_body   = snap->el_body;
+  memcpy(out->el_block_hash, snap->el_block_hash, 32);
+  if (snap->el_header.data)
+    out->slot = eth_el_header_get_uint64(snap->el_header, EL_BLOCK_NUMBER);
+  if (snap->sequencer_payload.data && snap->sequencer_signature.len == 65) {
+    out->proof_type          = C4_BLOCK_PROOF_TYPE_SEQUENCER;
+    out->sequencer.payload   = snap->sequencer_payload;
+    out->sequencer.signature = snap->sequencer_signature;
+  }
+}
+
+static bytes_t copy_into_tail(uint8_t** tail, bytes_t src, bool take_ownership) {
+  if (!src.data || !src.len) return NULL_BYTES;
+  memcpy(*tail, src.data, src.len);
+  bytes_t out = bytes(*tail, src.len);
+  *tail += src.len;
+  if (take_ownership) safe_free(src.data);
+  return out;
+}
+
+static c4_status_t attach_snap(prover_ctx_t* ctx, bytes32_t id, op_el_snap_t src, eth_block_t* out) {
+  uint32_t extra = src.el_header.len +
+                   (src.el_body.bytes.data ? src.el_body.bytes.len : 0) +
+                   src.sequencer_payload.len +
+                   src.sequencer_signature.len;
+  op_el_snap_t* snap = safe_calloc(1, sizeof(op_el_snap_t) + extra);
+  uint8_t*      tail = (uint8_t*) (snap + 1);
+  *snap              = src;
+  snap->el_header            = copy_into_tail(&tail, src.el_header, true);
+  snap->el_body.bytes        = copy_into_tail(&tail, src.el_body.bytes, true);
+  snap->sequencer_payload    = copy_into_tail(&tail, src.sequencer_payload, false);
+  snap->sequencer_signature  = copy_into_tail(&tail, src.sequencer_signature, false);
+
+  c4_state_cache_set(&ctx->state, id, bytes((uint8_t*) snap, sizeof(op_el_snap_t) + extra));
+  fill_from_snap(out, snap);
+  return C4_SUCCESS;
+}
+
+#ifdef EL_HEADER_CACHE
+static bool try_cached_verified_header(prover_ctx_t* ctx, json_t block, bool with_body, op_el_snap_t* out) {
+  const verified_header_entry_t* cached = NULL;
+  if (!block.start || block.len < 4) return false;
+  if (block.start[1] != '0' || block.start[2] != 'x') return false;
+
+  if (block.len == 68) {
     bytes32_t hash = {0};
-    buffer_t  buf  = {.data = bytes(hash, 32), .allocated = -32};
-    json_as_bytes(requested, &buf);
-    hit = memcmp(hash, cs.data.block.blockhash, 32) == 0;
+    buffer_t  buf  = stack_buffer(hash);
+    json_as_bytes(block, &buf);
+    if (memcmp(ctx->last_block_hash, hash, 32) != 0) return false;
+    cached = c4_header_cache_get_by_hash(ctx->chain_id, hash);
   }
-  else
-    hit = json_as_uint64(requested) == cs.data.block.block_number;
-
-  if (hit) memcpy(out_hint, cs.data.block.blockhash, 32);
-  return hit;
-}
-
-void c4_op_add_block_proof(prover_ctx_t* ctx, json_t requested, ssz_builder_t* parent, const char* name, ssz_builder_t* preconf_proof) {
-  bytes32_t hint = {0};
-  if (client_already_has_block(ctx, requested, hint)) {
-    log_debug("OP block already cached on client - emitting block_proof = cached_ref");
-    ssz_builder_free(preconf_proof);
-    // Emit union variant `cached_ref` (index 1) carrying the cached blockhash so the verifier
-    // can locate the matching `C4_DATA_TYPE_CACHE` snapshot via `c4_state_get_data_request_by_id`.
-    ssz_add_ob(parent, name, (ssz_ob_t) {.def = &OP_BLOCKPROOF_UNION[1], .bytes = bytes(hint, 32)});
+  else {
+    cached = c4_header_cache_get_by_number(ctx->chain_id, json_as_uint64(block));
+    if (!cached || memcmp(ctx->last_block_hash, cached->block_hash, 32) != 0) return false;
   }
-  else
-    ssz_add_builders(parent, name, *preconf_proof);
-}
+  if (!cached || !cached->el_header.data) return false;
+  if (with_body && !cached->el_body.def) return false;
 
-c4_status_t c4_op_create_block_proof(prover_ctx_t* ctx, json_t block_number, ssz_builder_t* block_proof) {
+  bytes_t  header = c4_header_cache_get_el_header(ctx->chain_id, cached->block_hash, with_body ? &out->el_body : NULL);
+  if (!header.data) return false;
+  out->el_header = header;
+  memcpy(out->el_block_hash, cached->block_hash, 32);
+  return true;
+}
+#endif
+
+c4_status_t op_get_el_block(prover_ctx_t* ctx, json_t block, eth_block_t* out, bool with_body) {
+  bytes32_t id = {0};
+  snap_id(block, with_body, id);
+  bytes_t existing = c4_state_cache_get(&ctx->state, id);
+  if (existing.data) {
+    fill_from_snap(out, (op_el_snap_t*) existing.data);
+    return C4_SUCCESS;
+  }
+
+  op_el_snap_t snap = {0};
+#ifdef EL_HEADER_CACHE
+  if (try_cached_verified_header(ctx, block, with_body, &snap))
+    return attach_snap(ctx, id, snap, out);
+#endif
+
   uint8_t  path[200]    = {0};
-  buffer_t buf2         = stack_buffer(path);
+  buffer_t path_buf     = stack_buffer(path);
   bytes_t  preconf_data = {0};
-
-  if ((ctx->flags & C4_PROVER_FLAG_UNSTABLE_LATEST) == 0 && block_number.start[1] == 'l')
-    bprintf(&buf2, "preconf/pre_latest");
+  if ((ctx->flags & C4_PROVER_FLAG_UNSTABLE_LATEST) == 0 && block.start && block.start[1] == 'l')
+    bprintf(&path_buf, "preconf/pre_latest");
   else
-    bprintf(&buf2, "preconf/%j", block_number);
+    bprintf(&path_buf, "preconf/%j", block);
 
-  TRY_ASYNC(c4_send_internal_request(ctx, (char*) buf2.data.data, NULL, 0, &preconf_data)); // get the raw-data
-  if (!preconf_data.len) THROW_ERROR("No preconf data found, currently only supports preconfs");
-  // Extract payload and signature
+  TRY_ASYNC(c4_send_internal_request(ctx, (char*) path_buf.data.data, NULL, 0, &preconf_data));
+  if (preconf_data.len < 65) THROW_ERROR("No preconf data found, currently only supports preconfs");
+
   bytes_t payload   = bytes_slice(preconf_data, 0, preconf_data.len - 65);
   bytes_t signature = bytes_slice(preconf_data, preconf_data.len - 65, 65);
 
-  // build the proof
-  ssz_builder_t preconf_proof              = ssz_builder_for_op_type(OP_SSZ_VERIFY_PRECONF_PROOF);
-  ssz_builder_t payload_builder_compressed = ssz_builder_for_def(ssz_get_def(preconf_proof.def, "payload")->def.container.elements + 0);
-  buffer_append(&payload_builder_compressed.fixed, payload);
-  ssz_add_builders(&preconf_proof, "payload", payload_builder_compressed);
-  ssz_add_bytes(&preconf_proof, "signature", signature);
-  *block_proof = preconf_proof;
+  bytes_t raw = {0};
+  TRY_ASYNC(op_decompress_preconf(&ctx->state, payload, &raw));
+  c4_status_t st = op_el_from_preconf_bytes(&ctx->state, raw, &snap.el_header, &snap.el_body, snap.el_block_hash);
+  safe_free(raw.data);
+  if (st != C4_SUCCESS) {
+    safe_free(snap.el_header.data);
+    safe_free(snap.el_body.bytes.data);
+    return C4_ERROR;
+  }
 
-  return C4_SUCCESS;
+  snap.sequencer_payload   = payload;
+  snap.sequencer_signature = signature;
+  return attach_snap(ctx, id, snap, out);
 }
 
-c4_status_t c4_op_proof_block(prover_ctx_t* ctx) {
-  // first try to fetch the block from the preconfs
-  json_t        block_number  = json_at(ctx->params, 0);
-  ssz_builder_t preconf_proof = {0};
+bool op_add_sequencer_proof(prover_ctx_t* ctx, ssz_builder_t* builder, eth_block_t* block_data, blockroot_proof_t* historic) {
+  (void) ctx;
+  (void) historic;
+  if (block_data->proof_type != C4_BLOCK_PROOF_TYPE_SEQUENCER ||
+      !block_data->sequencer.payload.data || block_data->sequencer.signature.len != 65)
+    return false;
 
-  TRY_ASYNC(c4_op_create_block_proof(ctx, block_number, &preconf_proof));
-
-  // build the proof
-  ssz_builder_t block_proof = ssz_builder_for_op_type(OP_SSZ_VERIFY_BLOCK_PROOF);
-  c4_op_add_block_proof(ctx, block_number, &block_proof, "block_proof", &preconf_proof);
-
-  ctx->proof = op_create_proof_request(
-      ctx->chain_id,
-      NULL_SSZ_BUILDER,
-      block_proof,
-      NULL_SSZ_BUILDER);
-
-  return C4_SUCCESS;
+  ssz_builder_t seq     = ssz_builder_for_type(ETH_SSZ_SEQUENCER_PROOF);
+  const ssz_def_t* pdef = ssz_get_def(seq.def, "payload");
+  if (!pdef || pdef->type != SSZ_TYPE_UNION) return false;
+  ssz_builder_t payload_builder = ssz_builder_for_def(pdef->def.container.elements + 0);
+  buffer_append(&payload_builder.fixed, block_data->sequencer.payload);
+  ssz_add_builders(&seq, "payload", payload_builder);
+  ssz_add_bytes(&seq, "signature", block_data->sequencer.signature);
+  ssz_add_builders(builder, "block", seq);
+  return true;
 }
-c4_status_t c4_op_proof_blocknumber(prover_ctx_t* ctx) {
-  // first try to fetch the block from the preconfs
-  ssz_builder_t preconf_proof = {0};
-  json_t        latest        = (json_t) {.type = JSON_TYPE_STRING, .start = "\"latest\"", .len = 8};
 
-  TRY_ASYNC(c4_op_create_block_proof(ctx, latest, &preconf_proof));
-
-  // build the proof
-  ssz_builder_t block_proof = ssz_builder_for_op_type(OP_SSZ_VERIFY_BLOCK_PROOF);
-  c4_op_add_block_proof(ctx, latest, &block_proof, "block_proof", &preconf_proof);
-
-  ctx->proof = op_create_proof_request(
-      ctx->chain_id,
-      NULL_SSZ_BUILDER,
-      block_proof,
-      NULL_SSZ_BUILDER);
-
-  return C4_SUCCESS;
+void op_register_block_proof_prover(void) {
+  c4_register_block_proof_prover(C4_CHAIN_TYPE_OP, op_add_sequencer_proof, op_get_el_block);
 }

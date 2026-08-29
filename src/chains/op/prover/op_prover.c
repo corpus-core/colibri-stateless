@@ -23,11 +23,10 @@
 
 #include "op_prover.h"
 #include "../../eth/prover/eth_prover.h"
-#include "beacon_types.h"
-#include "json.h"
-#include "state.h"
+#include "op_verify.h"
 #include <stdlib.h>
 #include <string.h>
+
 static const char* eth_account_methods[] = {
     "eth_getBalance",
     "eth_getCode",
@@ -38,38 +37,33 @@ static const char* eth_account_methods[] = {
 
 static const bool includes(const char** methods, const char* method) {
   for (int i = 0; methods[i] != NULL; i++) {
-    if (strcmp(methods[i], method) == 0) {
-      return true;
-    }
+    if (strcmp(methods[i], method) == 0) return true;
   }
   return false;
 }
+
 bool op_prover_execute(prover_ctx_t* ctx) {
-  // check if we are supporting this chain
   if (c4_chain_type(ctx->chain_id) != C4_CHAIN_TYPE_OP) return false;
+  op_register_block_proof_verify();
+  op_register_block_proof_prover();
 
-  if (strcmp(ctx->method, "eth_getBlockByHash") == 0 || strcmp(ctx->method, "eth_getBlockByNumber") == 0)
-    c4_op_proof_block(ctx);
-  else if (strcmp(ctx->method, "eth_blockNumber") == 0)
-    c4_op_proof_blocknumber(ctx);
-  else if (strcmp(ctx->method, "eth_getTransactionByHash") == 0 || strcmp(ctx->method, "eth_getTransactionByBlockHashAndIndex") == 0 || strcmp(ctx->method, "eth_getTransactionByBlockNumberAndIndex") == 0)
-    c4_op_proof_transaction(ctx);
+  if (includes(eth_account_methods, ctx->method))
+    c4_proof_account(ctx);
+  else if (strcmp(ctx->method, "eth_getTransactionByHash") == 0 ||
+           strcmp(ctx->method, "eth_getTransactionByBlockHashAndIndex") == 0 ||
+           strcmp(ctx->method, "eth_getTransactionByBlockNumberAndIndex") == 0)
+    c4_proof_transaction(ctx);
   else if (strcmp(ctx->method, "eth_getTransactionReceipt") == 0)
-    c4_op_proof_receipt(ctx);
+    c4_proof_receipt(ctx);
   else if (strcmp(ctx->method, "eth_getLogs") == 0 || strcmp(ctx->method, "eth_verifyLogs") == 0)
-    c4_op_proof_logs(ctx);
+    c4_proof_logs(ctx);
   else if (strcmp(ctx->method, "eth_call") == 0 || strcmp(ctx->method, "colibri_simulateTransaction") == 0)
-    c4_op_proof_call(ctx);
-  else if (includes(eth_account_methods, ctx->method))
-    c4_op_proof_account(ctx);
-
+    c4_proof_call(ctx);
+  else if (strcmp(ctx->method, "eth_getBlockByHash") == 0 || strcmp(ctx->method, "eth_getBlockByNumber") == 0 ||
+           strcmp(ctx->method, "eth_blockNumber") == 0 || strcmp(ctx->method, "eth_getBlockHeader") == 0)
+    c4_proof_block(ctx);
   else
     ctx->state.error = strdup("Unsupported method");
 
   return true;
 }
-/*
-0x000000010db094e0 "Error when calling eth-rpc for eth_createAccessList (params:
-[{\"to\":\"0x833589fcd6edb6e08f4c7c32d4f71b54bda02913\",\"data\":\"0x313ce567\"},\"0x21ce40c\"]) : failed to apply transaction:
-0x0cc9aaa46f2254571550da29f63f2bdd4e5adfa63740a63b2e574663f0317eff err: insufficient funds for gas * price + value: address 0x0000000000000000000000000000000000000000 have 12716509454172597237 want 42342674793536978484327214"
-*/

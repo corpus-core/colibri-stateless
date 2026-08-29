@@ -122,9 +122,13 @@ export async function setup_fixture(Colibri, name) {
         conf.use_accesslist = test_conf.use_accesslist
     if (test_conf.pap)
         conf.privacy_mode = "basic";
-    if (test_conf.remote_prover)
+    if (test_conf.remote_prover) {
+        // createProof() always builds locally. Remote fixtures only record the
+        // fetched proof (e.g. eth_blockNumber.ssz), not intern preconf/RPC inputs,
+        // so the suite must go through rpc() + C4_PROVER_MODE_REMOTE.
         conf.prover = ["http://mock-prover"];
-    else
+        conf.prover_mode = test_conf.prover_mode || "remote";
+    } else
         conf.prover = [];
     return { test_conf, conf };
 }
@@ -156,7 +160,9 @@ export async function run_rpc_suite(t, Colibri, decode_proof) {
 
             const c4 = new Colibri(conf);
 
-            if (conf.privacy_mode == "basic") {
+            // PAP and remote-prover fixtures cannot rebuild the proof locally.
+            // rpc() fetches the recorded proof from the mock prover and verifies it.
+            if (conf.privacy_mode == "basic" || test_conf.remote_prover) {
                 const result = await c4.rpc(test_conf.method, test_conf.params);
                 assert.deepStrictEqual(result, test_conf.expected_result, 'Proof should be valid');
                 return;

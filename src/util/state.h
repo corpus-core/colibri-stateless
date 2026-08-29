@@ -324,21 +324,34 @@ void c4_append_prover_request_props(buffer_t* payload, bytes_t client_state, cha
 data_request_t* c4_state_get_data_request_by_id(c4_state_t* state, bytes32_t id);
 
 /**
- * Gets a value from the cache.
+ * Gets a `C4_DATA_TYPE_CACHE` snapshot from the request list.
+ *
+ * Walks the request list and matches only `C4_DATA_TYPE_CACHE` entries with a
+ * non-empty `response`. A real I/O request that happens to share the same `id`
+ * is skipped (unlike `c4_state_get_data_request_by_id`, which returns the first
+ * id match regardless of type).
  *
  * @param state Pointer to the state object
  * @param key 32-byte identifier to search for
- * @return The value, or NULL_BYTES if not found
+ * @return The cached bytes, or `NULL_BYTES` if not found
  */
 bytes_t c4_state_cache_get(c4_state_t* state, bytes32_t key);
 
 /**
- * Sets a value in the cache.
+ * Stores a `C4_DATA_TYPE_CACHE` snapshot in the request list.
+ *
+ * Replaces the response of an existing cache entry with the same `id`. If the
+ * `id` belongs to a non-cache request, a new cache entry is appended at the
+ * end of the list instead of overwriting the I/O request. Appending keeps
+ * `c4_state_get_data_request_by_id` pointing at the I/O request (first match).
+ * Callers that want the snapshot must use `c4_state_cache_get`.
+ *
+ * Ownership of `value.data` transfers to the state (freed by `c4_state_free`).
  *
  * @param state Pointer to the state object
  * @param key 32-byte identifier to store the value under
  * @param value The value to store
- * @return The value, or NULL_BYTES if not found
+ * @return The stored value
  */
 bytes_t c4_state_cache_set(c4_state_t* state, bytes32_t key, bytes_t value);
 

@@ -48,6 +48,7 @@ val configureNativeTestBuild by tasks.register<Exec>("configureNativeTestBuild")
         "cmake",
         "-DKOTLIN=true", // Keep necessary flags
         "-DCURL=false",
+        "-DCHAIN_OP=ON",
         // "-DCMAKE_BUILD_TYPE=Debug", // Example
         cmakeListsDir.absolutePath
     )

@@ -203,15 +203,6 @@ static const char* check_block(json_t val, const char* error_prefix) {
   return check_hex(val, 0, true, error_prefix);
 }
 
-static const char* check_suint(json_t val, const char* error_prefix) {
-  // this is a uint number in quotes as string (no hex, only 0-9+)
-  if (val.type != JSON_TYPE_STRING) ERROR("%sExpected suint", error_prefix);
-  for (int i = 1; i < val.len - 1; i++) {
-    if (!isdigit((unsigned char) val.start[i])) ERROR("%sExpected suint", error_prefix);
-  }
-  return NULL;
-}
-
 static const char* json_validate_def(json_t val, const char* def, const char* error_prefix) {
   if (val.type == JSON_TYPE_INVALID) return strdup("Invalid JSON");
   if (*def == '[') return check_array(val, def, error_prefix ? error_prefix : "");

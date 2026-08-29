@@ -42,39 +42,27 @@ endif()
 
 set(VERIFIER_SOURCES
   verifier/op_verify.c
+  verifier/op_verify_block.c
   verifier/op_zstd.c
   verifier/op_chains_conf.c
-  ssz/op_types.c
 )
 
-
 if(ETH_ACCOUNT)
-  set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/op_verify_account.c)
   add_definitions(-DETH_ACCOUNT)
 endif()
-
 if(ETH_TX)
-  set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/op_verify_tx.c)
   add_definitions(-DETH_TX)
 endif()
-
 if(ETH_BLOCK)
-  set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/op_verify_block.c)
   add_definitions(-DETH_BLOCK)
 endif()
-
 if(ETH_RECEIPT)
-  set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/op_verify_receipt.c)
   add_definitions(-DETH_RECEIPT)
 endif()
-
 if(ETH_LOGS)
-  set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/op_verify_logs.c)
   add_definitions(-DETH_LOGS)
 endif()
-
 if(ETH_CALL)
-  set(VERIFIER_SOURCES ${VERIFIER_SOURCES} verifier/op_verify_call.c verifier/op_verify_simulate.c)
   add_definitions(-DETH_CALL)
 endif()
 
@@ -92,34 +80,15 @@ add_verifier(
 add_prover(
   NAME op_prover
   SOURCES 
-    prover/op_tools.c
     prover/op_prover.c
     prover/op_proof_block.c
-    prover/op_proof_transaction.c
-    prover/op_proof_receipt.c
-    prover/op_proof_logs.c
-    prover/op_proof_call.c
-    prover/op_proof_account.c
   DEPENDS util eth_prover op_verifier
   PROOF op_prover_execute
 )
 
-# Build bridges first, so we can determine dependencies
-if(HTTP_SERVER)
-    # Kona-Bridge (neue, native OP-Stack-kompatible Bridge)
-    add_subdirectory(kona_bridge)
-    
-    # Go-Bridge removed - using Kona-Bridge only
-endif()
 
 # Determine dependencies based on available bridges
 set(OP_SERVER_DEPENDS op_prover)
-if(HTTP_SERVER AND TARGET kona_preconf_capture)
-    list(APPEND OP_SERVER_DEPENDS kona_preconf_capture)
-    message(STATUS "✅ Kona-P2P bridge will be linked to op_server_handler")
-elseif(HTTP_SERVER)
-    message(STATUS "⚠️  Kona-P2P bridge not available, using Go bridge only")
-endif()
 
 # Create server handler with correct dependencies
 add_server_handler(
@@ -131,8 +100,5 @@ add_server_handler(
   DEPENDS ${OP_SERVER_DEPENDS}
   INIT_FUNC op_server_init
   SHUTDOWN_FUNC op_server_shutdown
-  METRICS_FUNC op_server_metrics
   CONFIG_FUNC op_configure
 )
-
-# Go bridge dependencies removed - using Kona-Bridge only

@@ -286,6 +286,10 @@ class ColibriTest {
             chainId = chainId,
             requestHandler = mockHandler,
             provers = if (remoteProver) arrayOf("http://mock-prover") else emptyArray(),
+            // getProof() always builds locally. Remote fixtures only record the
+            // fetched proof, not intern preconf/RPC inputs, so those tests must
+            // go through rpc() + REMOTE (same as PAP).
+            proverMode = if (remoteProver) ProverMode.REMOTE else null,
             includeCode = testConf.optBoolean("include_code", false),
             useAccesslist = testConf.optBoolean("use_accesslist", true),
             privacyMode = if (pap) PrivacyMode.BASIC else PrivacyMode.NONE,
@@ -297,7 +301,7 @@ class ColibriTest {
         }
 
         val result: Any?
-        if (pap) {
+        if (pap || remoteProver) {
             result = colibri.rpc(method, params)
         } else {
             val proof = colibri.getProof(method, params)

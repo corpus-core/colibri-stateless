@@ -68,6 +68,7 @@ android {
                 arguments(
                     "-DGENERATE_JAVA_SOURCES=OFF", 
                     "-DKOTLIN=true", 
+                    "-DCHAIN_OP=ON",
                     "-DCURL=false",
                     "-DUSE_MCL=false",
                     "-DETH_ZKPROOF=true",

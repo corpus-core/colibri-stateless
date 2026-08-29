@@ -5,7 +5,7 @@ use std::{
     os::raw::{c_char, c_uint},
     sync::{Arc, Mutex},
     thread,
-    time::SystemTime,
+    time::{SystemTime, UNIX_EPOCH},
 };
 use tokio::runtime::Runtime;
 
@@ -187,6 +187,7 @@ pub struct KonaBridgeHandle {
 }
 
 /// Statistiken der Bridge
+#[derive(Default)]
 #[repr(C)]
 pub struct KonaBridgeStats {
     pub connected_peers: c_uint,
@@ -203,4 +204,35 @@ pub struct KonaBridgeStats {
     pub http_gaps: c_uint,    // Verpasste Blöcke während HTTP-Modus
     pub gossip_gaps: c_uint,  // Verpasste Blöcke während Gossip-Modus
     pub bitmask_gaps: c_uint, // Präzise Gaps via Bitmask-Tracking
+    /// Highest L2 block number successfully written. `0` before the first preconf.
+    pub last_block_number: u64,
+    /// Unix seconds of the last successfully written preconf. `0` if none yet.
+    pub last_preconf_unix: u64,
+}
+
+impl KonaBridgeStats {
+    /// Record a successfully stored preconf for Prometheus `/metrics`.
+    pub fn record_processed_preconf(&mut self, block_number: u64) {
+        if block_number > self.last_block_number {
+            self.last_block_number = block_number;
+        }
+        self.last_preconf_unix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn record_keeps_highest_block_and_sets_timestamp() {
+        let mut s = KonaBridgeStats::default();
+        s.record_processed_preconf(10);
+        s.record_processed_preconf(8);
+        assert_eq!(s.last_block_number, 10);
+        assert!(s.last_preconf_unix > 0);
+    }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025 corpus.core
+ * Copyright (c) 2026 corpus.core
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
  * this software and associated documentation files (the "Software"), to deal in
@@ -21,24 +21,34 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef OP_PROVER_TOOLS_H
-#define OP_PROVER_TOOLS_H
+#include "c4_assert.h"
+#include "unity.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-#include "beacon.h"
-#include "bytes.h"
-#include "chains.h"
-#include "op_types.h"
-#include "ssz.h"
-
-bytes_t op_create_proof_request(chain_id_t chain_id, ssz_builder_t data, ssz_builder_t proof, ssz_builder_t sync_data);
-// creates the executionpayload from the block_proof. Caller must free the ssz_ob_t! with safe_free(execution_payload).
-ssz_ob_t* op_get_execution_payload(ssz_builder_t* block_proof);
-#ifdef __cplusplus
+void setUp(void) {
+  reset_local_filecache();
 }
-#endif
+
+void tearDown(void) {
+  reset_local_filecache();
+}
+
+#ifndef NO_CHAIN_OP
+
+void test_op_eth_block_number_remote(void) {
+  run_rpc_test("op_eth_blockNumber", 0, 0);
+}
+
+void test_op_eth_get_block_by_number_remote(void) {
+  run_rpc_test("op_eth_getBlockByNumber", 0, 0);
+}
 
 #endif
+
+int main(void) {
+  UNITY_BEGIN();
+#ifndef NO_CHAIN_OP
+  RUN_TEST(test_op_eth_block_number_remote);
+  RUN_TEST(test_op_eth_get_block_by_number_remote);
+#endif
+  return UNITY_END();
+}

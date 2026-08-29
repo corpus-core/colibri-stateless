@@ -313,6 +313,8 @@ const ssz_def_t* eth_ssz_verification_type(eth_ssz_type_t type) {
       return ARRAY_TYPE(ETH_BLOCK_PROOF_UNION, ETH_CL_BLOCK_PROOF);
     case ETH_SSZ_EL_BLOCK_CONTENT:
       return ARRAY_TYPE(ETH_BLOCK_BODY_UNION, ETH_BLOCK_BODY_CONTENT);
+    case ETH_SSZ_SEQUENCER_PROOF:
+      return ARRAY_TYPE(ETH_BLOCK_PROOF_UNION, ETH_SEQUENCER_PROOF);
     default: return NULL;
   }
 }

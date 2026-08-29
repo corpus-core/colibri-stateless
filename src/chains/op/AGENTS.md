@@ -1,51 +1,40 @@
 # src/chains/op/ - OP-Stack Chain Module
 
-OP-Stack (Optimism, Base, etc.) chain module. Similar structure to the Ethereum module but with OP-specific features: preconfirmations, ZSTD compression, and a Kona P2P bridge.
+OP-Stack (Optimism, Base, etc.) chain module. Proofs reuse the Ethereum SSZ types
+and ETH verify/prover implementations. The only OP-specific wire difference is
+`ETH_BLOCK_PROOF_UNION` index 2 (`sequencerProof`).
 
 ## Directory Structure
 
 | Directory | Purpose |
 |-----------|---------|
-| `verifier/` | OP-Stack proof verification |
-| `prover/` | OP-Stack proof generation |
-| `ssz/` | OP-Stack SSZ type definitions |
+| `verifier/` | Sequencer-proof verification, ZSTD, chain config |
+| `prover/` | Preconf fetch + `sequencerProof` builder; dispatches to ETH `c4_proof_*` |
 | `server/` | Server handlers (preconf capture, configuration) |
 | `kona_bridge/` | Rust-based P2P bridge for preconfirmation capture |
 
 ## Key Differences from Ethereum Module
 
-1. **Preconfirmations**: OP-Stack uses preconfirmations for faster finality. The prover can include preconf data in proofs.
-2. **ZSTD Compression**: OP proofs use ZSTD compression for batch transaction data.
-3. **Chain Configuration**: OP-Stack chains have different configurations (L1 origin, system config, etc.) managed in `op_chains_conf.c`.
+1. **Sequencer proofs**: non-hybrid proofs authenticate the EL block via a sequencer-signed execution payload (`sequencerProof`), not a beacon `clProof`.
+2. **ZSTD Compression**: the sequencer payload may be ZSTD-compressed. Extra EL-header fields that are not in the Deneb SSZ payload are prepended (`parentBeaconRoot`, then `requestsHash` from Isthmus/Electra, then `slot` for Gloas). Deneb vs Isthmus SSZ is selected by the first dynamic offset (528 vs 560).
+3. **Header cache**: after the first verified block, follow-up proofs use `blockHash` like ETH.
 4. **Kona Bridge**: Native P2P bridge (Rust/FFI) connects to OP-Stack sequencers for live preconf capture.
 
 ## Verification Modules (`verifier/`)
 
 | File | Purpose |
 |------|---------|
-| `op_verify.c` | Main OP verification dispatcher and method registration |
-| `op_verify_account.c` | Account verification (OP-specific) |
-| `op_verify_tx.c` | Transaction verification |
-| `op_verify_block.c` | Block verification |
-| `op_verify_receipt.c` | Receipt verification |
-| `op_verify_logs.c` | Log verification |
-| `op_verify_call.c` | Contract call verification |
-| `op_verify_simulate.c` | Transaction simulation |
-| `op_zstd.c` | ZSTD decompression for OP batch data |
-| `op_chains_conf.c` | Chain configuration (L1 origin, system config) |
+| `op_verify.c` | Dispatcher: registers the verify hook, then `c4_eth_dispatch_proof` |
+| `op_verify_block.c` | `op_verify_sequencer_proof` (sig, ZSTD, RLP, keccak bind, header cache) |
+| `op_zstd.c` | ZSTD decompression |
+| `op_chains_conf.c` | Sequencer addresses and (prover) chain endpoints |
 
 ## Prover Modules (`prover/`)
 
 | File | Purpose |
 |------|---------|
-| `op_prover.c` | Main OP prover dispatcher |
-| `op_proof_account.c` | Account proof generation |
-| `op_proof_transaction.c` | Transaction proof generation |
-| `op_proof_receipt.c` | Receipt proof generation |
-| `op_proof_logs.c` | Log proof generation |
-| `op_proof_call.c` | Contract call proof generation |
-| `op_proof_block.c` | Block proof generation |
-| `op_tools.c` | OP utility functions |
+| `op_prover.c` | Registers hooks, then calls ETH `c4_proof_*` |
+| `op_proof_block.c` | `op_get_el_block` (preconf) + `op_add_sequencer_proof` |
 
 ## Kona Bridge (`kona_bridge/`)
 
@@ -56,21 +45,7 @@ Rust-based P2P bridge that connects to OP-Stack sequencers using native protocol
 C Server <--FFI--> Kona Bridge (Rust) <--discv5+GossipSub--> OP Sequencers
 ```
 
-**Key points:**
-- Uses `kona-p2p` (Rust) for OP-Stack-compatible P2P networking.
-- discv5 discovery with ENR bootnodes (same as real sequencers).
-- GossipSub for preconfirmation distribution.
-- C integration via FFI: `kona_bridge_start()` / `kona_bridge_stop()`.
-- Captures preconfirmations and writes them to files or passes to C server.
-
 **Supported chains:** OP Mainnet (10), Base (8453), and other OP-Stack chains.
-
-## SSZ Types (`ssz/`)
-
-| File | Purpose |
-|------|---------|
-| `op_proof_types.h` | OP proof type definitions (extends ETH types with preconf fields) |
-| `op_types.c` | OP type implementations |
 
 <!-- AUTO:OP_MODULE_INDEX:START -->
 

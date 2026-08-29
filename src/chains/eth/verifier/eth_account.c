@@ -45,22 +45,7 @@
 
 const uint8_t* EMPTY_HASH      = (uint8_t*) "\xc5\xd2\x46\x01\x86\xf7\x23\x3c\x92\x7e\x7d\xb2\xdc\xc7\x03\xc0\xe5\x00\xb6\x53\xca\x82\x27\x3b\x7b\xfa\xd8\x04\x5d\x85\xa4\x70";
 const uint8_t* EMPTY_ROOT_HASH = (uint8_t*) "\x56\xe8\x1f\x17\x1b\xcc\x55\xa6\xff\x83\x45\xe6\x92\xc0\xf8\x6e\x5b\x48\xe0\x1b\x99\x6c\xad\xc0\x01\x62\x2f\xb5\xe3\x63\xb4\x21";
-static void    remove_leading_zeros(bytes_t* value) {
-  while (value->len > 0 && value->data[0] == 0) {
-    value->data++;
-    value->len--;
-  }
-}
-static bool is_equal(ssz_ob_t expect, bytes_t* list, int index) {
-  bytes_t value;
-  if (rlp_decode(list, index, &value) != RLP_ITEM) return false;
-  bytes_t exp = expect.bytes;
-  remove_leading_zeros(&value);
-  remove_leading_zeros(&exp);
-  return value.len == exp.len && memcmp(exp.data, value.data, exp.len) == 0;
-}
-
-static bool verify_storage(verify_ctx_t* ctx, ssz_ob_t storage_proofs, bytes32_t storage_hash, bytes_t values) {
+static bool    verify_storage(verify_ctx_t* ctx, ssz_ob_t storage_proofs, bytes32_t storage_hash, bytes_t values) {
   if (values.data) memset(values.data, 0, 32);
   int  len      = ssz_len(storage_proofs);
   bool is_empty = memcmp(storage_hash, EMPTY_ROOT_HASH, 32) == 0;

@@ -12,8 +12,6 @@
 #include <llhttp.h>
 #include <stdlib.h>
 #include <uv.h>
-// Preconf-specific callback type (uses block_number instead of period)
-typedef void (*handle_preconf_data_cb)(void* user_ptr, uint64_t block_number, bytes_t data, const char* error);
 typedef struct {
   char*                 path;
   data_request_method_t method;
@@ -413,7 +411,6 @@ void c4_proof_request_dispatch(client_t* client, char* method_str, char* params_
  */
 bool           c4_try_forward_legacy_proof(client_t* client, uint32_t version, const char* sub_path);
 bool           c4_handle_status(client_t* client);
-bool           c4_handle_health_check(client_t* client);
 bool           c4_handle_metrics(client_t* client);
 bool           c4_handle_get_config(client_t* client);
 bool           c4_handle_post_config(client_t* client);
@@ -424,7 +421,6 @@ bool           c4_handle_version(client_t* client);
 bool           c4_handle_unverified_rpc_request(client_t* client);
 uint64_t       c4_get_query(char* query, char* param);
 void           c4_handle_internal_request(single_request_t* r);
-bool           c4_get_preconf(chain_id_t chain_id, uint64_t block_number, char* file_name, void* uptr, handle_preconf_data_cb cb);
 server_list_t* c4_get_server_list(data_request_type_t type);
 server_list_t* c4_get_effective_server_list(data_request_type_t type, request_t* req);
 void           c4_free_server_list(server_list_t* list);

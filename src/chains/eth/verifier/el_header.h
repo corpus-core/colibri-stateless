@@ -51,6 +51,13 @@ typedef struct {
   chain_id_t  chain_id;
   bytes32_t   parent_root;
   ssz_ob_t    beacon_block;
+  // Optional extras for chains without a beacon body (OP-Stack preconf).
+  // Used when the SSZ payload does not carry the field (requestsHash is never
+  // in the payload; slot is used only if the payload has no slotNumber).
+  bool      has_requests_hash;
+  bytes32_t requests_hash;
+  bool      has_slot;
+  uint64_t  slot;
 } eth_el_header_ctx_t;
 void eth_get_withdrawals_root(bytes32_t out_hash, ssz_ob_t withdrawals);
 void eth_get_transactions_root(bytes32_t out_hash, ssz_ob_t txs);

@@ -157,6 +157,7 @@ jobs:
       - name: cargo build (release)
         working-directory: bindings/rust
         shell: bash
+        # CHAIN_OP=ON is set in build.rs so cargo test can verify OP-Stack fixtures.
         run: cargo build --release --target ${{ matrix.target }}
 
       - name: cargo test (release)

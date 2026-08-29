@@ -13,7 +13,7 @@ use http::run_http_primary_with_gossip_fallback;
 use types::{BridgeMode, BlockBitmaskTracker, BlockDeduplicator, HttpHealthTracker, KonaBridgeStats};
 use utils::cleanup_old_files;
 
-use alloy::primitives::Address;
+use alloy_primitives::Address;
 use std::{
     path::PathBuf,
     sync::{Arc, Mutex},
@@ -123,11 +123,13 @@ pub extern "C" fn kona_bridge_start(config: *const KonaBridgeConfig) -> *mut Kon
         gossip_received: 0,
         gossip_processed: 0,
         mode_switches: 0,
-        current_mode: 0, // Start im HTTP-Modus
+        current_mode: 1, // 0=HTTP, 1=Gossip — default is gossip-only
         total_gaps: 0,   // Gesamtanzahl verpasster Blöcke
         http_gaps: 0,    // Verpasste Blöcke während HTTP-Modus
         gossip_gaps: 0,  // Verpasste Blöcke während Gossip-Modus
         bitmask_gaps: 0, // Präzise Gaps via Bitmask-Tracking
+        last_block_number: 0,
+        last_preconf_unix: 0,
     }));
 
     let running = Arc::new(Mutex::new(true));
@@ -166,7 +168,7 @@ pub extern "C" fn kona_bridge_start(config: *const KonaBridgeConfig) -> *mut Kon
         };
 
         rt.block_on(async {
-            info!("🔄 About to start HTTP-first Kona network for chain {}", chain_id);
+            info!("🔄 About to start Kona network for chain {}", chain_id);
             if let Err(e) = run_http_first_network(
                 chain_id,
                 disc_port,
@@ -181,10 +183,10 @@ pub extern "C" fn kona_bridge_start(config: *const KonaBridgeConfig) -> *mut Kon
                 running_clone,
                 None, // No SSE in C-FFI mode
             ).await {
-                error!("❌ HTTP-first network failed: {}", e);
+                error!("❌ Kona network failed: {}", e);
                 error!("❌ Error details: {:?}", e);
             } else {
-                info!("✅ HTTP-first network completed successfully");
+                info!("✅ Kona network completed successfully");
             }
         });
 
@@ -279,29 +281,47 @@ pub async fn run_http_first_network(
         consecutive_success_blocks: 0,
     }));
     
-    // Try HTTP-first approach
-    if let Some(http_endpoint) = chain_config.get_http_endpoint() {
-        info!("🌐 Starting in HTTP-primary mode: {}", http_endpoint);
-        
-        // Start HTTP primary with fallback to gossip
-        run_http_primary_with_gossip_fallback(
-            http_endpoint,
-            chain_id,
-            disc_port,
-            gossip_port,
-            output_dir,
-            http_poll_interval,
-            &chain_config,
-            expected_sequencer,
-            health_tracker,
-            stats,
-            running,
-            Arc::new(Mutex::new(BlockDeduplicator::new())),
-            Arc::new(Mutex::new(BlockBitmaskTracker::new())),
-            sse_tx,
-        ).await?;
+    // HTTP polling is opt-in: only used when a threshold is configured (> 0)
+    // and an endpoint exists. Threshold 0 (and the standalone default MODE=gossip)
+    // skip the dying HTTP preconf endpoints.
+    if http_failure_threshold > 0 {
+        if let Some(http_endpoint) = chain_config.get_http_endpoint() {
+            info!("🌐 Starting in HTTP-primary mode: {}", http_endpoint);
+
+            run_http_primary_with_gossip_fallback(
+                http_endpoint,
+                chain_id,
+                disc_port,
+                gossip_port,
+                output_dir,
+                http_poll_interval,
+                &chain_config,
+                expected_sequencer,
+                health_tracker,
+                stats,
+                running,
+                Arc::new(Mutex::new(BlockDeduplicator::new())),
+                Arc::new(Mutex::new(BlockBitmaskTracker::new())),
+                sse_tx,
+            ).await?;
+        } else {
+            info!("🌐 No HTTP endpoint - starting directly in gossip mode");
+            gossip::run_gossip_network(
+                chain_id,
+                disc_port,
+                gossip_port,
+                output_dir,
+                &chain_config,
+                expected_sequencer,
+                stats,
+                running,
+                None,
+                None,
+                sse_tx,
+            ).await?;
+        }
     } else {
-        info!("🌐 No HTTP endpoint - starting directly in gossip mode");
+        info!("📡 Gossip-only (http_failure_threshold=0)");
         gossip::run_gossip_network(
             chain_id,
             disc_port,
@@ -316,7 +336,7 @@ pub async fn run_http_first_network(
             sse_tx,
         ).await?;
     }
-    
+
     Ok(())
 }
 
@@ -401,6 +421,8 @@ pub extern "C" fn kona_bridge_get_stats(
             (*stats).http_gaps = bridge_stats.http_gaps;
             (*stats).gossip_gaps = bridge_stats.gossip_gaps;
             (*stats).bitmask_gaps = bitmask_gaps;
+            (*stats).last_block_number = bridge_stats.last_block_number;
+            (*stats).last_preconf_unix = bridge_stats.last_preconf_unix;
         }
         0
     } else {
@@ -420,9 +442,12 @@ pub extern "C" fn kona_bridge_init_logging() {
     INIT.call_once(|| {
         eprintln!("🦀 [RUST] Initializing Rust tracing subscriber...");
         
+        // We don't depend on kona-node-service, so no filter entry for it.
+        // kona_disc/kona_gossip stay at `warn` (not `off`) so startup / listen /
+        // discovery-error messages still surface without flooding info-level logs.
         let filter = EnvFilter::try_from_default_env()
             .unwrap_or_else(|_| EnvFilter::new(
-                "warn,libp2p=off,discv5=off,kona_p2p=off,kona_bridge=info,tokio=warn,hyper=warn,reqwest=warn"
+                "warn,kona_preconf_service=info,kona_bridge=info,libp2p=off,discv5=off,gossip=warn,discovery=info,kona_gossip=warn,kona_disc=info,kona_peers=warn,tokio=warn,hyper=warn,reqwest=warn"
             ));
             
         let result = tracing_subscriber::fmt()

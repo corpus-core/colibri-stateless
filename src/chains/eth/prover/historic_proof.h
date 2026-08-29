@@ -117,7 +117,7 @@ c4_status_t c4_fetch_zk_proof_data(prover_ctx_t* ctx, zk_proof_data_t* zk_proof,
  * Default path is Lodestar; `C4_PROVER_FLAG_NIMBUS` selects the Nimbus URL.
  *
  * @param ctx prover context
- * @param block beacon block whose `cl_header.stateRoot` is used in the path
+ * @param block beacon block whose `beacon.cl_header.stateRoot` is used in the path
  * @param history_proof output JSON, filled after the request is fulfilled
  * @return `C4_PENDING` until the request is fulfilled, then the send status
  */

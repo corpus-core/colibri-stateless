@@ -253,9 +253,9 @@ static c4_status_t resolve_el_header_from_block(prover_ctx_t* ctx, ssz_ob_t bloc
     if (block.bytes.len != 32) THROW_ERROR("invalid block hash length in blockHash variant");
     const uint8_t* block_hash = block.bytes.data;
 
-    data_request_t* snapshot = c4_state_get_data_request_by_id(&ctx->state, (uint8_t*) block_hash);
-    if (snapshot && snapshot->type == C4_DATA_TYPE_CACHE && snapshot->response.data) {
-      *el_header = snapshot->response;
+    bytes_t snapshot = c4_state_cache_get(&ctx->state, (uint8_t*) block_hash);
+    if (snapshot.data) {
+      *el_header = snapshot;
       return C4_SUCCESS;
     }
 
@@ -263,13 +263,7 @@ static c4_status_t resolve_el_header_from_block(prover_ctx_t* ctx, ssz_ob_t bloc
     if (!cached.data)
       THROW_ERROR("blockHash variant references a header not in the verifier cache");
 
-    snapshot           = safe_calloc(1, sizeof(data_request_t));
-    snapshot->chain_id = ctx->chain_id;
-    snapshot->type     = C4_DATA_TYPE_CACHE;
-    snapshot->encoding = C4_DATA_ENCODING_SSZ;
-    snapshot->response = cached;
-    memcpy(snapshot->id, block_hash, 32);
-    c4_state_add_request(&ctx->state, snapshot);
+    c4_state_cache_set(&ctx->state, (uint8_t*) block_hash, cached);
     *el_header = cached;
     return C4_SUCCESS;
   }
@@ -392,23 +386,23 @@ static c4_status_t hybrid_fetch_and_verify(prover_ctx_t* ctx, json_t block, hybr
   return C4_PENDING;
 }
 
-// -- Hybrid: Resolve Block Identifier and Return Header-Only eth_block_t --
+// -- Hybrid: Resolve Block Identifier and Return eth_block_t (proof_type NONE) --
 
 static c4_status_t create_beacon_block(prover_ctx_t* ctx, eth_block_t* beacon_block, local_cache_entry_t* local) {
   memset(beacon_block, 0, sizeof(eth_block_t));
   memcpy(beacon_block->el_block_hash, local->block_hash, 32);
-  beacon_block->header_only = true;
-  beacon_block->el_header   = local->el_header;
+  beacon_block->proof_type = C4_BLOCK_PROOF_TYPE_NONE;
+  beacon_block->el_header  = local->el_header;
   if (local->el_body.def) beacon_block->el_body = local->el_body;
   beacon_block->slot = eth_el_header_get_uint64(local->el_header, EL_BLOCK_NUMBER);
   return C4_SUCCESS;
 }
 
 static c4_status_t store_local_cache_entry(prover_ctx_t* ctx, bytes32_t cache_key, verified_header_entry_t* cached, eth_block_t* beacon_block) {
-  uint32_t        size         = sizeof(local_cache_entry_t) + cached->el_header.len + (cached->el_body.def ? cached->el_body.bytes.len : 0);
-  data_request_t* data_request = c4_state_get_data_request_by_id(&ctx->state, cache_key);
-  if (data_request && data_request->validated && data_request->response.data)
-    return create_beacon_block(ctx, beacon_block, (void*) data_request->response.data);
+  uint32_t size     = sizeof(local_cache_entry_t) + cached->el_header.len + (cached->el_body.def ? cached->el_body.bytes.len : 0);
+  bytes_t  existing = c4_state_cache_get(&ctx->state, cache_key);
+  if (existing.data)
+    return create_beacon_block(ctx, beacon_block, (void*) existing.data);
 
   local_cache_entry_t* local = safe_calloc(1, size);
   memcpy(local->block_hash, cached->block_hash, 32);
@@ -417,16 +411,7 @@ static c4_status_t store_local_cache_entry(prover_ctx_t* ctx, bytes32_t cache_ke
     local->el_body.def   = cached->el_body.def;
     local->el_body.bytes = bytes_cpy(local, sizeof(local_cache_entry_t) + cached->el_header.len, cached->el_body.bytes);
   }
-  data_request            = safe_calloc(1, sizeof(data_request_t));
-  data_request->type      = C4_DATA_TYPE_CACHE;
-  data_request->chain_id  = ctx->chain_id;
-  data_request->method    = C4_DATA_METHOD_GET;
-  data_request->encoding  = C4_DATA_ENCODING_SSZ;
-  data_request->response  = bytes((void*) local, size);
-  data_request->validated = true;
-  memcpy(data_request->id, cache_key, 32);
-  c4_state_add_request(&ctx->state, data_request);
-
+  c4_state_cache_set(&ctx->state, cache_key, bytes((void*) local, size));
   return create_beacon_block(ctx, beacon_block, local);
 }
 
@@ -470,8 +455,8 @@ c4_status_t c4_hybrid_get_block_for_eth(prover_ctx_t* ctx, json_t block, eth_blo
   cache_key[31] = (uint8_t) with_body;
 
   // check local cache first
-  data_request_t*      data_request = c4_state_get_data_request_by_id(&ctx->state, cache_key);
-  local_cache_entry_t* local        = data_request ? (local_cache_entry_t*) data_request->response.data : NULL;
+  bytes_t              existing = c4_state_cache_get(&ctx->state, cache_key);
+  local_cache_entry_t* local    = existing.data ? (local_cache_entry_t*) existing.data : NULL;
   if (local && (!with_body || local->el_body.def))
     return create_beacon_block(ctx, beacon_block, local);
 

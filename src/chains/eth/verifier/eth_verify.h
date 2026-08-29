@@ -51,10 +51,36 @@ c4_status_t c4_verify_blockroot_signature(verify_ctx_t* ctx, ssz_ob_t* header, s
 c4_status_t c4_verify_header(verify_ctx_t* ctx, ssz_ob_t header, ssz_ob_t block_proof);
 // verifies an ETH_BLOCK_PROOF_UNION. On success `el_header` holds the verified RLP header
 // and `block_hash` its keccak hash. The header is NOT owned by the caller: it either points
-// into the proof (clProof variant) or into a C4_DATA_TYPE_CACHE snapshot attached to
-// ctx->state (blockHash variant), so it stays valid for the lifetime of the verify_ctx and
-// is freed automatically with it.
+// into the proof (`clProof`) or into a C4_DATA_TYPE_CACHE snapshot attached to
+// ctx->state (`blockHash` / `sequencerProof`), so it stays valid for the lifetime of the
+// verify_ctx and is freed automatically with it.
 c4_status_t c4_verify_block(verify_ctx_t* ctx, ssz_ob_t block, bytes_t* el_header, bytes32_t block_hash);
+
+/**
+ * Extra handler for `ETH_BLOCK_PROOF_UNION` variants that ETH itself does not
+ * implement (`sequencerProof`, future L1 proofs, ...). One handler per
+ * `chain_type_t`; there is no fallback to another variant. Return `C4_SUCCESS`
+ * or `C4_ERROR` / `C4_PENDING` like `c4_verify_block`.
+ */
+typedef c4_status_t (*c4_verify_block_extra_fn)(verify_ctx_t* ctx, ssz_ob_t block, bytes_t* el_header, bytes32_t block_hash);
+
+/**
+ * Registers a chain-type-specific `c4_verify_block` handler. Idempotent.
+ * ETH (`blockHash`, `clProof`) stays in `c4_verify_block`; this is only for extras.
+ *
+ * @param chain_type chain type that owns the handler (e.g. `C4_CHAIN_TYPE_OP`)
+ * @param fn handler, or NULL to clear
+ */
+void c4_register_block_proof_verify(chain_type_t chain_type, c4_verify_block_extra_fn fn);
+
+/**
+ * Dispatches a proof to the ETH verify implementations without the ETH chain-type
+ * or sync-committee gate. Used by OP after registering its block-proof handler.
+ *
+ * @param ctx verification context (proof type already parsed)
+ * @return true if a handler ran (success or failure is in `ctx->success` / `ctx->state`)
+ */
+bool c4_eth_dispatch_proof(verify_ctx_t* ctx);
 bool        eth_set_block_data(verify_ctx_t* ctx, bytes_t el_header, bool include_txs, ssz_ob_t* body, uint32_t mask);
 bool        eth_calculate_domain(chain_id_t chain_id, uint64_t slot, bytes32_t domain);
 bool        c4_eth_verify_accounts(verify_ctx_t* ctx, ssz_ob_t accounts, bytes32_t state_root);

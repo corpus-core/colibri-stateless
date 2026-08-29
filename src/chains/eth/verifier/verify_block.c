@@ -28,6 +28,7 @@
 #include "eth_account.h"
 #include "eth_tx.h"
 #include "eth_verify.h"
+#include "header_cache.h"
 #include "json.h"
 #include "patricia.h"
 #include "rlp.h"
@@ -38,13 +39,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define EXECUTION_PAYLOAD_ROOT_GINDEX 25
-
-// GINDEX_BLOCKUMBER (806) is provided by eth_tx.h; GINDEX_TIMESTAMP (809) by
-// eth_account.h. Both already get pulled in via the includes above.
-
 static const char* SHA3_UNCLUES = "\x1d\xcc\x4d\xe8\xde\xc7\x5d\x7a\xab\x85\xb5\x67\xb6\xcc\xd4\x1a\xd3\x12\x45\x1b\x94\x8a\x74\x13\xf0\xa1\x42\xfd\x40\xd4\x93\x47";
-static const char* EMPTY_SHA256 = "\xe3\xb0\xc4\x42\x98\xfc\x1c\x14\x9a\xfb\xf4\xc8\x99\x6f\xb9\x24\x27\xae\x41\xe4\x64\x9b\x93\x4c\xa4\x95\x99\x1b\x78\x52\xb8\x55";
 
 static ssz_builder_t create_txs_builder(verify_ctx_t* ctx, const ssz_def_t* tx_union_def, bool include_txs, ssz_ob_t txs, bytes_t el_header, bytes32_t block_hash) {
   ssz_builder_t txs_builder  = ssz_builder_for_def(tx_union_def->def.container.elements + ((int) include_txs));
@@ -218,25 +213,61 @@ bool verify_block_proof(verify_ctx_t* ctx) {
   if (json_len(ctx->args) > (is_full_block ? 2 : 1)) RETURN_VERIFY_ERROR(ctx, "invalid arguments for block proof");
   if (c4_verify_block(ctx, ssz_get(&ctx->proof, "block"), &el_header, block_hash) != C4_SUCCESS) return false;
 
-  ssz_ob_t body     = ssz_get(&ctx->proof, "body");
-  bool     has_body = body.def && strcmp(body.def->name, "content") == 0;
+  ssz_ob_t body          = ssz_get(&ctx->proof, "body");
+  bool     has_body      = body.def && strcmp(body.def->name, "content") == 0;
+  bytes_t  cached_header = NULL_BYTES;
+  ssz_ob_t cached_body   = {0};
+  if (!has_body && is_full_block) {
+#ifdef EL_HEADER_CACHE
+    // sequencerProof omits proof.body because the signed execution payload already
+    // carries transactions + withdrawals. The OP hook rebuilds ETH_SSZ_EL_BLOCK_CONTENT
+    // from that payload and stores it in the header cache; recover it here.
+    // proof.body, when present, and cache-loaded bodies stay untrusted until the
+    // roots below match the verified header.
+    cached_header = c4_header_cache_get_el_header(ctx->chain_id, block_hash, &cached_body);
+    if (cached_body.def && cached_body.bytes.data) {
+      body     = cached_body;
+      has_body = true;
+    }
+    safe_free(cached_header.data);
+#endif
+    if (!has_body) RETURN_VERIFY_ERROR(ctx, "missing body for block proof");
+  }
   if (has_body) {
     // the body payload is untrusted until its roots match the verified header
     bytes32_t transaction_root = {0};
-    bytes32_t withdrawal_root  = {0};
     include_txs                = json_as_bool(json_at(ctx->args, 1));
     eth_get_transactions_root(transaction_root, ssz_get(&body, "transactions"));
+    if (memcmp(transaction_root, eth_el_header_get(el_header, EL_TRANSACTIONS_ROOT).data, 32) != 0) {
+      safe_free(cached_body.bytes.data);
+      RETURN_VERIFY_ERROR(ctx, "invalid transaction root!");
+    }
+    // Bind the withdrawals list. On ETH the merkle must equal the header
+    // withdrawalsRoot (EIP-4895). On OP Isthmus that header field is the
+    // L2ToL1MessagePasser storage root, so equality is not required — but the
+    // list is still consensus-empty, so the merkle must be EMPTY_ROOT_HASH.
+    // proof.body and persisted cache bodies are prover-controlled; do not
+    // accept a non-empty spoofed list just because the header is Isthmus.
+    bytes32_t withdrawal_root = {0};
     eth_get_withdrawals_root(withdrawal_root, ssz_get(&body, "withdrawals"));
-    if (memcmp(transaction_root, eth_el_header_get(el_header, EL_TRANSACTIONS_ROOT).data, 32) != 0) RETURN_VERIFY_ERROR(ctx, "invalid transaction root!");
-    if (memcmp(withdrawal_root, eth_el_header_get(el_header, EL_WITHDRAWALS_ROOT).data, 32) != 0) RETURN_VERIFY_ERROR(ctx, "invalid withdrawal root!");
+    bytes_t header_wd = eth_el_header_get(el_header, EL_WITHDRAWALS_ROOT);
+    if (header_wd.len != 32 || memcmp(withdrawal_root, header_wd.data, 32) != 0) {
+      if (c4_chain_type(ctx->chain_id) != C4_CHAIN_TYPE_OP ||
+          memcmp(withdrawal_root, EMPTY_ROOT_HASH, 32) != 0) {
+        safe_free(cached_body.bytes.data);
+        RETURN_VERIFY_ERROR(ctx, "invalid withdrawal root!");
+      }
+    }
   }
-  else if (is_full_block)
-    RETURN_VERIFY_ERROR(ctx, "missing body for block proof");
 
   bytes_t   header = {0};
   fork_id_t fork   = (rlp_decode(&el_header, 0, &header) == RLP_LIST && rlp_decode(&header, -1, &header) == 23) ? C4_FORK_GLOAS : C4_FORK_FULU;
 
-  if (!eth_set_block_data(ctx, el_header, include_txs, has_body ? &body : NULL, fork == C4_FORK_GLOAS ? ETH_BLOCK_DATA_MASK_ALL : ETH_BLOCK_DATA_MASK_ALL_WITHOUT_REQUESTS)) return false;
+  if (!eth_set_block_data(ctx, el_header, include_txs, has_body ? &body : NULL, fork == C4_FORK_GLOAS ? ETH_BLOCK_DATA_MASK_ALL : ETH_BLOCK_DATA_MASK_ALL_WITHOUT_REQUESTS)) {
+    safe_free(cached_body.bytes.data);
+    return false;
+  }
+  safe_free(cached_body.bytes.data);
   if (json_len(ctx->args) >= 1 && !c4_eth_matches_blocknumber(ctx, ctx->data, json_at(ctx->args, 0))) return false;
   if (!eth_check_latest_freshness(ctx, json_len(ctx->args) == 0 || eth_json_is_latest(json_at(ctx->args, 0)), true, eth_el_header_get_uint64(el_header, EL_TIMESTAMP))) return false;
   ctx->success = true;

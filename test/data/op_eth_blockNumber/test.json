@@ -1,0 +1,9 @@
+{
+  "method":"eth_blockNumber",
+  "params":[],
+  "chain_id": 8453,
+  "pap": false,
+  "prover_mode": "remote",
+  "remote_prover": true,
+  "expected_result": "0x303be83"
+}
