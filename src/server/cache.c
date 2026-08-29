@@ -121,27 +121,6 @@ static void req_set_free(mc_set_req_t* req);
 // Forward declaration for connection release function
 static void mc_release_connection(mc_conn_t* connection);
 
-// Generic free function for request data
-static void req_free(void* req_void) {
-  if (!req_void) return;
-
-  // Check type using the first member
-  req_type_e type = *((req_type_e*) req_void);
-
-  if (type == REQ_GET) {
-    mc_get_req_t* req = (mc_get_req_t*) req_void;
-    req_get_free(req); // req_get_free already checks has_been_freed
-  }
-  else if (type == REQ_SET) {
-    mc_set_req_t* req = (mc_set_req_t*) req_void;
-    req_set_free(req); // req_set_free already checks has_been_freed
-  }
-  else {
-    log_error("Error: Unknown request type %d in req_free", (uint32_t) type);
-    // Avoid fallback free as it's unsafe without knowing the type
-  }
-}
-
 // uv_close callback for memcached connections
 static void on_conn_close(uv_handle_t* handle) {
   mc_conn_t* connection = (mc_conn_t*) handle->data;
@@ -349,22 +328,6 @@ static mc_conn_t* mc_get_connection(mc_t* client) {
     return connection;
   }
 
-  return NULL;
-}
-
-// Helper function to find if a GET operation with the same key exists in the queue
-static mc_queued_op_t* mc_find_queued_get(mc_t* client, const char* key, size_t keylen) {
-  if (!client || !client->queue_head || !key || keylen == 0) return NULL;
-
-  mc_queued_op_t* op = client->queue_head;
-  while (op != NULL) {
-    if (op->type == QUEUE_OP_GET &&
-        op->op.get.keylen == keylen &&
-        memcmp(op->op.get.key, key, keylen) == 0) {
-      return op;
-    }
-    op = op->next;
-  }
   return NULL;
 }
 
@@ -951,18 +914,6 @@ int memcache_get(mc_t* client, char* key, size_t keylen, void* data, memcache_cb
   return 0;
 }
 
-// Check and potentially process queued operations whenever a connection becomes available
-static void mc_connection_available(mc_t* client) {
-  // If we have queued operations and available connections, process them
-  if (client->queue_head && client->available > 0) {
-    mc_process_queue(client);
-  }
-}
-
-// Call mc_connection_available when a connection becomes available
-// This needs to be called in places where connections are freed/become available
-
-// --- START NEW FUNCTION ---
 // Helper function to release a connection back to the pool
 static void mc_release_connection(mc_conn_t* connection) {
   if (!connection || !connection->client) {

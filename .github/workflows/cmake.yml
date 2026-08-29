@@ -337,6 +337,14 @@ jobs:
           path: memory-analysis
           if-no-files-found: error
 
+  unused_code:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check unused C symbols in src/
+        run: python3 scripts/check_unused.py
+
   static_analysis:
     runs-on: ubuntu-latest
     steps:

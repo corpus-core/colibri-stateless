@@ -500,28 +500,6 @@ bool verify_evm_call(verify_ctx_t* ctx, evm_call_ctx_t* evm) {
 
 // :: PAP Phase C + D helpers
 
-static uint32_t pap_build_proof_payload(call_account_t* ac, buffer_t* out_payload, bytes32_t out_req_id, json_t block_id) {
-
-  buffer_t keys_buf  = {0};
-  uint32_t key_count = 0;
-  for (call_storage_t* s = ac->storage; s; s = s->next) {
-    if (s->accessed && s->verified_at == 0) {
-      if (key_count > 0) buffer_append(&keys_buf, bytes((uint8_t*) ",", 1));
-      bprintf(&keys_buf, "\"0x%x\"", bytes((uint8_t*) s->key, 32));
-      key_count++;
-    }
-  }
-  if (key_count == 0) {
-    buffer_free(&keys_buf);
-    return 0;
-  }
-  bprintf(out_payload, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_getProof\",\"params\":[\"0x%x\",[%s],%J]}",
-          bytes((uint8_t*) ac->address, 20), (char*) keys_buf.data.data, block_id);
-  buffer_free(&keys_buf);
-  keccak(out_payload->data, out_req_id);
-  return key_count;
-}
-
 static bool pap_verify_proof_response(verify_ctx_t* ctx, call_account_t* call_accounts, bytes_t response, bool* values_changed) {
   verify_ctx_t    proof_ctx  = {0};
   bytes32_t       state_root = {0};

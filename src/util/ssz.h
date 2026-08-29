@@ -225,11 +225,6 @@ static inline uint32_t ssz_uint32(ssz_ob_t ob) {
  */
 uint32_t ssz_len(ssz_ob_t ob);
 
-/** gets the bytes of the object */
-static inline bytes_t ssz_bytes(ssz_ob_t ob) {
-  return ob.bytes;
-}
-
 static inline bool ssz_is_error(ssz_ob_t ob) {
   return !ob.def || !ob.bytes.data;
 }

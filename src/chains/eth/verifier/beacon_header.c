@@ -227,9 +227,9 @@ static c4_status_t verify_block_by_blockhash(verify_ctx_t* ctx, ssz_ob_t block, 
 
   // the header may already be attached to this ctx as a cache snapshot
   // (re-execution after C4_PENDING or multiple proofs referencing the same block)
-  data_request_t* snapshot = c4_state_get_data_request_by_id(&ctx->state, block.bytes.data);
-  if (snapshot && snapshot->type == C4_DATA_TYPE_CACHE && snapshot->response.data) {
-    *el_header = snapshot->response;
+  bytes_t snapshot = c4_state_cache_get(&ctx->state, block.bytes.data);
+  if (snapshot.data) {
+    *el_header = snapshot;
     memcpy(block_hash, block.bytes.data, 32);
     return C4_SUCCESS;
   }
@@ -239,13 +239,7 @@ static c4_status_t verify_block_by_blockhash(verify_ctx_t* ctx, ssz_ob_t block, 
   if (cached.data) {
     // hand the copy over to the state as a C4_DATA_TYPE_CACHE snapshot: it stays valid
     // for the lifetime of the verify_ctx and is freed automatically by c4_state_free().
-    snapshot           = safe_calloc(1, sizeof(data_request_t));
-    snapshot->chain_id = ctx->chain_id;
-    snapshot->type     = C4_DATA_TYPE_CACHE;
-    snapshot->encoding = C4_DATA_ENCODING_SSZ;
-    snapshot->response = cached;
-    memcpy(snapshot->id, block.bytes.data, 32);
-    c4_state_add_request(&ctx->state, snapshot);
+    c4_state_cache_set(&ctx->state, block.bytes.data, cached);
 
     *el_header = cached;
     memcpy(block_hash, block.bytes.data, 32);

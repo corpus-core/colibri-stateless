@@ -29,24 +29,43 @@
 #include <string.h>
 
 bytes_t c4_state_cache_get(c4_state_t* state, bytes32_t key) {
-  data_request_t* data_request = c4_state_get_data_request_by_id(state, key);
-  return data_request ? data_request->response : NULL_BYTES;
+  data_request_t* data_request = state->requests;
+  while (data_request) {
+    if (data_request->type == C4_DATA_TYPE_CACHE &&
+        data_request->response.data &&
+        memcmp(data_request->id, key, C4_BYTES32_SIZE) == 0)
+      return data_request->response;
+    data_request = data_request->next;
+  }
+  return NULL_BYTES;
 }
 
 bytes_t c4_state_cache_set(c4_state_t* state, bytes32_t key, bytes_t value) {
-  data_request_t* data_request = c4_state_get_data_request_by_id(state, key);
-  if (data_request) {
-    if (data_request->response.data != value.data) safe_free(data_request->response.data);
-    data_request->response = value;
-    return value;
+  data_request_t* data_request = state->requests;
+  while (data_request) {
+    if (data_request->type == C4_DATA_TYPE_CACHE &&
+        memcmp(data_request->id, key, C4_BYTES32_SIZE) == 0) {
+      if (data_request->response.data != value.data) safe_free(data_request->response.data);
+      data_request->response = value;
+      return value;
+    }
+    data_request = data_request->next;
   }
-  data_request = safe_calloc(1, sizeof(data_request_t));
-  memcpy(data_request->id, key, C4_BYTES32_SIZE);
-  data_request->response = value;
-  data_request->encoding = C4_DATA_ENCODING_SSZ;
+  // Never overwrite a non-cache request that happens to share the same id.
+  // Append (do not prepend): `c4_state_get_data_request_by_id` returns the first
+  // id match, so a colliding I/O request must stay in front of this snapshot.
+  data_request           = safe_calloc(1, sizeof(data_request_t));
   data_request->type     = C4_DATA_TYPE_CACHE;
+  data_request->encoding = C4_DATA_ENCODING_SSZ;
   data_request->response = value;
-  c4_state_add_request(state, data_request);
+  memcpy(data_request->id, key, C4_BYTES32_SIZE);
+  if (!state->requests)
+    state->requests = data_request;
+  else {
+    data_request_t* tail = state->requests;
+    while (tail->next) tail = tail->next;
+    tail->next = data_request;
+  }
   return value;
 }
 

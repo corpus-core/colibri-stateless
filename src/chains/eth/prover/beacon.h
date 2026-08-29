@@ -136,34 +136,6 @@ c4_status_t c4_beacon_get_block_for_eth_with_body(prover_ctx_t* ctx, json_t bloc
 c4_status_t c4_hybrid_get_block_for_eth(prover_ctx_t* ctx, json_t block, eth_block_t* beacon_block, bool with_body);
 
 /**
- * Builds an SSZ-encoded `ETH_BLOCK_HEADER_DATA` (14 fields) from a full execution payload.
- * Computes `transactionsRoot` via `ssz_hash_tree_root(transactions)`.
- * The returned `ssz_ob_t.bytes` is heap-allocated and must be freed by the caller.
- *
- * @param execution full SSZ execution payload
- * @return SSZ object with `ETH_BLOCK_HEADER_DATA` def and heap-allocated bytes
- */
-ssz_ob_t c4_build_header_data_from_execution(ssz_ob_t execution);
-
-/**
- * Ensures the verifier header cache holds the RLP-encoded EL header for the block
- * of the given (already verified) execution payload, so proofs built in hybrid mode
- * can reference the block by hash only (`blockHash` variant of `ETH_BLOCK_PROOF_UNION`).
- *
- * On a cache miss the block is fetched via `eth_getBlockByHash` from the user's RPC
- * (untrusted), the RLP header is rebuilt from the JSON and only cached when
- * `keccak(rlp) == blockHash` of the verified execution payload. This bridge becomes
- * obsolete once the remote block proofs deliver the RLP `elHeader` directly.
- *
- * No-op when the `EL_HEADER_CACHE` build option is disabled.
- *
- * @param ctx prover context (must have `C4_PROVER_FLAG_HYBRID` set)
- * @param execution verified full SSZ execution payload of the block
- * @return `C4_SUCCESS` when cached, `C4_PENDING` while fetching, `C4_ERROR` on failure
- */
-c4_status_t c4_hybrid_ensure_el_header(prover_ctx_t* ctx, ssz_ob_t execution);
-
-/**
  * Persists the process-global tag → block-hash cache (`latest` / `safe` / `finalized`)
  * via the configured `storage_plugin_t` under the key `header_tags_<chain_id>`.
  * The payload is the raw bytes of the tag cache array (fixed size), so the

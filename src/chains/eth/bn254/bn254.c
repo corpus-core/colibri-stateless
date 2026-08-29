@@ -323,16 +323,6 @@ static void fp6_inv(bn254_fp6_t* r, const bn254_fp6_t* a) {
 // Fp12 Arithmetic
 // -----------------------------------------------------------------------------
 
-static void fp12_add(bn254_fp12_t* r, const bn254_fp12_t* a, const bn254_fp12_t* b) {
-  fp6_add(&r->c0, &a->c0, &b->c0);
-  fp6_add(&r->c1, &a->c1, &b->c1);
-}
-
-static void fp12_sub(bn254_fp12_t* r, const bn254_fp12_t* a, const bn254_fp12_t* b) {
-  fp6_sub(&r->c0, &a->c0, &b->c0);
-  fp6_sub(&r->c1, &a->c1, &b->c1);
-}
-
 static void fp12_mul_internal(bn254_fp12_t* r, const bn254_fp12_t* a, const bn254_fp12_t* b) {
   bn254_fp6_t t0, t1, t2, t3;
   fp6_mul(&t0, &a->c0, &b->c0);

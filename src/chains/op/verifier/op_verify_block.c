@@ -222,20 +222,13 @@ c4_status_t op_el_from_preconf_bytes(c4_state_t* state, bytes_t preconf,
 }
 
 static void adopt_header_snapshot(verify_ctx_t* ctx, bytes32_t block_hash, bytes_t header, bytes_t* el_header) {
-  data_request_t* existing = c4_state_get_data_request_by_id(&ctx->state, block_hash);
-  if (existing && existing->type == C4_DATA_TYPE_CACHE && existing->response.data) {
+  bytes_t existing = c4_state_cache_get(&ctx->state, block_hash);
+  if (existing.data) {
     safe_free(header.data);
-    *el_header = existing->response;
+    *el_header = existing;
     return;
   }
-  data_request_t* snap = safe_calloc(1, sizeof(data_request_t));
-  snap->type           = C4_DATA_TYPE_CACHE;
-  snap->chain_id       = ctx->chain_id;
-  snap->encoding       = C4_DATA_ENCODING_SSZ;
-  snap->response       = header;
-  snap->validated      = true;
-  memcpy(snap->id, block_hash, 32);
-  c4_state_add_request(&ctx->state, snap);
+  c4_state_cache_set(&ctx->state, block_hash, header);
   *el_header = header;
 }
 

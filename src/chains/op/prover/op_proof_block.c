@@ -87,14 +87,7 @@ static c4_status_t attach_snap(prover_ctx_t* ctx, bytes32_t id, op_el_snap_t src
   snap->sequencer_payload    = copy_into_tail(&tail, src.sequencer_payload, false);
   snap->sequencer_signature  = copy_into_tail(&tail, src.sequencer_signature, false);
 
-  data_request_t* req = safe_calloc(1, sizeof(data_request_t));
-  req->type           = C4_DATA_TYPE_CACHE;
-  req->chain_id       = ctx->chain_id;
-  req->encoding       = C4_DATA_ENCODING_SSZ;
-  req->response       = bytes((uint8_t*) snap, sizeof(op_el_snap_t) + extra);
-  req->validated      = true;
-  memcpy(req->id, id, 32);
-  c4_state_add_request(&ctx->state, req);
+  c4_state_cache_set(&ctx->state, id, bytes((uint8_t*) snap, sizeof(op_el_snap_t) + extra));
   fill_from_snap(out, snap);
   return C4_SUCCESS;
 }
@@ -130,9 +123,9 @@ static bool try_cached_verified_header(prover_ctx_t* ctx, json_t block, bool wit
 c4_status_t op_get_el_block(prover_ctx_t* ctx, json_t block, eth_block_t* out, bool with_body) {
   bytes32_t id = {0};
   snap_id(block, with_body, id);
-  data_request_t* existing = c4_state_get_data_request_by_id(&ctx->state, id);
-  if (existing && existing->type == C4_DATA_TYPE_CACHE && existing->response.data) {
-    fill_from_snap(out, (op_el_snap_t*) existing->response.data);
+  bytes_t existing = c4_state_cache_get(&ctx->state, id);
+  if (existing.data) {
+    fill_from_snap(out, (op_el_snap_t*) existing.data);
     return C4_SUCCESS;
   }
 

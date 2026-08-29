@@ -393,21 +393,6 @@ static c4_status_t get_block(prover_ctx_t* ctx, beacon_head_t* b, ssz_ob_t* bloc
   return C4_SUCCESS;
 }
 
-static c4_status_t get_execution_payload(prover_ctx_t* ctx, bytes32_t block_root, ssz_ob_t* execution_payload, ssz_ob_t* execution_requests) {
-  char     path[200];
-  ssz_ob_t envelope = {0};
-  buffer_t buffer   = stack_buffer(path);
-  uint32_t ttl      = 6; // 6s for head-requests
-  bprintf(&buffer, "eth/v1/beacon/execution_payload_envelopes/0x%x", bytes(block_root, 32));
-
-  TRY_ASYNC(c4_send_beacon_ssz(ctx, path, NULL, eth_ssz_type_for_gloas(ETH_SSZ_SIGNED_EXECUTION_PAYLOAD_ENVELOPE_CONTAINER, ctx->chain_id), ttl, &envelope));
-
-  ssz_ob_t message   = ssz_get(&envelope, "message");
-  *execution_payload = ssz_get(&message, "payload");
-  if (execution_requests) *execution_requests = ssz_get(&message, "executionRequests");
-  return C4_SUCCESS;
-}
-
 static bool has_signature(ssz_ob_t* block) {
   if (!block || !block->bytes.data) return false;
   ssz_ob_t sig_body = ssz_get(block, "body");

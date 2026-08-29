@@ -22,16 +22,6 @@
 #include <uv.h>
 #define SLOTS_PER_PERIOD  8192u
 #define MAX_REORG_RETRIES 32u
-// Macro to log libuv errors, perform cleanup and return with a custom statement
-#define UVX_CHECK(op, expr, cleanup, retstmt)                                                  \
-  do {                                                                                         \
-    int _rc = (expr);                                                                          \
-    if (_rc < 0) {                                                                             \
-      log_error("period_store: %s failed: %s (%s)", (op), uv_strerror(_rc), uv_err_name(_rc)); \
-      cleanup;                                                                                 \
-      retstmt;                                                                                 \
-    }                                                                                          \
-  } while (0)
 
 #define HEADER_SCHEMA "{data:{root:bytes32,header:{message:{slot:suint,proposer_index:suint,parent_root:bytes32,state_root:bytes32,body_root:bytes32}}}}"
 
@@ -360,86 +350,6 @@ static void ps_finish_write(fs_ctx_t* ctx, bool ok) {
     backfill();
   }
   if (call_next) run_write_block_queue();
-}
-
-static void on_write_headers_done(uv_fs_t* req) {
-  fs_ctx_t* ctx = (fs_ctx_t*) req->data;
-  bool      ok  = req->result >= 0;
-  uv_fs_req_cleanup(req);
-  safe_free(req);
-  ps_finish_write(ctx, ok);
-}
-
-static void on_open_headers(uv_fs_t* req) {
-  fs_ctx_t* ctx = (fs_ctx_t*) req->data;
-  if (req->result < 0) {
-    log_error("period_store: open headers failed: %s", uv_strerror((int) req->result));
-    uv_fs_req_cleanup(req);
-    safe_free(req);
-    ps_finish_write(ctx, false);
-    return;
-  }
-  ctx->headers_fd = (uv_file) req->result;
-  uv_fs_req_cleanup(req);
-  safe_free(req);
-
-  // write headers at offset
-  uv_fs_t* w   = (uv_fs_t*) safe_calloc(1, sizeof(uv_fs_t));
-  w->data      = ctx;
-  uv_buf_t buf = uv_buf_init((char*) ctx->task->block.header, HEADER_SIZE);
-  UVX_CHECK("uv_fs_write(headers)",
-            uv_fs_write(uv_default_loop(), w, ctx->headers_fd, &buf, 1, (int64_t) ctx->headers_offset, on_write_headers_done),
-            uv_fs_req_cleanup(w);
-            safe_free(w),
-            ps_finish_write(ctx, false);
-            return);
-}
-
-static void on_write_blocks_done(uv_fs_t* req) {
-  fs_ctx_t* ctx = (fs_ctx_t*) req->data;
-  if (req->result < 0) {
-    log_error("period_store: write blocks failed: %s", uv_strerror((int) req->result));
-    uv_fs_req_cleanup(req);
-    safe_free(req);
-    ps_finish_write(ctx, false);
-    return;
-  }
-  uv_fs_req_cleanup(req);
-  safe_free(req);
-
-  // open headers next
-  uv_fs_t* o = (uv_fs_t*) safe_calloc(1, sizeof(uv_fs_t));
-  o->data    = ctx;
-  UVX_CHECK("uv_fs_open(headers)",
-            uv_fs_open(uv_default_loop(), o, ctx->headers_path, O_RDWR | O_CREAT, 0666, on_open_headers),
-            uv_fs_req_cleanup(o);
-            safe_free(o),
-            ps_finish_write(ctx, false);
-            return);
-}
-
-static void on_open_blocks(uv_fs_t* req) {
-  fs_ctx_t* ctx = (fs_ctx_t*) req->data;
-  if (req->result < 0) {
-    log_error("period_store: open blocks failed: %s", uv_strerror((int) req->result));
-    uv_fs_req_cleanup(req);
-    safe_free(req);
-    ps_finish_write(ctx, false);
-    return;
-  }
-  ctx->blocks_fd = (uv_file) req->result;
-  uv_fs_req_cleanup(req);
-  safe_free(req);
-
-  uv_fs_t* w   = (uv_fs_t*) safe_calloc(1, sizeof(uv_fs_t));
-  w->data      = ctx;
-  uv_buf_t buf = uv_buf_init((char*) ctx->task->block.root, 32);
-  UVX_CHECK("uv_fs_write(blocks)",
-            uv_fs_write(uv_default_loop(), w, ctx->blocks_fd, &buf, 1, (int64_t) ctx->blocks_offset, on_write_blocks_done),
-            uv_fs_req_cleanup(w);
-            safe_free(w),
-            ps_finish_write(ctx, false);
-            return);
 }
 
 // execute the head and if successfull, we schedule the next one.

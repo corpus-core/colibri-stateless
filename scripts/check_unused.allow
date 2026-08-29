@@ -1,0 +1,3 @@
+# One symbol name per line. Lines starting with # are ignored.
+# Use this only for symbols that the scanner cannot prove are live
+# (e.g. taken exclusively as a function pointer under an unusual macro).

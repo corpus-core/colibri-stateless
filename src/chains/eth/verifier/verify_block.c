@@ -39,13 +39,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define EXECUTION_PAYLOAD_ROOT_GINDEX 25
-
-// GINDEX_BLOCKUMBER (806) is provided by eth_tx.h; GINDEX_TIMESTAMP (809) by
-// eth_account.h. Both already get pulled in via the includes above.
-
 static const char* SHA3_UNCLUES = "\x1d\xcc\x4d\xe8\xde\xc7\x5d\x7a\xab\x85\xb5\x67\xb6\xcc\xd4\x1a\xd3\x12\x45\x1b\x94\x8a\x74\x13\xf0\xa1\x42\xfd\x40\xd4\x93\x47";
-static const char* EMPTY_SHA256 = "\xe3\xb0\xc4\x42\x98\xfc\x1c\x14\x9a\xfb\xf4\xc8\x99\x6f\xb9\x24\x27\xae\x41\xe4\x64\x9b\x93\x4c\xa4\x95\x99\x1b\x78\x52\xb8\x55";
 
 static ssz_builder_t create_txs_builder(verify_ctx_t* ctx, const ssz_def_t* tx_union_def, bool include_txs, ssz_ob_t txs, bytes_t el_header, bytes32_t block_hash) {
   ssz_builder_t txs_builder  = ssz_builder_for_def(tx_union_def->def.container.elements + ((int) include_txs));

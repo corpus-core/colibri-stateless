@@ -39,7 +39,6 @@
 #include <string.h>
 #include <time.h>
 
-#define EXECUTION_PAYLOAD_ROOT_GINDEX  25
 #define PAP_TX_CACHE_STALE_THRESHOLD_S 12
 
 /* ── tx cache fetch ── */

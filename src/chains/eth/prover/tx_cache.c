@@ -76,17 +76,6 @@ typedef struct block_node_s {
 static block_node_t* g_head = NULL; // oldest block
 static block_node_t* g_tail = NULL; // newest block
 
-// --- Hashing helpers (fast 64-bit mix; not cryptographic) ---
-static inline uint64_t rotl64(uint64_t x, int r) { return (x << r) | (x >> (64 - r)); }
-static inline uint64_t mix64(uint64_t x) {
-  x ^= x >> 30;
-  x *= 0xbf58476d1ce4e5b9ULL;
-  x ^= x >> 27;
-  x *= 0x94d049bb133111ebULL;
-  x ^= x >> 31;
-  return x;
-}
-
 static inline uint64_t hash_bytes32(const bytes32_t key) {
   // Use first 8 bytes directly (key is already a Keccak hash)
   uint64_t w0;

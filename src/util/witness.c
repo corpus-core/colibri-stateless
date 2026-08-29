@@ -73,15 +73,3 @@ ssz_builder_t c4_witness_sign(ssz_builder_t data, bytes32_t private_key) {
   ssz_add_bytes(&builder, "signature", bytes(signature, 65));
   return builder;
 }
-
-bool c4_witness_verify(ssz_ob_t witness, ssz_ob_t* data, address_t address) {
-  ssz_ob_t  data_ob      = ssz_get(&witness, "data");
-  ssz_ob_t  signature_ob = ssz_get(&witness, "signature");
-  bytes32_t hash;
-  uint8_t   pub[64];
-  ssz_hash_tree_root(data_ob, hash);
-  if (!secp256k1_recover(hash, signature_ob.bytes, pub)) return false;
-  keccak(bytes(pub, 64), hash);
-  memcpy(address, hash + 12, 20);
-  return true;
-}
