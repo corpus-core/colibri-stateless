@@ -21,6 +21,9 @@ bool map_revision(int revision, evmc_revision* out) noexcept {
   case EVMONE_REV_OSAKA:
     *out = EVMC_OSAKA;
     return true;
+  case EVMONE_REV_AMSTERDAM:
+    *out = EVMC_AMSTERDAM;
+    return true;
   default:
     // Refuse unknown Colibri revision IDs instead of silently selecting a fork.
     return false;
@@ -289,6 +292,7 @@ extern "C" evmone_result evmone_execute(
 
   auto* vm = static_cast<struct evmc_vm*>(executor);
 
+  // Default overridden by map_revision on success; failure returns before use.
   evmc_revision rev = EVMC_OSAKA;
   if (!map_revision(revision, &rev)) {
     evmone_result err{};

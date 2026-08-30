@@ -224,6 +224,23 @@ void free_emitted_logs(emitted_log_t* logs);
 void           free_trace_entries(trace_entry_t* entries);
 emitted_log_t* add_emitted_log(emitted_log_t** logs, const address_t addr, const uint8_t* data, size_t data_size, const bytes32_t* topics, size_t topics_count);
 
+/**
+ * EIP-7708: emits a `Transfer(address,address,uint256)` protocol log from
+ * `SYSTEM_ADDRESS` (`0xfffffffffffffffffffffffffffffffffffffffe`).
+ *
+ * Skipped when the amount is zero or when `from == to` (per EIP-7708).
+ * Otherwise the log is prepended to `*logs` in the same LIFO shape used by
+ * `add_emitted_log`, so the caller can reverse the list once at the end to
+ * obtain chronological output.
+ *
+ * @param logs  target list head (may be `NULL`); the log is prepended on emit
+ * @param from  20-byte sender address (transaction origin, CALL sender,
+ *              CREATE creator, or SELFDESTRUCT contract)
+ * @param to    20-byte recipient address
+ * @param value 32-byte big-endian uint256 amount in Wei
+ */
+void emit_eth_transfer_log(emitted_log_t** logs, const address_t from, const address_t to, const uint8_t value[32]);
+
 // :: Child-context management
 
 void context_free(evmone_context_t* ctx);

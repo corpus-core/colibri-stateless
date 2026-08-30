@@ -57,8 +57,13 @@ typedef struct {
  * Do not pass raw `evmc_revision` numeric values from C: EVMC ABI 18 removed
  * explicit enumerator values, so Osaka is no longer safely hard-coded as 14.
  */
-/* Non-zero so zero-initialized callers cannot silently select Osaka. */
-#define EVMONE_REV_OSAKA 1
+/* Non-zero so zero-initialized callers cannot silently select a fork. */
+#define EVMONE_REV_OSAKA     1
+/* Glamsterdam. Adds SLOTNUM / DUPN / SWAPN / EXCHANGE and lifts MAX_CODE_SIZE
+ * to 64 KiB, MAX_INITCODE_SIZE to 128 KiB. Storage-refund table matches
+ * London/Osaka. Host callers that select this revision are responsible for
+ * populating `evmone_tx_context::block_slot_number` (EIP-7843). */
+#define EVMONE_REV_AMSTERDAM 2
 
 /* Result structure (CREATE address is computed by the VM since EVMC ABI 18). */
 typedef struct evmone_result {
