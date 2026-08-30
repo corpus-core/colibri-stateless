@@ -9,14 +9,17 @@ use discv5::{ConfigBuilder, ListenConfig};
 use k256::ecdsa::SigningKey;
 use kona_disc::{Discv5Builder, LocalNode};
 use kona_gossip::{
-    ConnectionGater, Event as GossipEvent, GaterConfig, GossipDriverBuilder, default_config_builder,
+    default_config_builder, ConnectionGater, Event as GossipEvent, GaterConfig, GossipDriverBuilder,
 };
 use kona_peers::{enr_to_multiaddr, BootNode, BootNodes};
 use kona_registry::ROLLUP_CONFIGS;
 use libp2p::{
-    Multiaddr, PeerId, core::ConnectedPoint, gossipsub,
-    identity::{Keypair, secp256k1},
-    identify, multiaddr::Protocol, swarm::SwarmEvent,
+    core::ConnectedPoint,
+    gossipsub, identify,
+    identity::{secp256k1, Keypair},
+    multiaddr::Protocol,
+    swarm::{ConnectionId, SwarmEvent},
+    Multiaddr, PeerId,
 };
 use std::{
     collections::{HashMap, HashSet},
@@ -40,7 +43,10 @@ fn advertise_ip() -> IpAddr {
         if let Ok(ip) = raw.parse() {
             return ip;
         }
-        warn!("⚠️  ADVERTISE_IP={:?} is not a valid IP, falling back to local interface", raw);
+        warn!(
+            "⚠️  ADVERTISE_IP={:?} is not a valid IP, falling back to local interface",
+            raw
+        );
     }
     UdpSocket::bind("0.0.0.0:0")
         .and_then(|s| {
@@ -53,7 +59,9 @@ fn advertise_ip() -> IpAddr {
 
 fn is_unroutable_advertise_ip(ip: IpAddr) -> bool {
     match ip {
-        IpAddr::V4(v4) => v4.is_unspecified() || v4.is_loopback() || v4.is_private() || v4.is_link_local(),
+        IpAddr::V4(v4) => {
+            v4.is_unspecified() || v4.is_loopback() || v4.is_private() || v4.is_link_local()
+        }
         IpAddr::V6(v6) => v6.is_unspecified() || v6.is_loopback() || v6.is_unique_local(),
     }
 }
@@ -90,8 +98,8 @@ fn load_p2p_identity(
         fs::set_permissions(path, fs::Permissions::from_mode(0o600))
             .map_err(|e| format!("failed to chmod 0600 {}: {e}", path.display()))?;
     }
-    let file = fs::File::open(path)
-        .map_err(|e| format!("failed to read {}: {e}", path.display()))?;
+    let file =
+        fs::File::open(path).map_err(|e| format!("failed to read {}: {e}", path.display()))?;
     let mut buf = Vec::new();
     file.take(80)
         .read_to_end(&mut buf)
@@ -99,10 +107,10 @@ fn load_p2p_identity(
     if buf.len() > 65 {
         return Err(format!("{} is too large to be a 32-byte hex secret", path.display()).into());
     }
-    let raw = std::str::from_utf8(&buf)
-        .map_err(|_| format!("{} is not valid UTF-8", path.display()))?;
-    let decoded = hex::decode(raw.trim())
-        .map_err(|e| format!("{} is not valid hex: {e}", path.display()))?;
+    let raw =
+        std::str::from_utf8(&buf).map_err(|_| format!("{} is not valid UTF-8", path.display()))?;
+    let decoded =
+        hex::decode(raw.trim()).map_err(|e| format!("{} is not valid hex: {e}", path.display()))?;
     let secret_bytes: [u8; 32] = decoded.as_slice().try_into().map_err(|_| {
         format!(
             "{} must contain exactly 32 bytes (got {})",
@@ -154,9 +162,8 @@ fn load_or_create_p2p_identity(
     }
     match create_p2p_identity(&path) {
         Ok(keys) => Ok(keys),
-        Err(e) if path.exists() => load_p2p_identity(&path).map_err(|load_err| {
-            format!("create failed ({e}); reload failed ({load_err})").into()
-        }),
+        Err(e) if path.exists() => load_p2p_identity(&path)
+            .map_err(|load_err| format!("create failed ({e}); reload failed ({load_err})").into()),
         Err(e) => Err(e),
     }
 }
@@ -180,6 +187,54 @@ fn is_blocks_topic(handler: &kona_gossip::BlockHandler, topic: &gossipsub::Topic
         || *topic == handler.blocks_v2_topic.hash()
         || *topic == handler.blocks_v3_topic.hash()
         || *topic == handler.blocks_v4_topic.hash()
+}
+
+/// Enough topic peers to receive sequencer publishes. More peers only add
+/// gossip traffic and libp2p/discv5 state — this process is a listener, not a relay.
+const MESH_TARGET: usize = 3;
+const MAX_IN_FLIGHT_DIALS: usize = 2;
+/// Cap outbound discovery dials. Mesh target is much smaller; extras are fallbacks.
+const MAX_OUTBOUND: usize = 8;
+/// Cap inbound gossip connections. Without this, a public ENR accumulates
+/// the whole Base mesh (hundreds of live TCP sessions, GB-scale RSS).
+const MAX_INBOUND: usize = 8;
+/// Hard cap on simultaneous gossip peers (inbound + outbound).
+const MAX_TOTAL: usize = 16;
+/// Drop gater dial history older than this so `dialed_peers` cannot grow without bound.
+const GATER_DIAL_RETENTION: Duration = Duration::from_secs(10 * 60);
+
+/// `inbound` / `total` are counts *after* inserting the new listener peer.
+fn inbound_over_limit(inbound: usize, total: usize) -> bool {
+    inbound > MAX_INBOUND || total > MAX_TOTAL
+}
+
+/// Only the first `MESH_TARGET` block-topic subscribers become explicit peers.
+/// Explicit peers are never rotated out by gossipsub and would otherwise pin
+/// every historical subscriber in the mesh.
+fn can_promote_explicit(topic_peers: usize) -> bool {
+    topic_peers <= MESH_TARGET
+}
+
+/// Inbound subscribers must not freeze discovery. We only stop dialing once
+/// enough *outbound* peers sit on a blocks topic.
+fn outbound_topic_count(topic_peers: &HashSet<PeerId>, outbound_peers: &HashSet<PeerId>) -> usize {
+    topic_peers.intersection(outbound_peers).count()
+}
+
+fn forget_peer_state(gossip: &mut kona_gossip::GossipDriver<ConnectionGater>, peer_id: &PeerId) {
+    gossip.peerstore.remove(peer_id);
+    gossip.connection_gate.connectedness.remove(peer_id);
+    gossip
+        .swarm
+        .behaviour_mut()
+        .gossipsub
+        .remove_explicit_peer(peer_id);
+}
+
+fn prune_stale_gater(gater: &mut ConnectionGater, max_age: Duration) {
+    gater
+        .dialed_peers
+        .retain(|_, info| info.last_dial.elapsed() < max_age);
 }
 
 /// Runs the preconf gossip loop until `running` is toggled off or the network shuts down.
@@ -224,16 +279,21 @@ pub async fn run_gossip_network(
     // so peers that dial our ENR actually hit the libp2p swarm.
     let advertised = advertise_ip();
     let discovery_address = LocalNode::new(disc_signing_key, advertised, gossip_port, disc_port);
-    let discovery_config =
-        ConfigBuilder::new(ListenConfig::Ipv4 { ip: Ipv4Addr::UNSPECIFIED, port: disc_port })
-            // kona's bootstrap awaits request_enr() for every enode:// bootnode
-            // sequentially. The discv5 default query timeout is 60s, so a cold
-            // start can sit silent for minutes before gossip sees a single peer.
-            .query_timeout(Duration::from_secs(2))
-            .request_timeout(Duration::from_secs(1))
-            .build();
+    let discovery_config = ConfigBuilder::new(ListenConfig::Ipv4 {
+        ip: Ipv4Addr::UNSPECIFIED,
+        port: disc_port,
+    })
+    // kona's bootstrap awaits request_enr() for every enode:// bootnode
+    // sequentially. The discv5 default query timeout is 60s, so a cold
+    // start can sit silent for minutes before gossip sees a single peer.
+    .query_timeout(Duration::from_secs(2))
+    .request_timeout(Duration::from_secs(1))
+    .build();
 
-    tracing::debug!("🔍 Looking up rollup config for chain {}", chain_config.chain_id);
+    tracing::debug!(
+        "🔍 Looking up rollup config for chain {}",
+        chain_config.chain_id
+    );
     let rollup_config = ROLLUP_CONFIGS
         .get(&chain_config.chain_id)
         .or_else(|| {
@@ -244,14 +304,19 @@ pub async fn run_gossip_network(
             ROLLUP_CONFIGS.get(&8453) // Base fallback
         })
         .ok_or_else(|| {
-            format!("No rollup config found for chain {} or Base fallback", chain_config.chain_id)
+            format!(
+                "No rollup config found for chain {} or Base fallback",
+                chain_config.chain_id
+            )
         })?
         .clone();
     tracing::debug!("✅ Found rollup config for chain {}", chain_config.chain_id);
 
     info!("🪪 P2P PeerId {}", local_peer_id);
-    info!("🔍 Discovery listen 0.0.0.0:{} (ENR advertises {} tcp={} udp={})",
-          disc_port, advertised, gossip_port, disc_port);
+    info!(
+        "🔍 Discovery listen 0.0.0.0:{} (ENR advertises {} tcp={} udp={})",
+        disc_port, advertised, gossip_port, disc_port
+    );
     info!("📡 Gossip listen 0.0.0.0:{}", gossip_port);
     info!("🔐 Expected sequencer: {}", chain_config.unsafe_signer);
     if is_unroutable_advertise_ip(advertised) {
@@ -269,7 +334,11 @@ pub async fn run_gossip_network(
     for enr in &chain_config.bootnodes {
         bootnodes.0.push(BootNode::from(enr.clone()));
     }
-    info!("🔧 P2P bootstrap: {} bootnode(s) for chain {}", bootnodes.len(), chain_config.chain_id);
+    info!(
+        "🔧 P2P bootstrap: {} bootnode(s) for chain {}",
+        bootnodes.len(),
+        chain_config.chain_id
+    );
 
     let l2_chain_id = rollup_config.l2_chain_id.id();
 
@@ -281,9 +350,6 @@ pub async fn run_gossip_network(
     // One healthy topic peer is enough to receive publishes. Default kona mesh
     // wants Dlo=6, which kept us hunting and churning connections instead of
     // grafting the one Base node that actually spoke gossipsub.
-    const MESH_TARGET: usize = 3;
-    const MAX_IN_FLIGHT_DIALS: usize = 2;
-    const MAX_OUTBOUND: usize = 12;
     let mut gossip_cfg = default_config_builder();
     gossip_cfg.mesh_n(4).mesh_n_low(1).mesh_n_high(8);
     let gossip_cfg = gossip_cfg
@@ -384,6 +450,7 @@ pub async fn run_gossip_network(
     let mut dial_cooldown: HashMap<PeerId, Instant> = HashMap::new();
     let mut conn_started: HashMap<PeerId, Instant> = HashMap::new();
     let mut outbound_peers: HashSet<PeerId> = HashSet::new();
+    let mut inbound_peers: HashSet<PeerId> = HashSet::new();
     let mut topic_peers: HashSet<PeerId> = HashSet::new();
     const DIAL_COOLDOWN: Duration = Duration::from_secs(60);
 
@@ -396,24 +463,39 @@ pub async fn run_gossip_network(
                     break;
                 };
                 let mut promote_explicit: Option<PeerId> = None;
+                let mut close_conn: Option<ConnectionId> = None;
                 let mut saw_gossip_message = false;
                 match &event {
-                    SwarmEvent::ConnectionEstablished { peer_id, endpoint, num_established, .. } => {
+                    SwarmEvent::ConnectionEstablished { peer_id, endpoint, connection_id, num_established, .. } => {
                         conn_started.insert(*peer_id, Instant::now());
                         if matches!(endpoint, ConnectedPoint::Dialer { .. }) {
                             outbound_peers.insert(*peer_id);
+                            inbound_peers.remove(peer_id);
+                        } else if outbound_peers.contains(peer_id) {
+                            // Dual-connect: keep the outbound mesh session, drop the extra inbound.
+                            close_conn = Some(*connection_id);
+                        } else {
+                            inbound_peers.insert(*peer_id);
+                            if inbound_over_limit(inbound_peers.len(), gossip.connected_peers()) {
+                                close_conn = Some(*connection_id);
+                            }
                         }
                         info!(
-                            "✅ Connected {} {} {} n={} (peers={})",
+                            "✅ Connected {} {} {} n={} (peers={} in={} out={})",
                             peer_id,
                             endpoint_dir(endpoint),
                             endpoint_addr(endpoint),
                             num_established,
-                            gossip.connected_peers()
+                            gossip.connected_peers(),
+                            inbound_peers.len(),
+                            outbound_peers.len()
                         );
                     }
-                    SwarmEvent::IncomingConnection { send_back_addr, local_addr, .. } => {
-                        info!("⬅️  Incoming {} -> {}", send_back_addr, local_addr);
+                    SwarmEvent::IncomingConnection { connection_id, send_back_addr, local_addr, .. } => {
+                        tracing::debug!("⬅️  Incoming {} -> {}", send_back_addr, local_addr);
+                        if inbound_peers.len() >= MAX_INBOUND || gossip.connected_peers() >= MAX_TOTAL {
+                            close_conn = Some(*connection_id);
+                        }
                     }
                     SwarmEvent::OutgoingConnectionError { peer_id, error, .. } => {
                         if let Some(id) = peer_id {
@@ -422,21 +504,33 @@ pub async fn run_gossip_network(
                         warn!("❌ Dial failed peer={:?}: {}", peer_id, error);
                     }
                     SwarmEvent::ConnectionClosed { peer_id, endpoint, cause, num_established, .. } => {
-                        let held = conn_started
-                            .remove(peer_id)
-                            .map(|t| t.elapsed())
-                            .unwrap_or_default();
-                        outbound_peers.remove(peer_id);
-                        topic_peers.remove(peer_id);
-                        dial_cooldown.insert(*peer_id, Instant::now());
+                        let held = if *num_established == 0 {
+                            conn_started
+                                .remove(peer_id)
+                                .map(|t| t.elapsed())
+                                .unwrap_or_default()
+                        } else {
+                            Duration::ZERO
+                        };
+                        if *num_established == 0 {
+                            outbound_peers.remove(peer_id);
+                            inbound_peers.remove(peer_id);
+                            topic_peers.remove(peer_id);
+                            dial_cooldown.insert(*peer_id, Instant::now());
+                            forget_peer_state(&mut gossip, peer_id);
+                        } else if matches!(endpoint, ConnectedPoint::Listener { .. }) {
+                            inbound_peers.remove(peer_id);
+                        }
                         info!(
-                            "🔌 Disconnected {} {} after {:?} cause={:?} remaining={} (peers={})",
+                            "🔌 Disconnected {} {} after {:?} cause={:?} remaining={} (peers={} in={} out={})",
                             peer_id,
                             endpoint_dir(endpoint),
                             held,
                             cause,
                             num_established,
-                            gossip.connected_peers()
+                            gossip.connected_peers(),
+                            inbound_peers.len(),
+                            outbound_peers.len()
                         );
                     }
                     SwarmEvent::Behaviour(GossipEvent::Identify(ev)) => match ev.as_ref() {
@@ -466,13 +560,24 @@ pub async fn run_gossip_network(
                             info!("📥 {} subscribed to {}", peer_id, topic);
                             if is_blocks_topic(&gossip.handler, topic) {
                                 topic_peers.insert(*peer_id);
-                                promote_explicit = Some(*peer_id);
+                                let outbound_topic =
+                                    outbound_topic_count(&topic_peers, &outbound_peers);
+                                if outbound_peers.contains(peer_id)
+                                    && can_promote_explicit(outbound_topic)
+                                {
+                                    promote_explicit = Some(*peer_id);
+                                }
                             }
                         }
                         gossipsub::Event::Unsubscribed { peer_id, topic } => {
                             info!("📤 {} unsubscribed from {}", peer_id, topic);
                             if is_blocks_topic(&gossip.handler, topic) {
                                 topic_peers.remove(peer_id);
+                                gossip
+                                    .swarm
+                                    .behaviour_mut()
+                                    .gossipsub
+                                    .remove_explicit_peer(peer_id);
                             }
                         }
                         gossipsub::Event::Message {
@@ -505,7 +610,19 @@ pub async fn run_gossip_network(
                         .add_explicit_peer(&peer_id);
                     info!("📌 Explicit mesh peer {}", peer_id);
                 }
-                let Some(payload_envelope) = gossip.handle_event(event) else {
+                let payload_envelope = gossip.handle_event(event);
+                if let Some(connection_id) = close_conn {
+                    info!(
+                        "🚫 Closing connection {:?} (inbound {}/{} total {}/{})",
+                        connection_id,
+                        inbound_peers.len(),
+                        MAX_INBOUND,
+                        gossip.connected_peers(),
+                        MAX_TOTAL
+                    );
+                    gossip.swarm.close_connection(connection_id);
+                }
+                let Some(payload_envelope) = payload_envelope else {
                     if saw_gossip_message {
                         warn!(
                             "⚠️  Gossip message dropped by kona handler (decode / signer / validation)"
@@ -611,10 +728,10 @@ pub async fn run_gossip_network(
                     error!("🛑 GOSSIP: ENR receiver closed");
                     break;
                 };
-                if topic_peers.len() >= MESH_TARGET {
+                if outbound_topic_count(&topic_peers, &outbound_peers) >= MESH_TARGET {
                     continue;
                 }
-                if outbound_peers.len() >= MAX_OUTBOUND {
+                if outbound_peers.len() >= MAX_OUTBOUND || gossip.connected_peers() >= MAX_TOTAL {
                     continue;
                 }
                 if gossip.connection_gate.current_dials.len() >= MAX_IN_FLIGHT_DIALS {
@@ -646,6 +763,12 @@ pub async fn run_gossip_network(
                     break;
                 }
                 dial_cooldown.retain(|_, t| t.elapsed() < DIAL_COOLDOWN);
+                prune_stale_gater(&mut gossip.connection_gate, GATER_DIAL_RETENTION);
+                let connected: HashSet<PeerId> = gossip.swarm.connected_peers().cloned().collect();
+                inbound_peers.retain(|id| connected.contains(id));
+                outbound_peers.retain(|id| connected.contains(id));
+                topic_peers.retain(|id| connected.contains(id));
+                gossip.peerstore.retain(|id, _| connected.contains(id));
                 let peers = gossip.connected_peers();
                 {
                     let mut stats_guard = stats.lock().unwrap();
@@ -661,11 +784,14 @@ pub async fn run_gossip_network(
                         .mesh_peers(&v4)
                         .count();
                     info!(
-                        "📡 GOSSIP peers: {} connected, topic={}, mesh_v4={}, outbound={}, in-flight={}",
+                        "📡 GOSSIP peers: {} connected (in={} out={}/{}), topic={}, mesh_v4={}, peerstore={}, in-flight={}",
                         peers,
+                        inbound_peers.len(),
+                        outbound_peers.len(),
+                        MAX_OUTBOUND,
                         topic_peers.len(),
                         mesh,
-                        outbound_peers.len(),
+                        gossip.peerstore.len(),
                         gossip.connection_gate.current_dials.len()
                     );
                     next_peer_log = elapsed + PEER_LOG_SECS;
@@ -718,5 +844,33 @@ mod tests {
             .mode()
             & 0o777;
         assert_eq!(mode, 0o600);
+    }
+
+    #[test]
+    fn inbound_ninth_peer_is_dropped() {
+        assert!(!inbound_over_limit(MAX_INBOUND, MAX_INBOUND));
+        assert!(inbound_over_limit(MAX_INBOUND + 1, MAX_INBOUND + 1));
+    }
+
+    #[test]
+    fn inbound_is_dropped_when_total_cap_is_hit() {
+        assert!(inbound_over_limit(1, MAX_TOTAL + 1));
+        assert!(!inbound_over_limit(1, MAX_TOTAL));
+    }
+
+    #[test]
+    fn only_mesh_target_subscribers_become_explicit() {
+        assert!(can_promote_explicit(1));
+        assert!(can_promote_explicit(MESH_TARGET));
+        assert!(!can_promote_explicit(MESH_TARGET + 1));
+    }
+
+    #[test]
+    fn inbound_subscribers_do_not_count_as_outbound_mesh() {
+        let inbound: PeerId = PeerId::random();
+        let outbound: PeerId = PeerId::random();
+        let topic = HashSet::from([inbound, outbound]);
+        let outbound_set = HashSet::from([outbound]);
+        assert_eq!(outbound_topic_count(&topic, &outbound_set), 1);
     }
 }
