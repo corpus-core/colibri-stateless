@@ -482,9 +482,6 @@ INTERNAL c4_status_t c4_update_from_sync_data(verify_ctx_t* ctx) {
   log_debug("c4_update_from_sync_data: %s", (char*) ctx->sync_data.def->name);
   if (strcmp(ctx->sync_data.def->name, "LCSyncData") == 0)
     return update_from_lc_sync_data(ctx);
-  // Union index 3 (`ZKSyncDataV6`). Index 2 (`ZKSyncData`) is a dead placeholder
-  // and is not served; reject it here so a leftover v5 selector cannot enter
-  // the Groth16 path.
   else if (strcmp(ctx->sync_data.def->name, "ZKSyncDataV6") == 0)
     return update_from_zk_sync_data(ctx);
   else
