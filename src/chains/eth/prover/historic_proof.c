@@ -384,17 +384,16 @@ c4_status_t c4_get_syncdata_proof(prover_ctx_t* ctx, syncdata_state_t* sync_data
   if (ctx->flags & C4_PROVER_FLAG_ZK_PROOF && (ctx->flags & C4_PROVER_FLAG_CHAIN_STORE) == 0) return C4_SUCCESS;
   if ((ctx->flags & C4_PROVER_FLAG_ZK_PROOF) && ((sync_data->newest_period == 0 && sync_data->checkpoint_period == 0) ||
                                                  (sync_data->newest_period && sync_data->newest_period < sync_data->required_period))) {
-    // we need a zk_proof (if available) for the required period. Pick the ZKSyncData
-    // union variant by client version: v6 clients (>= 2.0.0) get `ZKSyncDataV6` (index 3,
-    // 356-byte proof), older clients keep the legacy `ZKSyncData` (index 2, 260-byte
-    // proof). The builder layout AND the union selector are derived from this def, so it
-    // must match the read def used in `c4_fetch_zk_proof_data`.
-    builder->def             = eth_ssz_verification_type(c4_zk_syncdata_type(ctx->version));
+    // we need a zk_proof (if available) for the required period. Always `ZKSyncDataV6`
+    // (union index 3, 356-byte SP1 v6 proof). The builder layout AND the union selector
+    // are derived from this def, so it must match the read def used in
+    // `c4_fetch_zk_proof_data`.
+    builder->def             = eth_ssz_verification_type(c4_zk_syncdata_type());
     zk_proof_data_t zk_proof = {0};
     eth_cu_add(ctx, CU_ZK_PROOF_INCLUDE); // ZK proof attached to the sync section
 
     // The witness-key path keeps the original header_proof checkpoint embedded in
-    // `zk_proof.ssz` because the witness BLS signatures vouch for the signed header
+    // `zk_proof_v6.ssz` because the witness BLS signatures vouch for the signed header
     // directly. Without witness keys we anchor the sync committee instead against an
     // independently checkpointz-confirmed LightClientBootstrap (double-trust model):
     // both the verified ZK proof's pubkeys and the bootstrap's currentSyncCommittee

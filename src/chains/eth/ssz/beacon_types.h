@@ -95,7 +95,7 @@ typedef enum {
   // `C4_ETH_REQUEST_SYNCDATA_UNION` variants (named to avoid raw pointer arithmetic
   // on the union array at the call sites).
   ETH_SSZ_VERIFY_LC_SYNCDATA    = 45, // `LCSyncData`   (union index 1): LightClient sync data
-  ETH_SSZ_VERIFY_ZK_SYNCDATA    = 46, // `ZKSyncData`   (union index 2): legacy SP1 v5 ZK sync data, 260-byte proof
+  ETH_SSZ_VERIFY_ZK_SYNCDATA    = 46, // `ZKSyncData`   (union index 2): legacy SP1 v5, 260-byte proof (kept so index 3 stays stable)
   ETH_SSZ_VERIFY_ZK_SYNCDATA_V6 = 47, // `ZKSyncDataV6` (union index 3): SP1 v6 ZK sync data, 356-byte proof
 
   ETH_SSZ_VERIFY_LOGS_COMPLETENESS_PROOF = 48, // `LogsCompletenessProof` (proof union index 20): completeness proof for eth_getLogs
@@ -205,7 +205,11 @@ inline static bool is_gnosis_chain(chain_id_t chain_id) {
 gindex_t c4_current_sync_committee_gindex(chain_id_t chain_id, uint64_t slot);
 
 /**
- * Returns the generalized index of `next_sync_committee` within `BeaconState` for the fork active at `slot`.
+ * Returns the generalized index of `next_sync_committee` (the SyncCommittee
+ * container) within `BeaconState` for the fork active at `slot`.
+ *
+ * That leaf is `hash(pubkeys_root, aggregatePubkey_root)`, not the 512-key
+ * vector. ZK sync proofs prove `.pubkeys` (left child, gindex `* 2`).
  *
  * The gindex depends on the BeaconState layout:
  * - Deneb:   55

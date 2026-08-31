@@ -482,10 +482,10 @@ INTERNAL c4_status_t c4_update_from_sync_data(verify_ctx_t* ctx) {
   log_debug("c4_update_from_sync_data: %s", (char*) ctx->sync_data.def->name);
   if (strcmp(ctx->sync_data.def->name, "LCSyncData") == 0)
     return update_from_lc_sync_data(ctx);
-  // Matches both the legacy "ZKSyncData" (SP1 v5, 260-byte proof) and the "ZKSyncDataV6"
-  // variant (SP1 v6, 356-byte proof); both share the same field layout besides the proof
-  // size, so `update_from_zk_sync_data` reads them identically via `ssz_get`.
-  else if (strncmp(ctx->sync_data.def->name, "ZKSyncData", 10) == 0)
+  // Union index 3 (`ZKSyncDataV6`). Index 2 (`ZKSyncData`) is a dead placeholder
+  // and is not served; reject it here so a leftover v5 selector cannot enter
+  // the Groth16 path.
+  else if (strcmp(ctx->sync_data.def->name, "ZKSyncDataV6") == 0)
     return update_from_zk_sync_data(ctx);
   else
     RETURN_VERIFY_ERROR_STATUS(ctx, "unknown sync_data type!");

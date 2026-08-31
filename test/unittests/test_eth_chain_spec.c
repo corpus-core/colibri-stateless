@@ -134,6 +134,37 @@ void test_mainnet_gloas_still_unassigned(void) {
   TEST_ASSERT_EQUAL_INT(C4_FORK_GLOAS, c4_chain_fork_id(C4_CHAIN_MAINNET, 0xffffffffffffffffULL));
 }
 
+// Pins the rotated recursive ZK trust anchors (current_keys_root of the first
+// post-rotation proof: mainnet 1845, sepolia 1348, gnosis 3643). A silent
+// change here would make every ZK sync proof verify against the wrong committee.
+void test_zk_sync_trust_anchors(void) {
+  const uint8_t mainnet[32] = {
+      0xc6, 0x10, 0xd3, 0xcf, 0x3f, 0xf6, 0xf4, 0x02,
+      0x48, 0xad, 0xe8, 0x12, 0xe5, 0x70, 0x85, 0x7e,
+      0x74, 0x12, 0xaf, 0x35, 0x45, 0xcb, 0xee, 0x91,
+      0x75, 0xcf, 0x54, 0xcc, 0xcf, 0xa2, 0x21, 0x3c};
+  const uint8_t sepolia[32] = {
+      0xee, 0x5c, 0x88, 0x0d, 0x52, 0x41, 0x66, 0xb4,
+      0xb1, 0xd3, 0xed, 0xda, 0xba, 0xea, 0xcb, 0x3f,
+      0xdf, 0x1e, 0x40, 0xc9, 0x00, 0x8f, 0x25, 0x6e,
+      0x35, 0x7e, 0x72, 0x2d, 0x80, 0xba, 0x97, 0x25};
+  const uint8_t gnosis[32] = {
+      0x19, 0x97, 0x24, 0x9f, 0x4d, 0xd2, 0xf3, 0x66,
+      0x53, 0x05, 0x2f, 0x43, 0x8c, 0xe4, 0x80, 0x9a,
+      0x2d, 0xb7, 0xfa, 0xb8, 0xa3, 0x3f, 0x49, 0xc2,
+      0x2f, 0x61, 0x32, 0xd2, 0xa1, 0x07, 0xb8, 0xe0};
+
+  const chain_spec_t* m = c4_eth_get_chain_spec(C4_CHAIN_MAINNET);
+  const chain_spec_t* s = c4_eth_get_chain_spec(C4_CHAIN_SEPOLIA);
+  const chain_spec_t* g = c4_eth_get_chain_spec(C4_CHAIN_GNOSIS);
+  TEST_ASSERT_NOT_NULL(m);
+  TEST_ASSERT_NOT_NULL(s);
+  TEST_ASSERT_NOT_NULL(g);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(mainnet, m->zk_sync_keys_root, 32);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(sepolia, s->zk_sync_keys_root, 32);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(gnosis, g->zk_sync_keys_root, 32);
+}
+
 void test_chain_schedules_fork(void) {
   TEST_ASSERT_TRUE(c4_chain_schedules_fork(C4_CHAIN_PLATABERGET, C4_FORK_GLOAS));
   TEST_ASSERT_TRUE(c4_chain_schedules_fork(C4_CHAIN_PLATABERGET, C4_FORK_FULU));
@@ -154,6 +185,7 @@ int main(void) {
   RUN_TEST(test_fork_id_epoch_zero_still_phase0_on_public_networks);
   RUN_TEST(test_sepolia_fork_schedule_unchanged);
   RUN_TEST(test_mainnet_gloas_still_unassigned);
+  RUN_TEST(test_zk_sync_trust_anchors);
   RUN_TEST(test_chain_schedules_fork);
   return UNITY_END();
 }

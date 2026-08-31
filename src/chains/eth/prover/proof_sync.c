@@ -132,9 +132,9 @@ static c4_status_t extract_sync_data(prover_ctx_t* ctx, bytes_t old_data, bytes_
   eth_cu_add_proof(ctx);
   bytes_t header_proof = ssz_create_proof(signing_data, domain, state_gidx);
   bytes_t full_proof   = bytes(malloc(header_proof.len + state_proof.len + 32), header_proof.len + state_proof.len + 32);
-  memcpy(full_proof.data, aggregate, 32);                                              // 1
-  memcpy(full_proof.data + 32, state_proof.data, state_proof.len);                     // 5 for deneb
-  memcpy(full_proof.data + 32 + state_proof.len, header_proof.data, header_proof.len); // 4
+  memcpy(full_proof.data, aggregate, 32);                                              // 1 node: aggregatePubkey helper
+  memcpy(full_proof.data + 32, state_proof.data, state_proof.len);                     // 5 (Deneb) / 6 (Electra, Fulu) / 11 (Gloas)
+  memcpy(full_proof.data + 32 + state_proof.len, header_proof.data, header_proof.len); // 4 nodes: header -> SigningData
   safe_free(header_proof.data);
   safe_free(signing_data.bytes.data);
   period->proof = full_proof;

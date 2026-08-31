@@ -331,6 +331,46 @@ void test_gloas_gindex_helpers_pre_gloas_branches(void) {
   TEST_ASSERT_EQUAL_UINT64(812, c4_execution_block_hash_gindex(C4_CHAIN_PLATABERGET, plataberget_pre_gloas_slot));
 }
 
+// SigningData = { BeaconBlockHeader, domain }; stateRoot sits at gindex 19.
+// The guest composes `ssz_add_gindex(19, next_sync_gindex) * 2` (the `* 2` steps
+// into `nextSyncCommittee.pubkeys`). Proof length must equal floorlog2(expected_gidx).
+#define SIGNING_DATA_STATE_ROOT_GINDEX 19
+
+static uint32_t floorlog2_u64(uint64_t x) {
+  uint32_t n = 0;
+  while (x > 1) {
+    x >>= 1;
+    n++;
+  }
+  return n;
+}
+
+void test_zk_sync_proof_expected_gidx_depths(void) {
+  gindex_t deneb   = ssz_add_gindex(SIGNING_DATA_STATE_ROOT_GINDEX, 55) * 2;
+  gindex_t electra = ssz_add_gindex(SIGNING_DATA_STATE_ROOT_GINDEX, 87) * 2;
+  gindex_t gloas   = ssz_add_gindex(SIGNING_DATA_STATE_ROOT_GINDEX, 2946) * 2;
+
+  TEST_ASSERT_EQUAL_UINT64(1262, deneb);
+  TEST_ASSERT_EQUAL_UINT64(2478, electra);
+  TEST_ASSERT_EQUAL_UINT64(79620, gloas);
+
+  TEST_ASSERT_EQUAL_UINT32(10, floorlog2_u64(deneb));
+  TEST_ASSERT_EQUAL_UINT32(11, floorlog2_u64(electra));
+  TEST_ASSERT_EQUAL_UINT32(16, floorlog2_u64(gloas));
+
+  // SyncCommittee is a regular 2-field container in every fork, including Gloas
+  // (only BeaconState became a ProgressiveContainer). Field 0 `pubkeys` is the
+  // left child (gindex 2); `aggregatePubkey` is 3. Spec gindex 2946 is the
+  // container; the guest `* 2` is the same as composing with `.pubkeys`.
+  static const ssz_def_t sync_committee = SSZ_CONTAINER("SyncCommittee", SYNC_COMMITTEE);
+  TEST_ASSERT_EQUAL_STRING("pubkeys", SYNC_COMMITTEE[0].name);
+  TEST_ASSERT_EQUAL_STRING("aggregatePubkey", SYNC_COMMITTEE[1].name);
+  TEST_ASSERT_EQUAL_UINT64(2, ssz_gindex(&sync_committee, 1, "pubkeys"));
+  TEST_ASSERT_EQUAL_UINT64(3, ssz_gindex(&sync_committee, 1, "aggregatePubkey"));
+  TEST_ASSERT_EQUAL_UINT64(5892, ssz_add_gindex(2946, 2));
+  TEST_ASSERT_EQUAL_UINT64(79620, ssz_add_gindex(SIGNING_DATA_STATE_ROOT_GINDEX, ssz_add_gindex(2946, 2)));
+}
+
 // -----------------------------------------------------------------------------
 // Historic-block gindex helper (attack surface for HISTORIC_PROOF_DIRECT)
 // -----------------------------------------------------------------------------
@@ -931,6 +971,7 @@ int main(void) {
   RUN_TEST(test_gloas_bootstrap_union_layout);
   RUN_TEST(test_gloas_update_union_layout);
   RUN_TEST(test_gloas_gindex_helpers_pre_gloas_branches);
+  RUN_TEST(test_zk_sync_proof_expected_gidx_depths);
   RUN_TEST(test_historic_block_gindex_matches_manual_recompute);
   RUN_TEST(test_historic_block_gindex_rejects_bad_inputs);
   RUN_TEST(test_gloas_activation_epoch_still_reserved);

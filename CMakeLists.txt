@@ -36,8 +36,7 @@ if(NOT GIT_VERSION)
 endif()
 
 # Version override precedence:
-#   1. explicit cache value (-DC4_VERSION=... at configure time, e.g. to force the v6
-#      dual-serve gate for local roundtrip testing),
+#   1. explicit cache value (-DC4_VERSION=... at configure time),
 #   2. C4_VERSION environment variable (CI),
 #   3. git describe (default for release builds).
 if(NOT C4_VERSION)

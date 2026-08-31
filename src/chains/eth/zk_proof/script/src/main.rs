@@ -11,6 +11,9 @@ use std::fs::File;
 use std::io::Read;
 use std::time::{Duration, Instant};
 
+// Offset of the Merkle-proof list bytes inside the `C4Request` wrapping
+// `ETH_SYNC_PROOF`. The proof is the last variable field, so this offset is
+// independent of fork (11 Electra/Fulu nodes or 16 Gloas nodes).
 const PROOF_OFFSET: usize = 49358;
 
 #[derive(Parser, Debug)]

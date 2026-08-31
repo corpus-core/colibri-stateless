@@ -74,7 +74,7 @@ static const chain_spec_t chain_data[] = {
      .chain_id                 = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 1ULL),
      .fork_epochs              = eth_mainnet_fork_epochs,
      .genesis_validators_root  = "\x4b\x36\x3d\xb9\x4e\x28\x61\x20\xd7\x6e\xb9\x05\x34\x0f\xdd\x4e\x54\xbf\xe9\xf0\x6b\xf3\x3f\xf6\xcf\x5a\xd2\x7f\x51\x1b\xfe\x95",
-     .zk_sync_keys_root        = "\xc0\x23\x61\xcb\x34\xfe\xce\x1e\xae\x2c\x74\xbd\x67\x5d\x38\x76\xc5\x3b\x93\xa7\xe8\x00\x15\x74\xf5\x49\xd2\x8c\xa8\x9c\xfb\x9b", // v6 anchor: current_keys_root of period 1784 proof (oldKeys HTR, = period 1783 committee)
+     .zk_sync_keys_root        = "\xc6\x10\xd3\xcf\x3f\xf6\xf4\x02\x48\xad\xe8\x12\xe5\x70\x85\x7e\x74\x12\xaf\x35\x45\xcb\xee\x91\x75\xcf\x54\xcc\xcf\xa2\x21\x3c", // pubkeys-only HTR of period 1844 committee (= 1845 proof oldKeys / 1844 proof newKeys). Not the LCU SyncCommittee container root (that includes aggregatePubkey).
      .slots_per_epoch_bits     = 5,
      .epochs_per_period_bits   = 8,
      .weak_subjectivity_epochs = 3682,
@@ -83,7 +83,7 @@ static const chain_spec_t chain_data[] = {
      .chain_id                 = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 11155111),
      .fork_epochs              = eth_sepolia_fork_epochs,
      .genesis_validators_root  = "\xd8\xea\x17\x1f\x3c\x94\xae\xa2\x1e\xbc\x42\xa1\xed\x61\x05\x2a\xcf\x3f\x92\x09\xc0\x0e\x4e\xfb\xaa\xdd\xac\x09\xed\x9b\x80\x78",
-     .zk_sync_keys_root        = "\x82\xb2\x41\xf5\x2b\x29\x0f\x82\x78\x81\x11\xbd\x79\x74\xee\x87\xd9\xbb\xac\xfb\xe5\xd0\x84\xa3\x70\x31\x7f\x34\xe7\xb7\xfa\x84", // v6 anchor: current_keys_root of period 1287 proof (oldKeys HTR, = period 1286 committee)
+     .zk_sync_keys_root        = "\xee\x5c\x88\x0d\x52\x41\x66\xb4\xb1\xd3\xed\xda\xba\xea\xcb\x3f\xdf\x1e\x40\xc9\x00\x8f\x25\x6e\x35\x7e\x72\x2d\x80\xba\x97\x25", // pubkeys-only HTR of period 1347 committee (= 1348 proof oldKeys). Not the LCU SyncCommittee container root.
      .slots_per_epoch_bits     = 5,
      .epochs_per_period_bits   = 8,
      .weak_subjectivity_epochs = 3682,
@@ -101,7 +101,7 @@ static const chain_spec_t chain_data[] = {
      .chain_id                 = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 100ULL),
      .fork_epochs              = eth_gnosis_fork_epochs,
      .genesis_validators_root  = "\xf5\xdc\xb5\x56\x4e\x82\x9a\xab\x27\x26\x4b\x9b\xec\xd5\xdf\xaa\x01\x70\x85\x61\x12\x24\xcb\x30\x36\xf5\x73\x36\x8d\xbb\x9d\x47",
-     .zk_sync_keys_root        = "\x1b\x33\xa3\x8a\x13\x18\x7f\xcf\x8c\x60\xec\xf9\xf5\xeb\x44\x2a\x1c\xa0\xd5\xbe\x17\x6b\x5b\x15\xea\xe9\xc2\xda\x72\x7c\xbb\x4a", // v6 anchor: current_keys_root of period 3498 proof (oldKeys HTR, = period 3497 committee)
+     .zk_sync_keys_root        = "\x19\x97\x24\x9f\x4d\xd2\xf3\x66\x53\x05\x2f\x43\x8c\xe4\x80\x9a\x2d\xb7\xfa\xb8\xa3\x3f\x49\xc2\x2f\x61\x32\xd2\xa1\x07\xb8\xe0", // pubkeys-only HTR of period 3642 committee (= 3643 proof oldKeys). Not the LCU SyncCommittee container root.
      .slots_per_epoch_bits     = 4,
      .epochs_per_period_bits   = 9,
      .weak_subjectivity_epochs = 1500,

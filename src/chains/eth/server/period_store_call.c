@@ -72,21 +72,8 @@ static void c4_handle_period_store_cb(void* user_data, file_data_t* files, int n
   c4_internal_call_finish(r);
 }
 
-// Returns true if `s` ends with `suffix`.
-static inline bool ends_with(const char* s, const char* suffix) {
-  size_t s_len      = strlen(s);
-  size_t suffix_len = strlen(suffix);
-  return s_len >= suffix_len && strcmp(s + s_len - suffix_len, suffix) == 0;
-}
-
 bool c4_handle_period_store(single_request_t* r) {
   if (strncmp(r->req->url, internal_path, strlen(internal_path))) return false;
-
-  // Count requests for the legacy SP1 v5 proof (zk_proof.ssz, but not the v6
-  // zk_proof_v6.ssz) to track how long pre-2.0.0 clients keep asking for it.
-  // This informs when the v5 dual-serve support can be sunset.
-  if (ends_with(r->req->url, "zk_proof.ssz"))
-    http_server.stats.zk_proof_v5_requests_total++;
 
   // make sure the period-store is configured
   if (!eth_config.period_store) {
