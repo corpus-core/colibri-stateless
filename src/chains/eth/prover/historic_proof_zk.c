@@ -21,6 +21,7 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include "../server/period_store_files.h"
 #include "historic_proof.h"
 #include "prover.h"
 #include <stdlib.h>
@@ -35,10 +36,10 @@ c4_status_t c4_fetch_zk_proof_data(prover_ctx_t* ctx, zk_proof_data_t* zk_proof,
   char        buffer[1000]                                  = {0};
   buffer_t    buf                                           = stack_buffer(buffer);
 
-  // Fetch `zk_proof.ssz` as `ZKSyncDataV6`.
+  // Fetch packed ZK sync-data as `ZKSyncDataV6`.
   zk_proof->sync_proof.def = eth_ssz_verification_type(c4_zk_syncdata_type());
 
-  c4_status_t proof_status = c4_send_internal_request(ctx, bprintf(&buf, "period_store/%l/zk_proof.ssz", period), NULL, 0, &zk_proof->sync_proof.bytes);
+  c4_status_t proof_status = c4_send_internal_request(ctx, bprintf(&buf, C4_PS_INTERNAL_PREFIX "%l/" C4_PS_ZK_PROOF_SSZ, period), NULL, 0, &zk_proof->sync_proof.bytes);
   if (proof_status == C4_ERROR)
     THROW_ERROR("no zk sync proof has been generated for this period yet");
   TRY_ADD_ASYNC(status, proof_status);
@@ -47,7 +48,7 @@ c4_status_t c4_fetch_zk_proof_data(prover_ctx_t* ctx, zk_proof_data_t* zk_proof,
     for (uint32_t i = 0; i < ctx->witness_key.len; i += 20) {
       buffer_reset(&buf);
       bytes_t     sig_data   = {0};
-      c4_status_t sig_status = c4_send_internal_request(ctx, bprintf(&buf, "period_store/%l/sig_%x", period, bytes(ctx->witness_key.data + i, 20)), NULL, 0, &sig_data);
+      c4_status_t sig_status = c4_send_internal_request(ctx, bprintf(&buf, C4_PS_INTERNAL_PREFIX "%l/sig_%x", period, bytes(ctx->witness_key.data + i, 20)), NULL, 0, &sig_data);
       if (sig_status == C4_ERROR) THROW_ERROR_WITH("There is no signature from 0x%x for period %l", bytes(ctx->witness_key.data + i, 20), period);
       TRY_ADD_ASYNC(status, sig_status);
       buffer_append(&signatures, sig_data);

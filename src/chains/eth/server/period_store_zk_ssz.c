@@ -34,9 +34,9 @@ typedef struct {
 static void files_write_cb(void* user_data, file_data_t* files, int num_files) {
   zk_pack_ctx_t* ctx = (zk_pack_ctx_t*) user_data;
   if (files[0].error)
-    log_error("Prover: Failed to write zk_proof.ssz for period %l: %s", ctx->period, files[0].error);
+    log_error("Prover: Failed to write " C4_PS_ZK_PROOF_SSZ " for period %l: %s", ctx->period, files[0].error);
   else
-    log_info("Prover: Wrote zk_proof.ssz for period %l", ctx->period);
+    log_info("Prover: Wrote " C4_PS_ZK_PROOF_SSZ " for period %l", ctx->period);
   c4_file_data_array_free(files, num_files, 1);
   safe_free(ctx);
 }
@@ -44,19 +44,19 @@ static void files_read_cb(void* user_data, file_data_t* files, int num_files) {
   zk_pack_ctx_t* ctx    = (zk_pack_ctx_t*) user_data;
   uint64_t       period = ctx->period;
   if (files[0].error) {
-    log_error("Prover: Failed to read zk_proof_g16.bin while building zk_sync_proof_data for period %l: %s", period, files[0].error);
+    log_error("Prover: Failed to read " C4_PS_ZK_PROOF_G16 " while building zk_sync_proof_data for period %l: %s", period, files[0].error);
     c4_file_data_array_free(files, num_files, 1);
     safe_free(ctx);
     return;
   }
   if (files[1].error) {
-    log_error("Prover: Failed to read sync.ssz while building zk_sync_proof_data for period %l: %s", period, files[1].error);
+    log_error("Prover: Failed to read " C4_PS_SYNC_SSZ " while building zk_sync_proof_data for period %l: %s", period, files[1].error);
     c4_file_data_array_free(files, num_files, 1);
     safe_free(ctx);
     return;
   }
   if (files[2].error) {
-    log_error("Prover: Failed to read headers.ssz while building zk_sync_proof_data for period %l: %s", period, files[2].error);
+    log_error("Prover: Failed to read " C4_PS_HEADERS_SSZ " while building zk_sync_proof_data for period %l: %s", period, files[2].error);
     c4_file_data_array_free(files, num_files, 1);
     safe_free(ctx);
     return;
@@ -113,22 +113,22 @@ static void files_read_cb(void* user_data, file_data_t* files, int num_files) {
   c4_file_data_array_free(files, num_files, 1);
   file_data_t file = {
       .data = ssz_builder_to_bytes(&builder).bytes,
-      .path = bprintf(NULL, "%s/%l/zk_proof.ssz", eth_config.period_store, period)};
+      .path = bprintf(NULL, "%s/%l/" C4_PS_ZK_PROOF_SSZ, eth_config.period_store, period)};
 
   c4_write_files_uv(ctx, files_write_cb, &file, 1, O_RDWR | O_CREAT, 0666);
 }
 
 void c4_build_zk_sync_proof_data(uint64_t period) {
-  if (c4_ps_file_exists(period, "zk_proof.ssz")) return;
-  if (!c4_ps_file_exists(period, "zk_proof_g16.bin")) return;
+  if (c4_ps_file_exists(period, C4_PS_ZK_PROOF_SSZ)) return;
+  if (!c4_ps_file_exists(period, C4_PS_ZK_PROOF_G16)) return;
 
   zk_pack_ctx_t* ctx = safe_calloc(1, sizeof(zk_pack_ctx_t));
   ctx->period        = period;
 
   file_data_t files[3] = {0};
-  files[0].path        = bprintf(NULL, "%s/%l/zk_proof_g16.bin", eth_config.period_store, period);
-  files[1].path        = bprintf(NULL, "%s/%l/sync.ssz", eth_config.period_store, period);
-  files[2].path        = bprintf(NULL, "%s/%l/headers.ssz", eth_config.period_store, period - 1);
+  files[0].path        = bprintf(NULL, "%s/%l/" C4_PS_ZK_PROOF_G16, eth_config.period_store, period);
+  files[1].path        = bprintf(NULL, "%s/%l/" C4_PS_SYNC_SSZ, eth_config.period_store, period);
+  files[2].path        = bprintf(NULL, "%s/%l/" C4_PS_HEADERS_SSZ, eth_config.period_store, period - 1);
 
   c4_read_files_uv(ctx, files_read_cb, files, 3);
 }

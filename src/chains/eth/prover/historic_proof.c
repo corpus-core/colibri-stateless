@@ -21,6 +21,7 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include "../server/period_store_files.h"
 #include "historic_proof.h"
 #include "../server/eth_clients.h"
 #include "beacon.h"
@@ -168,7 +169,7 @@ static c4_status_t check_historic_proof_direct(prover_ctx_t* ctx, blockroot_proo
 
   TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, json_parse("\"latest\""), &block)); // we get the latest because we know for latest we get the a proof for the state. Older sztates are not stored
   TRY_ADD_ASYNC(status, get_historical_summaries(ctx, &block, &history_proof));
-  TRY_ADD_ASYNC(status, c4_send_internal_request(ctx, bprintf(&buf2, "period_store/%d/blocks.ssz", block_period), NULL, 0, &blocks)); // get the blockd
+  TRY_ADD_ASYNC(status, c4_send_internal_request(ctx, bprintf(&buf2, C4_PS_INTERNAL_PREFIX "%d/" C4_PS_BLOCKS_SSZ, block_period), NULL, 0, &blocks)); // get the blockd
   TRY_ASYNC(status);                                                                                                                  // finish requests before continuing
 
   uint32_t offset_period = (uint32_t) (chain->fork_epochs[C4_FORK_CAPELLA - 1] >> chain->epochs_per_period_bits);

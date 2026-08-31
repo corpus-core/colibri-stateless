@@ -52,8 +52,8 @@ void c4_ps_blocks_root_init_from_store(void) {
   if (!c4_ps_period_index_get_contiguous_from(0, &first, &last)) return;
 
   for (uint64_t p = last;; p--) {
-    if (c4_ps_file_exists(p, "blocks_root.bin")) {
-      char*       path = bprintf(NULL, "%s/%l/blocks_root.bin", eth_config.period_store, p);
+    if (c4_ps_file_exists(p, C4_PS_BLOCKS_ROOT_BIN)) {
+      char*       path = bprintf(NULL, "%s/%l/" C4_PS_BLOCKS_ROOT_BIN, eth_config.period_store, p);
       struct stat st;
       if (path && stat(path, &st) == 0) {
         g_blocks_root_last_verified_period = p;
@@ -72,7 +72,7 @@ static void verify_hist_json_read_cb(void* user_data, file_data_t* files, int nu
   uint64_t             hp  = ctx ? ctx->hist_period : 0;
 
   if (!files || num_files < 1) {
-    log_warn("period_store: verify blocks_root: failed to read historical_root.json for hist_period %l (invalid file count %d)", hp, num_files);
+    log_warn("period_store: verify blocks_root: failed to read " C4_PS_HISTORICAL_ROOT_JSON " for hist_period %l (invalid file count %d)", hp, num_files);
     if (files) c4_file_data_array_free(files, num_files, 1);
     buffer_free(&ctx->json_buf);
     safe_free(ctx);
@@ -80,7 +80,7 @@ static void verify_hist_json_read_cb(void* user_data, file_data_t* files, int nu
   }
 
   if (files[0].error || !files[0].data.data || files[0].data.len == 0) {
-    log_warn("period_store: verify blocks_root: cannot read historical_root.json for hist_period %l (%s)", hp, files[0].error ? files[0].error : "empty file");
+    log_warn("period_store: verify blocks_root: cannot read " C4_PS_HISTORICAL_ROOT_JSON " for hist_period %l (%s)", hp, files[0].error ? files[0].error : "empty file");
     c4_file_data_array_free(files, num_files, 1);
     buffer_free(&ctx->json_buf);
     safe_free(ctx);
@@ -93,7 +93,7 @@ static void verify_hist_json_read_cb(void* user_data, file_data_t* files, int nu
 
   ctx->data = json_get(ctx->json_doc, "data");
   if (ctx->data.type != JSON_TYPE_OBJECT) {
-    log_warn("period_store: verify blocks_root: historical_root.json for hist_period %l has no 'data' object", hp);
+    log_warn("period_store: verify blocks_root: " C4_PS_HISTORICAL_ROOT_JSON " for hist_period %l has no 'data' object", hp);
     buffer_free(&ctx->json_buf);
     c4_file_data_array_free(files, num_files, 1);
     safe_free(ctx);
@@ -125,7 +125,7 @@ static void verify_blocks_for_period_read_cb(void* user_data, file_data_t* files
 
   // blocks.ssz
   if (files[0].error || !files[0].data.data || files[0].data.len == 0) {
-    log_warn("period_store: verify blocks_root for period %l skipped: cannot read blocks.ssz (%s)", p, files[0].error ? files[0].error : "empty file");
+    log_warn("period_store: verify blocks_root for period %l skipped: cannot read " C4_PS_BLOCKS_SSZ " (%s)", p, files[0].error ? files[0].error : "empty file");
     c4_file_data_array_free(files, num_files, 1);
     verify_blocks_schedule_next(ctx);
     return;
@@ -138,7 +138,7 @@ static void verify_blocks_for_period_read_cb(void* user_data, file_data_t* files
   memcpy(blocks_buf, files[0].data.data, copy_len);
   ssz_ob_t blocks_ob = {.bytes = bytes(blocks_buf, (uint32_t) blocks_len), .def = &BLOCKS};
   if (!ssz_is_type(&blocks_ob, &BLOCKS)) {
-    log_warn("period_store: verify blocks_root for period %l failed: blocks.ssz has unexpected SSZ type/length", p);
+    log_warn("period_store: verify blocks_root for period %l failed: " C4_PS_BLOCKS_SSZ " has unexpected SSZ type/length", p);
     c4_file_data_array_free(files, num_files, 1);
     ctx->periods_failed++;
     verify_blocks_schedule_next(ctx);
@@ -178,17 +178,17 @@ static void verify_blocks_for_period_read_cb(void* user_data, file_data_t* files
 
   // Write marker file with blocks_root so we do not verify again
   char* dir  = c4_ps_ensure_period_dir(p);
-  char* path = bprintf(NULL, "%s/blocks_root.bin", dir);
+  char* path = bprintf(NULL, "%s/" C4_PS_BLOCKS_ROOT_BIN, dir);
   safe_free(dir);
 
   FILE* f = fopen(path, "wb");
   if (!f) {
-    log_warn("period_store: could not write blocks_root.bin for period %l: %s", p, strerror(errno));
+    log_warn("period_store: could not write " C4_PS_BLOCKS_ROOT_BIN " for period %l: %s", p, strerror(errno));
   }
   else {
     size_t written = fwrite(blocks_root, 1, sizeof(blocks_root), f);
     if (written != sizeof(blocks_root))
-      log_warn("period_store: short write for blocks_root.bin for period %l (wrote %d bytes)", p, (int) written);
+      log_warn("period_store: short write for " C4_PS_BLOCKS_ROOT_BIN " for period %l (wrote %d bytes)", p, (int) written);
     fclose(f);
     log_info("period_store: verified blocks_root for period %l", p);
     ctx->periods_verified++;
@@ -211,15 +211,15 @@ static void verify_blocks_schedule_next(verify_blocks_ctx_t* ctx) {
   while (ctx->current_period <= ctx->last_period) {
     uint64_t p = ctx->current_period++;
 
-    if (c4_ps_file_exists(p, "blocks_root.bin")) {
+    if (c4_ps_file_exists(p, C4_PS_BLOCKS_ROOT_BIN)) {
       ctx->periods_skipped_verified++;
       continue;
     }
-    if (!c4_ps_file_exists(p, "blocks.ssz")) continue;
+    if (!c4_ps_file_exists(p, C4_PS_BLOCKS_SSZ)) continue;
 
     char*       dir  = c4_ps_ensure_period_dir(p);
     file_data_t f[1] = {0};
-    f[0].path        = bprintf(NULL, "%s/blocks.ssz", dir);
+    f[0].path        = bprintf(NULL, "%s/" C4_PS_BLOCKS_SSZ, dir);
     f[0].offset      = 0;
     f[0].limit       = 32 * SLOTS_PER_PERIOD;
     safe_free(dir);
@@ -254,7 +254,7 @@ void c4_ps_schedule_verify_all_blocks_for_historical() {
     const chain_spec_t* chain = c4_eth_get_chain_spec((chain_id_t) http_server.chain_id);
     if (chain && chain->fork_epochs) {
       uint64_t head_period = period_for_slot(c4_ps_backfill_start_slot(), chain);
-      if (c4_ps_file_exists(head_period, "historical_root.json")) {
+      if (c4_ps_file_exists(head_period, C4_PS_HISTORICAL_ROOT_JSON)) {
         latest_hist_period = head_period;
       }
     }
@@ -280,14 +280,14 @@ void c4_ps_schedule_verify_all_blocks_for_historical() {
 
   char*       dir  = c4_ps_ensure_period_dir(latest_hist_period);
   file_data_t f[1] = {0};
-  f[0].path        = bprintf(NULL, "%s/historical_root.json", dir);
+  f[0].path        = bprintf(NULL, "%s/" C4_PS_HISTORICAL_ROOT_JSON, dir);
   f[0].offset      = 0;
   f[0].limit       = 0; // read all
   safe_free(dir);
 
   int rc = c4_read_files_uv(ctx, verify_hist_json_read_cb, f, 1);
   if (rc < 0) {
-    log_warn("period_store: scheduling historical_root.json read failed for hist_period %l", latest_hist_period);
+    log_warn("period_store: scheduling " C4_PS_HISTORICAL_ROOT_JSON " read failed for hist_period %l", latest_hist_period);
     c4_file_data_array_free(f, 1, 0);
     buffer_free(&ctx->json_buf);
     safe_free(ctx);
@@ -298,10 +298,10 @@ static void historical_root_write_done_cb(void* user_data, file_data_t* files, i
   (void) num_files;
   historical_root_write_ctx_t* ctx = (historical_root_write_ctx_t*) user_data;
   if (files && files[0].error) {
-    log_warn("period_store: writing historical_root.json for period %l failed: %s", ctx->period, files[0].error);
+    log_warn("period_store: writing " C4_PS_HISTORICAL_ROOT_JSON " for period %l failed: %s", ctx->period, files[0].error);
   }
   else {
-    log_info("period_store: wrote historical_root.json for period %l", ctx->period);
+    log_info("period_store: wrote " C4_PS_HISTORICAL_ROOT_JSON " for period %l", ctx->period);
     // Remember latest period for which we have historical_summaries and trigger verification.
     latest_hist_period = ctx->period;
     if (c4_ps_backfill_done())
@@ -323,7 +323,7 @@ static void fetch_historical_root_cb(client_t* client, void* data, data_request_
     return;
   }
   char* dir  = c4_ps_ensure_period_dir(period);
-  char* path = bprintf(NULL, "%s/historical_root.json", dir);
+  char* path = bprintf(NULL, "%s/" C4_PS_HISTORICAL_ROOT_JSON, dir);
   safe_free(dir);
   file_data_t files[1]              = {0};
   files[0].path                     = path;
@@ -335,7 +335,7 @@ static void fetch_historical_root_cb(client_t* client, void* data, data_request_
   wctx->req                         = r;
   int rc                            = c4_write_files_uv(wctx, historical_root_write_done_cb, files, 1, O_WRONLY | O_CREAT | O_TRUNC, 0666);
   if (rc < 0) {
-    log_warn("period_store: scheduling historical_root.json write failed for period %l", period);
+    log_warn("period_store: scheduling " C4_PS_HISTORICAL_ROOT_JSON " write failed for period %l", period);
     c4_file_data_array_free(files, 1, 0);
     c4_request_free(r);
     safe_free(wctx);

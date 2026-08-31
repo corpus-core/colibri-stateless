@@ -3,7 +3,6 @@
 #include "period_store.h"
 #include "server.h"
 #include "uv_util.h"
-static const char* internal_path = "period_store/";
 
 static inline bool is_file_not_found(char* error) {
   return error && strstr(error, "such file or directory") != NULL;
@@ -28,7 +27,7 @@ static void c4_handle_period_master_cb(client_t* client, void* user_data, data_r
   }
   else {
     // write the data to the period store
-    file_data_t f = {.data = bytes_dup(data->response), .limit = data->response.len, .offset = 0, .path = bprintf(NULL, "%s/%s", eth_config.period_store, r->req->url + strlen(internal_path))};
+    file_data_t f = {.data = bytes_dup(data->response), .limit = data->response.len, .offset = 0, .path = bprintf(NULL, "%s/%s", eth_config.period_store, r->req->url + sizeof(C4_PS_INTERNAL_PREFIX) - 1)};
     c4_write_files_uv(NULL, c4_handle_period_master_write_cb, &f, 1, O_WRONLY | O_CREAT | O_TRUNC, 0666);
 
     // transfer ownership to the response
@@ -49,7 +48,7 @@ static void c4_handle_period_store_cb(void* user_data, file_data_t* files, int n
     char* path = files[0].path + strlen(eth_config.period_store);
     if (*path == '/') path++;
     data_request_t* req = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
-    req->url            = bprintf(NULL, "%s%speriod_store/%s", eth_config.period_master_url, eth_config.period_master_url[strlen(eth_config.period_master_url) - 1] == '/' ? "" : "/", path);
+    req->url            = bprintf(NULL, "%s%s%s/%s", eth_config.period_master_url, eth_config.period_master_url[strlen(eth_config.period_master_url) - 1] == '/' ? "" : "/", &C4_PS_HTTP_PREFIX[1], path);
     req->method         = C4_DATA_METHOD_GET;
     req->chain_id       = http_server.chain_id;
     req->type           = C4_DATA_TYPE_REST_API;
@@ -73,7 +72,7 @@ static void c4_handle_period_store_cb(void* user_data, file_data_t* files, int n
 }
 
 bool c4_handle_period_store(single_request_t* r) {
-  if (strncmp(r->req->url, internal_path, strlen(internal_path))) return false;
+  if (strncmp(r->req->url, C4_PS_INTERNAL_PREFIX, sizeof(C4_PS_INTERNAL_PREFIX) - 1)) return false;
 
   // make sure the period-store is configured
   if (!eth_config.period_store) {
@@ -83,7 +82,7 @@ bool c4_handle_period_store(single_request_t* r) {
   }
 
   // we simply read the file from the period-store
-  file_data_t f = {.path = bprintf(NULL, "%s/%s", eth_config.period_store, r->req->url + strlen(internal_path))};
+  file_data_t f = {.path = bprintf(NULL, "%s/%s", eth_config.period_store, r->req->url + sizeof(C4_PS_INTERNAL_PREFIX) - 1)};
   c4_read_files_uv(r, c4_handle_period_store_cb, &f, 1);
 
   return true;

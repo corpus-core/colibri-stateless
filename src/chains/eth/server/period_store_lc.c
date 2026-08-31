@@ -41,10 +41,10 @@ static void lcu_write_done_cb(void* user_data, file_data_t* files, int num_files
   (void) num_files;
   lcu_write_ctx_t* ctx = (lcu_write_ctx_t*) user_data;
   if (files && files[0].error) {
-    log_warn("period_store: writing lcu.ssz for period %l failed: %s", ctx->period, files[0].error);
+    log_warn("period_store: writing " C4_PS_LCU_SSZ " for period %l failed: %s", ctx->period, files[0].error);
   }
   else {
-    log_info("period_store: wrote lcu.ssz for period %l", ctx->period);
+    log_info("period_store: wrote " C4_PS_LCU_SSZ " for period %l", ctx->period);
   }
   // free file meta (we didn't transfer data ownership)
   c4_file_data_array_free(files, 1, 0);
@@ -62,9 +62,9 @@ static void fetch_lcu_cb(client_t* client, void* data, data_request_t* r) {
     c4_request_free(r);
     return;
   }
-  // prepare async write of lcu.ssz
+  // prepare async write of lcb.ssz or lcu.ssz
   char* dir  = c4_ps_ensure_period_dir(period);
-  char* path = bprintf(NULL, strstr(r->url, "bootstrap") ? "%s/lcb.ssz" : "%s/lcu.ssz", dir);
+  char* path = bprintf(NULL, strstr(r->url, "bootstrap") ? "%s/" C4_PS_LCB_SSZ : "%s/" C4_PS_LCU_SSZ, dir);
   safe_free(dir);
   file_data_t files[1] = {0};
   files[0].path        = path;
@@ -124,7 +124,7 @@ static void lcu_assemble_fetch_cb(client_t* client, void* data, data_request_t* 
   buffer_append(&a->out, bytes((uint8_t*) r->response.data, (uint32_t) r->response.len));
   // persist to cache (reuse write helper; keeps r alive until write finishes)
   char* dir  = c4_ps_ensure_period_dir(p);
-  char* path = bprintf(NULL, "%s/lcu.ssz", dir);
+  char* path = bprintf(NULL, "%s/" C4_PS_LCU_SSZ, dir);
   safe_free(dir);
   file_data_t files[1]  = {0};
   files[0].path         = path;
@@ -179,7 +179,7 @@ static void lcu_assemble_read_cb(void* user_data, file_data_t* files, int num_fi
     if (files[i].error || files[i].data.len == 0) {
       ctx->missing_indices[ctx->missing_count++] = i;
       if (files[i].error)
-        log_debug("period_store: lcu.ssz missing for period %l (%s)", ctx->start_period + i, files[i].error);
+        log_debug("period_store: " C4_PS_LCU_SSZ " missing for period %l (%s)", ctx->start_period + i, files[i].error);
     }
     else {
       buffer_append(&ctx->out, files[i].data);
@@ -220,7 +220,7 @@ void c4_get_light_client_updates(void* user_data, uint64_t period, uint32_t coun
   file_data_t* files = (file_data_t*) safe_calloc(count, sizeof(file_data_t));
   for (uint32_t i = 0; i < count; i++) {
     char* dir       = c4_ps_ensure_period_dir(period + i);
-    files[i].path   = bprintf(NULL, "%s/lcu.ssz", dir);
+    files[i].path   = bprintf(NULL, "%s/" C4_PS_LCU_SSZ, dir);
     files[i].offset = 0;
     files[i].limit  = 0;
     safe_free(dir);
@@ -229,7 +229,7 @@ void c4_get_light_client_updates(void* user_data, uint64_t period, uint32_t coun
   if (rc < 0) {
     // Scheduling failed: clean up and fail fast to avoid leaks
     c4_file_data_array_free(files, (int) count, 0);
-    char* err = strdup("failed to schedule lcu.ssz reads");
+    char* err = strdup("failed to schedule " C4_PS_LCU_SSZ " reads");
     cb(user_data, NULL_BYTES, err);
     buffer_free(&ctx->out);
     safe_free(ctx);
@@ -243,7 +243,7 @@ void c4_get_light_client_updates(void* user_data, uint64_t period, uint32_t coun
 
 void c4_ps_fetch_lcb_for_checkpoint(bytes32_t checkpoint, uint64_t period) {
 
-  // now fetch the lcb.ssz
+  // now fetch the light client bootstrap
   static client_t lcu_client = {0};
   data_request_t* req        = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
   req->url                   = bprintf(NULL, "eth/v1/beacon/light_client/bootstrap/0x%x", bytes(checkpoint, 32));

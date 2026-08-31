@@ -165,11 +165,11 @@ static void c4_handle_period_static_manifest(client_t* client, uint64_t start_pe
 }
 
 bool c4_handle_period_static(client_t* client) {
-  if (strncmp(client->request.path, "/period_store", 13) != 0) return false;
+  if (strncmp(client->request.path, C4_PS_HTTP_PREFIX, sizeof(C4_PS_HTTP_PREFIX) - 1) != 0) return false;
   // Ensure the prefix match is exact: next char must be '/', '?' or end.
-  char next = client->request.path[13];
+  char next = client->request.path[sizeof(C4_PS_HTTP_PREFIX) - 1];
   if (next && next != '/' && next != '?') return false;
-  const char* after_prefix = client->request.path + 13;
+  const char* after_prefix = client->request.path + sizeof(C4_PS_HTTP_PREFIX) - 1;
   const char* query_mark   = strchr(after_prefix, '?');
   const char* path_end     = query_mark ? query_mark : client->request.path + strlen(client->request.path);
   uint64_t    offset       = 0;

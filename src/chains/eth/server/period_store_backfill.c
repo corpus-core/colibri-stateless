@@ -366,8 +366,8 @@ static void run_write_block_queue() {
   ctx->headers_fd     = -1;
   ctx->blocks_offset  = idx * 32;
   ctx->headers_offset = idx * HEADER_SIZE;
-  ctx->blocks_path    = bprintf(NULL, "%s/blocks.ssz", dir_path);
-  ctx->headers_path   = bprintf(NULL, "%s/headers.ssz", dir_path);
+  ctx->blocks_path    = bprintf(NULL, "%s/" C4_PS_BLOCKS_SSZ, dir_path);
+  ctx->headers_path   = bprintf(NULL, "%s/" C4_PS_HEADERS_SSZ, dir_path);
   safe_free(dir_path);
 
   // Use uv_util to write both files asynchronously at specific offsets
@@ -632,9 +632,9 @@ static void read_period_done(void* user_data, file_data_t* files, int num_files)
     // check lc update
     if (files[2].error || files[2].data.len == 0) {
       if (files[2].error)
-        log_info("period_store: lcu.ssz missing for period %l (%s) -> will fetch", p, files[2].error);
+        log_info("period_store: " C4_PS_LCU_SSZ " missing for period %l (%s) -> will fetch", p, files[2].error);
       else
-        log_info("period_store: lcu.ssz empty for period %l -> will fetch", p);
+        log_info("period_store: " C4_PS_LCU_SSZ " empty for period %l -> will fetch", p);
       if (!graceful_shutdown_in_progress) {
         c4_ps_schedule_fetch_lcu(p);
       }
@@ -644,11 +644,11 @@ static void read_period_done(void* user_data, file_data_t* files, int num_files)
   if (num_files > 3) {
 
     // check lc bootstrap
-    if ((files[3].error || files[3].data.len == 0) && c4_ps_file_exists(p - 1, "zk_proof_g16.bin")) {
+    if ((files[3].error || files[3].data.len == 0) && c4_ps_file_exists(p - 1, C4_PS_ZK_PROOF_G16)) {
       if (files[3].error)
-        log_info("period_store: lcb.ssz missing for period %l (%s) -> will fetch", p, files[3].error);
+        log_info("period_store: " C4_PS_LCB_SSZ " missing for period %l (%s) -> will fetch", p, files[3].error);
       else
-        log_info("period_store: lcb.ssz empty for period %l -> will fetch", p);
+        log_info("period_store: " C4_PS_LCB_SSZ " empty for period %l -> will fetch", p);
       if (!graceful_shutdown_in_progress)
         c4_ps_schedule_fetch_lcb(p);
     }
@@ -673,16 +673,16 @@ static void read_period_done(void* user_data, file_data_t* files, int num_files)
 static void read_period(uint64_t period, period_data_t* period_data) {
   char*       dir  = c4_ps_ensure_period_dir(period);
   file_data_t f[4] = {0};
-  f[0].path        = bprintf(NULL, "%s/blocks.ssz", dir);
+  f[0].path        = bprintf(NULL, "%s/" C4_PS_BLOCKS_SSZ, dir);
   f[0].offset      = 0;
   f[0].limit       = 32 * SLOTS_PER_PERIOD;
-  f[1].path        = bprintf(NULL, "%s/headers.ssz", dir);
+  f[1].path        = bprintf(NULL, "%s/" C4_PS_HEADERS_SSZ, dir);
   f[1].offset      = 0;
   f[1].limit       = HEADER_SIZE * SLOTS_PER_PERIOD;
-  f[2].path        = bprintf(NULL, "%s/lcu.ssz", dir);
+  f[2].path        = bprintf(NULL, "%s/" C4_PS_LCU_SSZ, dir);
   f[2].offset      = 0;
   f[2].limit       = 0; // read all
-  f[3].path        = bprintf(NULL, "%s/lcb.ssz", dir);
+  f[3].path        = bprintf(NULL, "%s/" C4_PS_LCB_SSZ, dir);
   f[3].offset      = 0;
   f[3].limit       = 0; // read all
   safe_free(dir);

@@ -66,8 +66,8 @@ static void free_sync_files(sync_file_t* files, uint32_t count) {
 }
 
 static bool c4_ps_period_is_complete(uint64_t period) {
-  return c4_ps_file_exists(period, "blocks_root.bin") &&
-         c4_ps_file_exists(period, "zk_proof_g16.bin");
+  return c4_ps_file_exists(period, C4_PS_BLOCKS_ROOT_BIN) &&
+         c4_ps_file_exists(period, C4_PS_ZK_PROOF_G16);
 }
 
 static void c4_ps_full_sync_unmark_complete_period(full_sync_ctx_t* ctx, uint64_t period) {
@@ -75,7 +75,7 @@ static void c4_ps_full_sync_unmark_complete_period(full_sync_ctx_t* ctx, uint64_
   if (period < ctx->start_period) return;
   if (!c4_ps_period_is_complete(period)) return;
 
-  char* blocks_root = bprintf(NULL, "%s/%l/blocks_root.bin", eth_config.period_store, period);
+  char* blocks_root = bprintf(NULL, "%s/%l/" C4_PS_BLOCKS_ROOT_BIN, eth_config.period_store, period);
   // Pragmatic: if we had an error while syncing a period, remove marker files so the next sync retries cleanly.
   remove(blocks_root);
   safe_free(blocks_root);
@@ -239,7 +239,7 @@ static void full_sync_download_next(void) {
     if (!force_full && local_sz < f->length)
       offset = local_sz;
 
-    // Build master URL: <master>/period_store/<period>/<filename>[?offset=...]
+    // Build master HTTP URL: <master>/period_store/<period>/<filename>[?offset=...]
     data_request_t* req = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
     req->method         = C4_DATA_METHOD_GET;
     req->chain_id       = http_server.chain_id;
@@ -249,16 +249,18 @@ static void full_sync_download_next(void) {
     const char* base  = eth_config.period_master_url;
     bool        slash = base[strlen(base) - 1] == '/';
     if (offset > 0)
-      req->url = bprintf(NULL, "%s%speriod_store/%l/%s?offset=%l",
+      req->url = bprintf(NULL, "%s%s%s/%l/%s?offset=%l",
                          base,
                          slash ? "" : "/",
+                         &C4_PS_HTTP_PREFIX[1],
                          f->period,
                          f->filename,
                          offset);
     else
-      req->url = bprintf(NULL, "%s%speriod_store/%l/%s",
+      req->url = bprintf(NULL, "%s%s%s/%l/%s",
                          base,
                          slash ? "" : "/",
+                         &C4_PS_HTTP_PREFIX[1],
                          f->period,
                          f->filename);
 
@@ -313,7 +315,7 @@ static void full_sync_manifest_cb(client_t* client, void* user_data, data_reques
     uint64_t period = ssz_get_uint64(&file, "period");
     ssz_ob_t nameob = ssz_get(&file, "filename");
     char*    name   = (char*) nameob.bytes.data;
-    if (name && strcmp(name, "blocks_root.bin") == 0) root_periods[root_n++] = period;
+    if (name && strcmp(name, C4_PS_BLOCKS_ROOT_BIN) == 0) root_periods[root_n++] = period;
   }
   if (root_n > 1) qsort(root_periods, root_n, sizeof(uint64_t), cmp_u64);
 
@@ -329,7 +331,7 @@ static void full_sync_manifest_cb(client_t* client, void* user_data, data_reques
     if (!name || !*name) continue;
 
     bool force_full = false;
-    if ((strcmp(name, "blocks.ssz") == 0 || strcmp(name, "headers.ssz") == 0) && root_n > 0) {
+    if ((strcmp(name, C4_PS_BLOCKS_SSZ) == 0 || strcmp(name, C4_PS_HEADERS_SSZ) == 0) && root_n > 0) {
       // If blocks_root.bin exists for this period, force full refresh of blocks/headers.
       uint64_t key = period;
       force_full   = bsearch(&key, root_periods, root_n, sizeof(uint64_t), cmp_u64) != NULL;
@@ -374,7 +376,7 @@ void c4_ps_full_sync_on_checkpoint(uint64_t finalized_period) {
   req->chain_id       = http_server.chain_id;
   req->type           = C4_DATA_TYPE_REST_API;
   req->encoding       = C4_DATA_ENCODING_SSZ;
-  req->url            = bprintf(NULL, "%s%speriod_store?manifest=1&start=%l", base, slash ? "" : "/", g_full_sync.start_period);
+  req->url            = bprintf(NULL, "%s%s%s?manifest=1&start=%l", base, slash ? "" : "/", &C4_PS_HTTP_PREFIX[1], g_full_sync.start_period);
 
   c4_add_request(&g_full_sync_client, req, &g_full_sync, full_sync_manifest_cb);
 }

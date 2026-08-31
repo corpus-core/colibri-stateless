@@ -118,15 +118,6 @@ static const size_t ZK_SYNC_MIN_BYTES       = 1024;
 static const size_t ZK_PREV_PROOF_MIN_BYTES = 1024;
 static const size_t ZK_PREV_VK_MIN_BYTES    = 64;
 
-// Artifact filenames — same as `scripts/run_zk_proof.sh`. No `_v6` suffix:
-// v5 serving is gone and this chain starts from a new guest / trust anchor.
-#define ZK_GROTH16   "zk_groth16.bin"   // SP1 Groth16 proof bundle
-#define ZK_PROOF_G16 "zk_proof_g16.bin" // raw Groth16 proof (packed into ssz + verified locally)
-#define ZK_VK        "zk_vk.bin"        // Groth16 verification key
-#define ZK_PUB       "zk_pub.bin"       // public values (verified locally)
-#define ZK_PROOF     "zk_proof.bin"     // compressed proof (recursion input for next period)
-#define ZK_VK_RAW    "zk_vk_raw.bin"    // compressed vk (recursion input for next period)
-
 static char* trim_key_string(bytes_t key_bytes) {
   if (!key_bytes.data || key_bytes.len == 0) return NULL;
   // Copy only non-whitespace chars; key files often contain trailing newline.
@@ -205,9 +196,9 @@ void c4_period_prover_init_from_store(void) {
   // Walk backwards from the newest period to find the newest valid Groth16 proof.
   // Non-existent period directories (gaps) are silently skipped via c4_ps_file_exists.
   for (uint64_t p = max_period;; p--) {
-    if (c4_ps_file_exists(p, ZK_PROOF_G16) && c4_ps_file_exists(p, ZK_PUB)) {
-      char* proof_path = bprintf(NULL, "%s/%l/" ZK_PROOF_G16, eth_config.period_store, p);
-      char* pub_path   = bprintf(NULL, "%s/%l/" ZK_PUB, eth_config.period_store, p);
+    if (c4_ps_file_exists(p, C4_PS_ZK_PROOF_G16) && c4_ps_file_exists(p, C4_PS_ZK_PUB)) {
+      char* proof_path = bprintf(NULL, "%s/%l/" C4_PS_ZK_PROOF_G16, eth_config.period_store, p);
+      char* pub_path   = bprintf(NULL, "%s/%l/" C4_PS_ZK_PUB, eth_config.period_store, p);
 
       struct stat st;
       if (proof_path && stat(proof_path, &st) == 0) {
@@ -251,14 +242,14 @@ static void on_sync_generated(client_t* client, void* data, data_request_t* res)
   }
 
   if (res && res->error) {
-    char* error = bprintf(NULL, "Prover: Failed to generate sync.ssz for period %l: %s", ctx->target_period, res->error);
+    char* error = bprintf(NULL, "Prover: Failed to generate " C4_PS_SYNC_SSZ " for period %l: %s", ctx->target_period, res->error);
     sync_gen_ctx_fail(ctx, res, error);
     safe_free(error);
     return;
   }
 
   if (!res || !res->response.data || res->response.len < 1024) {
-    char* error = bprintf(NULL, "Prover: Failed to generate sync.ssz for period %l: empty/too small response", ctx->target_period);
+    char* error = bprintf(NULL, "Prover: Failed to generate " C4_PS_SYNC_SSZ " for period %l: empty/too small response", ctx->target_period);
     sync_gen_ctx_fail(ctx, res, error);
     safe_free(error);
     return;
@@ -266,7 +257,7 @@ static void on_sync_generated(client_t* client, void* data, data_request_t* res)
 
   FILE* f = fopen(ctx->sync_path, "wb");
   if (!f) {
-    char* error = bprintf(NULL, "Prover: Failed to open sync.ssz for writing: %s", ctx->sync_path);
+    char* error = bprintf(NULL, "Prover: Failed to open " C4_PS_SYNC_SSZ " for writing: %s", ctx->sync_path);
     sync_gen_ctx_fail(ctx, res, error);
     safe_free(error);
     return;
@@ -276,7 +267,7 @@ static void on_sync_generated(client_t* client, void* data, data_request_t* res)
   bytes_write(res->response, f, true);
   c4_request_free(res);
 
-  log_info("Prover: Wrote sync.ssz (%l bytes) for period %l",
+  log_info("Prover: Wrote " C4_PS_SYNC_SSZ " (%l bytes) for period %l",
            written_len, ctx->target_period);
 
   // Continue pipeline: spawn rust host directly (no bash).
@@ -408,8 +399,8 @@ static void on_prover_exit(uv_process_t* req, int64_t exit_status, int term_sign
     prover_stats.total_success++;
     // Verify Groth16 proof with the built-in verifier before marking as verified.
     char* period_dir = bprintf(NULL, "%s/%l", eth_config.period_store, ctx->period);
-    char* proof_path = bprintf(NULL, "%s/" ZK_PROOF_G16, period_dir);
-    char* pub_path   = bprintf(NULL, "%s/" ZK_PUB, period_dir);
+    char* proof_path = bprintf(NULL, "%s/" C4_PS_ZK_PROOF_G16, period_dir);
+    char* pub_path   = bprintf(NULL, "%s/" C4_PS_ZK_PUB, period_dir);
     bool  valid      = c4_verify_proof_files(proof_path, pub_path);
     safe_free(period_dir);
     safe_free(proof_path);
@@ -504,7 +495,7 @@ static void c4_period_prover_spawn(uint64_t target_period, uint64_t prev_period)
 
   // Ensure period directory exists (sync.ssz is typically the first file).
   char* period_dir = c4_ps_ensure_period_dir(target_period);
-  char* sync_path  = bprintf(NULL, "%s/sync.ssz", period_dir);
+  char* sync_path  = bprintf(NULL, "%s/" C4_PS_SYNC_SSZ, period_dir);
   if (!file_exists_min_size(sync_path, ZK_SYNC_MIN_BYTES)) {
     // Generate sync.ssz in-process by calling the existing prover method `eth_proof_sync`.
     char params[64];
@@ -559,13 +550,13 @@ static void c4_period_prover_spawn_host(uint64_t target_period, uint64_t prev_pe
   }
 
   p.period_dir = bprintf(NULL, "%s/%l", eth_config.period_store, target_period);
-  p.sync_path  = bprintf(NULL, "%s/sync.ssz", p.period_dir);
+  p.sync_path  = bprintf(NULL, "%s/" C4_PS_SYNC_SSZ, p.period_dir);
   p.prev_dir   = bprintf(NULL, "%s/%l", eth_config.period_store, prev_period);
-  p.prev_proof = bprintf(NULL, "%s/" ZK_PROOF, p.prev_dir);
-  p.prev_vk    = bprintf(NULL, "%s/" ZK_VK_RAW, p.prev_dir);
+  p.prev_proof = bprintf(NULL, "%s/" C4_PS_ZK_PROOF, p.prev_dir);
+  p.prev_vk    = bprintf(NULL, "%s/" C4_PS_ZK_VK_RAW, p.prev_dir);
 
   if (!file_exists_min_size(p.sync_path, ZK_SYNC_MIN_BYTES)) {
-    log_error("Prover: sync.ssz missing for period %l (expected %s)", target_period, p.sync_path);
+    log_error("Prover: " C4_PS_SYNC_SSZ " missing for period %l (expected %s)", target_period, p.sync_path);
     zk_host_paths_free(&p);
     prover_reset_running();
     return;
@@ -590,12 +581,12 @@ static void c4_period_prover_spawn_host(uint64_t target_period, uint64_t prev_pe
   }
 
   // Output paths: Groth16 + compressed recursion inputs (same names as run_zk_proof.sh).
-  p.proof_groth16 = bprintf(NULL, "%s/" ZK_GROTH16, p.period_dir);
-  p.proof_raw     = bprintf(NULL, "%s/" ZK_PROOF_G16, p.period_dir);
-  p.vk_groth16    = bprintf(NULL, "%s/" ZK_VK, p.period_dir);
-  p.pub_values    = bprintf(NULL, "%s/" ZK_PUB, p.period_dir);
-  p.proof_comp    = bprintf(NULL, "%s/" ZK_PROOF, p.period_dir);
-  p.vk_comp       = bprintf(NULL, "%s/" ZK_VK_RAW, p.period_dir);
+  p.proof_groth16 = bprintf(NULL, "%s/" C4_PS_ZK_GROTH16, p.period_dir);
+  p.proof_raw     = bprintf(NULL, "%s/" C4_PS_ZK_PROOF_G16, p.period_dir);
+  p.vk_groth16    = bprintf(NULL, "%s/" C4_PS_ZK_VK, p.period_dir);
+  p.pub_values    = bprintf(NULL, "%s/" C4_PS_ZK_PUB, p.period_dir);
+  p.proof_comp    = bprintf(NULL, "%s/" C4_PS_ZK_PROOF, p.period_dir);
+  p.vk_comp       = bprintf(NULL, "%s/" C4_PS_ZK_VK_RAW, p.period_dir);
 
   uv_process_t*    proc = (uv_process_t*) malloc(sizeof(uv_process_t));
   zk_prover_ctx_t* ctx  = (zk_prover_ctx_t*) safe_calloc(1, sizeof(zk_prover_ctx_t));
@@ -738,8 +729,8 @@ void c4_period_prover_on_checkpoint(uint64_t period) {
   // Fill gaps sequentially: each proof needs the previous period's recursion inputs.
   for (uint64_t p = last_verified_period + 1; p <= max_period; p++) {
     char* period_dir = bprintf(NULL, "%s/%l", eth_config.period_store, p);
-    char* proof_path = bprintf(NULL, "%s/" ZK_PROOF_G16, period_dir);
-    char* pub_path   = bprintf(NULL, "%s/" ZK_PUB, period_dir);
+    char* proof_path = bprintf(NULL, "%s/" C4_PS_ZK_PROOF_G16, period_dir);
+    char* pub_path   = bprintf(NULL, "%s/" C4_PS_ZK_PUB, period_dir);
     safe_free(period_dir);
 
     struct stat st;

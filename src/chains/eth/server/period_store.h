@@ -7,6 +7,7 @@
 #define C4_ETH_PERIOD_STORE_H
 
 #include "bytes.h"
+#include "period_store_files.h"
 #include "server.h"
 #include "ssz.h"
 #include <stdint.h>
@@ -14,6 +15,9 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/* Period-store filenames: C4_PS_* in period_store_files.h. */
+
 #define HEADER_SIZE 112
 
 // SSZ manifest definition: list of { period:uint64, filename:string (null-terminated), length:uint32 }.
@@ -40,9 +44,9 @@ void     c4_ps_schedule_fetch_historical_root(uint64_t period);
 char*    c4_ps_ensure_period_dir(uint64_t period);
 void     c4_build_zk_sync_proof_data(uint64_t period);
 
-// ---- Blocks root verification marker (blocks_root.bin) ----
+// ---- Blocks root verification marker (`C4_PS_BLOCKS_ROOT_BIN`) ----
 //
-// The file `blocks_root.bin` is written after a period's blocks_root is verified against
+// The file is written after a period's blocks_root is verified against
 // historical summaries. We expose the latest verified period/timestamp for monitoring.
 
 /**
@@ -54,12 +58,12 @@ void     c4_build_zk_sync_proof_data(uint64_t period);
 void c4_ps_blocks_root_init_from_store(void);
 
 /**
- * Returns the most recent period that has `blocks_root.bin` present.
+ * Returns the most recent period that has `C4_PS_BLOCKS_ROOT_BIN` present.
  */
 uint64_t c4_ps_blocks_root_last_verified_period(void);
 
 /**
- * Returns the mtime of the most recent `blocks_root.bin` (seconds since epoch).
+ * Returns the mtime of the most recent `C4_PS_BLOCKS_ROOT_BIN` (seconds since epoch).
  */
 uint64_t c4_ps_blocks_root_last_verified_timestamp_seconds(void);
 
@@ -104,7 +108,7 @@ void c4_period_sync_on_head(uint64_t slot, const uint8_t block_root[32], const u
 
 /**
  * Assemble LightClientUpdates from cache for a contiguous range of periods.
- * Missing periods are fetched from Beacon API and saved to cache as lcu.ssz.
+ * Missing periods are fetched from Beacon API and saved to cache as `C4_PS_LCU_SSZ`.
  *
  * @param user_data Passed to callback
  * @param period    Start period
