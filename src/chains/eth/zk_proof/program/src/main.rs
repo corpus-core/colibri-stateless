@@ -34,6 +34,7 @@ fn ssz_add_gindex(parent: u32, child: u32) -> u32 {
 
 const NEXT_SYNC_COMMITTEE_GINDEX_DENEB: u32 = 55;
 const NEXT_SYNC_COMMITTEE_GINDEX_ELECTRA: u32 = 87;
+const NEXT_SYNC_COMMITTEE_GINDEX_GLOAS: u32 = 2946;
 
 // Generalized index of `SigningData.BeaconBlockHeader.stateRoot` in our `SigningData` container layout:
 // `SigningData = { BeaconBlockHeader, domain }` and `BeaconBlockHeader = { slot, proposer_index, parent_root, state_root, body_root }`.
@@ -155,14 +156,18 @@ pub fn main() {
     // We intentionally do **not** derive fork_version/domain inside the zk proof (Option 2).
     // To keep the guest program chain-agnostic (stable VK across new chains), we select the
     // applicable SSZ layout by the Merkle proof depth:
-    // - Deneb and earlier: next_sync_committee gindex = 55  -> total path depth 10
-    // - Electra and later: next_sync_committee gindex = 87 -> total path depth 11
+    // - Deneb and earlier: next_sync_committee gindex = 55   -> total path depth 10
+    // - Electra / Fulu:    next_sync_committee gindex = 87   -> total path depth 11
+    // - Gloas:             next_sync_committee gindex = 2946 -> total path depth 16
     //
-    // This still binds the statement to `next_sync_committee.pubkeys` (not an arbitrary leaf),
+    // The Gloas epoch on mainnet is not known yet, so the recursive chain must pick the
+    // layout from the proof length rather than a hardcoded fork schedule. This still
+    // binds the statement to `next_sync_committee.pubkeys` (not an arbitrary leaf),
     // but leaves "which fork/domain is correct for the chain" to be verified outside.
     let next_sync_committee_gindex = match proof_data.proof.len() / 32 {
         10 => NEXT_SYNC_COMMITTEE_GINDEX_DENEB,
         11 => NEXT_SYNC_COMMITTEE_GINDEX_ELECTRA,
+        16 => NEXT_SYNC_COMMITTEE_GINDEX_GLOAS,
         n => panic!("Unexpected Merkle proof depth: {} nodes", n),
     };
 
@@ -182,18 +187,19 @@ pub fn main() {
     //
     // Our proof layout is produced by `proof_sync.c`:
     // - 1 node: aggregatePubkey helper (pubkeys_root -> sync_committee_root)
-    // - 5 or 6 nodes: nextSyncCommitteeBranch (sync_committee_root -> attested_state_root)
+    // - 5 / 6 / 11 nodes: nextSyncCommitteeBranch (Deneb / Electra-Fulu / Gloas)
     // - 4 nodes: header proof (attested_state_root -> SigningData root)
     //
     // This lets us recover:
     // - `attested_state_root` as the intermediate root after the first (len-4) proof nodes
     // - `attested_header_root` as the intermediate root at gindex 2 while traversing the header proof
+    // The last 4 header-proof nodes (and the 3-level walk to gindex 2) are fork-independent.
     let total_nodes = proof_data.proof.len() / 32;
-    if total_nodes != 10 && total_nodes != 11 {
+    if total_nodes != 10 && total_nodes != 11 && total_nodes != 16 {
         panic!("Unexpected proof node count: {}", total_nodes);
     }
     let header_proof_nodes = 4usize;
-    let state_root_nodes = total_nodes - header_proof_nodes; // 6 (Deneb) or 7 (Electra)
+    let state_root_nodes = total_nodes - header_proof_nodes; // 6 (Deneb), 7 (Electra/Fulu) or 12 (Gloas)
 
     let mut g = expected_gidx;
     let mut attested_state_root = proof_data.next_keys_root;

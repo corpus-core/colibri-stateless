@@ -113,20 +113,14 @@ static bool file_exists_min_size(const char* path, size_t min_bytes) {
 // These values are intentionally conservative and based on real outputs:
 // - sync.ssz is typically ~tens of KB
 // - zk_proof.bin is typically ~MB
-// - the raw vk is ~104 bytes for SP1 v6 (`zk_vk_raw_v6.bin`) and was ~234 bytes for the
-//   legacy v5 chain, so the threshold must stay below 104 to accept v6 artifacts.
+// - the raw vk is ~104 bytes for SP1 v6 (`zk_vk_raw_v6.bin`), so the threshold
+//   must stay below 104 to accept those artifacts.
 static const size_t ZK_SYNC_MIN_BYTES       = 1024;
 static const size_t ZK_PREV_PROOF_MIN_BYTES = 1024;
 static const size_t ZK_PREV_VK_MIN_BYTES    = 64;
 
 // Artifact filenames produced/consumed by the automatic proving pipeline.
-//
-// The server pipeline produces SP1 **v6** proofs exclusively and therefore uses the
-// `_v6` suffix for every artifact, recursing on the v6 chain. The legacy v5 artifacts
-// (same names without the suffix, e.g. `zk_proof_g16.bin`) are uploaded out-of-band by
-// the manual `build_proof` script during the dual-serve transition and are packed into
-// `zk_proof.ssz` separately (see `period_store_zk_ssz.c`). Keeping the two chains under
-// distinct names lets both coexist in the same period directory.
+// `_v6` names the SP1 v6 circuit (356-byte Groth16), not a guest-program revision.
 #define ZK_V6_GROTH16   "zk_groth16_v6.bin"   // SP1 Groth16 proof bundle
 #define ZK_V6_PROOF_G16 "zk_proof_g16_v6.bin" // raw Groth16 proof (packed into ssz + verified locally)
 #define ZK_V6_VK        "zk_vk_v6.bin"        // Groth16 verification key
@@ -596,7 +590,7 @@ static void c4_period_prover_spawn_host(uint64_t target_period, uint64_t prev_pe
     return;
   }
 
-  // Output paths: v6 artifacts (the manual v5 build_proof writes the un-suffixed names).
+  // Output paths: SP1 v6 artifacts (356-byte Groth16, recursive chain).
   p.proof_groth16 = bprintf(NULL, "%s/" ZK_V6_GROTH16, p.period_dir);
   p.proof_raw     = bprintf(NULL, "%s/" ZK_V6_PROOF_G16, p.period_dir);
   p.vk_groth16    = bprintf(NULL, "%s/" ZK_V6_VK, p.period_dir);

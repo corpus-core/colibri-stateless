@@ -114,7 +114,7 @@ static const ssz_def_t C4_ETH_SYNCDATA_UPDATE_UNION[] = {
 const ssz_def_t C4_ETH_REQUEST_SYNCDATA_UNION[] = {
     SSZ_NONE,
     SSZ_CONTAINER("LCSyncData", C4_ETH_LC_SYNCDATA),      // Light Client Sync Data
-    SSZ_CONTAINER("ZKSyncData", C4_ETH_ZK_SYNCDATA),      // ZK Proof Sync Data (legacy SP1 v5, 260-byte groth16 proof)
+    SSZ_CONTAINER("ZKSyncData", C4_ETH_ZK_SYNCDATA),      // kept only so union index 3 stays ZKSyncDataV6 (legacy SP1 v5, 260-byte groth16)
     SSZ_CONTAINER("ZKSyncDataV6", C4_ETH_ZK_SYNCDATA_V6), // ZK Proof Sync Data (SP1 v6 "Hypercube", 356-byte groth16 proof)
 };
 
@@ -147,9 +147,8 @@ static const ssz_def_t C4_ETH_LC_SYNCDATA[2] = {
 };
 
 // ZK SyncData contains the recursive zk proof of the sync committee update.
-// Legacy SP1 v5 layout with a fixed 260-byte groth16 proof. Kept unchanged so the
-// prover can keep serving `zk_proof.ssz` to released clients (< 2.0.0) during the
-// SP1 v5 -> v6 dual-serve window. See `C4_ETH_ZK_SYNCDATA_V6` for the v6 variant.
+// Legacy SP1 v5 layout with a fixed 260-byte groth16 proof. Kept as union index 2
+// so `ZKSyncDataV6` stays at index 3; this prover no longer packs or serves it.
 static const ssz_def_t C4_ETH_ZK_SYNCDATA[6] = {
     SSZ_BYTES32("vk_hash"),        // the hash of the vk used to generate the proof
     SSZ_BYTE_VECTOR("proof", 260), // the recursive zk proof of the sync committee update as groth16 proof
@@ -163,8 +162,7 @@ static const ssz_def_t C4_ETH_ZK_SYNCDATA[6] = {
 // `C4_ETH_ZK_SYNCDATA` except for the groth16 proof size: SP1 v6 emits a 356-byte
 // proof (selector + exit_code + vk_root + proof_nonce + A/B/C) instead of the v5
 // 260-byte proof. The differing fixed-size `proof` field shifts every following field,
-// so v5 and v6 cannot share one container definition -- they are distinct union
-// variants selected by client version (see `c4_zk_syncdata_type`).
+// so the two layouts stay distinct union variants. This prover always emits index 3.
 static const ssz_def_t C4_ETH_ZK_SYNCDATA_V6[6] = {
     SSZ_BYTES32("vk_hash"),        // the hash of the vk used to generate the proof
     SSZ_BYTE_VECTOR("proof", 356), // the recursive zk proof of the sync committee update as SP1 v6 groth16 proof

@@ -74,7 +74,7 @@ static const chain_spec_t chain_data[] = {
      .chain_id                 = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 1ULL),
      .fork_epochs              = eth_mainnet_fork_epochs,
      .genesis_validators_root  = "\x4b\x36\x3d\xb9\x4e\x28\x61\x20\xd7\x6e\xb9\x05\x34\x0f\xdd\x4e\x54\xbf\xe9\xf0\x6b\xf3\x3f\xf6\xcf\x5a\xd2\x7f\x51\x1b\xfe\x95",
-     .zk_sync_keys_root        = "\xc0\x23\x61\xcb\x34\xfe\xce\x1e\xae\x2c\x74\xbd\x67\x5d\x38\x76\xc5\x3b\x93\xa7\xe8\x00\x15\x74\xf5\x49\xd2\x8c\xa8\x9c\xfb\x9b", // v6 anchor: current_keys_root of period 1784 proof (oldKeys HTR, = period 1783 committee)
+     .zk_sync_keys_root        = "\xbc\xce\x2c\xf4\xf6\x0a\x4d\xfb\x42\x77\x52\x7a\x7f\x31\xb1\x23\x32\x90\x89\xe0\x55\xbe\x7c\x77\x86\x18\x73\x58\x7a\xbf\x13\x1a", // gloas-ready anchor: current_keys_root of period 1845 proof (oldKeys HTR, = period 1844 committee)
      .slots_per_epoch_bits     = 5,
      .epochs_per_period_bits   = 8,
      .weak_subjectivity_epochs = 3682,
@@ -83,7 +83,7 @@ static const chain_spec_t chain_data[] = {
      .chain_id                 = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 11155111),
      .fork_epochs              = eth_sepolia_fork_epochs,
      .genesis_validators_root  = "\xd8\xea\x17\x1f\x3c\x94\xae\xa2\x1e\xbc\x42\xa1\xed\x61\x05\x2a\xcf\x3f\x92\x09\xc0\x0e\x4e\xfb\xaa\xdd\xac\x09\xed\x9b\x80\x78",
-     .zk_sync_keys_root        = "\x82\xb2\x41\xf5\x2b\x29\x0f\x82\x78\x81\x11\xbd\x79\x74\xee\x87\xd9\xbb\xac\xfb\xe5\xd0\x84\xa3\x70\x31\x7f\x34\xe7\xb7\xfa\x84", // v6 anchor: current_keys_root of period 1287 proof (oldKeys HTR, = period 1286 committee)
+     .zk_sync_keys_root        = "\x0c\xd2\xbe\x55\x52\x24\xd5\xa7\xb7\xcf\xb1\x13\x95\x65\x84\xf4\x67\xb8\x74\xf0\x4b\xa7\xe4\xe9\x22\x46\x9f\xe0\xed\xbb\x47\x9d", // gloas-ready anchor: current_keys_root of period 1348 proof (oldKeys HTR, = period 1347 committee)
      .slots_per_epoch_bits     = 5,
      .epochs_per_period_bits   = 8,
      .weak_subjectivity_epochs = 3682,
@@ -101,7 +101,7 @@ static const chain_spec_t chain_data[] = {
      .chain_id                 = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 100ULL),
      .fork_epochs              = eth_gnosis_fork_epochs,
      .genesis_validators_root  = "\xf5\xdc\xb5\x56\x4e\x82\x9a\xab\x27\x26\x4b\x9b\xec\xd5\xdf\xaa\x01\x70\x85\x61\x12\x24\xcb\x30\x36\xf5\x73\x36\x8d\xbb\x9d\x47",
-     .zk_sync_keys_root        = "\x1b\x33\xa3\x8a\x13\x18\x7f\xcf\x8c\x60\xec\xf9\xf5\xeb\x44\x2a\x1c\xa0\xd5\xbe\x17\x6b\x5b\x15\xea\xe9\xc2\xda\x72\x7c\xbb\x4a", // v6 anchor: current_keys_root of period 3498 proof (oldKeys HTR, = period 3497 committee)
+     .zk_sync_keys_root        = "\x7e\x46\x63\x74\x5e\xd2\x0f\xa6\x4a\x50\x1e\xb6\xe2\xd9\x9f\x96\x16\x17\x7e\x1a\x38\xc5\x79\xbd\xa3\x3a\xdb\xb6\xe7\xff\xf1\x8d", // gloas-ready anchor: current_keys_root of period 3643 proof (oldKeys HTR, = period 3642 committee)
      .slots_per_epoch_bits     = 4,
      .epochs_per_period_bits   = 9,
      .weak_subjectivity_epochs = 1500,
