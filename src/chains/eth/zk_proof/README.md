@@ -46,7 +46,7 @@ Artifacts are saved to `build/default/.period_store/<PERIOD>/`:
 *   `blocks.ssz`, `headers.ssz`, `lcb.ssz`, `lcu.ssz`, `sync.ssz`: cached light-client inputs (fetched once and re-used by Slave nodes).
 *   `zk_proof.bin`: Compressed SP1 proof (used for recursion).
 *   `zk_vk_raw.bin`: Verification Key for the compressed proof (also fed into recursion).
-*   `zk_proof_g16.bin`: Raw Groth16 proof bytes (260-byte BN254 tuple, used by C/Solidity verifiers).
+*   `zk_proof_g16.bin`: Raw Groth16 proof bytes (356-byte SP1 v6 proof, used by C/Solidity verifiers).
 *   `zk_vk.bin`: Verification Key for the Groth16 wrapper (converted to C via `export_vk`).
 *   `zk_pub.bin`: Public values written as: `current_keys_root (32) | next_keys_root (32) | next_period (u64 LE) | attested_header_root (32) | domain (32)`.
 

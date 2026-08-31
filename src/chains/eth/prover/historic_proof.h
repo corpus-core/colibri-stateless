@@ -37,7 +37,7 @@ extern "C" {
 /**
  * SSZ type of the packed ZK sync-data file (`zk_proof.ssz`).
  *
- * @return `ETH_SSZ_VERIFY_ZK_SYNCDATA_V6` (union index 3, 356-byte Groth16).
+ * @return `ETH_SSZ_VERIFY_ZK_SYNCDATA_V6` (union index 2, 356-byte Groth16).
  */
 static inline eth_ssz_type_t c4_zk_syncdata_type(void) {
   return ETH_SSZ_VERIFY_ZK_SYNCDATA_V6;

@@ -385,7 +385,7 @@ c4_status_t c4_get_syncdata_proof(prover_ctx_t* ctx, syncdata_state_t* sync_data
   if ((ctx->flags & C4_PROVER_FLAG_ZK_PROOF) && ((sync_data->newest_period == 0 && sync_data->checkpoint_period == 0) ||
                                                  (sync_data->newest_period && sync_data->newest_period < sync_data->required_period))) {
     // we need a zk_proof (if available) for the required period. Always `ZKSyncDataV6`
-    // (union index 3, 356-byte SP1 v6 proof). The builder layout AND the union selector
+    // (union index 2, 356-byte Groth16). The builder layout AND the union selector
     // are derived from this def, so it must match the read def used in
     // `c4_fetch_zk_proof_data`.
     builder->def             = eth_ssz_verification_type(c4_zk_syncdata_type());

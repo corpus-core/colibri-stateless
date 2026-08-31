@@ -5,9 +5,8 @@ A guest change rotates `VK_PROGRAM_HASH`. Existing Groth16 proofs become unverif
 The recursive chain must restart from a new trust anchor and a non-recursive baseline proof.
 
 Period-store files use unsuffixed names (`zk_proof_g16.bin`, `zk_proof.ssz`, …), matching
-`scripts/run_zk_proof.sh`. Do not add a new SSZ union variant unless the on-wire proof
-size changes. Index 2 (`ZKSyncData`, 260 bytes) stays as a dead placeholder so index 3
-(`ZKSyncDataV6`) does not shift.
+`scripts/run_zk_proof.sh`. The packed SSZ type is `ZKSyncDataV6` (union index 2). Do not
+add a new union variant unless the on-wire proof size changes.
 
 ## 1. Rebuild and freeze the guest ELF
 
