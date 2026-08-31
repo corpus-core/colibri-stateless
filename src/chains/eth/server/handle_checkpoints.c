@@ -51,15 +51,15 @@ typedef struct {
 } checkpoints_ctx_t;
 
 static bool append_signable_period(uint64_t period, uint64_t* periods, file_data_t* files, int* num) {
-  if (!c4_ps_file_exists(period, "zk_proof_v6.ssz")) return false;
+  if (!c4_ps_file_exists(period, "zk_proof.ssz")) return false;
   periods[*num]    = period;
-  files[*num].path = bprintf(NULL, "%s/%l/zk_proof_v6.ssz", eth_config.period_store, period);
+  files[*num].path = bprintf(NULL, "%s/%l/zk_proof.ssz", eth_config.period_store, period);
   (*num)++;
   return true;
 }
 
 // Extracts the signable checkpoint (header tree-root + slot) from a packed
-// `ZKSyncDataV6` proof (`zk_proof_v6.ssz`, 356-byte Groth16).
+// `ZKSyncDataV6` proof (`zk_proof.ssz`, 356-byte Groth16).
 static bool get_checkpoint_from_proof(bytes_t proof_data, bytes32_t checkpoint, uint64_t* slot) {
   if (proof_data.len < 25000) return false; //  make sure we have a min len
   ssz_ob_t proof = {.bytes = proof_data, .def = eth_ssz_verification_type(ETH_SSZ_VERIFY_ZK_SYNCDATA_V6)};
@@ -87,7 +87,7 @@ static void missing_checkpoints_cb(void* user_data, file_data_t* files, int num_
     bytes32_t checkpoint = {0};
     uint64_t  slot       = 0;
     if (!get_checkpoint_from_proof(files[i].data, checkpoint, &slot)) {
-      log_error("Failed to get checkpoint from zk_proof_v6.ssz: %l", ctx->periods[i]);
+      log_error("Failed to get checkpoint from zk_proof.ssz: %l", ctx->periods[i]);
       continue;
     }
     if (i > 0) buffer_add_chars(&buffer, ",");

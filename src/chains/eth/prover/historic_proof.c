@@ -393,7 +393,7 @@ c4_status_t c4_get_syncdata_proof(prover_ctx_t* ctx, syncdata_state_t* sync_data
     eth_cu_add(ctx, CU_ZK_PROOF_INCLUDE); // ZK proof attached to the sync section
 
     // The witness-key path keeps the original header_proof checkpoint embedded in
-    // `zk_proof_v6.ssz` because the witness BLS signatures vouch for the signed header
+    // `zk_proof.ssz` because the witness BLS signatures vouch for the signed header
     // directly. Without witness keys we anchor the sync committee instead against an
     // independently checkpointz-confirmed LightClientBootstrap (double-trust model):
     // both the verified ZK proof's pubkeys and the bootstrap's currentSyncCommittee
