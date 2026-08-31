@@ -60,7 +60,7 @@ static void c4_handle_period_store_cb(void* user_data, file_data_t* files, int n
   }
 
   else if (files[0].error) {
-    log_error("period_store: could not read period store: %s", files[0].error);
+    log_error("period_store: could not read %s from period store: %s", files[0].path, files[0].error);
     r->req->error = strdup(files[0].error);
   }
   else {
