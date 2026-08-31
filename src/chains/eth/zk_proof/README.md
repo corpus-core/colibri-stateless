@@ -71,6 +71,9 @@ To generate a chain of proofs (e.g., 1599 -> 1600 -> 1601), where each proof ver
 
 ### 3. Update C-Verifier Constants
 
+When the guest program changes, follow the rotation checklist in [HOWTO.md](./HOWTO.md)
+(new ELF, `VK_PROGRAM_HASH`, pubkeys-only trust anchor, non-recursive baseline proof).
+
 **⚠️ Important:** If you modify the Rust code in `program/`, the **Program Hash** changes. You must regenerate the C header constants to allow the C-Verifier to accept the new proofs.
 
 1.  Rebuild the Guest binary (done automatically by `run_zk_proof.sh`).

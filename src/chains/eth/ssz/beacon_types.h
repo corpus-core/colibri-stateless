@@ -205,7 +205,11 @@ inline static bool is_gnosis_chain(chain_id_t chain_id) {
 gindex_t c4_current_sync_committee_gindex(chain_id_t chain_id, uint64_t slot);
 
 /**
- * Returns the generalized index of `next_sync_committee` within `BeaconState` for the fork active at `slot`.
+ * Returns the generalized index of `next_sync_committee` (the SyncCommittee
+ * container) within `BeaconState` for the fork active at `slot`.
+ *
+ * That leaf is `hash(pubkeys_root, aggregatePubkey_root)`, not the 512-key
+ * vector. ZK sync proofs prove `.pubkeys` (left child, gindex `* 2`).
  *
  * The gindex depends on the BeaconState layout:
  * - Deneb:   55
