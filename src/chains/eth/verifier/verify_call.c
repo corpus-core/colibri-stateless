@@ -144,37 +144,6 @@ bool c4_eth_verify_accounts(verify_ctx_t* ctx, ssz_ob_t accounts, bytes32_t stat
   return true;
 }
 
-static void add_simulate_value_transfer_event(verify_ctx_t* ctx, emitted_log_t** logs) {
-  json_t tx       = json_at(ctx->args, 0);
-  json_t tx_value = json_get(tx, "value");
-  if (tx_value.type != JSON_TYPE_STRING || tx_value.len < 5 || strncmp(tx_value.start, "\"0x0\"", 5) == 0) return;
-
-  bytes32_t value     = {0};
-  buffer_t  value_buf = stack_buffer(value);
-
-  emitted_log_t* log = safe_calloc(sizeof(emitted_log_t), 1);
-  log->data          = bytes(safe_calloc(32, 1), 32);
-  log->topics        = safe_calloc(3, sizeof(bytes32_t));
-  log->topics_count  = 3;
-  log->next          = *logs;
-  *logs              = log;
-  bytes_t  b         = json_as_bytes(tx_value, &value_buf);
-  uint8_t* ptr       = (uint8_t*) log->topics;
-  memcpy(log->data.data + 32 - b.len, b.data, b.len);
-  json_t from = json_get(tx, "from");
-  if (from.type == JSON_TYPE_STRING && from.len >= 5 && strncmp(from.start, "\"0x0\"", 5) != 0) {
-    b = json_as_bytes(from, &value_buf);
-    memcpy(ptr + 64 - b.len, b.data, b.len);
-  }
-  json_t to = json_get(tx, "to");
-  if (to.type == JSON_TYPE_STRING && to.len >= 5 && strncmp(to.start, "\"0x0\"", 5) != 0) {
-    b = json_as_bytes(to, &value_buf);
-    memcpy(ptr + 96 - b.len, b.data, b.len);
-  }
-  const char* signature = "Transfer(address,address,uint256)";
-  keccak(bytes((uint8_t*) signature, strlen(signature)), ptr);
-}
-
 #define G_TRANSACTION     21000
 #define G_TXDATA_ZERO     4
 #define G_TXDATA_NON_ZERO 16
@@ -213,8 +182,6 @@ RETURNS_NONNULL static evm_call_ctx_t* call_get_evm_ctx(verify_ctx_t* ctx) {
 }
 
 static bool match_simulate_result(verify_ctx_t* ctx, evm_call_ctx_t* evm) {
-  add_simulate_value_transfer_event(ctx, &evm->logs);
-
   // reverse trace list to chronological order (entries were prepended during execution)
   {
     trace_entry_t* prev = NULL;
@@ -226,6 +193,24 @@ static bool match_simulate_result(verify_ctx_t* ctx, evm_call_ctx_t* evm) {
       cur                 = next;
     }
     evm->traces = prev;
+  }
+
+  // Reverse the log list to chronological order. Logs are prepended during
+  // execution (LIFO): host_emit_log for VM logs, emit_eth_transfer_log for the
+  // EIP-7708 protocol-generated logs (top-level Tx, nested CALL/CREATE with
+  // value, SELFDESTRUCT). After the reversal the top-level transfer log is
+  // first, matching EIP-7708's "before any other logs created by EVM
+  // execution" ordering.
+  {
+    emitted_log_t* prev = NULL;
+    emitted_log_t* cur  = evm->logs;
+    while (cur) {
+      emitted_log_t* next = cur->next;
+      cur->next           = prev;
+      prev                = cur;
+      cur                 = next;
+    }
+    evm->logs = prev;
   }
   // A revert is reflected in the simulation result via `success = false`.
   // The revert bytes are already in `evm->call_result` and are carried as

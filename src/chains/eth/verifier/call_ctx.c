@@ -82,6 +82,13 @@ call_account_t* call_account_get_or_create(evmone_context_t* ctx, const address_
   if (parent_acc) {
     acc->nonce = parent_acc->nonce;
     memcpy(acc->balance, parent_acc->balance, 32);
+    // Preserve the "started at src_*, currently at balance/nonce" invariant
+    // established by call_account_reset_accessed on the root context. Without
+    // this, an account first materialised inside a nested frame would show up
+    // in the SSZ stateChanges with previousValue = 0, which lies about the
+    // pre-simulation balance whenever the ancestor account had funds.
+    memcpy(acc->src_balance, parent_acc->src_balance, 32);
+    acc->src_nonce = parent_acc->src_nonce;
     memcpy(acc->code_hash, parent_acc->code_hash, 32);
     memcpy(acc->storage_root, parent_acc->storage_root, 32);
     acc->code        = parent_acc->code;
@@ -369,6 +376,30 @@ emitted_log_t* add_emitted_log(emitted_log_t** logs, const address_t addr, const
   return log;
 }
 
+// EIP-7708: keccak256("Transfer(address,address,uint256)")
+static const uint8_t EIP7708_TRANSFER_TOPIC[32] = {
+    0xdd, 0xf2, 0x52, 0xad, 0x1b, 0xe2, 0xc8, 0x9b,
+    0x69, 0xc2, 0xb0, 0x68, 0xfc, 0x37, 0x8d, 0xaa,
+    0x95, 0x2b, 0xa7, 0xf1, 0x63, 0xc4, 0xa1, 0x16,
+    0x28, 0xf5, 0x5a, 0x4d, 0xf5, 0x23, 0xb3, 0xef};
+
+// EIP-7708 / EIP-4788 SYSTEM_ADDRESS: 0xfffffffffffffffffffffffffffffffffffffffe
+static const address_t EIP7708_SYSTEM_ADDRESS = {
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+    0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfe};
+
+void emit_eth_transfer_log(emitted_log_t** logs, const address_t from, const address_t to, const uint8_t value[32]) {
+  // EIP-7708: no log for zero-value transfers or self-transfers.
+  if (!value || bytes_all_zero(bytes((uint8_t*) value, 32))) return;
+  if (memcmp(from, to, 20) == 0) return;
+
+  bytes32_t topics[3] = {0};
+  memcpy(topics[0], EIP7708_TRANSFER_TOPIC, 32);
+  memcpy(topics[1] + 12, from, 20);
+  memcpy(topics[2] + 12, to, 20);
+  add_emitted_log(logs, EIP7708_SYSTEM_ADDRESS, value, 32, (const bytes32_t*) topics, 3);
+}
+
 // :: Child-context management
 
 static void free_transient_storage(transient_slot_t* slots) {
@@ -419,14 +450,14 @@ void context_apply(evmone_context_t* ctx) {
   }
 
   if (ctx->parent->capture_events && ctx->logs) {
-    emitted_log_t* log = ctx->logs;
-    while (log) {
-      emitted_log_t* next = log->next;
-      log->next           = ctx->parent->logs;
-      ctx->parent->logs   = log;
-      log                 = next;
-    }
-    ctx->logs = NULL;
+    // Splice child logs at the head of the parent list while preserving the
+    // child's LIFO order (newest at head). Combined with the final reversal in
+    // match_simulate_result, this yields chronological output across nesting.
+    emitted_log_t* tail = ctx->logs;
+    while (tail->next) tail = tail->next;
+    tail->next        = ctx->parent->logs;
+    ctx->parent->logs = ctx->logs;
+    ctx->logs         = NULL;
   }
 }
 

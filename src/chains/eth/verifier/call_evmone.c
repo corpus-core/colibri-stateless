@@ -56,7 +56,11 @@ static void debug_print_bytes32(const char* prefix, const evmc_bytes32* data) {
 #define debug_print_bytes32(prefix, data) (void) 0
 #endif
 
-/* Execution uses EVMONE_REV_OSAKA from evmone_c_wrapper.h (mapped to EVMC_OSAKA). */
+/* Execution uses EVMONE_REV_AMSTERDAM from evmone_c_wrapper.h (mapped to
+ * EVMC_AMSTERDAM). Amsterdam is required for EIP-7708 protocol-generated
+ * transfer logs; SLOTNUM (EIP-7843) reads the tx_context's block_slot_number,
+ * which is currently populated as 0 by host_get_tx_context and needs wiring
+ * once the beacon slot is threaded through the call context. */
 
 static const char* evmone_status_message(int code) {
   static const char* positive_msgs[] = {
@@ -93,6 +97,45 @@ typedef enum {
   CALL_KIND_CREATE       = 3,
   CALL_KIND_CREATE2      = 4
 } evmone_call_kind;
+
+// Big-endian uint256 accumulator: a += b (mod 2^256). No overflow signalling.
+static void uint256_add(uint8_t a[32], const uint8_t b[32]) {
+  uint16_t carry = 0;
+  for (int i = 31; i >= 0; i--) {
+    carry += (uint16_t) a[i] + (uint16_t) b[i];
+    a[i] = (uint8_t) carry;
+    carry >>= 8;
+  }
+}
+
+// Big-endian uint256 accumulator: a -= b (mod 2^256). Caller must ensure a >= b
+// when correctness matters; evmone's INSUFFICIENT_BALANCE check prevents entry
+// into host_call with insufficient sender balance for CALL/CREATE frames.
+static void uint256_sub(uint8_t a[32], const uint8_t b[32]) {
+  int16_t borrow = 0;
+  for (int i = 31; i >= 0; i--) {
+    int16_t diff = (int16_t) a[i] - (int16_t) b[i] - borrow;
+    borrow       = (diff < 0) ? 1 : 0;
+    a[i]         = (uint8_t) (diff & 0xFF);
+  }
+}
+
+// Debit `from`, credit `to` on `ctx`. Both accounts are materialised on `ctx`
+// via call_account_get_or_create, so caller-context reverts (child accounts
+// discarded on evmone_execute != 0) automatically roll back the change.
+// No-op when value is zero or from == to.
+static void apply_value_transfer(evmone_context_t* ctx, const address_t from, const address_t to, const uint8_t value[32]) {
+  if (!value || bytes_all_zero(bytes((uint8_t*) value, 32))) return;
+  if (memcmp(from, to, 20) == 0) return;
+
+  call_account_t* sender_acc = call_account_get_or_create(ctx, from);
+  uint256_sub(sender_acc->balance, value);
+  sender_acc->flags |= ACCOUNT_HAS_BALANCE;
+
+  call_account_t* dest_acc = call_account_get_or_create(ctx, to);
+  uint256_add(dest_acc->balance, value);
+  dest_acc->flags |= ACCOUNT_HAS_BALANCE;
+}
 
 typedef struct evm_res_ptr {
   struct evmone_result result;
@@ -307,15 +350,21 @@ static void host_selfdestruct(void* context, const evmc_address* addr, const evm
   // EIP-6780: transfer remaining balance to beneficiary, zero own balance.
   // Storage is NOT cleared post-Cancun (unless created in same tx, which we don't track).
   if (!bytes_all_zero(bytes(acc->balance, 32)) && memcmp(addr->bytes, beneficiary->bytes, 20) != 0) {
-    call_account_t* ben   = call_account_get_or_create(ctx, beneficiary->bytes);
-    uint16_t        carry = 0;
-    for (int i = 31; i >= 0; i--) {
-      carry += (uint16_t) ben->balance[i] + (uint16_t) acc->balance[i];
-      ben->balance[i] = (uint8_t) carry;
-      carry >>= 8;
-    }
+    // Snapshot the transferred amount for the EIP-7708 log below; acc->balance
+    // is zeroed after the credit so we cannot read it back afterwards.
+    bytes32_t        transferred = {0};
+    memcpy(transferred, acc->balance, 32);
+    call_account_t*  ben         = call_account_get_or_create(ctx, beneficiary->bytes);
+    uint256_add(ben->balance, acc->balance);
     ben->flags |= ACCOUNT_HAS_BALANCE;
     memset(acc->balance, 0, 32);
+
+    // EIP-7708: SELFDESTRUCT to a different beneficiary emits a Transfer log
+    // from SYSTEM_ADDRESS. The helper filters zero-value and self cases; both
+    // are already ruled out by the enclosing branch but the guards keep the
+    // invariant local.
+    if (ctx->capture_events)
+      emit_eth_transfer_log(&ctx->logs, addr->bytes, beneficiary->bytes, transferred);
   }
   else if (memcmp(addr->bytes, beneficiary->bytes, 20) == 0) {
     // EIP-6780: self-destruct to self -- balance stays zero
@@ -393,6 +442,14 @@ static void host_call(void* context, const struct evmone_message* msg, const uin
       if (result->output_data && result->output_size)
         entry->output = bytes_dup(bytes(result->output_data, result->output_size));
     }
+    // EIP-7708 + balance: on successful CALL with value the sender -> precompile
+    // transfer must be reflected. Skip on failure so a reverting precompile
+    // does not leave a spurious log or half-applied balance change behind.
+    if (pre_result == PRE_SUCCESS && msg->kind == CALL_KIND_CALL) {
+      apply_value_transfer(ctx, msg->sender.bytes, msg->destination.bytes, msg->value.bytes);
+      if (ctx->capture_events)
+        emit_eth_transfer_log(&ctx->logs, msg->sender.bytes, msg->destination.bytes, msg->value.bytes);
+    }
     add_evm_result(ctx, result);
     return;
   }
@@ -463,6 +520,20 @@ static void host_call(void* context, const struct evmone_message* msg, const uin
     created->flags |= ACCOUNT_HAS_NONCE;
   }
 
+  // Value transfer for CALL/CREATE/CREATE2: debit sender, credit destination on
+  // the child context so a reverting frame automatically discards the change
+  // together with the child's accounts. DELEGATECALL/STATICCALL/CALLCODE do not
+  // move ETH (CALLCODE has sender == destination, DELEGATECALL/STATICCALL carry
+  // value == 0 or an inherited value that is not re-transferred).
+  const bool is_value_call = (msg->kind == CALL_KIND_CALL || is_create);
+  if (is_value_call) {
+    apply_value_transfer(&child, msg->sender.bytes, msg->destination.bytes, msg->value.bytes);
+    // EIP-7708: emit the Transfer log on the child so it disappears if the
+    // frame reverts. On success context_apply merges it into the parent list.
+    if (ctx->capture_events)
+      emit_eth_transfer_log(&child.logs, msg->sender.bytes, msg->destination.bytes, msg->value.bytes);
+  }
+
   // During initcode execution CALLDATA must be empty (initcode is the code, not input).
   evmone_message exec_msg = *msg;
   if (is_create) {
@@ -474,7 +545,7 @@ static void host_call(void* context, const struct evmone_message* msg, const uin
       ctx->executor,
       &host_interface,
       &child,
-      EVMONE_REV_OSAKA,
+      EVMONE_REV_AMSTERDAM,
       &exec_msg,
       execution_code,
       execution_code_size);
@@ -528,7 +599,10 @@ static void host_get_tx_context(void* context, evmone_tx_context* result) {
   result->block_gas_limit   = (int64_t) root->block_gas_limit;
   result->blob_hashes       = NULL;
   result->blob_hashes_count = 0;
-  // SLOTNUM (EIP-7843) stays zero until Amsterdam is activated explicitly.
+  // SLOTNUM (EIP-7843) is available under EVMONE_REV_AMSTERDAM but returns 0
+  // until the beacon slot is threaded through to the call context. This is
+  // safe pre-mainnet-activation of Amsterdam (no deployed contract reads
+  // SLOTNUM yet); wire the actual slot once fixtures/beacon data expose it.
   result->block_slot_number = 0;
 
   // gas_price as big-endian uint256
@@ -832,19 +906,27 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
   else
     EVM_LOG("Contract code : %d bytes", (uint32_t) code.len);
 
-  // Apply top-level value transfer: credit msg.value to destination account
+  // Apply top-level value transfer: credit msg.value to destination account.
+  // Sender is NOT debited here to preserve eth_call semantics (`from` balance
+  // is treated as unlimited); the EIP-7708 log below is still emitted so
+  // simulate hosts see the transfer.
   if (!bytes_all_zero(bytes(message.value.bytes, 32))) {
     call_account_t* dest_acc = call_account_find(&context, to);
     if (dest_acc) {
-      uint16_t carry = 0;
-      for (int i = 31; i >= 0; i--) {
-        carry += (uint16_t) dest_acc->balance[i] + (uint16_t) message.value.bytes[i];
-        dest_acc->balance[i] = (uint8_t) carry;
-        carry >>= 8;
-      }
+      uint256_add(dest_acc->balance, message.value.bytes);
       dest_acc->flags |= ACCOUNT_HAS_BALANCE;
     }
   }
+
+  // EIP-7708: top-level transaction Transfer log. Kept off `context.logs` until
+  // evmone_execute finishes so a reverting top-level frame does not leak a
+  // "money moved" log into the simulation output. On success we splice this
+  // log at the TAIL of context.logs so that after the final reversal in
+  // match_simulate_result it surfaces first, matching the "before any other
+  // logs created by EVM execution" ordering.
+  emitted_log_t* top_level_transfer_log = NULL;
+  if (capture_events)
+    emit_eth_transfer_log(&top_level_transfer_log, message.sender.bytes, message.destination.bytes, message.value.bytes);
 
   if (capture_events) {
     free_keccak_entries(evm->keccak_entries);
@@ -867,7 +949,7 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
       executor,
       &host_interface,
       &context,
-      EVMONE_REV_OSAKA,
+      EVMONE_REV_AMSTERDAM,
       &message,
       code.data,
       code.len);
@@ -904,6 +986,23 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
     evm->call_result = NULL_BYTES;
 
   if (capture_events) {
+    // EIP-7708 revert semantics: only publish the deferred top-level Transfer
+    // log if evmone did not revert. On any non-success outcome the log is
+    // discarded together with the frame's state changes. Splicing at the tail
+    // of context.logs places it at the head of the reversed evm->logs, i.e.
+    // before any VM-emitted logs, per EIP-7708 ordering.
+    if (top_level_transfer_log) {
+      if (result.status_code == 0) {
+        emitted_log_t** tail_ptr = &context.logs;
+        while (*tail_ptr) tail_ptr = &(*tail_ptr)->next;
+        *tail_ptr = top_level_transfer_log;
+      }
+      else {
+        free_emitted_logs(top_level_transfer_log);
+      }
+      top_level_transfer_log = NULL;
+    }
+
     evm->logs    = context.logs;
     context.logs = NULL;
 

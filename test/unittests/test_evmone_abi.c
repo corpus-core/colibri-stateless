@@ -221,7 +221,12 @@ void test_evmone_osaka_stop(void) {
   evmone_destroy_executor(executor);
 }
 
-void test_evmone_revision_stays_on_osaka(void) {
+/**
+ * EVMONE_REV_OSAKA must still gate out Amsterdam-introduced opcodes; the
+ * mapping is independent of what production uses, so this test guards the
+ * revision boundary itself.
+ */
+void test_evmone_osaka_rev_rejects_amsterdam_opcodes(void) {
   void*       executor = evmone_create_executor();
   test_host_t host     = {0};
   TEST_ASSERT_NOT_NULL(executor);
@@ -242,6 +247,29 @@ void test_evmone_revision_stays_on_osaka(void) {
       evmone_execute(executor, &g_host, &host, EVMONE_REV_OSAKA, &msg, amsterdam_code, sizeof(amsterdam_code));
   TEST_ASSERT_EQUAL_INT(EVMC_UNDEFINED_INSTRUCTION, amsterdam_result.status_code);
   evmone_release_result(&amsterdam_result);
+
+  evmone_destroy_executor(executor);
+}
+
+/**
+ * EVMONE_REV_AMSTERDAM must accept the Amsterdam-introduced SLOTNUM opcode.
+ * This guards against regressions in the OSAKA -> AMSTERDAM revision switch.
+ */
+void test_evmone_amsterdam_rev_accepts_slotnum(void) {
+  void*       executor = evmone_create_executor();
+  test_host_t host     = {0};
+  TEST_ASSERT_NOT_NULL(executor);
+
+  // PUSH0 style pattern would need Shanghai; use SLOTNUM (0x4b) then POP then STOP.
+  const uint8_t amsterdam_code[] = {0x4b, 0x50, 0x00};
+  evmone_message msg             = {0};
+  msg.kind                       = EVMONE_CALL;
+  msg.gas                        = 100000;
+
+  evmone_result result =
+      evmone_execute(executor, &g_host, &host, EVMONE_REV_AMSTERDAM, &msg, amsterdam_code, sizeof(amsterdam_code));
+  TEST_ASSERT_EQUAL_INT(0, result.status_code);
+  evmone_release_result(&result);
 
   evmone_destroy_executor(executor);
 }
@@ -358,7 +386,8 @@ int main(void) {
 #ifdef EVMONE
   RUN_TEST(test_evmone_abi_version_and_executor);
   RUN_TEST(test_evmone_osaka_stop);
-  RUN_TEST(test_evmone_revision_stays_on_osaka);
+  RUN_TEST(test_evmone_osaka_rev_rejects_amsterdam_opcodes);
+  RUN_TEST(test_evmone_amsterdam_rev_accepts_slotnum);
   RUN_TEST(test_evmone_create_uses_get_nonce);
   RUN_TEST(test_evmone_create_bumps_nonce_between_creates);
   RUN_TEST(test_evmone_tx_context_blob_hashes);
