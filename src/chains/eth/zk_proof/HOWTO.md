@@ -4,10 +4,10 @@ Use this when `program/src/main.rs` (or anything that changes the guest ELF) is 
 A guest change rotates `VK_PROGRAM_HASH`. Existing Groth16 proofs become unverifiable.
 The recursive chain must restart from a new trust anchor and a non-recursive baseline proof.
 
-The `_v6` suffix on period-store files names the **SP1 circuit** (Groth16 v6, 356-byte proof),
-not the guest revision. Keep that suffix. Do not add a `_v7` union variant unless the
-on-wire proof size changes. SSZ union index 2 (`ZKSyncData`, 260 bytes) stays as a dead
-placeholder so index 3 (`ZKSyncDataV6`) does not shift.
+Period-store files use unsuffixed names (`zk_proof_g16.bin`, `zk_proof.ssz`, …), matching
+`scripts/run_zk_proof.sh`. Do not add a new SSZ union variant unless the on-wire proof
+size changes. Index 2 (`ZKSyncData`, 260 bytes) stays as a dead placeholder so index 3
+(`ZKSyncDataV6`) does not shift.
 
 ## 1. Rebuild and freeze the guest ELF
 
@@ -55,8 +55,8 @@ The latest period that already has `sync.ssz` is the first proof you can build t
 The next period needs tomorrow's LCU.
 
 Do **not** recurse from a proof produced by the previous guest. `run_zk_proof.sh` auto-detects
-`../<P-1>/zk_proof.bin` (not `zk_proof_v6.bin`). If that file exists from an old run, remove
-it or the host will feed a VK-mismatched previous proof into the guest.
+`../<P-1>/zk_proof.bin`. If that file exists from an old run, remove it or the host will
+feed a VK-mismatched previous proof into the guest.
 
 ## 4. Compute the trust anchor (pubkeys only)
 
@@ -78,7 +78,7 @@ The guest hashes **512 BLS pubkeys** (`create_root_hash`). That is *not* the Lig
 ./build/default/bin/ssz build/<chain>/<P-2>/lcu.ssz -t lcu nextSyncCommittee -h
 ```
 
-Cross-check against an *old* recursive `zk_pub_v6.bin` if one is still around:
+Cross-check against an *old* recursive `zk_pub.bin` if one is still around:
 
 - Bytes `32..63` (`next_keys_root`) must equal that period's `sync.ssz` `newKeys` HTR.
 - Bytes `0..31` (`current_keys_root`) on a **recursive** proof are the *old chain* anchor,
@@ -98,9 +98,16 @@ cannot serve or recurse on them:
 rm -f build/<chain>/<P>/zk_*.bin build/<chain>/<P>/zk_*.ssz
 ```
 
-Older periods may still hold old-guest `_v6` files. The automatic prover verifies before
-accepting a baseline; those files fail the new `VK_PROGRAM_HASH` and are skipped. The
-newest valid `zk_proof_g16_v6.bin` + `zk_pub_v6.bin` wins.
+Leftover `*_v6.*` names from the old dual-serve window are ignored. After deploy:
+
+```bash
+# optional cleanup of the retired suffix (safe once the new guest is live)
+find build/<chain> -name 'zk_*_v6.*' -delete
+```
+
+The automatic prover verifies before accepting a baseline; a leftover old-guest
+`zk_proof_g16.bin` fails the new `VK_PROGRAM_HASH` and is skipped. The newest
+valid `zk_proof_g16.bin` + `zk_pub.bin` wins.
 
 ## 6. Execute, then prove (no recursion)
 
@@ -113,7 +120,7 @@ export SP1_PRIVATE_KEY_FILE=/path/to/.proverkey   # gitignored
 ./scripts/run_zk_proof.sh --period <P> --prove --groth16 --network --output build/<chain>
 ```
 
-`--execute` / `--prove` write `zk_pub.bin` (no `_v6` suffix). After a successful prove:
+`--execute` / `--prove` write the same filenames the period-store prover consumes:
 
 ```
 zk_pub.bin          current = oldKeys HTR, next = newKeys HTR, period = P
@@ -122,24 +129,14 @@ zk_proof.bin        compressed (recursion input for P+1)
 zk_vk_raw.bin       compressed VK (recursion input for P+1)
 ```
 
-Copy onto the names the period-store prover actually looks for:
-
-```bash
-cd build/<chain>/<P>
-cp -f zk_groth16.bin    zk_groth16_v6.bin
-cp -f zk_proof_g16.bin  zk_proof_g16_v6.bin
-cp -f zk_proof.bin      zk_proof_v6.bin
-cp -f zk_pub.bin        zk_pub_v6.bin
-cp -f zk_vk.bin         zk_vk_v6.bin
-cp -f zk_vk_raw.bin     zk_vk_raw_v6.bin
-```
+The server packs `zk_proof_g16.bin` into `zk_proof.ssz` (`ZKSyncDataV6`).
 
 ## 7. Verify with the C verifier
 
 ```bash
 ./build/default/bin/verify_zk_proof_cli \
-  build/<chain>/<P>/zk_proof_g16_v6.bin \
-  build/<chain>/<P>/zk_pub_v6.bin
+  build/<chain>/<P>/zk_proof_g16.bin \
+  build/<chain>/<P>/zk_pub.bin
 ```
 
 `current_keys_root` in `zk_pub` must equal `zk_sync_keys_root` in `beacon_types.c`.

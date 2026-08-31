@@ -644,7 +644,7 @@ static void read_period_done(void* user_data, file_data_t* files, int num_files)
   if (num_files > 3) {
 
     // check lc bootstrap
-    if ((files[3].error || files[3].data.len == 0) && c4_ps_file_exists(p - 1, "zk_proof_g16_v6.bin")) {
+    if ((files[3].error || files[3].data.len == 0) && c4_ps_file_exists(p - 1, "zk_proof_g16.bin")) {
       if (files[3].error)
         log_info("period_store: lcb.ssz missing for period %l (%s) -> will fetch", p, files[3].error);
       else

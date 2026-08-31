@@ -35,7 +35,7 @@ extern "C" {
 #include "sync_committee.h"
 
 /**
- * SSZ type of the packed ZK sync-data file (`zk_proof_v6.ssz`).
+ * SSZ type of the packed ZK sync-data file (`zk_proof.ssz`).
  *
  * @return `ETH_SSZ_VERIFY_ZK_SYNCDATA_V6` (union index 3, 356-byte Groth16).
  */

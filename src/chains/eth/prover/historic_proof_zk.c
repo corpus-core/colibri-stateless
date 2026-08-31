@@ -35,10 +35,10 @@ c4_status_t c4_fetch_zk_proof_data(prover_ctx_t* ctx, zk_proof_data_t* zk_proof,
   char        buffer[1000]                                  = {0};
   buffer_t    buf                                           = stack_buffer(buffer);
 
-  // Fetch `zk_proof_v6.ssz` as `ZKSyncDataV6`.
+  // Fetch `zk_proof.ssz` as `ZKSyncDataV6`.
   zk_proof->sync_proof.def = eth_ssz_verification_type(c4_zk_syncdata_type());
 
-  c4_status_t proof_status = c4_send_internal_request(ctx, bprintf(&buf, "period_store/%l/zk_proof_v6.ssz", period), NULL, 0, &zk_proof->sync_proof.bytes);
+  c4_status_t proof_status = c4_send_internal_request(ctx, bprintf(&buf, "period_store/%l/zk_proof.ssz", period), NULL, 0, &zk_proof->sync_proof.bytes);
   if (proof_status == C4_ERROR)
     THROW_ERROR("no zk sync proof has been generated for this period yet");
   TRY_ADD_ASYNC(status, proof_status);

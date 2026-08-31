@@ -46,11 +46,11 @@ A **period** is a contiguous range of **8192 beacon slots** (≈ 27h on mainnet)
     sync.ssz
     zk_pub.bin
     zk_proof.bin
-    zk_proof_g16_v6.bin
+    zk_proof_g16.bin
     zk_vk.bin
     zk_vk_raw.bin
     zk_groth16.bin
-    zk_proof_v6.ssz
+    zk_proof.ssz
 ```
 
 ### Files (what they mean)
@@ -83,9 +83,9 @@ A **period** is a contiguous range of **8192 beacon slots** (≈ 27h on mainnet)
   - `sync.ssz`: prepared input data (temporary, may exist only during proof generation)
   - `zk_pub.bin`: public input data (e.g. `[SRC_PUBKEY_HASH:u256 | DST_PUBKEY_HASH:u256 | DST_PERIOD:u64 | ATTESTED_HEADER_ROOT:u256 | DOMAIN:bytes32]`)
   - `zk_proof.bin`: SP1 core proof
-  - `zk_proof_g16_v6.bin`: SP1 v6 Groth16 proof (used by the verifier). The `_v6` suffix names the circuit, not a guest revision.
+  - `zk_proof_g16.bin`: Groth16 proof (356 bytes, used by the verifier)
   - `zk_vk.bin`, `zk_vk_raw.bin`, `zk_groth16.bin`: verification keys / proof artifacts
-  - `zk_proof_v6.ssz`: Packs `zk_proof_g16_v6.bin` into the SSZ container used for sync-data delivery (`ZKSyncDataV6`, see `C4_ETH_REQUEST_SYNCDATA_UNION[3]` in `src/chains/eth/ssz/verify_types.c`). Union index 2 (`ZKSyncData`, 260-byte v5) is kept as a dead placeholder so this selector does not shift. Carries the `header_proof` variant (embedded `checkpoint` is the epoch boundary right after the period's last block, anchored via a chain of headers up to the signed sync committee). The prover replaces this with a freshly-fetched LightClientBootstrap-derived `checkpoint_proof` at request-assembly time when no `witness_keys` are configured -- see `c4_get_syncdata_proof` in `prover/historic_proof.c`. The witness-key path keeps `header_proof` because witness BLS signatures vouch for the signed header directly.
+  - `zk_proof.ssz`: Packs `zk_proof_g16.bin` into the SSZ container used for sync-data delivery (`ZKSyncDataV6`, see `C4_ETH_REQUEST_SYNCDATA_UNION[3]` in `src/chains/eth/ssz/verify_types.c`). Union index 2 (`ZKSyncData`, 260-byte v5) is kept as a dead placeholder so this selector does not shift. Carries the `header_proof` variant (embedded `checkpoint` is the epoch boundary right after the period's last block, anchored via a chain of headers up to the signed sync committee). The prover replaces this with a freshly-fetched LightClientBootstrap-derived `checkpoint_proof` at request-assembly time when no `witness_keys` are configured -- see `c4_get_syncdata_proof` in `prover/historic_proof.c`. The witness-key path keeps `header_proof` because witness BLS signatures vouch for the signed header directly.
 
 ## Writer model
 
@@ -183,7 +183,7 @@ Trigger:
 Algorithm (high level):
 1. Determine `last_full_period` by scanning local directories from newest to oldest until a “complete” period is found:
    - `blocks_root.bin` present
-   - `zk_proof_g16_v6.bin` present
+   - `zk_proof_g16.bin` present
 2. Request manifest from master:
 
 ```
@@ -211,7 +211,7 @@ On each finalized checkpoint, the master checks whether the next period’s proo
 
 - Target period for proving: `target_period = current_period + 1`
 - Proof files:
-  - `zk_proof_g16_v6.bin`
+  - `zk_proof_g16.bin`
   - `zk_pub.bin`
 
 If a proof exists:

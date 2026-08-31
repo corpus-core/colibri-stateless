@@ -113,20 +113,19 @@ static bool file_exists_min_size(const char* path, size_t min_bytes) {
 // These values are intentionally conservative and based on real outputs:
 // - sync.ssz is typically ~tens of KB
 // - zk_proof.bin is typically ~MB
-// - the raw vk is ~104 bytes for SP1 v6 (`zk_vk_raw_v6.bin`), so the threshold
-//   must stay below 104 to accept those artifacts.
+// - the raw vk is ~104 bytes, so the threshold must stay below 104.
 static const size_t ZK_SYNC_MIN_BYTES       = 1024;
 static const size_t ZK_PREV_PROOF_MIN_BYTES = 1024;
 static const size_t ZK_PREV_VK_MIN_BYTES    = 64;
 
-// Artifact filenames produced/consumed by the automatic proving pipeline.
-// `_v6` names the SP1 v6 circuit (356-byte Groth16), not a guest-program revision.
-#define ZK_V6_GROTH16   "zk_groth16_v6.bin"   // SP1 Groth16 proof bundle
-#define ZK_V6_PROOF_G16 "zk_proof_g16_v6.bin" // raw Groth16 proof (packed into ssz + verified locally)
-#define ZK_V6_VK        "zk_vk_v6.bin"        // Groth16 verification key
-#define ZK_V6_PUB       "zk_pub_v6.bin"       // public values (verified locally)
-#define ZK_V6_PROOF     "zk_proof_v6.bin"     // compressed proof (recursion input for next period)
-#define ZK_V6_VK_RAW    "zk_vk_raw_v6.bin"    // compressed vk (recursion input for next period)
+// Artifact filenames — same as `scripts/run_zk_proof.sh`. No `_v6` suffix:
+// v5 serving is gone and this chain starts from a new guest / trust anchor.
+#define ZK_GROTH16   "zk_groth16.bin"   // SP1 Groth16 proof bundle
+#define ZK_PROOF_G16 "zk_proof_g16.bin" // raw Groth16 proof (packed into ssz + verified locally)
+#define ZK_VK        "zk_vk.bin"        // Groth16 verification key
+#define ZK_PUB       "zk_pub.bin"       // public values (verified locally)
+#define ZK_PROOF     "zk_proof.bin"     // compressed proof (recursion input for next period)
+#define ZK_VK_RAW    "zk_vk_raw.bin"    // compressed vk (recursion input for next period)
 
 static char* trim_key_string(bytes_t key_bytes) {
   if (!key_bytes.data || key_bytes.len == 0) return NULL;
@@ -206,9 +205,9 @@ void c4_period_prover_init_from_store(void) {
   // Walk backwards from the newest period to find the newest valid Groth16 proof.
   // Non-existent period directories (gaps) are silently skipped via c4_ps_file_exists.
   for (uint64_t p = max_period;; p--) {
-    if (c4_ps_file_exists(p, ZK_V6_PROOF_G16) && c4_ps_file_exists(p, ZK_V6_PUB)) {
-      char* proof_path = bprintf(NULL, "%s/%l/" ZK_V6_PROOF_G16, eth_config.period_store, p);
-      char* pub_path   = bprintf(NULL, "%s/%l/" ZK_V6_PUB, eth_config.period_store, p);
+    if (c4_ps_file_exists(p, ZK_PROOF_G16) && c4_ps_file_exists(p, ZK_PUB)) {
+      char* proof_path = bprintf(NULL, "%s/%l/" ZK_PROOF_G16, eth_config.period_store, p);
+      char* pub_path   = bprintf(NULL, "%s/%l/" ZK_PUB, eth_config.period_store, p);
 
       struct stat st;
       if (proof_path && stat(proof_path, &st) == 0) {
@@ -409,8 +408,8 @@ static void on_prover_exit(uv_process_t* req, int64_t exit_status, int term_sign
     prover_stats.total_success++;
     // Verify Groth16 proof with the built-in verifier before marking as verified.
     char* period_dir = bprintf(NULL, "%s/%l", eth_config.period_store, ctx->period);
-    char* proof_path = bprintf(NULL, "%s/" ZK_V6_PROOF_G16, period_dir);
-    char* pub_path   = bprintf(NULL, "%s/" ZK_V6_PUB, period_dir);
+    char* proof_path = bprintf(NULL, "%s/" ZK_PROOF_G16, period_dir);
+    char* pub_path   = bprintf(NULL, "%s/" ZK_PUB, period_dir);
     bool  valid      = c4_verify_proof_files(proof_path, pub_path);
     safe_free(period_dir);
     safe_free(proof_path);
@@ -562,8 +561,8 @@ static void c4_period_prover_spawn_host(uint64_t target_period, uint64_t prev_pe
   p.period_dir = bprintf(NULL, "%s/%l", eth_config.period_store, target_period);
   p.sync_path  = bprintf(NULL, "%s/sync.ssz", p.period_dir);
   p.prev_dir   = bprintf(NULL, "%s/%l", eth_config.period_store, prev_period);
-  p.prev_proof = bprintf(NULL, "%s/" ZK_V6_PROOF, p.prev_dir);
-  p.prev_vk    = bprintf(NULL, "%s/" ZK_V6_VK_RAW, p.prev_dir);
+  p.prev_proof = bprintf(NULL, "%s/" ZK_PROOF, p.prev_dir);
+  p.prev_vk    = bprintf(NULL, "%s/" ZK_VK_RAW, p.prev_dir);
 
   if (!file_exists_min_size(p.sync_path, ZK_SYNC_MIN_BYTES)) {
     log_error("Prover: sync.ssz missing for period %l (expected %s)", target_period, p.sync_path);
@@ -590,13 +589,13 @@ static void c4_period_prover_spawn_host(uint64_t target_period, uint64_t prev_pe
     return;
   }
 
-  // Output paths: SP1 v6 artifacts (356-byte Groth16, recursive chain).
-  p.proof_groth16 = bprintf(NULL, "%s/" ZK_V6_GROTH16, p.period_dir);
-  p.proof_raw     = bprintf(NULL, "%s/" ZK_V6_PROOF_G16, p.period_dir);
-  p.vk_groth16    = bprintf(NULL, "%s/" ZK_V6_VK, p.period_dir);
-  p.pub_values    = bprintf(NULL, "%s/" ZK_V6_PUB, p.period_dir);
-  p.proof_comp    = bprintf(NULL, "%s/" ZK_V6_PROOF, p.period_dir);
-  p.vk_comp       = bprintf(NULL, "%s/" ZK_V6_VK_RAW, p.period_dir);
+  // Output paths: Groth16 + compressed recursion inputs (same names as run_zk_proof.sh).
+  p.proof_groth16 = bprintf(NULL, "%s/" ZK_GROTH16, p.period_dir);
+  p.proof_raw     = bprintf(NULL, "%s/" ZK_PROOF_G16, p.period_dir);
+  p.vk_groth16    = bprintf(NULL, "%s/" ZK_VK, p.period_dir);
+  p.pub_values    = bprintf(NULL, "%s/" ZK_PUB, p.period_dir);
+  p.proof_comp    = bprintf(NULL, "%s/" ZK_PROOF, p.period_dir);
+  p.vk_comp       = bprintf(NULL, "%s/" ZK_VK_RAW, p.period_dir);
 
   uv_process_t*    proc = (uv_process_t*) malloc(sizeof(uv_process_t));
   zk_prover_ctx_t* ctx  = (zk_prover_ctx_t*) safe_calloc(1, sizeof(zk_prover_ctx_t));
@@ -739,8 +738,8 @@ void c4_period_prover_on_checkpoint(uint64_t period) {
   // Fill gaps sequentially: each proof needs the previous period's recursion inputs.
   for (uint64_t p = last_verified_period + 1; p <= max_period; p++) {
     char* period_dir = bprintf(NULL, "%s/%l", eth_config.period_store, p);
-    char* proof_path = bprintf(NULL, "%s/" ZK_V6_PROOF_G16, period_dir);
-    char* pub_path   = bprintf(NULL, "%s/" ZK_V6_PUB, period_dir);
+    char* proof_path = bprintf(NULL, "%s/" ZK_PROOF_G16, period_dir);
+    char* pub_path   = bprintf(NULL, "%s/" ZK_PUB, period_dir);
     safe_free(period_dir);
 
     struct stat st;
