@@ -89,8 +89,8 @@ void test_period_store_set_block_write(void) {
   char dir[512];
   snprintf(dir, sizeof(dir), "%s/%lu", g_ps_path, (unsigned long) period);
   char blocks_path[512], headers_path[512];
-  snprintf(blocks_path, sizeof(blocks_path), "%s/blocks.ssz", dir);
-  snprintf(headers_path, sizeof(headers_path), "%s/headers.ssz", dir);
+  snprintf(blocks_path, sizeof(blocks_path), "%s/" C4_PS_BLOCKS_SSZ, dir);
+  snprintf(headers_path, sizeof(headers_path), "%s/" C4_PS_HEADERS_SSZ, dir);
 
   int tries = 0;
   while (tries++ < 200) { // ~200ms
@@ -158,7 +158,7 @@ void test_period_store_lcu_cache_read(void) {
   snprintf(dir, sizeof(dir), "%s/%lu", g_ps_path, (unsigned long) period);
   ensure_dir(dir);
   char lcu_path[512];
-  snprintf(lcu_path, sizeof(lcu_path), "%s/lcu.ssz", dir);
+  snprintf(lcu_path, sizeof(lcu_path), "%s/" C4_PS_LCU_SSZ, dir);
 
   const char* payload = "LCU_PAYLOAD";
   {

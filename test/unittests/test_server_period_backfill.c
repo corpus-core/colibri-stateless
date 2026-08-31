@@ -8,6 +8,7 @@
 
 #include "../../src/chains/eth/server/eth_conf.h"
 #include "../../src/chains/eth/server/handler.h"
+#include "../../src/chains/eth/server/period_store_files.h"
 #include "../../src/server/server.h"
 #include "test_server_helper.h"
 
@@ -148,8 +149,8 @@ void test_period_backfill_writes_head_slot(void) {
   char     dir[512];
   snprintf(dir, sizeof(dir), "%s/%lu", g_ps_path, (unsigned long) period);
   char blocks_path[512];
-  snprintf(blocks_path, sizeof(blocks_path), "%s/blocks.ssz", dir);
-  // Wait up to ~2s for blocks.ssz to appear
+  snprintf(blocks_path, sizeof(blocks_path), "%s/" C4_PS_BLOCKS_SSZ, dir);
+  // Wait up to ~2s for C4_PS_BLOCKS_SSZ to appear
   {
     const int max_iters = 200;
     for (int i = 0; i < max_iters && !file_exists(blocks_path); i++) {
@@ -164,7 +165,7 @@ void test_period_backfill_writes_head_slot(void) {
   printf("[diag] blocks_path=%s exists=%d idx=%llu period=%lu\n",
          blocks_path, file_exists(blocks_path) ? 1 : 0,
          (unsigned long long) idx, (unsigned long) period);
-  TEST_ASSERT_TRUE_MESSAGE(file_exists(blocks_path), "blocks.ssz missing for computed period");
+  TEST_ASSERT_TRUE_MESSAGE(file_exists(blocks_path), C4_PS_BLOCKS_SSZ " missing for computed period");
   uint8_t buf[32];
   TEST_ASSERT_TRUE(read_slot_root(blocks_path, (size_t) idx, buf));
   TEST_ASSERT_FALSE(all_zero(buf, 32));
