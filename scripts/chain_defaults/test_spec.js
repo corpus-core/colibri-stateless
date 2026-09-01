@@ -46,10 +46,18 @@ for (const [id, head] of Object.entries(EXPECTED_PROVER_HEAD)) {
   assert.strictEqual(chain.prover[1], head[1], `${chain.name} *1 prover second`);
 }
 
+const seenAliases = new Set();
 for (const chain of spec.chains) {
   for (const url of allUrls(chain)) {
     for (const dead of DEAD_URL_SNIPPETS) {
       assert(!url.includes(dead), `${chain.name} still lists dead URL ${dead}`);
+    }
+  }
+  for (const alias of chain.aliases) {
+    assert(!seenAliases.has(alias), `duplicate alias ${alias}`);
+    seenAliases.add(alias);
+    if (alias.startsWith('0x')) {
+      assert.strictEqual(parseInt(alias, 16), chain.id, `${chain.name} hex alias ${alias}`);
     }
   }
 }
