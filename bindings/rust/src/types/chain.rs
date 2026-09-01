@@ -147,7 +147,10 @@ mod tests {
 
     #[test]
     fn plataberget_defaults() {
-        assert_eq!(default_provers(PLATABERGET), vec!["https://plataberget.colibri-proof.tech"]);
+        assert_eq!(
+            default_provers(PLATABERGET),
+            vec!["https://plataberget.colibri-proof.tech"]
+        );
         assert!(default_eth_rpcs(PLATABERGET)[0].contains("/execution"));
         assert!(default_beacon_apis(PLATABERGET)[0].contains("/consensus"));
     }
