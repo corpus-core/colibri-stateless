@@ -92,9 +92,11 @@ export const default_config: {
     alias: ["plataberget","glamsterdam-devnet-8","0x1a6a8cc6e"],
     rpcs: [
       "https://plataberget.colibri-proof.tech/execution",
+      "https://rpc.glamsterdam-devnet-8.ethpandaops.io/",
     ],
     beacon_apis: [
       "https://plataberget.colibri-proof.tech/consensus",
+      "https://beacon.glamsterdam-devnet-8.ethpandaops.io/",
     ],
     prover: ["https://plataberget.colibri-proof.tech"],
     checkpointz: [

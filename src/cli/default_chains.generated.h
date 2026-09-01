@@ -38,7 +38,7 @@ static const char* c4_default_chain_config_json(chain_id_t chain_id) {
     case 10200ULL: // chiado
       return "{\"eth_rpc\":[\"https://rpc.chiado.gnosis.gateway.fm\",\"https://rpc.chiadochain.net\",\"https://gnosis-chiado-rpc.publicnode.com\"],\"beacon_api\":[\"https://rpc-gbc.chiadochain.net\"],\"checkpointz\":[\"https://checkpoint.chiadochain.net\"],\"prover\":[\"https://chiado.colibri-proof.tech\"]}";
     case 7091047534ULL: // plataberget
-      return "{\"eth_rpc\":[\"https://plataberget.colibri-proof.tech/execution\"],\"beacon_api\":[\"https://plataberget.colibri-proof.tech/consensus\"],\"checkpointz\":[\"https://checkpoint-sync.glamsterdam-devnet-8.ethpandaops.io\"],\"prover\":[\"https://plataberget.colibri-proof.tech\"]}";
+      return "{\"eth_rpc\":[\"https://plataberget.colibri-proof.tech/execution\",\"https://rpc.glamsterdam-devnet-8.ethpandaops.io/\"],\"beacon_api\":[\"https://plataberget.colibri-proof.tech/consensus\",\"https://beacon.glamsterdam-devnet-8.ethpandaops.io/\"],\"checkpointz\":[\"https://checkpoint-sync.glamsterdam-devnet-8.ethpandaops.io\"],\"prover\":[\"https://plataberget.colibri-proof.tech\"]}";
     default:
       return NULL;
   }

@@ -59,7 +59,10 @@ List<String> defaultEthRpcs(int chainId) {
         "https://rpc.chiadochain.net",
         "https://gnosis-chiado-rpc.publicnode.com",
       ],
-    7091047534 => ["https://plataberget.colibri-proof.tech/execution"],
+    7091047534 => [
+        "https://plataberget.colibri-proof.tech/execution",
+        "https://rpc.glamsterdam-devnet-8.ethpandaops.io/",
+      ],
     _ => <String>[],
   };
 }
@@ -82,7 +85,10 @@ List<String> defaultBeaconApis(int chainId) {
         "https://gnosis-beacon-api.publicnode.com",
       ],
     10200 => ["https://rpc-gbc.chiadochain.net"],
-    7091047534 => ["https://plataberget.colibri-proof.tech/consensus"],
+    7091047534 => [
+        "https://plataberget.colibri-proof.tech/consensus",
+        "https://beacon.glamsterdam-devnet-8.ethpandaops.io/",
+      ],
     _ => <String>[],
   };
 }

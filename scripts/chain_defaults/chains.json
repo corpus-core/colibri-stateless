@@ -6,7 +6,11 @@
     {
       "id": 1,
       "name": "mainnet",
-      "aliases": ["mainnet", "eth", "0x1"],
+      "aliases": [
+        "mainnet",
+        "eth",
+        "0x1"
+      ],
       "pollingInterval": 12000,
       "eth_rpc": [
         "https://mainnet.colibri-proof.tech/execution",
@@ -38,7 +42,10 @@
     {
       "id": 11155111,
       "name": "sepolia",
-      "aliases": ["sepolia", "0xaa36a7"],
+      "aliases": [
+        "sepolia",
+        "0xaa36a7"
+      ],
       "pollingInterval": 12000,
       "eth_rpc": [
         "https://sepolia.colibri-proof.tech/execution",
@@ -61,7 +68,11 @@
     {
       "id": 100,
       "name": "gnosis",
-      "aliases": ["gnosis", "xdai", "0x64"],
+      "aliases": [
+        "gnosis",
+        "xdai",
+        "0x64"
+      ],
       "pollingInterval": 5000,
       "eth_rpc": [
         "https://gnosis.colibri-proof.tech/execution",
@@ -85,7 +96,10 @@
     {
       "id": 10200,
       "name": "chiado",
-      "aliases": ["chiado", "0x27d8"],
+      "aliases": [
+        "chiado",
+        "0x27d8"
+      ],
       "pollingInterval": 5000,
       "eth_rpc": [
         "https://rpc.chiado.gnosis.gateway.fm",
@@ -105,13 +119,19 @@
     {
       "id": 7091047534,
       "name": "plataberget",
-      "aliases": ["plataberget", "glamsterdam-devnet-8", "0x1a6a8cc6e"],
+      "aliases": [
+        "plataberget",
+        "glamsterdam-devnet-8",
+        "0x1a6a8cc6e"
+      ],
       "pollingInterval": 12000,
       "eth_rpc": [
-        "https://plataberget.colibri-proof.tech/execution"
+        "https://plataberget.colibri-proof.tech/execution",
+        "https://rpc.glamsterdam-devnet-8.ethpandaops.io/"
       ],
       "beacon_api": [
-        "https://plataberget.colibri-proof.tech/consensus"
+        "https://plataberget.colibri-proof.tech/consensus",
+        "https://beacon.glamsterdam-devnet-8.ethpandaops.io/"
       ],
       "checkpointz": [
         "https://checkpoint-sync.glamsterdam-devnet-8.ethpandaops.io"

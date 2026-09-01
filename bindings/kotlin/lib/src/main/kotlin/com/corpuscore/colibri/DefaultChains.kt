@@ -52,7 +52,10 @@ object DefaultChains {
                 "https://rpc.chiadochain.net",
                 "https://gnosis-chiado-rpc.publicnode.com",
             )
-        BigInteger("7091047534") -> arrayOf("https://plataberget.colibri-proof.tech/execution")
+        BigInteger("7091047534") -> arrayOf(
+                "https://plataberget.colibri-proof.tech/execution",
+                "https://rpc.glamsterdam-devnet-8.ethpandaops.io/",
+            )
         else -> emptyArray()
     }
 
@@ -74,7 +77,10 @@ object DefaultChains {
                 "https://gnosis-beacon-api.publicnode.com",
             )
         BigInteger.valueOf(10200L) -> arrayOf("https://rpc-gbc.chiadochain.net")
-        BigInteger("7091047534") -> arrayOf("https://plataberget.colibri-proof.tech/consensus")
+        BigInteger("7091047534") -> arrayOf(
+                "https://plataberget.colibri-proof.tech/consensus",
+                "https://beacon.glamsterdam-devnet-8.ethpandaops.io/",
+            )
         else -> emptyArray()
     }
 

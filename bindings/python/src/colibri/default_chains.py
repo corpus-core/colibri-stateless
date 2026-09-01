@@ -47,7 +47,10 @@ _ETH_RPCS = {
         "https://rpc.chiadochain.net",
         "https://gnosis-chiado-rpc.publicnode.com",
     ],  # chiado
-    7091047534: ["https://plataberget.colibri-proof.tech/execution"],  # plataberget
+    7091047534: [
+        "https://plataberget.colibri-proof.tech/execution",
+        "https://rpc.glamsterdam-devnet-8.ethpandaops.io/",
+    ],  # plataberget
 }
 
 _BEACON_APIS = {
@@ -66,7 +69,10 @@ _BEACON_APIS = {
         "https://gnosis-beacon-api.publicnode.com",
     ],  # gnosis
     10200: ["https://rpc-gbc.chiadochain.net"],  # chiado
-    7091047534: ["https://plataberget.colibri-proof.tech/consensus"],  # plataberget
+    7091047534: [
+        "https://plataberget.colibri-proof.tech/consensus",
+        "https://beacon.glamsterdam-devnet-8.ethpandaops.io/",
+    ],  # plataberget
 }
 
 _CHECKPOINTZ = {

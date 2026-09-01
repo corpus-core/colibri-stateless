@@ -61,7 +61,10 @@ pub fn default_eth_rpcs(chain_id: u64) -> Vec<String> {
             "https://rpc.chiadochain.net".into(),
             "https://gnosis-chiado-rpc.publicnode.com".into(),
         ],
-        PLATABERGET => vec!["https://plataberget.colibri-proof.tech/execution".into()],
+        PLATABERGET => vec![
+            "https://plataberget.colibri-proof.tech/execution".into(),
+            "https://rpc.glamsterdam-devnet-8.ethpandaops.io/".into(),
+        ],
         _ => vec![],
     }
 }
@@ -84,7 +87,10 @@ pub fn default_beacon_apis(chain_id: u64) -> Vec<String> {
             "https://gnosis-beacon-api.publicnode.com".into(),
         ],
         CHIADO => vec!["https://rpc-gbc.chiadochain.net".into()],
-        PLATABERGET => vec!["https://plataberget.colibri-proof.tech/consensus".into()],
+        PLATABERGET => vec![
+            "https://plataberget.colibri-proof.tech/consensus".into(),
+            "https://beacon.glamsterdam-devnet-8.ethpandaops.io/".into(),
+        ],
         _ => vec![],
     }
 }

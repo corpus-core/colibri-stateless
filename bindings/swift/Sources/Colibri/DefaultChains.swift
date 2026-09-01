@@ -61,7 +61,10 @@ enum DefaultChains {
                 "https://gnosis-chiado-rpc.publicnode.com",
             ]
         case 7091047534:
-            return ["https://plataberget.colibri-proof.tech/execution"]
+            return [
+                "https://plataberget.colibri-proof.tech/execution",
+                "https://rpc.glamsterdam-devnet-8.ethpandaops.io/",
+            ]
         default:
             return []
         }
@@ -90,7 +93,10 @@ enum DefaultChains {
         case 10200:
             return ["https://rpc-gbc.chiadochain.net"]
         case 7091047534:
-            return ["https://plataberget.colibri-proof.tech/consensus"]
+            return [
+                "https://plataberget.colibri-proof.tech/consensus",
+                "https://beacon.glamsterdam-devnet-8.ethpandaops.io/",
+            ]
         default:
             return []
         }
