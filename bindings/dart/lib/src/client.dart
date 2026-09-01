@@ -6,6 +6,7 @@ import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
+import 'default_chains.dart';
 import 'native.dart';
 import 'storage.dart';
 import 'types.dart';
@@ -53,11 +54,11 @@ class Colibri {
     void Function(String message)? onDebug,
     String? libraryPath,
     http.Client? httpClient,
-  })  : provers = provers ?? _defaultProvers(chainId),
+  })  : provers = provers ?? defaultProvers(chainId),
         _onDebug = onDebug,
-        ethRpcs = ethRpcs ?? _defaultEthRpcs(chainId),
-        beaconApis = beaconApis ?? _defaultBeaconApis(chainId),
-        checkpointz = checkpointz ?? _defaultCheckpointz(chainId),
+        ethRpcs = ethRpcs ?? defaultEthRpcs(chainId),
+        beaconApis = beaconApis ?? defaultBeaconApis(chainId),
+        checkpointz = checkpointz ?? defaultCheckpointz(chainId),
         obliviousNodes = obliviousNodes ?? const [],
         _native = ColibriNative.load(libraryPath: libraryPath),
         _http = httpClient ?? http.Client() {
@@ -500,103 +501,4 @@ class _HttpResult {
 
   final Uint8List data;
   final int nodeIndex;
-}
-
-/// Default prover endpoints by chain.
-List<String> _defaultProvers(int chainId) {
-  return switch (chainId) {
-    1 => [
-        'https://mainnet.colibri-proof.tech',
-        'https://mainnet-prover.incubed.net',
-        'https://mainnet.colimind.com',
-      ],
-    11155111 => [
-        'https://sepolia.colibri-proof.tech',
-        'https://sepolia-prover.incubed.net',
-        'https://sepolia.colimind.com',
-      ],
-    100 => [
-        'https://gnosis.colibri-proof.tech',
-        'https://gnosis-prover.incubed.net',
-        'https://gnosis.colimind.com',
-      ],
-    10200 => ['https://chiado.colibri-proof.tech'],
-    _ => ['https://c4.incubed.net'],
-  };
-}
-
-/// Default RPC endpoints by chain (fallback order: colibri-proof.tech first, public as fallback).
-List<String> _defaultEthRpcs(int chainId) {
-  return switch (chainId) {
-    1 => [
-        'https://mainnet.colibri-proof.tech/execution',
-        'https://eth.drpc.org',
-        'https://ethereum-rpc.publicnode.com',
-        'https://singapore.rpc.blxrbdn.com',
-      ],
-    11155111 => [
-        'https://sepolia.colibri-proof.tech/execution',
-        'https://sepolia.drpc.org',
-        'https://ethereum-sepolia-rpc.publicnode.com',
-        'https://sepolia.gateway.tenderly.co',
-      ],
-    100 => [
-        'https://gnosis.colibri-proof.tech/execution',
-        'https://rpc.gnosischain.com',
-        'https://rpc.gnosis.gateway.fm',
-        'https://gnosis-rpc.publicnode.com',
-      ],
-    10200 => [
-        'https://rpc.chiado.gnosis.gateway.fm',
-        'https://rpc.chiadochain.net',
-        'https://gnosis-chiado-rpc.publicnode.com',
-      ],
-    _ => <String>[],
-  };
-}
-
-/// Default beacon API endpoints by chain (fallback order: colibri-proof.tech first, public as fallback).
-List<String> _defaultBeaconApis(int chainId) {
-  return switch (chainId) {
-    1 => [
-        'https://mainnet.colibri-proof.tech/consensus',
-        'https://gateway.tenderly.co/public/mainnet',
-        'https://ethereum-beacon-api.publicnode.com',
-      ],
-    11155111 => [
-        'https://sepolia.colibri-proof.tech/consensus',
-        'https://ethereum-sepolia-beacon-api.publicnode.com',
-      ],
-    100 => [
-        'https://gnosis.colibri-proof.tech/consensus',
-        'https://rpc-gbc.gnosischain.com',
-        'https://gnosis-beacon-api.publicnode.com',
-      ],
-    10200 => [
-        'https://rpc-gbc.chiadochain.net',
-      ],
-    _ => <String>[],
-  };
-}
-
-/// Default checkpointz endpoints by chain.
-List<String> _defaultCheckpointz(int chainId) {
-  return switch (chainId) {
-    1 => [
-        'https://sync-mainnet.beaconcha.in',
-        'https://mainnet.checkpoint.sigp.io',
-        'https://mainnet-checkpoint-sync.attestant.io',
-        'https://beaconstate-mainnet.chainsafe.io',
-        'https://mainnet-checkpoint-sync.stakely.io',
-        'https://checkpointz.pietjepuk.net',
-        'https://beaconstate.ethstaker.cc',
-      ],
-    11155111 => [
-        'https://checkpoint-sync.sepolia.ethpandaops.io',
-        'https://beaconstate-sepolia.chainsafe.io',
-      ],
-    100 => ['https://checkpoint.gnosischain.com'],
-    10200 => ['https://checkpoint.chiadochain.net'],
-    _ => <String>[],
-  };
 }

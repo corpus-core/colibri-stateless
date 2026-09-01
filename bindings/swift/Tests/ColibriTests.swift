@@ -69,6 +69,39 @@ final class ColibriTests: XCTestCase {
         print("✅ All MethodType enum values working correctly")
     }
     
+    func testDefaultChainLookups() {
+        let known: [UInt64] = [1, 11_155_111, 100, 10_200, 7_091_047_534]
+        for id in known {
+            XCTAssertFalse(Colibri.defaultProvers(for: id).isEmpty)
+            XCTAssertFalse(Colibri.defaultEthRpcs(for: id).isEmpty)
+            XCTAssertFalse(Colibri.defaultBeaconApis(for: id).isEmpty)
+            XCTAssertFalse(Colibri.defaultCheckpointz(for: id).isEmpty)
+        }
+
+        let mainnet = Colibri.defaultProvers(for: 1)
+        XCTAssertEqual(mainnet[0], "https://mainnet.colibri-proof.tech")
+        XCTAssertEqual(mainnet[1], "https://mainnet1.colibri-proof.tech")
+
+        let sepolia = Colibri.defaultProvers(for: 11_155_111)
+        XCTAssertEqual(sepolia[0], "https://sepolia.colibri-proof.tech")
+        XCTAssertEqual(sepolia[1], "https://sepolia1.colibri-proof.tech")
+
+        let gnosis = Colibri.defaultProvers(for: 100)
+        XCTAssertEqual(gnosis[0], "https://gnosis.colibri-proof.tech")
+        XCTAssertEqual(gnosis[1], "https://gnosis1.colibri-proof.tech")
+
+        XCTAssertEqual(
+            Colibri.defaultProvers(for: 7_091_047_534),
+            ["https://plataberget.colibri-proof.tech"]
+        )
+        XCTAssertTrue(Colibri.defaultEthRpcs(for: 7_091_047_534)[0].contains("/execution"))
+
+        XCTAssertFalse(Colibri.defaultProvers(for: 999_999).isEmpty)
+        XCTAssertTrue(Colibri.defaultEthRpcs(for: 999_999).isEmpty)
+        XCTAssertTrue(Colibri.defaultBeaconApis(for: 999_999).isEmpty)
+        XCTAssertTrue(Colibri.defaultCheckpointz(for: 999_999).isEmpty)
+    }
+
     func testChainIdConfiguration() {
         // Test different chain IDs
         colibri.chainId = 11155111 // Sepolia

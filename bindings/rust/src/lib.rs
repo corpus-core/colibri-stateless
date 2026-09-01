@@ -56,5 +56,5 @@ pub use types::{
     default_beacon_apis, default_checkpointz, default_eth_rpcs, default_provers, ColibriError,
     DataRequest, Encoding, HttpError, HttpMethod, MethodType, PrivacyMode, ProofError, ProverMode,
     RequestType, RevertError, RpcError, Status, StorageError, VerificationError, CHIADO, GNOSIS,
-    MAINNET, SEPOLIA,
+    MAINNET, PLATABERGET, SEPOLIA,
 };

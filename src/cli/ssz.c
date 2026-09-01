@@ -115,7 +115,7 @@ int main(int argc, char* argv[]) {
         if (argv[i][j] == 's')
           show_serial = true;
         if (argv[i][j] == 'c')
-          chain_id = strtol(argv[++i], NULL, 10);
+          chain_id = (chain_id_t) strtoull(argv[++i], NULL, 10);
         if (argv[i][j] == 'o') {
           out_filename = argv[i + 1];
           i++;

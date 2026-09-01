@@ -64,6 +64,12 @@ class TestColibriInit:
         assert len(client3.provers) > 0
         assert len(client3.eth_rpcs) > 0
 
+        # Platåberget
+        client4 = Colibri(chain_id=7091047534)
+        assert len(client4.provers) > 0
+        assert len(client4.eth_rpcs) > 0
+        assert client4.provers[0] == "https://plataberget.colibri-proof.tech"
+
 
 class TestMethodSupport:
     """Test method support detection"""
@@ -199,7 +205,7 @@ class TestClientHelpers:
     def test_default_server_configs(self):
         """Test that default server configurations are reasonable"""
         # Test that each supported chain has proper defaults
-        for chain_id in [1, 11155111, 100, 10200]:
+        for chain_id in [1, 11155111, 100, 10200, 7091047534]:
             provers = Colibri._get_default_provers(chain_id)
             eth_rpcs = Colibri._get_default_eth_rpcs(chain_id)
             beacon_apis = Colibri._get_default_beacon_apis(chain_id)
@@ -211,6 +217,42 @@ class TestClientHelpers:
             # URLs should be valid HTTPS
             for url in provers + eth_rpcs + beacon_apis:
                 assert url.startswith("https://"), f"URL {url} should use HTTPS"
+
+        mainnet_provers = Colibri._get_default_provers(1)
+        assert mainnet_provers[0] == "https://mainnet.colibri-proof.tech"
+        assert mainnet_provers[1] == "https://mainnet1.colibri-proof.tech"
+
+        sepolia_provers = Colibri._get_default_provers(11155111)
+        assert sepolia_provers[0] == "https://sepolia.colibri-proof.tech"
+        assert sepolia_provers[1] == "https://sepolia1.colibri-proof.tech"
+
+        gnosis_provers = Colibri._get_default_provers(100)
+        assert gnosis_provers[0] == "https://gnosis.colibri-proof.tech"
+        assert gnosis_provers[1] == "https://gnosis1.colibri-proof.tech"
+
+        plataberget_id = 7091047534
+        assert Colibri._get_default_provers(plataberget_id) == [
+            "https://plataberget.colibri-proof.tech"
+        ]
+        assert "/execution" in Colibri._get_default_eth_rpcs(plataberget_id)[0]
+        assert Colibri._get_default_checkpointz(plataberget_id)
+
+        dead = (
+            "sepolia.drpc.org",
+            "sepolia-prover.incubed.net",
+            "sepolia.colimind.com",
+            "gnosis-prover.incubed.net",
+            "gnosis.colimind.com",
+        )
+        for chain_id in [1, 11155111, 100, 10200, 7091047534]:
+            urls = (
+                Colibri._get_default_provers(chain_id)
+                + Colibri._get_default_eth_rpcs(chain_id)
+                + Colibri._get_default_beacon_apis(chain_id)
+                + Colibri._get_default_checkpointz(chain_id)
+            )
+            for snippet in dead:
+                assert all(snippet not in url for url in urls), snippet
     
     def test_unknown_chain_defaults(self):
         """Test defaults for unknown chain.

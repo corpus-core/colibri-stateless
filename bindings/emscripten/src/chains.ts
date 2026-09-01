@@ -22,95 +22,9 @@
  */
 
 import { Config as C4Config, ChainConfig } from './types.js';
+import { default_config } from './chains.generated.js';
 
-export const default_config: {
-  [key: string]: {
-    alias: string[];
-    beacon_apis: string[];
-    rpcs: string[];
-    prover: string[];
-    checkpointz: string[];
-    pollingInterval: number;
-  }
-} = {
-  '1': { // mainnet
-    alias: ["mainnet", "eth", "0x1"],
-    rpcs: [
-      "https://mainnet.colibri-proof.tech/execution",
-      "https://eth.drpc.org",
-      "https://ethereum-rpc.publicnode.com",
-      "https://singapore.rpc.blxrbdn.com",
-    ],
-    beacon_apis: [
-      "https://mainnet.colibri-proof.tech/consensus",
-      "https://gateway.tenderly.co/public/mainnet",
-      "https://ethereum-beacon-api.publicnode.com",
-    ],
-    prover: ["https://mainnet.colibri-proof.tech","https://mainnet-prover.incubed.net","https://mainnet.colimind.com"],
-    checkpointz: [
-      "https://sync-mainnet.beaconcha.in",
-      "https://mainnet.checkpoint.sigp.io",
-      "https://mainnet-checkpoint-sync.attestant.io",
-      "https://beaconstate-mainnet.chainsafe.io",
-      "https://mainnet-checkpoint-sync.stakely.io",
-      "https://checkpointz.pietjepuk.net",
-      "https://beaconstate.ethstaker.cc",
-    ],
-    pollingInterval: 12000,
-  },
-  '11155111': { // Sepolia
-    alias: ["sepolia", "0xaa36a7"],
-    rpcs: [
-      "https://sepolia.colibri-proof.tech/execution",
-      "https://sepolia.drpc.org",
-      "https://ethereum-sepolia-rpc.publicnode.com",
-      "https://sepolia.gateway.tenderly.co",
-    ],
-    beacon_apis: [
-      "https://sepolia.colibri-proof.tech/consensus",
-      "https://ethereum-sepolia-beacon-api.publicnode.com",
-    ],
-    prover: ["https://sepolia.colibri-proof.tech","https://sepolia-prover.incubed.net","https://sepolia.colimind.com"],
-    checkpointz: [
-      "https://checkpoint-sync.sepolia.ethpandaops.io",
-      "https://beaconstate-sepolia.chainsafe.io",
-    ],
-    pollingInterval: 12000,
-  },
-  '100': { // gnosis
-    alias: ["gnosis", "xdai", "0x64"],
-    rpcs: [
-      "https://gnosis.colibri-proof.tech/execution",
-      "https://rpc.gnosischain.com",
-      "https://rpc.gnosis.gateway.fm",
-      "https://gnosis-rpc.publicnode.com",
-    ],
-    beacon_apis: [
-      "https://gnosis.colibri-proof.tech/consensus",
-      "https://rpc-gbc.gnosischain.com",
-      "https://gnosis-beacon-api.publicnode.com",
-    ],
-    prover: ["https://gnosis.colibri-proof.tech","https://gnosis-prover.incubed.net","https://gnosis.colimind.com"],
-    checkpointz: ["https://checkpoint.gnosischain.com"],
-    pollingInterval: 5000,
-  },
-  '10200': { // gnosis chiado
-    alias: ["chiado", "0x27d8"],
-    rpcs: [
-      "https://rpc.chiado.gnosis.gateway.fm",
-      "https://rpc.chiadochain.net",
-      "https://gnosis-chiado-rpc.publicnode.com",
-    ],
-    beacon_apis: [
-      "https://rpc-gbc.chiadochain.net",
-    ],
-    prover: ["https://chiado.colibri-proof.tech"],
-    checkpointz: [
-      "https://checkpoint.chiadochain.net",
-    ],
-    pollingInterval: 5000,
-  },
-};
+export { default_config };
 
 export function get_chain_id(chain_id: string): number {
   const chain_id_num = parseInt(chain_id);
