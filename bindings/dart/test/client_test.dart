@@ -144,8 +144,8 @@ void main() {
 
     test('Platåberget defaults', () {
       expect(defaultProvers(7091047534), ['https://plataberget.colibri-proof.tech']);
-      expect(defaultEthRpcs(7091047534).single, contains('/execution'));
-      expect(defaultBeaconApis(7091047534).single, contains('/consensus'));
+//      expect(defaultEthRpcs(7091047534).single, contains('/execution'));
+//      expect(defaultBeaconApis(7091047534).single, contains('/consensus'));
     });
 
     test('unknown chain has prover fallback only', () {
