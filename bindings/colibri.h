@@ -1042,7 +1042,6 @@ void c4_req_set_error(void* req_ptr, char* error, uint16_t node_index);
  */
 void* c4_verify_create_ctx(bytes_t proof, char* method, char* args, uint64_t chain_id, char* trusted_checkpoint, uint32_t flags);
 
-
 /**
  * Executes one step of the proof verification state machine.
  *
@@ -1257,7 +1256,8 @@ uint32_t c4_get_current_version_number(void);
  * @param verify_flags Flags for verification bitmask. Common values: `2` = `VERIFY_FLAG_PAP`,
  *                     `64` = `VERIFY_FLAG_OBLIVIOUS`, `128` = `VERIFY_FLAG_SKIP_WSP_CHECK`
  *                     (SECURITY: disables the Weak Subjectivity Period anchor; only safe with an
- *                     alternative trust anchor such as witness signatures or a hard-coded checkpoint).
+ *                     alternative trust anchor such as witness signatures or a hard-coded checkpoint),
+ *                     `1024` = `VERIFY_FLAG_PERSIST_HEADER_CACHE` (reload/save EL header cache from storage).
  * @param prover_mode proof generation mode: 0 = local, 1 = remote, 2 = hybrid (header proof from server, execution data from RPC provider)
  * @return A new RPC context pointer, or NULL if creation failed
  *

@@ -50,6 +50,7 @@
             "inherits": "default",
             "binaryDir": "${sourceDir}/build/wasm",
             "cacheVariables": {
+                "C4_VERSION": "3.0.0",
                 "CMAKE_BUILD_TYPE": "MinSizeRel",
                 "TEST": "0",
                 "CLI": "0",

@@ -488,6 +488,20 @@ add_custom_target(doc-agents
     COMMENT "Updating auto-generated sections in AGENTS.md files"
 )
 
+add_custom_target(chain-defaults
+    COMMAND ${CMAKE_COMMAND} -E echo "Generating chain defaults..."
+    COMMAND ${CMAKE_COMMAND} -E env node ${CMAKE_SOURCE_DIR}/scripts/chain_defaults/generate.js
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Generating CLI/binding default endpoint tables from chains.json"
+)
+
+add_custom_target(check-endpoints
+    COMMAND ${CMAKE_COMMAND} -E echo "Checking default chain endpoints..."
+    COMMAND ${CMAKE_COMMAND} -E env node ${CMAKE_SOURCE_DIR}/scripts/chain_defaults/check_endpoints.js
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Probing default RPC, beacon, checkpointz and prover endpoints"
+)
+
 add_custom_target(valgrind
     COMMAND ${CMAKE_COMMAND} -E echo "Generating valgrind image..."
     COMMAND ${CMAKE_COMMAND} -E env bash -c "docker build -f test/valgrind/Dockerfile --platform=linux/amd64 -t c4_valgrind ."

@@ -29,6 +29,11 @@
 #ifdef CHAIN_ETH
 #include "header_cache.h"
 #include "sync_committee.h"
+#ifdef PROVER
+void c4_prover_header_tags_save(chain_id_t chain_id);
+bool c4_prover_header_tags_load(chain_id_t chain_id);
+void c4_prover_header_tags_clear(void);
+#endif
 #endif
 #include <stdlib.h>
 #include <string.h>
@@ -46,6 +51,36 @@ static bool bytes_memmem(bytes_t p, const char* needle) {
   return false;
 #endif
 }
+
+// Returns the newest verified block hash the local verifier can still resolve from its
+// header cache. Advertising it as `last_block_hash` lets the remote prover omit the block
+// proof (blockHash union variant). NULL_BYTES when nothing is cached (or no eth support).
+#ifdef EL_HEADER_CACHE
+static void rpc_load_header_cache(c4_rpc_ctx_t* ctx) {
+  if (!(ctx->verify_flags & VERIFY_FLAG_PERSIST_HEADER_CACHE)) return;
+  // Replace RAM with the storage snapshot so a replay starts from exactly the
+  // recorded cache (leftovers from a previous combo/process must not leak in).
+  c4_header_cache_clear();
+#ifdef PROVER
+  c4_prover_header_tags_clear();
+#endif
+  c4_header_cache_load(ctx->chain_id);
+#ifdef PROVER
+  c4_prover_header_tags_load(ctx->chain_id);
+#endif
+}
+
+static void rpc_save_header_cache(c4_rpc_ctx_t* ctx) {
+  if (!(ctx->verify_flags & VERIFY_FLAG_PERSIST_HEADER_CACHE)) return;
+  c4_header_cache_save(ctx->chain_id);
+#ifdef PROVER
+  c4_prover_header_tags_save(ctx->chain_id);
+#endif
+}
+#else
+static void rpc_load_header_cache(c4_rpc_ctx_t* ctx) { (void) ctx; }
+static void rpc_save_header_cache(c4_rpc_ctx_t* ctx) { (void) ctx; }
+#endif
 
 // Returns the newest verified block hash the local verifier can still resolve from its
 // header cache. Advertising it as `last_block_hash` lets the remote prover omit the block
@@ -699,6 +734,9 @@ c4_status_t c4_rpc_execute(c4_rpc_ctx_t* ctx) {
   if (!ctx) return C4_ERROR;
   switch (ctx->phase) {
     case RPC_PHASE_INIT: {
+      // Must run before `get_last_block_hash` / hybrid cache lookups so a replay
+      // advertises the same `last_block_hash` the original request did.
+      rpc_load_header_cache(ctx);
       ctx->method_type = c4_get_method_type(ctx->chain_id, ctx->method,
                                             json_parse(ctx->params), ctx->verify_flags);
       switch (ctx->method_type) {
@@ -774,6 +812,7 @@ c4_state_t* c4_rpc_get_state(c4_rpc_ctx_t* ctx) {
 
 void c4_rpc_ctx_free(c4_rpc_ctx_t* ctx) {
   if (!ctx) return;
+  rpc_save_header_cache(ctx);
   free_request_prover(ctx);
   if (ctx->method) free(ctx->method);
   if (ctx->params) free(ctx->params);
