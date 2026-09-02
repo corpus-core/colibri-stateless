@@ -81,3 +81,6 @@ bindings/dart/flutter/colibri_flutter/ios/colibri_flutter/Frameworks/c4_swift.xc
 
 audit-workspace/
 .colibri-audit*/
+
+# Live RPC integration request/response dumps (kept only for failed tests)
+bindings/emscripten/test/.rpc-dumps/

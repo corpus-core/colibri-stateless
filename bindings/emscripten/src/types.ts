@@ -159,6 +159,14 @@ export interface Config extends ChainConfig {
      */
     skip_wsp_check?: boolean;
     /**
+     * If true, each `rpc()` reloads the in-process EL header cache and header
+     * tags from storage at start and writes them back on cleanup
+     * (`VERIFY_FLAG_PERSIST_HEADER_CACHE`, bit `1 << 10`). Intended for
+     * integration-test recording/replay so prover `last_block_hash` matches
+     * the dumped storage snapshot. Default: false.
+     */
+    persist_header_cache?: boolean;
+    /**
      * Maximum age (in seconds) accepted for a proof whose request uses the
      * `"latest"` block tag. The verifier compares the block timestamp from
      * the proof against `now - max_latest_age_seconds`; older proofs are

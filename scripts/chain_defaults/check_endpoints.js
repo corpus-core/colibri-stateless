@@ -145,14 +145,31 @@ async function checkEthRpc(url, chainId, check_execution_node) {
   return { ok: suite.ok, checks: [chainIdCheck, ...suite.checks] };
 }
 
+const useColor = Boolean(process.stdout.isTTY) && !process.env.NO_COLOR && process.env.TERM !== 'dumb';
+
+const ansi = {
+  reset: '\x1b[0m',
+  green: '\x1b[32m',
+  red: '\x1b[31m',
+  bold: '\x1b[1m',
+  dim: '\x1b[2m',
+};
+
+function paint(code, text) {
+  return useColor ? `${code}${text}${ansi.reset}` : text;
+}
+
+function statusMark(ok) {
+  return ok ? paint(ansi.green, 'OK  ') : paint(ansi.red, 'FAIL');
+}
+
 function printEndpoint(kind, url, ok, checks) {
-  const mark = ok ? 'OK  ' : 'FAIL';
-  console.log(`  [${mark}] ${kind.padEnd(12)} ${url}`);
+  console.log(`  [${statusMark(ok)}] ${kind.padEnd(12)} ${url}`);
   if (!checks || !checks.length) return;
   const width = Math.max(...checks.map((c) => c.name.length));
   for (const check of checks) {
-    const checkMark = check.passed ? 'OK  ' : 'FAIL';
-    console.log(`           [${checkMark}] ${check.name.padEnd(width)}  ${check.result}`);
+    const result = check.passed ? paint(ansi.dim, String(check.result)) : paint(ansi.red, String(check.result));
+    console.log(`           [${statusMark(check.passed)}] ${check.name.padEnd(width)}  ${result}`);
   }
 }
 
@@ -167,7 +184,7 @@ async function run() {
 
   let failed = 0;
   for (const chain of chains) {
-    console.log(`\n=== ${chain.name} (${chain.id}) ===`);
+    console.log(paint(ansi.bold, `\n=== ${chain.name} (${chain.id}) ===`));
     const jobs = [];
     for (const url of chain.eth_rpc) {
       jobs.push(['eth_rpc', url, () => checkEthRpc(url, chain.id, check_execution_node)]);
@@ -193,7 +210,11 @@ async function run() {
     }
   }
 
-  console.log(failed ? `\n${failed} endpoint(s) failed.` : '\nAll probed endpoints responded as expected.');
+  if (failed) {
+    console.log(paint(ansi.red, `\n${failed} endpoint(s) failed.`));
+  } else {
+    console.log(paint(ansi.green, '\nAll probed endpoints responded as expected.'));
+  }
   process.exit(failed ? 1 : 0);
 }
 
