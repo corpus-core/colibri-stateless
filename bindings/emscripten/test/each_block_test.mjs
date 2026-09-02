@@ -5,7 +5,7 @@ import { modulePath } from './test_config.js';
 
 const ColibriModule = await import(modulePath);
 const Colibri = ColibriModule.default; // Assuming Colibri is the default export
-const supported_chains = ['mainnet', 'gnosis', 'chiado', 'sepolia'];
+const supported_chains = ['mainnet', 'gnosis', 'chiado', 'sepolia', 'plataberget'];
 
 let chains = process.argv.slice(2);
 let options = chains.filter(chain => !supported_chains.includes(chain));

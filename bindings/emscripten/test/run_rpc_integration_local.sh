@@ -7,6 +7,7 @@
 #   ./test/run_rpc_integration_local.sh
 #   C4_MODES=remote C4_PRIVACY=none ./test/run_rpc_integration_local.sh
 #   C4_COMPARE=values ./test/run_rpc_integration_local.sh  # fail on extra Colibri keys
+#   C4_CHAIN_ID=plataberget ./test/run_rpc_integration_local.sh  # Glamsterdam devnet
 
 set -euo pipefail
 

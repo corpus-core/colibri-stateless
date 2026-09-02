@@ -12,7 +12,12 @@
  *
  * Optional env / flags: C4_RPC_URL, C4_BEACON_URL, C4_PROVER_URL, C4_CHAIN_ID,
  * C4_MODES, C4_PRIVACY, C4_COMPARE, C4_RPC_REPLAY, --rpc, --beacon, --prover,
- * --modes, --privacy, --compare, --replay, --debug
+ * --chain, --modes, --privacy, --compare, --replay, --debug
+ *
+ * `--chain` / `C4_CHAIN_ID` accepts a numeric id, hex id, or an alias from
+ * `scripts/chain_defaults/chains.json` (mainnet, sepolia, gnosis, chiado,
+ * plataberget / glamsterdam-devnet-8). Default RPC / Beacon / prover URLs
+ * come from that spec when not overridden.
  *
  * `--compare` / `C4_COMPARE` (default: extra):
  *   extra   overlapping keys must match; extra keys on either side are allowed
@@ -22,11 +27,17 @@
  *
  * Live tags (`latest` / `safe` / `finalized`) are not compared as exact block
  * identity. Execution RPC treats `latest` as the current head; Colibri proves
- * the last verifiable block (head-1, soon head-2). Warm remote/hybrid runs
- * also re-resolve the live tag, so the chain may have moved. Block numbers
- * may differ by `LIVE_HEAD_TOLERANCE`; block *contents* are re-checked against
- * the block Colibri actually proved. Scalar methods that can shift with that
- * offset (`eth_estimateGas`) use a quantity tolerance instead of equality.
+ * the last verifiable block (head-1, soon head-2 with Gloas). Warm remote/hybrid
+ * runs also re-resolve the live tag, so the chain may have moved. Block numbers
+ * may lag by `LIVE_HEAD_TOLERANCE` for `latest`. `safe` / `finalized` are
+ * beacon checkpoints that flip once per epoch: at the boundary Colibri (especially
+ * hybrid, which caches the tag for ~one epoch) can still report the previous
+ * epoch. Colibri may be *behind* by one epoch (`slots_per_epoch` + head lag),
+ * or slightly *ahead* if the RPC sample is stale (`LIVE_HEAD_TOLERANCE`). A
+ * Colibri result a full epoch *ahead* of RPC (e.g. `safe` served as `finalized`)
+ * still fails. Block *contents* are re-checked against the block Colibri proved.
+ * Scalar methods that can shift with that offset (`eth_estimateGas`) use a
+ * quantity tolerance instead of equality.
  *
  * Failed tests keep a dump under
  * `test/.rpc-dumps/<run>/<combo>/<phase>/<label>/`:
@@ -57,17 +68,22 @@ const REQUEST_COUNT = 14;
 const RUN_TIMEOUT = METHOD_TIMEOUT * (REQUEST_COUNT + 2);
 const PARENT_TIMEOUT = RUN_TIMEOUT * 2 + 5 * 60_000;
 
-/** Mainnet fixtures. Other chain IDs need matching addresses via a follow-up. */
-const USDC = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48';
-const USDT = '0xdac17f958d2ee523a2206206994597c13d831ec7';
+/**
+ * Preferred mainnet-style fixtures. Used when the contract exists on the
+ * target chain; otherwise `resolveTestData` discovers a live contract / logs
+ * address (needed for Sepolia, Gnosis, and Platåberget / Glamsterdam).
+ */
+const PREFERRED_USDC = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48';
+const PREFERRED_USDT = '0xdac17f958d2ee523a2206206994597c13d831ec7';
 const BALANCE_OF = '0x70a0823100000000000000000000000037305b1cd40574e4c5ce33f8e8306be057fd7341';
 const FEE_RECIPIENT = '0x95222290DD7278Aa3Ddd389Cc1E1d165CC4BAfe5';
+const IDENTITY_PRECOMPILE = '0x0000000000000000000000000000000000000004';
+const IDENTITY_CALLDATA = '0x48656c6c6f';
 
-const DEFAULT_RPC_BY_CHAIN = {
-  1: 'https://mainnet.colibri-proof.tech/execution',
-  11155111: 'https://sepolia.colibri-proof.tech/execution',
-  100: 'https://gnosis.colibri-proof.tech/execution',
-};
+const CHAINS_SPEC = JSON.parse(fs.readFileSync(
+  path.join(path.dirname(fileURLToPath(import.meta.url)), '../../../scripts/chain_defaults/chains.json'),
+  'utf8',
+));
 
 /** SSZ optional fields that JSON-RPC nodes typically omit on mainnet. */
 const COLIBRI_ONLY_OPTIONAL = new Set([
@@ -81,6 +97,47 @@ const COLIBRI_ONLY_OPTIONAL = new Set([
 const LIVE_TAGS = new Set(['latest', 'safe', 'finalized']);
 /** Execution RPC `latest` is head; Colibri proves head-1 / head-2. */
 const LIVE_HEAD_TOLERANCE = 2;
+
+function chainFromSpec(chainId) {
+  return CHAINS_SPEC.chains.find((c) => c.id === chainId) ?? null;
+}
+
+function resolveChainId(raw) {
+  const s = String(raw ?? '').trim();
+  if (!s) return 1;
+  if (/^\d+$/.test(s)) return parseInt(s, 10);
+  if (/^0x[0-9a-fA-F]+$/i.test(s)) return parseInt(s, 16);
+  const lower = s.toLowerCase();
+  for (const chain of CHAINS_SPEC.chains) {
+    if (chain.name === lower || chain.aliases.some((a) => a.toLowerCase() === lower)) return chain.id;
+  }
+  throw new Error(`Unknown chain "${raw}" (use an id or alias from scripts/chain_defaults/chains.json)`);
+}
+
+/** Gnosis / Chiado use 16-slot epochs; Ethereum family (incl. Platåberget) uses 32. */
+function slotsPerEpoch(chainId) {
+  if (chainId === 100 || chainId === 10200) return 16;
+  return 32;
+}
+
+function liveTagOf(req) {
+  if (req?.method === 'eth_blockNumber') return 'latest';
+  const tag = req?.params?.[0];
+  return typeof tag === 'string' && LIVE_TAGS.has(tag) ? tag : null;
+}
+
+/**
+ * `latest` / `eth_blockNumber`: 1–2 block prover lag.
+ * `safe` / `finalized`: checkpoint tags flip once per epoch; tolerate the
+ * previous epoch plus the same head lag.
+ * @param tag live tag (`latest` / `safe` / `finalized`)
+ * @param chainId defaults to the process chain; pass explicitly in unit tests
+ */
+function liveTolerance(tag, chainId = CHAIN_ID) {
+  if (tag === 'finalized' || tag === 'safe') return slotsPerEpoch(chainId) + LIVE_HEAD_TOLERANCE;
+  return LIVE_HEAD_TOLERANCE;
+}
+
 /**
  * `eth_estimateGas` can shift with the 1–2 block latest/head offset and, in
  * `privacy=basic`, is computed locally (evmone) rather than echoed from RPC.
@@ -108,7 +165,7 @@ function splitList(value) {
   return list.length ? list : null;
 }
 
-const CHAIN_ID = parseInt(argVal('chain', 'C4_CHAIN_ID', '1'), 10);
+const CHAIN_ID = resolveChainId(argVal('chain', 'C4_CHAIN_ID', '1'));
 const RPC_URLS = splitList(argVal('rpc', 'C4_RPC_URL', ''));
 const BEACON_URLS = splitList(argVal('beacon', 'C4_BEACON_URL', ''));
 const PROVER_URLS = splitList(argVal('prover', 'C4_PROVER_URL', ''));
@@ -123,7 +180,8 @@ if (!['extra', 'values', 'strict'].includes(COMPARE_MODE)) {
   throw new Error(`Invalid --compare / C4_COMPARE="${COMPARE_MODE}" (expected extra|values|strict)`);
 }
 
-const GROUND_TRUTH_RPC = (RPC_URLS && RPC_URLS[0]) || DEFAULT_RPC_BY_CHAIN[CHAIN_ID] || null;
+const SPEC_CHAIN = chainFromSpec(CHAIN_ID);
+const GROUND_TRUTH_RPC = (RPC_URLS && RPC_URLS[0]) || SPEC_CHAIN?.eth_rpc?.[0] || null;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -403,6 +461,24 @@ function blockDelta(a, b) {
   return Math.abs(na - nb);
 }
 
+/** Positive = Colibri is behind the RPC sample. */
+function signedBlockLag(rpcVal, colibriVal) {
+  const rpc = parseHexQuantity(rpcVal);
+  const c4 = parseHexQuantity(colibriVal);
+  if (!Number.isFinite(rpc) || !Number.isFinite(c4)) return Infinity;
+  return rpc - c4;
+}
+
+/**
+ * Live-tag number window: Colibri may lag by `liveTolerance(tag)` and may lead
+ * by `LIVE_HEAD_TOLERANCE` (stale RPC sample). Absolute equality is not required.
+ */
+function withinLiveTolerance(rpcVal, colibriVal, tag, chainId = CHAIN_ID) {
+  const lag = signedBlockLag(rpcVal, colibriVal);
+  if (!Number.isFinite(lag) || lag === Infinity) return false;
+  return lag <= liveTolerance(tag, chainId) && lag >= -LIVE_HEAD_TOLERANCE;
+}
+
 function quantityWithinTolerance(rpcVal, colibriVal, absTol, relTol) {
   const a = parseHexQuantity(rpcVal);
   const b = parseHexQuantity(colibriVal);
@@ -555,18 +631,24 @@ function assertSameNormalized(rpc, colibri, path) {
   assert.fail(`${path}: RPC=${fmtVal(rpc)} Colibri=${fmtVal(colibri)}`);
 }
 
-async function assertLiveHeadQuantity(label, rpcVal, colibriVal) {
-  let delta = blockDelta(rpcVal, colibriVal);
-  if (delta <= LIVE_HEAD_TOLERANCE) return;
-  const retry = await rpcFetchWithRetry('eth_blockNumber', []);
-  delta = blockDelta(retry, colibriVal);
-  if (delta <= LIVE_HEAD_TOLERANCE) return;
+function failLiveLag(label, rpcVal, colibriVal, tag, chainId = CHAIN_ID) {
+  const lag = signedBlockLag(rpcVal, colibriVal);
+  const maxBehind = liveTolerance(tag, chainId);
   assert.fail(
-    `${label}: live head delta ${delta} > ${LIVE_HEAD_TOLERANCE} (RPC=${fmtVal(retry)} Colibri=${fmtVal(colibriVal)})`,
+    `${label}: live lag ${lag} not in [-${LIVE_HEAD_TOLERANCE}, ${maxBehind}] ` +
+    `(RPC=${fmtVal(rpcVal)} Colibri=${fmtVal(colibriVal)})`,
   );
 }
 
+async function assertLiveHeadQuantity(label, rpcVal, colibriVal, tag = 'latest') {
+  if (withinLiveTolerance(rpcVal, colibriVal, tag)) return;
+  const retry = await rpcFetchWithRetry('eth_blockNumber', []);
+  if (withinLiveTolerance(retry, colibriVal, tag)) return;
+  failLiveLag(label, retry, colibriVal, tag);
+}
+
 async function compareLiveBlock(req, colibriVal, rpcVal) {
+  const tag = liveTagOf(req);
   try {
     assertSameValues(rpcVal, colibriVal, req.label);
     return rpcVal;
@@ -574,19 +656,15 @@ async function compareLiveBlock(req, colibriVal, rpcVal) {
     const includeTxs = req.params[1];
     const rpcNum = rpcVal && typeof rpcVal === 'object' ? rpcVal.number : undefined;
     const c4Num = colibriVal && typeof colibriVal === 'object' ? colibriVal.number : undefined;
-    let delta = blockDelta(rpcNum, c4Num);
-    if (delta > LIVE_HEAD_TOLERANCE) {
+    if (!withinLiveTolerance(rpcNum, c4Num, tag)) {
       const retry = await rpcFetchWithRetry(req.method, req.params);
       try {
         assertSameValues(retry, colibriVal, req.label + ' (rpc retry)');
         return retry;
       } catch {
-        delta = blockDelta(retry && retry.number, c4Num);
-        if (delta > LIVE_HEAD_TOLERANCE) {
-          assert.fail(
-            `${req.label}: live head delta ${delta} > ${LIVE_HEAD_TOLERANCE} ` +
-            `(RPC=${fmtVal(retry?.number)} Colibri=${fmtVal(c4Num)})`,
-          );
+        const retryNum = retry && retry.number;
+        if (!withinLiveTolerance(retryNum, c4Num, tag)) {
+          failLiveLag(req.label, retryNum, c4Num, tag);
         }
       }
     }
@@ -613,7 +691,7 @@ async function compareQuantity(req, colibriVal, rpcVal) {
 
 async function compareAgainstRpc(req, colibriVal, rpcVal) {
   if (req.method === 'eth_blockNumber') {
-    await assertLiveHeadQuantity(req.label, rpcVal, colibriVal);
+    await assertLiveHeadQuantity(req.label, rpcVal, colibriVal, 'latest');
     return colibriVal;
   }
   if (req.method === 'eth_getBlockByNumber' && isLiveRequest(req)) {
@@ -640,7 +718,7 @@ async function compareAgainstRpc(req, colibriVal, rpcVal) {
 async function resolveTestData() {
   console.log('Resolving dynamic test data...');
   console.log(`  Ground-truth RPC: ${GROUND_TRUTH_RPC}`);
-  console.log(`  Chain: ${CHAIN_ID}`);
+  console.log(`  Chain: ${CHAIN_ID}${SPEC_CHAIN ? ` (${SPEC_CHAIN.name})` : ''}`);
   if (RPC_URLS) console.log(`  Colibri rpcs: ${RPC_URLS.join(', ')}`);
   if (BEACON_URLS) console.log(`  Colibri beacon: ${BEACON_URLS.join(', ')}`);
   if (PROVER_URLS) console.log(`  Colibri prover: ${PROVER_URLS.join(', ')}`);
@@ -648,6 +726,7 @@ async function resolveTestData() {
   console.log(`  Modes: ${MODES.join(', ')}`);
   console.log(`  Privacy: ${PRIVACY.join(', ')}`);
   console.log(`  Compare: ${COMPARE_MODE}`);
+  console.log(`  Live tolerance: latest=${liveTolerance('latest')} safe/finalized=${liveTolerance('finalized')} (epoch=${slotsPerEpoch(CHAIN_ID)})`);
 
   const blockNumHex = await rpcFetchWithRetry('eth_blockNumber', []);
   const currentBlock = parseInt(blockNumHex, 16) - 2;
@@ -655,6 +734,7 @@ async function resolveTestData() {
 
   let pinnedBlock = null;
   let txHash = null;
+  let pinnedBlockObj = null;
   for (let i = 0; i < 20; i++) {
     const hex = toHexBlock(currentBlock - i);
     const block = await rpcFetchWithRetry('eth_getBlockByNumber', [hex, true]);
@@ -662,6 +742,7 @@ async function resolveTestData() {
     if (hash) {
       pinnedBlock = hex;
       txHash = hash;
+      pinnedBlockObj = block;
       break;
     }
   }
@@ -669,32 +750,106 @@ async function resolveTestData() {
   console.log(`  Pinned block: ${pinnedBlock}`);
   console.log(`  TX: ${txHash}`);
 
-  let logsBlock = pinnedBlock;
+  const codeAddress = await resolveCodeAddress(pinnedBlock, pinnedBlockObj, currentBlock);
+  const callTx = await resolveCallTx(pinnedBlock, codeAddress);
+  const { logsBlock, logsAddress } = await resolveLogsTarget(pinnedBlock, currentBlock);
+  console.log(`  Code address: ${codeAddress}`);
+  console.log(`  Call: ${callTx.to} data=${callTx.data.slice(0, 18)}…`);
+
+  return { pinnedBlock, txHash, logsBlock, logsAddress, codeAddress, callTx };
+}
+
+function hasContractCode(code) {
+  if (typeof code !== 'string') return false;
+  const hex = code.toLowerCase();
+  return hex.startsWith('0x') && hex !== '0x' && hex !== '0x0';
+}
+
+/**
+ * Offline decision for `eth_call` / `eth_estimateGas` fixtures.
+ * Preferred USDC keeps `balanceOf`; every other chain uses the identity
+ * precompile when it is available, otherwise an empty call to `codeAddress`.
+ */
+function pickCallTx(codeAddress, identityAvailable = true) {
+  if (typeof codeAddress === 'string' && codeAddress.toLowerCase() === PREFERRED_USDC.toLowerCase()) {
+    return { to: PREFERRED_USDC, data: BALANCE_OF };
+  }
+  if (identityAvailable) return { to: IDENTITY_PRECOMPILE, data: IDENTITY_CALLDATA };
+  return { to: codeAddress, data: '0x' };
+}
+
+async function resolveCodeAddress(pinnedBlock, pinnedBlockObj, currentBlock) {
+  const preferred = await rpcFetchWithRetry('eth_getCode', [PREFERRED_USDC, pinnedBlock]);
+  if (hasContractCode(preferred)) return PREFERRED_USDC;
+
+  const candidates = [];
+  for (const tx of pinnedBlockObj?.transactions || []) {
+    if (tx && typeof tx === 'object' && tx.to) candidates.push(tx.to);
+  }
+  for (let i = 0; i < 15 && candidates.length < 20; i++) {
+    const hex = toHexBlock(currentBlock - i);
+    if (hex === pinnedBlock) continue;
+    const block = await rpcFetchWithRetry('eth_getBlockByNumber', [hex, true]);
+    for (const tx of block?.transactions || []) {
+      if (tx && typeof tx === 'object' && tx.to) candidates.push(tx.to);
+    }
+  }
+  const seen = new Set();
+  for (const addr of candidates) {
+    const key = addr.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const code = await rpcFetchWithRetry('eth_getCode', [addr, pinnedBlock]);
+    if (hasContractCode(code)) return addr;
+  }
+  console.log('  No live contract found; eth_getCode will use the identity precompile (empty code)');
+  return IDENTITY_PRECOMPILE;
+}
+
+async function resolveCallTx(pinnedBlock, codeAddress) {
+  const preferred = pickCallTx(codeAddress, true);
+  if (preferred.to.toLowerCase() === PREFERRED_USDC.toLowerCase()) return preferred;
+  // Identity precompile echoes calldata on every EVM chain, including plataberget.
+  try {
+    await rpcFetchWithRetry('eth_call', [preferred, pinnedBlock]);
+    return preferred;
+  } catch {
+    return pickCallTx(codeAddress, false);
+  }
+}
+
+async function resolveLogsTarget(pinnedBlock, currentBlock) {
   for (let i = 0; i < 30; i++) {
     const hex = toHexBlock(currentBlock - i);
     const logs = await rpcFetchWithRetry('eth_getLogs', [{
-      address: [USDT],
+      address: [PREFERRED_USDT],
       fromBlock: hex,
       toBlock: hex,
     }]);
     if (Array.isArray(logs) && logs.length > 0) {
-      logsBlock = hex;
       console.log(`  Logs block: ${hex} (${logs.length} USDT logs)`);
-      break;
+      return { logsBlock: hex, logsAddress: PREFERRED_USDT };
     }
   }
-  if (logsBlock === pinnedBlock) console.log(`  Logs block: ${logsBlock} (may be empty)`);
-
-  return { pinnedBlock, txHash, logsBlock };
+  for (let i = 0; i < 30; i++) {
+    const hex = toHexBlock(currentBlock - i);
+    const logs = await rpcFetchWithRetry('eth_getLogs', [{ fromBlock: hex, toBlock: hex }]);
+    if (Array.isArray(logs) && logs.length > 0) {
+      const addr = logs[0]?.address;
+      console.log(`  Logs block: ${hex} (${logs.length} logs${addr ? ` at ${addr}` : ''})`);
+      return { logsBlock: hex, logsAddress: addr || null };
+    }
+  }
+  console.log(`  Logs block: ${pinnedBlock} (may be empty)`);
+  return { logsBlock: pinnedBlock, logsAddress: null };
 }
 
 function buildRequests(testData) {
-  const callTx = { to: USDC, data: BALANCE_OF };
   const logsFilter = {
-    address: [USDT],
     fromBlock: testData.logsBlock,
     toBlock: testData.logsBlock,
   };
+  if (testData.logsAddress) logsFilter.address = [testData.logsAddress];
   return [
     { label: 'eth_chainId', method: 'eth_chainId', params: [] },
     { label: 'eth_blockNumber', method: 'eth_blockNumber', params: [], live: true },
@@ -702,12 +857,12 @@ function buildRequests(testData) {
     { label: 'eth_getBlockByNumber(safe)', method: 'eth_getBlockByNumber', params: ['safe', false] },
     { label: 'eth_getBlockByNumber(finalized)', method: 'eth_getBlockByNumber', params: ['finalized', false] },
     { label: 'eth_getBalance', method: 'eth_getBalance', params: [FEE_RECIPIENT, testData.pinnedBlock] },
-    { label: 'eth_getCode', method: 'eth_getCode', params: [USDC, testData.pinnedBlock] },
-    { label: 'eth_call', method: 'eth_call', params: [callTx, testData.pinnedBlock] },
+    { label: 'eth_getCode', method: 'eth_getCode', params: [testData.codeAddress, testData.pinnedBlock] },
+    { label: 'eth_call', method: 'eth_call', params: [testData.callTx, testData.pinnedBlock] },
     {
       label: 'eth_estimateGas',
       method: 'eth_estimateGas',
-      params: [callTx, testData.pinnedBlock],
+      params: [testData.callTx, testData.pinnedBlock],
       quantityAbsTolerance: ESTIMATE_GAS_ABS_TOLERANCE,
       quantityRelTolerance: ESTIMATE_GAS_REL_TOLERANCE,
     },
@@ -722,6 +877,132 @@ function buildRequests(testData) {
 // ---------------------------------------------------------------------------
 // Suite
 // ---------------------------------------------------------------------------
+
+describe('RPC Integration helpers', () => {
+  test('resolves chain aliases from chains.json', () => {
+    assert.strictEqual(resolveChainId('1'), 1);
+    assert.strictEqual(resolveChainId(' 1 '), 1);
+    assert.strictEqual(resolveChainId(''), 1);
+    assert.strictEqual(resolveChainId(undefined), 1);
+    assert.strictEqual(resolveChainId('mainnet'), 1);
+    assert.strictEqual(resolveChainId('MAINNET'), 1);
+    assert.strictEqual(resolveChainId('eth'), 1);
+    assert.strictEqual(resolveChainId('0x1'), 1);
+    assert.strictEqual(resolveChainId('sepolia'), 11155111);
+    assert.strictEqual(resolveChainId('0xaa36a7'), 11155111);
+    assert.strictEqual(resolveChainId('gnosis'), 100);
+    assert.strictEqual(resolveChainId('xdai'), 100);
+    assert.strictEqual(resolveChainId('0x64'), 100);
+    assert.strictEqual(resolveChainId('chiado'), 10200);
+    assert.strictEqual(resolveChainId('plataberget'), 7091047534);
+    assert.strictEqual(resolveChainId('Plataberget'), 7091047534);
+    assert.strictEqual(resolveChainId('glamsterdam-devnet-8'), 7091047534);
+    assert.strictEqual(resolveChainId('0x1a6a8cc6e'), 7091047534);
+    assert.strictEqual(resolveChainId(7091047534), 7091047534);
+    assert.ok(chainFromSpec(7091047534)?.eth_rpc?.[0]);
+    assert.ok(chainFromSpec(100)?.eth_rpc?.[0]);
+    assert.strictEqual(chainFromSpec(999), null);
+  });
+
+  test('unknown chain alias throws', () => {
+    assert.throws(() => resolveChainId('not-a-chain'), /Unknown chain "not-a-chain"/);
+    assert.throws(() => resolveChainId('holesky'), /Unknown chain "holesky"/);
+  });
+
+  test('checkpoint tags tolerate one epoch plus head lag', () => {
+    assert.strictEqual(slotsPerEpoch(1), 32);
+    assert.strictEqual(slotsPerEpoch(7091047534), 32);
+    assert.strictEqual(slotsPerEpoch(100), 16);
+    assert.strictEqual(slotsPerEpoch(10200), 16);
+    assert.strictEqual(slotsPerEpoch(11155111), 32);
+
+    assert.strictEqual(liveTolerance('latest'), LIVE_HEAD_TOLERANCE);
+    assert.strictEqual(liveTolerance('latest', 100), LIVE_HEAD_TOLERANCE);
+
+    assert.strictEqual(liveTolerance('finalized', 1), 32 + LIVE_HEAD_TOLERANCE);
+    assert.strictEqual(liveTolerance('safe', 7091047534), 32 + LIVE_HEAD_TOLERANCE);
+    assert.strictEqual(liveTolerance('finalized', 100), 16 + LIVE_HEAD_TOLERANCE);
+    assert.strictEqual(liveTolerance('safe', 10200), 16 + LIVE_HEAD_TOLERANCE);
+    assert.strictEqual(liveTolerance('finalized'), liveTolerance('finalized', CHAIN_ID));
+
+    // Observed hybrid miss: RPC finalized is one epoch ahead of Colibri.
+    assert.strictEqual(signedBlockLag('0x18b0c5a', '0x18b0c3a'), 32);
+    assert.ok(withinLiveTolerance('0x18b0c5a', '0x18b0c3a', 'finalized', 1));
+    assert.ok(withinLiveTolerance('0x18b0c5a', '0x18b0c3a', 'finalized', 7091047534));
+    // Same numeric gap is two Gnosis epochs — must not be accepted there.
+    assert.ok(!withinLiveTolerance('0x18b0c5a', '0x18b0c3a', 'finalized', 100));
+    assert.ok(withinLiveTolerance('0x100', '0xf0', 'finalized', 100));
+    // Colibri a full epoch *ahead* is safe-served-as-finalized, not lag.
+    assert.ok(!withinLiveTolerance('0x18b0c3a', '0x18b0c5a', 'finalized', 1));
+    assert.ok(withinLiveTolerance('0x10', '0x12', 'latest'));
+    assert.ok(!withinLiveTolerance('0x10', '0x13', 'latest'));
+  });
+
+  test('liveTagOf maps blockNumber and checkpoint params', () => {
+    assert.strictEqual(liveTagOf({ method: 'eth_blockNumber', params: [] }), 'latest');
+    assert.strictEqual(liveTagOf({ method: 'eth_getBlockByNumber', params: ['latest', false] }), 'latest');
+    assert.strictEqual(liveTagOf({ method: 'eth_getBlockByNumber', params: ['safe', false] }), 'safe');
+    assert.strictEqual(liveTagOf({ method: 'eth_getBlockByNumber', params: ['finalized', false] }), 'finalized');
+    assert.strictEqual(liveTagOf({ method: 'eth_getBlockByNumber', params: ['0x10', false] }), null);
+    assert.strictEqual(liveTagOf({ method: 'eth_getBalance', params: [FEE_RECIPIENT, 'latest'] }), null);
+    assert.strictEqual(liveTolerance(liveTagOf({ method: 'eth_getBlockByNumber', params: ['finalized', false] }), 1), 34);
+  });
+
+  test('empty code falls back to identity precompile call data', () => {
+    assert.strictEqual(hasContractCode('0x6080604052'), true);
+    assert.strictEqual(hasContractCode('0x00'), true);
+    assert.strictEqual(hasContractCode('0x'), false);
+    assert.strictEqual(hasContractCode('0x0'), false);
+    assert.strictEqual(hasContractCode('0X0'), false);
+    assert.strictEqual(hasContractCode(null), false);
+    assert.strictEqual(hasContractCode(undefined), false);
+    assert.strictEqual(hasContractCode(''), false);
+
+    assert.deepStrictEqual(pickCallTx(PREFERRED_USDC), { to: PREFERRED_USDC, data: BALANCE_OF });
+    assert.deepStrictEqual(pickCallTx(PREFERRED_USDC.toLowerCase()), { to: PREFERRED_USDC, data: BALANCE_OF });
+    assert.deepStrictEqual(pickCallTx('0x1111111111111111111111111111111111111111'), {
+      to: IDENTITY_PRECOMPILE,
+      data: IDENTITY_CALLDATA,
+    });
+    assert.deepStrictEqual(pickCallTx(IDENTITY_PRECOMPILE, true), {
+      to: IDENTITY_PRECOMPILE,
+      data: IDENTITY_CALLDATA,
+    });
+    assert.deepStrictEqual(pickCallTx(IDENTITY_PRECOMPILE, false), {
+      to: IDENTITY_PRECOMPILE,
+      data: '0x',
+    });
+    assert.deepStrictEqual(pickCallTx('0xAbc', false), { to: '0xAbc', data: '0x' });
+  });
+
+  test('buildRequests wires discovered fixtures without network', () => {
+    const callTx = pickCallTx('0x1111111111111111111111111111111111111111');
+    const reqs = buildRequests({
+      pinnedBlock: '0x10',
+      txHash: '0xabc',
+      logsBlock: '0xf',
+      logsAddress: PREFERRED_USDT,
+      codeAddress: IDENTITY_PRECOMPILE,
+      callTx,
+    });
+    const byLabel = Object.fromEntries(reqs.map((r) => [r.label, r]));
+    assert.strictEqual(byLabel['eth_getCode'].params[0], IDENTITY_PRECOMPILE);
+    assert.deepStrictEqual(byLabel['eth_call'].params[0], callTx);
+    assert.deepStrictEqual(byLabel['eth_estimateGas'].params[0], callTx);
+    assert.deepStrictEqual(byLabel['eth_getLogs'].params[0].address, [PREFERRED_USDT]);
+    assert.strictEqual(byLabel['eth_getLogs'].params[0].fromBlock, '0xf');
+
+    const unfiltered = buildRequests({
+      pinnedBlock: '0x10',
+      txHash: '0xabc',
+      logsBlock: '0xf',
+      logsAddress: null,
+      codeAddress: IDENTITY_PRECOMPILE,
+      callTx,
+    });
+    assert.strictEqual(unfiltered.find((r) => r.label === 'eth_getLogs').params[0].address, undefined);
+  });
+});
 
 describe('RPC Integration replay', { skip: !REPLAY_DIR, timeout: METHOD_TIMEOUT + 60_000, concurrency: false }, () => {
   test('replay recorded dump', { timeout: METHOD_TIMEOUT }, async () => {
