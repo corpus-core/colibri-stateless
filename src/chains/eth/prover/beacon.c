@@ -182,13 +182,13 @@ static c4_status_t get_finality_check_points(prover_ctx_t* ctx, json_t* result) 
 // Child-header lookup:
 // - Default: GET /eth/v1/beacon/headers?parent_root= (Beacon API, Lodestar).
 // - C4_PROVER_FLAG_NIMBUS: Nimbus does not implement that query
-//   (https://github.com/status-im/nimbus-eth2/issues/7305). Walk ?slot= after
-//   the parent instead. MAX is one epoch; WINDOW keeps a typical parent+1 hit
-//   from waiting on a full epoch. Empty slots must be HTTP 200 {"data":[]};
-//   a 4xx/5xx on ?slot= aborts the window instead of skipping that slot.
-#define PARENT_CHILD_SCAN_WINDOW 8u
-#define PARENT_CHILD_SCAN_MAX    32u
-#define PARENT_CHILD_SLOT_TTL    6u // empty ?slot= and empty ?parent_root= must not stick for DEFAULT_TTL
+//   (https://github.com/status-im/nimbus-eth2/issues/7305). Walk ?slot=
+//   after the parent instead. Try parent+1 first (the usual case), then the
+//   following slots up to MAX. Empty slots are HTTP 200 {"data":[]} or a
+//   Nimbus 404 ("Block header/data has not been found"); both skip to the
+//   next slot. Other request errors abort.
+#define PARENT_CHILD_SCAN_MAX 32u
+#define PARENT_CHILD_SLOT_TTL 6u // empty ?slot= and empty ?parent_root= must not stick for DEFAULT_TTL
 
 static bool json_uint64_field(json_t obj, const char* key, uint64_t* out) {
   json_t v = json_get(obj, key);
@@ -256,13 +256,30 @@ static c4_status_t beacon_header_extract(prover_ctx_t* ctx, json_t entry, json_t
   return C4_SUCCESS;
 }
 
-static c4_status_t get_beacon_header_at_slot_with_parent(prover_ctx_t* ctx, uint64_t slot, bytes32_t expected_parent, json_t* header, bytes32_t root) {
+static bool beacon_slot_missing_error(const char* error) {
+  if (!error) return false;
+  // Nimbus: HTTP 404 {"code":404,"message":"Block header/data has not been found"}
+  return strstr(error, "404") != NULL || strstr(error, "not been found") != NULL;
+}
+
+static c4_status_t fetch_headers_at_slot(prover_ctx_t* ctx, uint64_t slot, json_t* result) {
   char     path[200]   = {0};
-  json_t   result      = {0};
   buffer_t path_buffer = stack_buffer(path);
 
   bprintf(&path_buffer, "eth/v1/beacon/headers?slot=%l", slot);
-  TRY_ASYNC(c4_send_beacon_json(ctx, path, NULL, PARENT_CHILD_SLOT_TTL, &result));
+  c4_status_t status = c4_send_beacon_json(ctx, path, NULL, PARENT_CHILD_SLOT_TTL, result);
+  if (status != C4_ERROR || !beacon_slot_missing_error(ctx->state.error)) return status;
+
+  safe_free(ctx->state.error);
+  ctx->state.error = NULL;
+  *result          = (json_t) {.type = JSON_TYPE_NOT_FOUND};
+  return C4_SUCCESS;
+}
+
+static c4_status_t get_beacon_header_at_slot_with_parent(prover_ctx_t* ctx, uint64_t slot, bytes32_t expected_parent, json_t* header, bytes32_t root) {
+  json_t result = {0};
+
+  TRY_ASYNC(fetch_headers_at_slot(ctx, slot, &result));
 
   json_t entry = beacon_header_child_in_result(result, expected_parent);
   if (entry.type != JSON_TYPE_OBJECT)
@@ -275,30 +292,14 @@ static c4_status_t get_beacon_header_at_slot_with_parent(prover_ctx_t* ctx, uint
 }
 
 static c4_status_t scan_child_headers(prover_ctx_t* ctx, uint64_t parent_slot, bytes32_t parent_root, json_t* header, bytes32_t root) {
-  char     path[200]   = {0};
-  buffer_t path_buffer = stack_buffer(path);
-
   if (parent_slot > UINT64_MAX - PARENT_CHILD_SCAN_MAX) THROW_ERROR("Parent beacon slot is too large to scan for a child!");
 
-  for (uint32_t base = 1; base <= PARENT_CHILD_SCAN_MAX; base += PARENT_CHILD_SCAN_WINDOW) {
-    json_t      slot_results[PARENT_CHILD_SCAN_WINDOW];
-    c4_status_t status = C4_SUCCESS;
-    uint32_t    n      = PARENT_CHILD_SCAN_WINDOW;
-    if (base + n - 1 > PARENT_CHILD_SCAN_MAX) n = PARENT_CHILD_SCAN_MAX - base + 1;
-    memset(slot_results, 0, sizeof(slot_results));
-
-    for (uint32_t i = 0; i < n; i++) {
-      path_buffer = stack_buffer(path);
-      bprintf(&path_buffer, "eth/v1/beacon/headers?slot=%l", parent_slot + base + i);
-      TRY_ADD_ASYNC(status, c4_send_beacon_json(ctx, path, NULL, PARENT_CHILD_SLOT_TTL, &slot_results[i]));
-    }
-    TRY_ASYNC(status);
-
-    for (uint32_t i = 0; i < n; i++) {
-      json_t entry = beacon_header_child_in_result(slot_results[i], parent_root);
-      if (entry.type != JSON_TYPE_OBJECT) continue;
-      return beacon_header_extract(ctx, entry, header, root);
-    }
+  for (uint32_t off = 1; off <= PARENT_CHILD_SCAN_MAX; off++) {
+    json_t result = {0};
+    TRY_ASYNC(fetch_headers_at_slot(ctx, parent_slot + off, &result));
+    json_t entry = beacon_header_child_in_result(result, parent_root);
+    if (entry.type != JSON_TYPE_OBJECT) continue;
+    return beacon_header_extract(ctx, entry, header, root);
   }
 
   *header = (json_t) {.type = JSON_TYPE_NOT_FOUND};

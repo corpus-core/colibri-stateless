@@ -8,117 +8,24 @@
 #ifdef USE_CURL
 #include "../../libs/curl/http.h"
 #endif
+#include "default_chains.generated.h"
 
 static char* get_default_config(char* chain_name, chain_id_t* chain_id, char* config_file) {
   if (!chain_name) chain_name = "mainnet";
-  if (*chain_name >= '0' && *chain_name <= '9')
-    *chain_id = atoll(chain_name);
-  else if (strcmp(chain_name, "mainnet") == 0)
-    *chain_id = C4_CHAIN_MAINNET;
-  else if (strcmp(chain_name, "sepolia") == 0)
-    *chain_id = C4_CHAIN_SEPOLIA;
-  else if (strcmp(chain_name, "gnosis") == 0)
-    *chain_id = C4_CHAIN_GNOSIS;
-  else if (strcmp(chain_name, "chiado") == 0)
-    *chain_id = C4_CHAIN_GNOSIS_CHIADO;
-  else if (strcmp(chain_name, "base") == 0)
-    *chain_id = C4_CHAIN_BASE;
-  else {
-    fprintf(stderr, "Invalid chain name: %s\n", chain_name);
-    exit(EXIT_FAILURE);
+  if (chain_name[0] == '0' && (chain_name[1] == 'x' || chain_name[1] == 'X'))
+    *chain_id = (chain_id_t) strtoull(chain_name, NULL, 16);
+  else if (*chain_name >= '0' && *chain_name <= '9')
+    *chain_id = (chain_id_t) atoll(chain_name);
+  else if (!c4_default_chain_id_from_name(chain_name, chain_id)) {
+    if (strcmp(chain_name, "base") == 0)
+      *chain_id = C4_CHAIN_BASE;
+    else {
+      fprintf(stderr, "Invalid chain name: %s\n", chain_name);
+      exit(EXIT_FAILURE);
+    }
   }
 
-  char* config = NULL;
-  switch (*chain_id) {
-    case 1: // mainnet
-      config = "{\"eth_rpc\":["
-               "\"https://mainnet.colibri-proof.tech/execution\","
-               "\"https://eth.drpc.org\","
-               "\"https://ethereum-rpc.publicnode.com\","
-               "\"https://singapore.rpc.blxrbdn.com\""
-               "],"
-               "\"beacon_api\":["
-               "\"https://mainnet.colibri-proof.tech/consensus\","
-               "\"https://gateway.tenderly.co/public/mainnet\","
-               "\"https://ethereum-beacon-api.publicnode.com\""
-               "],"
-               "\"checkpointz\":["
-               "\"https://sync-mainnet.beaconcha.in\","
-               "\"https://mainnet.checkpoint.sigp.io\","
-               "\"https://mainnet-checkpoint-sync.attestant.io\","
-               "\"https://beaconstate-mainnet.chainsafe.io\","
-               "\"https://mainnet-checkpoint-sync.stakely.io\","
-               "\"https://checkpointz.pietjepuk.net\","
-               "\"https://beaconstate.ethstaker.cc\""
-               "],"
-               "\"prover\":["
-               "\"https://mainnet.colibri-proof.tech\","
-               "\"https://mainnet-prover.incubed.net\","
-               "\"https://mainnet.colimind.com\""
-               "]}";
-      break;
-
-    case 11155111: // sepolia
-      config = "{\"eth_rpc\":["
-               "\"https://sepolia.colibri-proof.tech/execution\","
-               "\"https://sepolia.drpc.org\","
-               "\"https://ethereum-sepolia-rpc.publicnode.com\","
-               "\"https://sepolia.gateway.tenderly.co\""
-               "],"
-               "\"beacon_api\":["
-               "\"https://sepolia.colibri-proof.tech/consensus\","
-               "\"https://ethereum-sepolia-beacon-api.publicnode.com\""
-               "],"
-               "\"checkpointz\":["
-               "\"https://checkpoint-sync.sepolia.ethpandaops.io\","
-               "\"https://beaconstate-sepolia.chainsafe.io\""
-               "],"
-               "\"prover\":["
-               "\"https://sepolia.colibri-proof.tech\","
-               "\"https://sepolia-prover.incubed.net\","
-               "\"https://sepolia.colimind.com\""
-               "]}";
-      break;
-
-    case 100: // gnosis
-      config = "{\"eth_rpc\":["
-               "\"https://gnosis.colibri-proof.tech/execution\","
-               "\"https://rpc.gnosischain.com\","
-               "\"https://rpc.gnosis.gateway.fm\","
-               "\"https://gnosis-rpc.publicnode.com\""
-               "],"
-               "\"beacon_api\":["
-               "\"https://gnosis.colibri-proof.tech/consensus\","
-               "\"https://rpc-gbc.gnosischain.com\","
-               "\"https://gnosis-beacon-api.publicnode.com\""
-               "],"
-               "\"checkpointz\":[\"https://checkpoint.gnosischain.com\"],"
-               "\"prover\":["
-               "\"https://gnosis.colibri-proof.tech\","
-               "\"https://gnosis-prover.incubed.net\","
-               "\"https://gnosis.colimind.com\""
-               "]}";
-      break;
-
-    case 10200: // chiado
-      config = "{\"eth_rpc\":["
-               "\"https://rpc.chiado.gnosis.gateway.fm\","
-               "\"https://rpc.chiadochain.net\","
-               "\"https://gnosis-chiado-rpc.publicnode.com\""
-               "],"
-               "\"beacon_api\":[\"https://rpc-gbc.chiadochain.net\"],"
-               "\"checkpointz\":[\"https://checkpoint.chiadochain.net\"],"
-               "\"prover\":[\"https://chiado.colibri-proof.tech\"]}";
-      break;
-    case 7091047534: // plataberget
-      config = "{\"eth_rpc\":["
-               "\"https://plataberget.colibri-proof.tech/execution/\""
-               "],"
-               "\"beacon_api\":[\"https://plataberget.colibri-proof.tech/consensus/\"],"
-               "\"checkpointz\":[\"https://checkpoint-sync.glamsterdam-devnet-8.ethpandaops.io/\"],"
-               "\"prover\":[\"https://plataberget.colibri-proof.tech\"]}";
-      break;
-  }
+  char* config = (char*) c4_default_chain_config_json(*chain_id);
 
 #ifdef USE_CURL
   if (config) curl_set_config(json_parse(config));

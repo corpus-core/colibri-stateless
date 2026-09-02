@@ -289,121 +289,22 @@ public class Colibri {
 
     /// Default prover URLs for supported chains.
     public static func defaultProvers(for chainId: UInt64) -> [String] {
-        switch chainId {
-        case 1:
-            return [
-                "https://mainnet.colibri-proof.tech",
-                "https://mainnet-prover.incubed.net",
-                "https://mainnet.colimind.com",
-            ]
-        case 11155111:
-            return [
-                "https://sepolia.colibri-proof.tech",
-                "https://sepolia-prover.incubed.net",
-                "https://sepolia.colimind.com",
-            ]
-        case 100:
-            return [
-                "https://gnosis.colibri-proof.tech",
-                "https://gnosis-prover.incubed.net",
-                "https://gnosis.colimind.com",
-            ]
-        case 10200:
-            return ["https://chiado.colibri-proof.tech"]
-        default:
-            return ["https://c4.incubed.net"]
-        }
+        DefaultChains.defaultProvers(for: chainId)
     }
 
-    /// Default Ethereum RPC URLs for supported chains (fallback order: colibri-proof.tech first, public as fallback).
+    /// Default Ethereum RPC URLs for supported chains.
     public static func defaultEthRpcs(for chainId: UInt64) -> [String] {
-        switch chainId {
-        case 1:
-            return [
-                "https://mainnet.colibri-proof.tech/execution",
-                "https://eth.drpc.org",
-                "https://ethereum-rpc.publicnode.com",
-                "https://singapore.rpc.blxrbdn.com",
-            ]
-        case 11155111:
-            return [
-                "https://sepolia.colibri-proof.tech/execution",
-                "https://sepolia.drpc.org",
-                "https://ethereum-sepolia-rpc.publicnode.com",
-                "https://sepolia.gateway.tenderly.co",
-            ]
-        case 100:
-            return [
-                "https://gnosis.colibri-proof.tech/execution",
-                "https://rpc.gnosischain.com",
-                "https://rpc.gnosis.gateway.fm",
-                "https://gnosis-rpc.publicnode.com",
-            ]
-        case 10200:
-            return [
-                "https://rpc.chiado.gnosis.gateway.fm",
-                "https://rpc.chiadochain.net",
-                "https://gnosis-chiado-rpc.publicnode.com",
-            ]
-        default:
-            return []
-        }
+        DefaultChains.defaultEthRpcs(for: chainId)
     }
 
-    /// Default beacon API URLs for supported chains (fallback order: colibri-proof.tech first, public as fallback).
+    /// Default beacon API URLs for supported chains.
     public static func defaultBeaconApis(for chainId: UInt64) -> [String] {
-        switch chainId {
-        case 1:
-            return [
-                "https://mainnet.colibri-proof.tech/consensus",
-                "https://gateway.tenderly.co/public/mainnet",
-                "https://ethereum-beacon-api.publicnode.com",
-            ]
-        case 11155111:
-            return [
-                "https://sepolia.colibri-proof.tech/consensus",
-                "https://ethereum-sepolia-beacon-api.publicnode.com",
-            ]
-        case 100:
-            return [
-                "https://gnosis.colibri-proof.tech/consensus",
-                "https://rpc-gbc.gnosischain.com",
-                "https://gnosis-beacon-api.publicnode.com",
-            ]
-        case 10200:
-            return [
-                "https://rpc-gbc.chiadochain.net",
-            ]
-        default:
-            return []
-        }
+        DefaultChains.defaultBeaconApis(for: chainId)
     }
 
     /// Default checkpointz URLs for supported chains.
     public static func defaultCheckpointz(for chainId: UInt64) -> [String] {
-        switch chainId {
-        case 1:
-            return [
-                "https://sync-mainnet.beaconcha.in",
-                "https://mainnet.checkpoint.sigp.io",
-                "https://mainnet-checkpoint-sync.attestant.io",
-                "https://beaconstate-mainnet.chainsafe.io",
-                "https://mainnet-checkpoint-sync.stakely.io",
-                "https://checkpointz.pietjepuk.net",
-                "https://beaconstate.ethstaker.cc",
-            ]
-        case 11155111:
-            return [
-                "https://checkpoint-sync.sepolia.ethpandaops.io",
-                "https://beaconstate-sepolia.chainsafe.io",
-            ]
-        case 100:
-            return ["https://checkpoint.gnosischain.com"]
-        case 10200:
-            return ["https://checkpoint.chiadochain.net"]
-        default:
-            return []
-        }
+        DefaultChains.defaultCheckpointz(for: chainId)
     }
 
     public static func initialize() {

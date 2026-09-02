@@ -1,13 +1,15 @@
 #!/usr/bin/env node
 
-// Simple CORS checker for checkpoint-related endpoints referenced in src/chains.ts
-// - Parses bindings/emscripten/src/chains.ts to collect checkpointz, beacon_apis and prover URLs
+// Simple CORS checker for checkpoint-related endpoints from the shared chain defaults.
+// - Reads scripts/chain_defaults/chains.json
 // - Sends a preflight OPTIONS + GET with an Origin header
 // - Reports whether Access-Control-Allow-Origin is present/acceptable
 
 import fs from 'fs/promises';
+import { fileURLToPath } from 'url';
+import path from 'path';
 
-const CHAINS_TS = new URL('../src/chains.ts', import.meta.url);
+const CHAINS_JSON = path.resolve(fileURLToPath(new URL('.', import.meta.url)), '../../../scripts/chain_defaults/chains.json');
 const ORIGIN = 'https://example.com';
 const ENDPOINT_SUFFIX = 'eth/v1/beacon/states/head/finality_checkpoints';
 const TIMEOUT_MS = 8000;
@@ -18,20 +20,12 @@ function timeoutSignal(ms) {
   return { signal: ctrl.signal, cancel: () => clearTimeout(id) };
 }
 
-function parseUrlsByKind(fileContent) {
-  const kinds = ['checkpointz', 'beacon_apis', 'prover'];
+function parseUrlsByKind(spec) {
   const out = { checkpointz: new Set(), beacon_apis: new Set(), prover: new Set() };
-  for (const kind of kinds) {
-    const re = new RegExp(kind + "\\s*:\\s*\\[(.*?)\\]", 'gs');
-    let m;
-    while ((m = re.exec(fileContent)) !== null) {
-      const list = m[1];
-      const reUrl = /"(https?:[^\\\"]+)"|'(https?:[^']+)'/g;
-      let u;
-      while ((u = reUrl.exec(list)) !== null) {
-        out[kind].add(u[1] || u[2]);
-      }
-    }
+  for (const chain of spec.chains || []) {
+    for (const url of chain.checkpointz || []) out.checkpointz.add(url);
+    for (const url of chain.beacon_api || []) out.beacon_apis.add(url);
+    for (const url of chain.prover || []) out.prover.add(url);
   }
   return {
     checkpointz: Array.from(out.checkpointz),
@@ -103,8 +97,8 @@ function printReport(results) {
 }
 
 async function main() {
-  const file = await fs.readFile(CHAINS_TS, 'utf8');
-  const byKind = parseUrlsByKind(file);
+  const spec = JSON.parse(await fs.readFile(CHAINS_JSON, 'utf8'));
+  const byKind = parseUrlsByKind(spec);
   const results = [];
   for (const kind of ['checkpointz', 'beacon_apis', 'prover']) {
     for (const url of byKind[kind]) {
@@ -113,7 +107,7 @@ async function main() {
     }
   }
   if (!results.length) {
-    console.error('No URLs found in chains.ts');
+    console.error('No URLs found in chains.json');
     process.exit(1);
   }
   printReport(results);

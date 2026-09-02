@@ -4,8 +4,9 @@
  *
  * Parent-to-child beacon header lookup:
  * - default: GET /eth/v1/beacon/headers?parent_root=
- * - C4_PROVER_FLAG_NIMBUS: fetch parent by root and scan ?slot=
- *   (Nimbus does not implement parent_root=, status-im/nimbus-eth2#7305).
+ * - C4_PROVER_FLAG_NIMBUS: fetch parent by root and scan ?slot= sequentially
+ *   starting at parent+1 (Nimbus does not implement parent_root=,
+ *   status-im/nimbus-eth2#7305). Nimbus 404 on ?slot= is an empty slot.
  */
 
 #include "beacon.h"
@@ -192,7 +193,7 @@ void test_parent_lookup_not_found_when_no_child_in_window(void) {
   ssz_ob_t    sig_block = {0}, data_block = {0};
   bytes32_t   data_root_out = {0};
   c4_status_t st            = C4_PENDING;
-  int         loops         = 16;
+  int         loops         = 40;
 
   while (st == C4_PENDING && loops-- > 0) {
     st = c4_eth_get_signblock_and_parent(ctx, NULL, parent, &sig_block, &data_block, data_root_out);
@@ -365,7 +366,7 @@ void test_parent_lookup_matches_last_slot_in_window(void) {
   ssz_ob_t    sig_block = {0}, data_block = {0};
   bytes32_t   data_root_out   = {0};
   c4_status_t st              = C4_PENDING;
-  int         loops           = 16;
+  int         loops           = 40;
   int         saw_slot_132    = 0;
   int         saw_block_fetch = 0;
 
@@ -417,7 +418,7 @@ void test_parent_lookup_matches_last_slot_in_window(void) {
   c4_prover_free(ctx);
 }
 
-void test_parent_lookup_first_window_is_parallel(void) {
+void test_parent_lookup_tries_next_slot_first(void) {
   bytes32_t parent = {0};
   bytes32_t dummy  = {0};
   memset(parent, 0xab, 32);
@@ -441,20 +442,14 @@ void test_parent_lookup_first_window_is_parallel(void) {
 
   st = c4_eth_get_signblock_and_parent(ctx, NULL, parent, &sig_block, &data_block, data_root_out);
   TEST_ASSERT_EQUAL(C4_PENDING, st);
-  TEST_ASSERT_EQUAL_INT(8, pending_count(&ctx->state));
+  TEST_ASSERT_EQUAL_INT(1, pending_count(&ctx->state));
 
-  uint32_t seen = 0;
-  for (req = ctx->state.requests; req; req = req->next) {
-    uint64_t slot = 0;
-    if (!c4_state_is_pending(req) || !req->url) continue;
-    TEST_ASSERT_TRUE_MESSAGE(parse_slot_query(req->url, &slot), req->url);
-    TEST_ASSERT_TRUE_MESSAGE(slot >= 101 && slot <= 108, req->url);
-    TEST_ASSERT_EQUAL_UINT32(6, req->ttl);
-    uint32_t bit = 1u << (unsigned) (slot - 101);
-    TEST_ASSERT_EQUAL_UINT32(0, seen & bit);
-    seen |= bit;
-  }
-  TEST_ASSERT_EQUAL_HEX32(0xff, seen);
+  req = first_pending(&ctx->state);
+  TEST_ASSERT_NOT_NULL(req);
+  uint64_t slot = 0;
+  TEST_ASSERT_TRUE_MESSAGE(parse_slot_query(req->url, &slot), req->url);
+  TEST_ASSERT_EQUAL_UINT64(101, slot);
+  TEST_ASSERT_EQUAL_UINT32(6, req->ttl);
   c4_prover_free(ctx);
 }
 
@@ -641,7 +636,66 @@ void test_parent_lookup_rejects_short_child_root(void) {
   c4_prover_free(ctx);
 }
 
-void test_parent_lookup_slot_error_aborts_window(void) {
+void test_parent_lookup_slot_404_continues(void) {
+  bytes32_t parent = {0};
+  bytes32_t child  = {0};
+  bytes32_t dummy  = {0};
+  memset(parent, 0xab, 32);
+  memset(child, 0xcd, 32);
+  memset(dummy, 0x11, 32);
+
+  char parent_hex[65], child_hex[65];
+  hex32(parent, parent_hex);
+  hex32(child, child_hex);
+
+  prover_ctx_t* ctx = c4_prover_create("eth_getBlockByNumber", "[\"0x1\",false]", C4_CHAIN_MAINNET, C4_PROVER_FLAG_NIMBUS);
+  TEST_ASSERT_NOT_NULL(ctx);
+
+  ssz_ob_t    sig_block = {0}, data_block = {0};
+  bytes32_t   data_root_out   = {0};
+  c4_status_t st              = C4_PENDING;
+  int         loops           = 8;
+  int         saw_slot_102    = 0;
+  int         saw_block_fetch = 0;
+
+  while (st == C4_PENDING && loops-- > 0 && !saw_block_fetch) {
+    st = c4_eth_get_signblock_and_parent(ctx, NULL, parent, &sig_block, &data_block, data_root_out);
+    if (st != C4_PENDING) break;
+
+    for (data_request_t* req = ctx->state.requests; req; req = req->next) {
+      uint64_t slot = 0;
+      if (!c4_state_is_pending(req) || !req->url) continue;
+      if (is_parent_by_root(req->url, parent_hex)) {
+        fulfill(req, header_by_id_json(parent, 100, dummy));
+        continue;
+      }
+      if (parse_slot_query(req->url, &slot) && slot == 101) {
+        req->error = strdup("HTTP 404 {\"code\":404,\"message\":\"Block header/data has not been found\"}");
+        continue;
+      }
+      if (parse_slot_query(req->url, &slot) && slot == 102) {
+        saw_slot_102 = 1;
+        fulfill(req, header_list_json(child, 102, parent));
+        continue;
+      }
+      if (strstr(req->url, "eth/v2/beacon/blocks/")) {
+        if (strstr(req->url, child_hex))
+          saw_block_fetch = 1;
+        else
+          TEST_ASSERT_NOT_NULL_MESSAGE(strstr(req->url, parent_hex), req->url);
+        continue;
+      }
+      c4_prover_free(ctx);
+      TEST_FAIL_MESSAGE(req->url);
+    }
+  }
+
+  TEST_ASSERT_TRUE_MESSAGE(saw_slot_102, "Nimbus 404 on parent+1 must continue at parent+2");
+  TEST_ASSERT_TRUE_MESSAGE(saw_block_fetch, "child after an empty 404 slot must be used");
+  c4_prover_free(ctx);
+}
+
+void test_parent_lookup_slot_error_aborts(void) {
   bytes32_t parent = {0};
   bytes32_t dummy  = {0};
   memset(parent, 0xab, 32);
@@ -665,24 +719,169 @@ void test_parent_lookup_slot_error_aborts_window(void) {
   st = c4_eth_get_signblock_and_parent(ctx, NULL, parent, &sig_block, &data_block, data_root_out);
   TEST_ASSERT_EQUAL(C4_PENDING, st);
 
-  int marked = 0;
-  for (req = ctx->state.requests; req; req = req->next) {
-    if (!c4_state_is_pending(req) || !req->url) continue;
-    if (!strstr(req->url, k_slot_prefix)) continue;
-    if (!marked) {
-      req->error = strdup("HTTP 404");
-      marked     = 1;
-    }
-    else {
-      fulfill_const(req, k_empty_headers);
-    }
-  }
-  TEST_ASSERT_TRUE(marked);
+  req = first_pending(&ctx->state);
+  TEST_ASSERT_NOT_NULL(req);
+  TEST_ASSERT_NOT_NULL(strstr(req->url, k_slot_prefix));
+  req->error = strdup("connection reset");
 
   st = c4_eth_get_signblock_and_parent(ctx, NULL, parent, &sig_block, &data_block, data_root_out);
   TEST_ASSERT_EQUAL(C4_ERROR, st);
   TEST_ASSERT_NOT_NULL(ctx->state.error);
-  TEST_ASSERT_NOT_NULL(strstr(ctx->state.error, "HTTP 404"));
+  TEST_ASSERT_NOT_NULL(strstr(ctx->state.error, "connection reset"));
+  c4_prover_free(ctx);
+}
+
+void test_parent_lookup_slot_not_found_message_continues(void) {
+  bytes32_t parent = {0};
+  bytes32_t child  = {0};
+  bytes32_t dummy  = {0};
+  memset(parent, 0xab, 32);
+  memset(child, 0xcd, 32);
+  memset(dummy, 0x11, 32);
+
+  char parent_hex[65], child_hex[65];
+  hex32(parent, parent_hex);
+  hex32(child, child_hex);
+
+  prover_ctx_t* ctx = c4_prover_create("eth_getBlockByNumber", "[\"0x1\",false]", C4_CHAIN_MAINNET, C4_PROVER_FLAG_NIMBUS);
+  TEST_ASSERT_NOT_NULL(ctx);
+
+  ssz_ob_t    sig_block = {0}, data_block = {0};
+  bytes32_t   data_root_out   = {0};
+  c4_status_t st              = C4_PENDING;
+  int         loops           = 8;
+  int         saw_slot_102    = 0;
+  int         saw_block_fetch = 0;
+
+  while (st == C4_PENDING && loops-- > 0 && !saw_block_fetch) {
+    st = c4_eth_get_signblock_and_parent(ctx, NULL, parent, &sig_block, &data_block, data_root_out);
+    if (st != C4_PENDING) break;
+
+    for (data_request_t* req = ctx->state.requests; req; req = req->next) {
+      uint64_t slot = 0;
+      if (!c4_state_is_pending(req) || !req->url) continue;
+      if (is_parent_by_root(req->url, parent_hex)) {
+        fulfill(req, header_by_id_json(parent, 100, dummy));
+        continue;
+      }
+      if (parse_slot_query(req->url, &slot) && slot == 101) {
+        req->error = strdup("Block header/data has not been found");
+        continue;
+      }
+      if (parse_slot_query(req->url, &slot) && slot == 102) {
+        saw_slot_102 = 1;
+        fulfill(req, header_list_json(child, 102, parent));
+        continue;
+      }
+      if (strstr(req->url, "eth/v2/beacon/blocks/")) {
+        if (strstr(req->url, child_hex))
+          saw_block_fetch = 1;
+        else
+          TEST_ASSERT_NOT_NULL_MESSAGE(strstr(req->url, parent_hex), req->url);
+        continue;
+      }
+      c4_prover_free(ctx);
+      TEST_FAIL_MESSAGE(req->url);
+    }
+  }
+
+  TEST_ASSERT_TRUE_MESSAGE(saw_slot_102, "Nimbus 'not been found' without 404 must continue");
+  TEST_ASSERT_TRUE_MESSAGE(saw_block_fetch, "child after a message-only empty slot must be used");
+  c4_prover_free(ctx);
+}
+
+void test_parent_lookup_scans_one_slot_at_a_time(void) {
+  bytes32_t parent = {0};
+  bytes32_t dummy  = {0};
+  memset(parent, 0xab, 32);
+  memset(dummy, 0x11, 32);
+
+  char parent_hex[65];
+  hex32(parent, parent_hex);
+
+  prover_ctx_t* ctx = c4_prover_create("eth_getBlockByNumber", "[\"0x1\",false]", C4_CHAIN_MAINNET, C4_PROVER_FLAG_NIMBUS);
+  TEST_ASSERT_NOT_NULL(ctx);
+
+  ssz_ob_t    sig_block = {0}, data_block = {0};
+  bytes32_t   data_root_out = {0};
+  c4_status_t st            = c4_eth_get_signblock_and_parent(ctx, NULL, parent, &sig_block, &data_block, data_root_out);
+  TEST_ASSERT_EQUAL(C4_PENDING, st);
+
+  data_request_t* req = first_pending(&ctx->state);
+  TEST_ASSERT_NOT_NULL(req);
+  fulfill(req, header_by_id_json(parent, 100, dummy));
+
+  st = c4_eth_get_signblock_and_parent(ctx, NULL, parent, &sig_block, &data_block, data_root_out);
+  TEST_ASSERT_EQUAL(C4_PENDING, st);
+  TEST_ASSERT_EQUAL_INT(1, pending_count(&ctx->state));
+
+  req = first_pending(&ctx->state);
+  TEST_ASSERT_NOT_NULL(req);
+  uint64_t slot = 0;
+  TEST_ASSERT_TRUE(parse_slot_query(req->url, &slot));
+  TEST_ASSERT_EQUAL_UINT64(101, slot);
+  fulfill_const(req, k_empty_headers);
+
+  st = c4_eth_get_signblock_and_parent(ctx, NULL, parent, &sig_block, &data_block, data_root_out);
+  TEST_ASSERT_EQUAL(C4_PENDING, st);
+  TEST_ASSERT_EQUAL_INT(1, pending_count(&ctx->state));
+
+  req = first_pending(&ctx->state);
+  TEST_ASSERT_NOT_NULL(req);
+  TEST_ASSERT_TRUE(parse_slot_query(req->url, &slot));
+  TEST_ASSERT_EQUAL_UINT64(102, slot);
+  TEST_ASSERT_EQUAL_UINT32(6, req->ttl);
+  c4_prover_free(ctx);
+}
+
+void test_parent_lookup_all_slots_404_means_not_signed(void) {
+  bytes32_t parent = {0};
+  bytes32_t dummy  = {0};
+  memset(parent, 0xab, 32);
+  memset(dummy, 0x11, 32);
+
+  char parent_hex[65];
+  hex32(parent, parent_hex);
+
+  prover_ctx_t* ctx = c4_prover_create("eth_getBlockByNumber", "[\"0x1\",false]", C4_CHAIN_MAINNET, C4_PROVER_FLAG_NIMBUS);
+  TEST_ASSERT_NOT_NULL(ctx);
+
+  ssz_ob_t    sig_block = {0}, data_block = {0};
+  bytes32_t   data_root_out = {0};
+  c4_status_t st            = C4_PENDING;
+  int         loops         = 40;
+  int         saw_slot_132  = 0;
+
+  while (st == C4_PENDING && loops-- > 0) {
+    st = c4_eth_get_signblock_and_parent(ctx, NULL, parent, &sig_block, &data_block, data_root_out);
+    if (st != C4_PENDING) break;
+
+    TEST_ASSERT_EQUAL_INT(1, pending_count(&ctx->state));
+
+    for (data_request_t* req = ctx->state.requests; req; req = req->next) {
+      uint64_t slot = 0;
+      if (!c4_state_is_pending(req) || !req->url) continue;
+
+      if (is_parent_by_root(req->url, parent_hex)) {
+        fulfill(req, header_by_id_json(parent, 100, dummy));
+        continue;
+      }
+      if (parse_slot_query(req->url, &slot)) {
+        TEST_ASSERT_TRUE_MESSAGE(slot >= 101 && slot <= 132, req->url);
+        if (slot == 132) saw_slot_132 = 1;
+        req->error = strdup("HTTP 404 {\"code\":404,\"message\":\"Block header/data has not been found\"}");
+        continue;
+      }
+
+      TEST_FAIL_MESSAGE(req->url);
+    }
+  }
+
+  TEST_ASSERT_TRUE_MESSAGE(saw_slot_132, "404 empty slots must scan through parent+32");
+  TEST_ASSERT_EQUAL(C4_ERROR, st);
+  TEST_ASSERT_NOT_NULL(ctx->state.error);
+  TEST_ASSERT_NOT_NULL(strstr(ctx->state.error, "not been signed yet"));
+  TEST_ASSERT_NULL_MESSAGE(strstr(ctx->state.error, "404"), ctx->state.error);
   c4_prover_free(ctx);
 }
 
@@ -901,8 +1100,8 @@ static char* el_rpc_without_slot(const uint8_t* hash, const uint8_t* parent_cl) 
 static eth_block_t dummy_block_with_state_root(const uint8_t* state_root, ssz_def_t* header_def, uint8_t* header_bytes) {
   memset(header_bytes, 0, 112);
   memcpy(header_bytes + 48, state_root, 32);
-  eth_block_t block     = {0};
-  block.proof_type      = C4_BLOCK_PROOF_TYPE_BEACON;
+  eth_block_t block      = {0};
+  block.proof_type       = C4_BLOCK_PROOF_TYPE_BEACON;
   block.beacon.cl_header = (ssz_ob_t) {.bytes = {.data = header_bytes, .len = 112}, .def = header_def};
   return block;
 }
@@ -1074,15 +1273,58 @@ void test_gloas_execution_slot_wrong_parent_errors(void) {
   c4_prover_free(ctx);
 }
 
+void test_gloas_execution_slot_404_is_not_found(void) {
+  bytes32_t parent_cl = {0};
+  bytes32_t el_hash   = {0};
+  memset(parent_cl, 0xab, 32);
+  memset(el_hash, 0x11, 32);
+
+  prover_ctx_t* ctx = c4_prover_create("eth_getBlockByNumber", "[\"0x1\",false]", C4_CHAIN_PLATABERGET, 0);
+  TEST_ASSERT_NOT_NULL(ctx);
+
+  eth_block_t beacon_block = {0};
+  json_t      block_id     = {.start = "\"0x1\"", .len = 5, .type = JSON_TYPE_STRING};
+  c4_status_t st           = C4_PENDING;
+  int         loops        = 8;
+  int         saw_slot     = 0;
+
+  while (st == C4_PENDING && loops-- > 0) {
+    st = c4_beacon_get_block_for_eth(ctx, block_id, &beacon_block);
+    if (st != C4_PENDING) break;
+
+    for (data_request_t* req = ctx->state.requests; req; req = req->next) {
+      if (!c4_state_is_pending(req)) continue;
+      if (is_eth_get_block_number(req, "0x1")) {
+        fulfill(req, gloas_el_rpc(el_hash, parent_cl, 100));
+        continue;
+      }
+      if (req->url && strstr(req->url, "eth/v1/beacon/headers?slot=100")) {
+        saw_slot   = 1;
+        req->error = strdup("HTTP 404 {\"code\":404,\"message\":\"Block header/data has not been found\"}");
+        continue;
+      }
+      c4_prover_free(ctx);
+      TEST_FAIL_MESSAGE(req->url ? req->url : (char*) req->payload.data);
+    }
+  }
+
+  TEST_ASSERT_TRUE(saw_slot);
+  TEST_ASSERT_EQUAL(C4_ERROR, st);
+  TEST_ASSERT_NOT_NULL(ctx->state.error);
+  TEST_ASSERT_NOT_NULL(strstr(ctx->state.error, "No canonical beacon header at that slot"));
+  TEST_ASSERT_NULL_MESSAGE(strstr(ctx->state.error, "404"), ctx->state.error);
+  c4_prover_free(ctx);
+}
+
 void test_historical_summaries_default_uses_lodestar_url(void) {
   bytes32_t state_root = {0};
   memset(state_root, 0xaa, 32);
   char state_hex[65];
   hex32(state_root, state_hex);
 
-  uint8_t   header_bytes[112];
-  ssz_def_t header_def  = SSZ_CONTAINER("BeaconBlockHeader", BEACON_BLOCK_HEADER);
-  eth_block_t block     = dummy_block_with_state_root(state_root, &header_def, header_bytes);
+  uint8_t     header_bytes[112];
+  ssz_def_t   header_def = SSZ_CONTAINER("BeaconBlockHeader", BEACON_BLOCK_HEADER);
+  eth_block_t block      = dummy_block_with_state_root(state_root, &header_def, header_bytes);
 
   prover_ctx_t* ctx = c4_prover_create("eth_getBlockByNumber", "[\"0x1\",false]", C4_CHAIN_MAINNET, 0);
   TEST_ASSERT_NOT_NULL(ctx);
@@ -1109,9 +1351,9 @@ void test_historical_summaries_nimbus_uses_nimbus_url(void) {
   char state_hex[65];
   hex32(state_root, state_hex);
 
-  uint8_t   header_bytes[112];
-  ssz_def_t header_def  = SSZ_CONTAINER("BeaconBlockHeader", BEACON_BLOCK_HEADER);
-  eth_block_t block     = dummy_block_with_state_root(state_root, &header_def, header_bytes);
+  uint8_t     header_bytes[112];
+  ssz_def_t   header_def = SSZ_CONTAINER("BeaconBlockHeader", BEACON_BLOCK_HEADER);
+  eth_block_t block      = dummy_block_with_state_root(state_root, &header_def, header_bytes);
 
   prover_ctx_t* ctx = c4_prover_create("eth_getBlockByNumber", "[\"0x1\",false]", C4_CHAIN_MAINNET, C4_PROVER_FLAG_NIMBUS);
   TEST_ASSERT_NOT_NULL(ctx);
@@ -1214,8 +1456,12 @@ int main(void) {
   RUN_TEST(test_parent_lookup_parent_header_not_found);
   RUN_TEST(test_parent_lookup_skips_slot_with_other_parent_root);
   RUN_TEST(test_parent_lookup_matches_last_slot_in_window);
-  RUN_TEST(test_parent_lookup_first_window_is_parallel);
-  RUN_TEST(test_parent_lookup_slot_error_aborts_window);
+  RUN_TEST(test_parent_lookup_tries_next_slot_first);
+  RUN_TEST(test_parent_lookup_slot_404_continues);
+  RUN_TEST(test_parent_lookup_slot_not_found_message_continues);
+  RUN_TEST(test_parent_lookup_scans_one_slot_at_a_time);
+  RUN_TEST(test_parent_lookup_all_slots_404_means_not_signed);
+  RUN_TEST(test_parent_lookup_slot_error_aborts);
   RUN_TEST(test_parent_lookup_prefers_canonical_child_in_slot_array);
   RUN_TEST(test_parent_lookup_parent_root_mismatch);
   RUN_TEST(test_parent_lookup_parent_missing_slot);
@@ -1228,6 +1474,7 @@ int main(void) {
   RUN_TEST(test_gloas_by_hash_uses_slot_then_parent_root);
   RUN_TEST(test_gloas_without_slot_number_falls_back_to_n_plus_one);
   RUN_TEST(test_gloas_execution_slot_wrong_parent_errors);
+  RUN_TEST(test_gloas_execution_slot_404_is_not_found);
   RUN_TEST(test_historical_summaries_default_uses_lodestar_url);
   RUN_TEST(test_historical_summaries_nimbus_uses_nimbus_url);
   return UNITY_END();

@@ -194,7 +194,7 @@ let package = Package(
             name: "Colibri",
             dependencies: ["c4_swift", "CColibriMacOS"],
             path: "Sources/Colibri",
-            sources: ["Colibri.swift"],
+            sources: ["Colibri.swift", "DefaultChains.swift"],
             linkerSettings: [
                 .linkedLibrary("c++")
             ]

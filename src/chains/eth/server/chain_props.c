@@ -20,6 +20,8 @@ bool c4_eth_chain_props(chain_id_t chain_id, chain_properties_t* props) {
     props->chain_name = "Gnosis";
   else if (cid == 10200ULL)
     props->chain_name = "Gnosis Chiado";
+  else if (cid == 7091047534ULL)
+    props->chain_name = "Plataberget";
   else
     props->chain_name = "Ethereum";
   return true;

@@ -123,6 +123,60 @@ void main() {
     }, skip: !hasNative);
   });
 
+  group('Generated chain defaults', () {
+    test('known chains have endpoints', () {
+      for (final id in [1, 11155111, 100, 10200, 7091047534]) {
+        expect(defaultProvers(id), isNotEmpty);
+        expect(defaultEthRpcs(id), isNotEmpty);
+        expect(defaultBeaconApis(id), isNotEmpty);
+        expect(defaultCheckpointz(id), isNotEmpty);
+      }
+    });
+
+    test('Cloudflare prover is first and *1 is second', () {
+      expect(defaultProvers(1)[0], 'https://mainnet.colibri-proof.tech');
+      expect(defaultProvers(1)[1], 'https://mainnet1.colibri-proof.tech');
+      expect(defaultProvers(11155111)[0], 'https://sepolia.colibri-proof.tech');
+      expect(defaultProvers(11155111)[1], 'https://sepolia1.colibri-proof.tech');
+      expect(defaultProvers(100)[0], 'https://gnosis.colibri-proof.tech');
+      expect(defaultProvers(100)[1], 'https://gnosis1.colibri-proof.tech');
+    });
+
+    test('Platåberget defaults', () {
+      expect(defaultProvers(7091047534), ['https://plataberget.colibri-proof.tech']);
+//      expect(defaultEthRpcs(7091047534).single, contains('/execution'));
+//      expect(defaultBeaconApis(7091047534).single, contains('/consensus'));
+    });
+
+    test('unknown chain has prover fallback only', () {
+      expect(defaultProvers(999999), isNotEmpty);
+      expect(defaultEthRpcs(999999), isEmpty);
+      expect(defaultBeaconApis(999999), isEmpty);
+      expect(defaultCheckpointz(999999), isEmpty);
+    });
+
+    test('removed dead URLs are absent', () {
+      const dead = [
+        'sepolia.drpc.org',
+        'sepolia-prover.incubed.net',
+        'sepolia.colimind.com',
+        'gnosis-prover.incubed.net',
+        'gnosis.colimind.com',
+      ];
+      for (final id in [1, 11155111, 100, 10200, 7091047534]) {
+        final urls = [
+          ...defaultProvers(id),
+          ...defaultEthRpcs(id),
+          ...defaultBeaconApis(id),
+          ...defaultCheckpointz(id),
+        ];
+        for (final snippet in dead) {
+          expect(urls.any((url) => url.contains(snippet)), isFalse, reason: snippet);
+        }
+      }
+    });
+  });
+
   group('Chain defaults', () {
     test('Sepolia chain has correct defaults', () {
       final colibri = Colibri(

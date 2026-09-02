@@ -9,6 +9,12 @@ from typing import Any, Dict, List, Optional, Union
 
 import aiohttp
 
+from .default_chains import (
+    default_beacon_apis,
+    default_checkpointz,
+    default_eth_rpcs,
+    default_provers,
+)
 from .storage import ColibriStorage, DefaultStorage
 from .types import (
     ColibriError,
@@ -141,101 +147,22 @@ class Colibri:
     @staticmethod
     def _get_default_provers(chain_id: int) -> List[str]:
         """Get default prover URLs for chain"""
-        defaults = {
-            1: [
-                "https://mainnet.colibri-proof.tech",
-                "https://mainnet-prover.incubed.net",
-                "https://mainnet.colimind.com",
-            ],
-            11155111: [
-                "https://sepolia.colibri-proof.tech",
-                "https://sepolia-prover.incubed.net",
-                "https://sepolia.colimind.com",
-            ],
-            100: [
-                "https://gnosis.colibri-proof.tech",
-                "https://gnosis-prover.incubed.net",
-                "https://gnosis.colimind.com",
-            ],
-            10200: ["https://chiado.colibri-proof.tech"],
-        }
-        return defaults.get(chain_id, ["https://c4.incubed.net"])
+        return default_provers(chain_id)
 
     @staticmethod
     def _get_default_eth_rpcs(chain_id: int) -> List[str]:
-        """Get default Ethereum RPC URLs for chain (fallback order: colibri-proof.tech first, public as fallback)"""
-        defaults = {
-            1: [
-                "https://mainnet.colibri-proof.tech/execution",
-                "https://eth.drpc.org",
-                "https://ethereum-rpc.publicnode.com",
-                "https://singapore.rpc.blxrbdn.com",
-            ],
-            11155111: [
-                "https://sepolia.colibri-proof.tech/execution",
-                "https://sepolia.drpc.org",
-                "https://ethereum-sepolia-rpc.publicnode.com",
-                "https://sepolia.gateway.tenderly.co",
-            ],
-            100: [
-                "https://gnosis.colibri-proof.tech/execution",
-                "https://rpc.gnosischain.com",
-                "https://rpc.gnosis.gateway.fm",
-                "https://gnosis-rpc.publicnode.com",
-            ],
-            10200: [
-                "https://rpc.chiado.gnosis.gateway.fm",
-                "https://rpc.chiadochain.net",
-                "https://gnosis-chiado-rpc.publicnode.com",
-            ],
-        }
-        return defaults.get(chain_id, [])
+        """Get default Ethereum RPC URLs for chain"""
+        return default_eth_rpcs(chain_id)
 
     @staticmethod
     def _get_default_beacon_apis(chain_id: int) -> List[str]:
-        """Get default beacon API URLs for chain (fallback order: colibri-proof.tech first, public as fallback)"""
-        defaults = {
-            1: [
-                "https://mainnet.colibri-proof.tech/consensus",
-                "https://gateway.tenderly.co/public/mainnet",
-                "https://ethereum-beacon-api.publicnode.com",
-            ],
-            11155111: [
-                "https://sepolia.colibri-proof.tech/consensus",
-                "https://ethereum-sepolia-beacon-api.publicnode.com",
-            ],
-            100: [
-                "https://gnosis.colibri-proof.tech/consensus",
-                "https://rpc-gbc.gnosischain.com",
-                "https://gnosis-beacon-api.publicnode.com",
-            ],
-            10200: [
-                "https://rpc-gbc.chiadochain.net",
-            ],
-        }
-        return defaults.get(chain_id, [])
+        """Get default beacon API URLs for chain"""
+        return default_beacon_apis(chain_id)
 
     @staticmethod
     def _get_default_checkpointz(chain_id: int) -> List[str]:
         """Get default checkpointz URLs for chain"""
-        defaults = {
-            1: [
-                "https://sync-mainnet.beaconcha.in",
-                "https://mainnet.checkpoint.sigp.io",
-                "https://mainnet-checkpoint-sync.attestant.io",
-                "https://beaconstate-mainnet.chainsafe.io",
-                "https://mainnet-checkpoint-sync.stakely.io",
-                "https://checkpointz.pietjepuk.net",
-                "https://beaconstate.ethstaker.cc",
-            ],
-            11155111: [
-                "https://checkpoint-sync.sepolia.ethpandaops.io",
-                "https://beaconstate-sepolia.chainsafe.io",
-            ],
-            100: ["https://checkpoint.gnosischain.com"],
-            10200: ["https://checkpoint.chiadochain.net"],
-        }
-        return defaults.get(chain_id, [])
+        return default_checkpointz(chain_id)
 
     def _get_verify_flags(self) -> int:
         """Return verify flags for C API (e.g. VERIFY_FLAG_PAP = 2, VERIFY_FLAG_OBLIVIOUS = 64, VERIFY_FLAG_SKIP_WSP_CHECK = 128)."""

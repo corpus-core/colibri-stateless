@@ -143,7 +143,7 @@ int main(int argc, char* argv[]) {
       for (char* c = argv[i] + 1; *c; c++) {
         switch (*c) {
           case 'c':
-            chain_id = atoi(argv[++i]);
+            chain_id = (chain_id_t) atoll(argv[++i]);
             break;
           case 'o':
             outputfile = argv[++i];

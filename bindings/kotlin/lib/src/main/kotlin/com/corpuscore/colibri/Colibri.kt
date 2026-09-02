@@ -193,95 +193,16 @@ class Colibri(
         }
 
         /** Default prover URLs for supported chains. */
-        fun defaultProvers(chainId: BigInteger): Array<String> = when (chainId) {
-            BigInteger.ONE -> arrayOf(
-                "https://mainnet.colibri-proof.tech",
-                "https://mainnet-prover.incubed.net",
-                "https://mainnet.colimind.com",
-            )
-            BigInteger.valueOf(11155111) -> arrayOf(
-                "https://sepolia.colibri-proof.tech",
-                "https://sepolia-prover.incubed.net",
-                "https://sepolia.colimind.com",
-            )
-            BigInteger.valueOf(100) -> arrayOf(
-                "https://gnosis.colibri-proof.tech",
-                "https://gnosis-prover.incubed.net",
-                "https://gnosis.colimind.com",
-            )
-            BigInteger.valueOf(10200) -> arrayOf("https://chiado.colibri-proof.tech")
-            else -> arrayOf("https://c4.incubed.net")
-        }
+        fun defaultProvers(chainId: BigInteger): Array<String> = DefaultChains.defaultProvers(chainId)
 
-        /** Default Ethereum RPC URLs for supported chains (fallback order: colibri-proof.tech first, public as fallback). */
-        fun defaultEthRpcs(chainId: BigInteger): Array<String> = when (chainId) {
-            BigInteger.ONE -> arrayOf(
-                "https://mainnet.colibri-proof.tech/execution",
-                "https://eth.drpc.org",
-                "https://ethereum-rpc.publicnode.com",
-                "https://singapore.rpc.blxrbdn.com",
-            )
-            BigInteger.valueOf(11155111) -> arrayOf(
-                "https://sepolia.colibri-proof.tech/execution",
-                "https://sepolia.drpc.org",
-                "https://ethereum-sepolia-rpc.publicnode.com",
-                "https://sepolia.gateway.tenderly.co",
-            )
-            BigInteger.valueOf(100) -> arrayOf(
-                "https://gnosis.colibri-proof.tech/execution",
-                "https://rpc.gnosischain.com",
-                "https://rpc.gnosis.gateway.fm",
-                "https://gnosis-rpc.publicnode.com",
-            )
-            BigInteger.valueOf(10200) -> arrayOf(
-                "https://rpc.chiado.gnosis.gateway.fm",
-                "https://rpc.chiadochain.net",
-                "https://gnosis-chiado-rpc.publicnode.com",
-            )
-            else -> emptyArray()
-        }
+        /** Default Ethereum RPC URLs for supported chains. */
+        fun defaultEthRpcs(chainId: BigInteger): Array<String> = DefaultChains.defaultEthRpcs(chainId)
 
-        /** Default beacon API URLs for supported chains (fallback order: colibri-proof.tech first, public as fallback). */
-        fun defaultBeaconApis(chainId: BigInteger): Array<String> = when (chainId) {
-            BigInteger.ONE -> arrayOf(
-                "https://mainnet.colibri-proof.tech/consensus",
-                "https://gateway.tenderly.co/public/mainnet",
-                "https://ethereum-beacon-api.publicnode.com",
-            )
-            BigInteger.valueOf(11155111) -> arrayOf(
-                "https://sepolia.colibri-proof.tech/consensus",
-                "https://ethereum-sepolia-beacon-api.publicnode.com",
-            )
-            BigInteger.valueOf(100) -> arrayOf(
-                "https://gnosis.colibri-proof.tech/consensus",
-                "https://rpc-gbc.gnosischain.com",
-                "https://gnosis-beacon-api.publicnode.com",
-            )
-            BigInteger.valueOf(10200) -> arrayOf(
-                "https://rpc-gbc.chiadochain.net",
-            )
-            else -> emptyArray()
-        }
+        /** Default beacon API URLs for supported chains. */
+        fun defaultBeaconApis(chainId: BigInteger): Array<String> = DefaultChains.defaultBeaconApis(chainId)
 
         /** Default checkpointz URLs for supported chains. */
-        fun defaultCheckpointz(chainId: BigInteger): Array<String> = when (chainId) {
-            BigInteger.ONE -> arrayOf(
-                "https://sync-mainnet.beaconcha.in",
-                "https://mainnet.checkpoint.sigp.io",
-                "https://mainnet-checkpoint-sync.attestant.io",
-                "https://beaconstate-mainnet.chainsafe.io",
-                "https://mainnet-checkpoint-sync.stakely.io",
-                "https://checkpointz.pietjepuk.net",
-                "https://beaconstate.ethstaker.cc",
-            )
-            BigInteger.valueOf(11155111) -> arrayOf(
-                "https://checkpoint-sync.sepolia.ethpandaops.io",
-                "https://beaconstate-sepolia.chainsafe.io",
-            )
-            BigInteger.valueOf(100) -> arrayOf("https://checkpoint.gnosischain.com")
-            BigInteger.valueOf(10200) -> arrayOf("https://checkpoint.chiadochain.net")
-            else -> emptyArray()
-        }
+        fun defaultCheckpointz(chainId: BigInteger): Array<String> = DefaultChains.defaultCheckpointz(chainId)
     }
     private val client = HttpClient(CIO) {
         engine {

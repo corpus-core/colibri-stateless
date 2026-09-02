@@ -46,7 +46,7 @@ let package = Package(
             name: "Colibri",
             dependencies: ["CColibriMacOS"],
             path: "Sources/Colibri",
-            sources: ["Colibri.swift"]
+            sources: ["Colibri.swift", "DefaultChains.swift"]
         ),
         .testTarget(
             name: "ColibriTests",

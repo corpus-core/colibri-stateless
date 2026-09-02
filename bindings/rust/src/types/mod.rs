@@ -14,7 +14,7 @@ pub mod request;
 
 pub use chain::{
     default_beacon_apis, default_checkpointz, default_eth_rpcs, default_provers, CHIADO, GNOSIS,
-    MAINNET, SEPOLIA,
+    MAINNET, PLATABERGET, SEPOLIA,
 };
 pub use error::{
     ColibriError, HttpError, ProofError, RevertError, RpcError, StorageError, VerificationError,
