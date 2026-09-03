@@ -40,21 +40,27 @@
 #define TOTAL_SYNC_COMMITTEE_CHUNKS \
   (SYNC_COMMITTEE_PUBKEYS * PUBKEY_CHUNKS + AGGREGATE_PUBKEY_CHUNKS) // 1026
 
-_Static_assert(TOTAL_SYNC_COMMITTEE_CHUNKS == 1026u,
-               "SyncCommittee chunk count must be 1026");
+// Compile-time layout guards. `_Static_assert` at file scope is rejected by
+// MSVC's C frontend, so we use the portable typedef-negative-size trick.
+// A false condition yields an "array with negative size" error at compile
+// time on all supported compilers (Clang / GCC / MSVC).
+typedef char c4_gloas_lcu_chunk_count_check
+    [(TOTAL_SYNC_COMMITTEE_CHUNKS == 1026u) ? 1 : -1];
 
-// Cross-check: the fixed-size LCU total is the sum of its parts. The compiler
-// catches a constant drift before it turns into a run-time surprise (see the
+// Cross-check: the fixed-size LCU total is the sum of its parts. Catches
+// a constant drift before it turns into a run-time surprise (see the
 // defensive `off != C4_GLOAS_LCU_SSZ_SIZE` in c4_gloas_lcu_assemble).
-_Static_assert(C4_GLOAS_LCU_HEADER_SIZE
-                       + C4_GLOAS_LCU_SYNC_COMMITTEE_SIZE
-                       + C4_GLOAS_LCU_NEXT_SC_BRANCH_SIZE
-                       + C4_GLOAS_LCU_HEADER_SIZE
-                       + C4_GLOAS_LCU_FINALITY_BRANCH_SIZE
-                       + C4_GLOAS_LCU_SYNC_AGGREGATE_SIZE
-                       + 8u
-                   == C4_GLOAS_LCU_SSZ_SIZE,
-               "GLOAS_LIGHT_CLIENT_UPDATE total layout mismatch");
+typedef char c4_gloas_lcu_layout_total_check
+    [(C4_GLOAS_LCU_HEADER_SIZE
+              + C4_GLOAS_LCU_SYNC_COMMITTEE_SIZE
+              + C4_GLOAS_LCU_NEXT_SC_BRANCH_SIZE
+              + C4_GLOAS_LCU_HEADER_SIZE
+              + C4_GLOAS_LCU_FINALITY_BRANCH_SIZE
+              + C4_GLOAS_LCU_SYNC_AGGREGATE_SIZE
+              + 8u
+          == C4_GLOAS_LCU_SSZ_SIZE)
+         ? 1
+         : -1];
 
 // BeaconBlockHeader = slot(8)+proposerIndex(8)+parentRoot(32)+stateRoot(32)+bodyRoot(32) = 112.
 #define BEACON_BLOCK_HEADER_BYTES 112u

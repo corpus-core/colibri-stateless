@@ -41,8 +41,12 @@
 #define TOTAL_SYNC_COMMITTEE_CHUNKS \
   (SYNC_COMMITTEE_PUBKEYS * PUBKEY_CHUNKS + AGGREGATE_PUBKEY_CHUNKS) // 1026
 
-_Static_assert(TOTAL_SYNC_COMMITTEE_CHUNKS == C4_GLOAS_BOOTSTRAP_SYNC_COMMITTEE_CHUNKS,
-               "chunk-count mismatch with public header");
+// Compile-time cross-check that the private chunk count matches the public
+// header constant. `_Static_assert` at file scope is rejected by MSVC's C
+// frontend (see `test_ssz_gloas.c:test_gloas_state_gindexes` for the same
+// portability note), so we use the portable typedef-negative-size trick.
+typedef char c4_gloas_bootstrap_chunk_count_check
+    [(TOTAL_SYNC_COMMITTEE_CHUNKS == C4_GLOAS_BOOTSTRAP_SYNC_COMMITTEE_CHUNKS) ? 1 : -1];
 
 // BeaconBlockHeader layout: slot(8) + proposerIndex(8) + parentRoot(32)
 //                        + stateRoot(32) + bodyRoot(32) = 112 bytes.
