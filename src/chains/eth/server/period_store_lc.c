@@ -1,6 +1,10 @@
+#include "beacon.h"
+#include "beacon_types.h"
 #include "eth_conf.h"
+#include "lcu_gloas.h"
 #include "logger.h"
 #include "period_store.h"
+#include "prover.h"
 #include "server.h"
 #include "ssz.h"
 #include "sync_committee.h"
@@ -52,14 +56,29 @@ static void lcu_write_done_cb(void* user_data, file_data_t* files, int num_files
   safe_free(ctx);
 }
 
+// `c4_ps_build_lcu` (self-build fallback) is defined later in this file and
+// declared in `period_store.h`.
+
 static void fetch_lcu_cb(client_t* client, void* data, data_request_t* r) {
   (void) client;
-  uint64_t period = data ? *((uint64_t*) data) : 0;
+  uint64_t period            = data ? *((uint64_t*) data) : 0;
+  bool     is_bootstrap_path = r->url && strstr(r->url, "bootstrap") != NULL;
   safe_free(data);
   if (!r->response.data && !r->error) r->error = strdup("unknown error!");
   if (r->error) {
     log_warn("period_store: LCU fetch for period %l failed: %s", period, r->error);
     c4_request_free(r);
+    // Only the light_client/updates path can be self-built; bootstrap has a
+    // separate precompute path via head_update.c and is served from cache.
+    if (!is_bootstrap_path) c4_ps_build_lcu(period);
+    return;
+  }
+  // Beacon-node returned a body that is too short to contain even the wire
+  // prefix -> treat as missing and trigger the self-build fallback for LCUs.
+  if (!is_bootstrap_path && r->response.len < UPDATE_PREFIX_SIZE) {
+    log_warn("period_store: LCU fetch for period %l returned short response (%d bytes)", period, r->response.len);
+    c4_request_free(r);
+    c4_ps_build_lcu(period);
     return;
   }
   // prepare async write of lcb.ssz or lcu.ssz
@@ -296,4 +315,159 @@ void c4_ps_schedule_fetch_lcb(uint64_t period) {
   uint64_t* pdata     = (uint64_t*) safe_calloc(1, sizeof(uint64_t));
   *pdata              = period;
   c4_add_request(&lcu_client, req, pdata, fetch_lcb_cb);
+}
+
+// ---------------------------------------------------------------------------
+// Self-build fallback: build a Gloas LightClientUpdate locally when the
+// beacon node cannot serve one for `period`, wrap it in the Beacon-API
+// wire format (12B prefix + LCU SSZ) and persist it to {period}/lcu.ssz so
+// the existing consumers (handle_lcu, historic_proof fetch_updates_data,
+// period_store_zk_prover) can read it back unchanged.
+// ---------------------------------------------------------------------------
+
+typedef struct {
+  uint64_t period;
+} ps_build_lcu_ctx_t;
+
+static void ps_build_lcu_write_done_cb(void* user_data, file_data_t* files, int num_files) {
+  (void) num_files;
+  ps_build_lcu_ctx_t* wctx = (ps_build_lcu_ctx_t*) user_data;
+  uint64_t            period = wctx ? wctx->period : 0;
+  if (files && files[0].error) {
+    log_warn("period_store: writing self-built " C4_PS_LCU_SSZ " for period %l failed: %s", period, files[0].error);
+  }
+  else {
+    log_info("period_store: wrote self-built " C4_PS_LCU_SSZ " for period %l", period);
+  }
+  // The file body is owned by the caller (a heap buffer transferred into the
+  // write); free it here now that the write has completed.
+  if (files && files[0].data.data) safe_free(files[0].data.data);
+  c4_file_data_array_free(files, 1, 0);
+  safe_free(wctx);
+}
+
+// Async callback that drives `c4_create_gloas_lcu` to completion. `ctx->proof`
+// carries the target period as an 8-byte little-endian uint64. Best-effort:
+// any error is logged and swallowed (the client can still fall back to a
+// live beacon call via `c4_get_light_client_updates`).
+static void ps_build_lcu_cb(request_t* req) {
+  if (c4_check_retry_request(req)) return;
+  prover_ctx_t* ctx    = (prover_ctx_t*) req->ctx;
+  uint64_t      period = 0;
+  if (ctx->proof.data && ctx->proof.len == sizeof(uint64_t))
+    period = uint64_from_le(ctx->proof.data);
+
+  bytes_t     lcu_ssz = NULL_BYTES;
+  c4_status_t status  = c4_create_gloas_lcu(ctx, period, &lcu_ssz);
+
+  switch (status) {
+    case C4_SUCCESS: {
+      // Wrap into the Beacon-API `light_client/updates` wire format so the
+      // existing consumers can parse it without any special-case.
+      const chain_spec_t* chain = c4_eth_get_chain_spec(ctx->chain_id);
+      if (!chain || !chain->fork_version_func) {
+        // Defense-in-depth: every registered chain sets `fork_version_func`,
+        // but a future entry might forget. Fail loudly instead of NULL-deref.
+        log_warn("period_store: LCU self-build for period %l: chain spec missing fork_version_func", period);
+        safe_free(lcu_ssz.data);
+        c4_prover_free(ctx);
+        safe_free(req);
+        return;
+      }
+      uint8_t fork_version[4] = {0};
+      chain->fork_version_func(ctx->chain_id, C4_FORK_GLOAS, fork_version);
+      bytes_t wire = c4_gloas_lcu_wrap_beacon_response(lcu_ssz, fork_version);
+      safe_free(lcu_ssz.data);
+      if (!wire.data) {
+        log_warn("period_store: LCU self-build wrapping failed for period %l", period);
+        c4_prover_free(ctx);
+        safe_free(req);
+        return;
+      }
+
+      char* dir  = c4_ps_ensure_period_dir(period);
+      char* path = bprintf(NULL, "%s/" C4_PS_LCU_SSZ, dir);
+      safe_free(dir);
+
+      file_data_t files[1] = {0};
+      files[0].path        = path;
+      files[0].offset      = 0;
+      files[0].limit       = wire.len;
+      files[0].data        = wire; // ownership transferred to write callback
+
+      ps_build_lcu_ctx_t* wctx = (ps_build_lcu_ctx_t*) safe_calloc(1, sizeof(ps_build_lcu_ctx_t));
+      wctx->period             = period;
+      int rc                   = c4_write_files_uv(wctx, ps_build_lcu_write_done_cb, files, 1, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+      if (rc < 0) {
+        log_warn("period_store: scheduling self-built LCU write failed for period %l", period);
+        safe_free(wire.data);
+        c4_file_data_array_free(files, 1, 0);
+        safe_free(wctx);
+      }
+      c4_prover_free(ctx);
+      safe_free(req);
+      return;
+    }
+    case C4_ERROR:
+      // Post fork/period gate, any error here is a real Lodestar/beacon
+      // issue. Swallowed: client falls back to a live beacon fetch via the
+      // regular `c4_get_light_client_updates` path.
+      log_warn("period_store: LCU self-build for period %l failed: %s",
+               period, ctx->state.error ? ctx->state.error : "(unknown)");
+      c4_prover_free(ctx);
+      safe_free(req);
+      return;
+    case C4_PENDING:
+      if (c4_state_get_pending_request(&ctx->state)) {
+        c4_start_curl_requests(req, &ctx->state);
+        return;
+      }
+      log_warn("period_store: LCU self-build for period %l stalled without pending requests: %s",
+               period, ctx->state.error ? ctx->state.error : "(unknown)");
+      c4_prover_free(ctx);
+      safe_free(req);
+      return;
+  }
+}
+
+void c4_ps_build_lcu(uint64_t period) {
+  if (graceful_shutdown_in_progress) return;
+  if (!eth_config.period_store) return;
+  // Refuse to double-build if the file already exists (e.g. a previous
+  // self-build succeeded and a new fetch fails on a network flake).
+  if (c4_ps_file_exists(period, C4_PS_LCU_SSZ)) return;
+
+  // Beacon API servers are required for the state proofs behind the
+  // self-build path. Without them the whole exercise is pointless.
+  server_list_t* sl = c4_get_server_list(C4_DATA_TYPE_BEACON_API);
+  if (!sl || sl->count == 0) return;
+
+  // Fork-gate up front. The chain-spec fork lookup is a cheap array probe;
+  // failing here avoids allocating an async request that will die later in
+  // the orchestrator anyway.
+  const chain_spec_t* chain = c4_eth_get_chain_spec(http_server.chain_id);
+  if (!chain) return;
+  uint64_t  slot_in_period = slot_for_period(period, chain);
+  uint64_t  epoch          = epoch_for_slot(slot_in_period, chain);
+  fork_id_t fork           = c4_chain_fork_id(http_server.chain_id, epoch);
+  if (fork != C4_FORK_GLOAS) return;
+
+  request_t*    req = (request_t*) safe_calloc(1, sizeof(request_t));
+  prover_ctx_t* ctx = (prover_ctx_t*) safe_calloc(1, sizeof(prover_ctx_t));
+  ctx->chain_id     = http_server.chain_id;
+  ctx->client_type  = BEACON_CLIENT_EVENT_SERVER;
+  ctx->flags        = http_server.prover_flags;
+
+  // Stash the target period in `ctx->proof` (proof-as-scratchpad, same
+  // pattern as `c4_precompute_finalized_bootstrap_cb`). `c4_prover_free`
+  // reclaims this buffer as part of the ctx tear-down. Encoding is LE so
+  // it round-trips through `uint64_from_le` in the callback.
+  uint8_t* period_buf = (uint8_t*) safe_calloc(1, sizeof(uint64_t));
+  uint64_to_le(period_buf, period);
+  ctx->proof = bytes(period_buf, sizeof(uint64_t));
+
+  req->client = NULL;
+  req->ctx    = ctx;
+  req->cb     = ps_build_lcu_cb;
+  req->cb(req);
 }

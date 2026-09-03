@@ -40,6 +40,21 @@ bool     c4_ps_file_exists(uint64_t period, const char* filename);
 void     c4_ps_schedule_fetch_lcb(uint64_t period);
 void     c4_ps_fetch_lcb_for_checkpoint(bytes32_t checkpoint, uint64_t period);
 void     c4_ps_schedule_fetch_lcu(uint64_t period);
+/**
+ * Kicks off a self-build for `period` (Gloas fork only) and persists the
+ * resulting Beacon-API wire-format response into `{period}/lcu.ssz`.
+ *
+ * Best-effort fallback for when the beacon node returns an error / empty
+ * response on `light_client/updates?start_period=P&count=1`. All failures
+ * are logged and swallowed; the client-facing path can still fall back to a
+ * live fetch via `c4_get_light_client_updates`.
+ *
+ * No-op on non-Gloas chains, without a period_store, without Beacon API
+ * servers, or when the target file already exists.
+ *
+ * @param period the sync-committee period to build the LCU for.
+ */
+void     c4_ps_build_lcu(uint64_t period);
 void     c4_ps_schedule_fetch_historical_root(uint64_t period);
 char*    c4_ps_ensure_period_dir(uint64_t period);
 void     c4_build_zk_sync_proof_data(uint64_t period);
