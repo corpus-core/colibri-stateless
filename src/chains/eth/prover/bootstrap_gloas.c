@@ -26,6 +26,7 @@
 #include "beacon_types.h"
 #include "eth_compute_units.h"
 #include "state_proofs.h"
+#include <stdlib.h> // free (used as cache_free_cb; safe_free is a macro)
 #include <string.h>
 
 // :: Sizing constants derived from the SSZ layout
@@ -449,4 +450,73 @@ c4_status_t c4_create_gloas_bootstrap_by_root(prover_ctx_t* ctx,
   TRY_ASYNC(fetch_block_by_root_for_bootstrap(ctx, header_root, &block));
 
   return build_gloas_bootstrap_from_block(ctx, &block, out_bootstrap_ssz);
+}
+
+// :: Server-side precompute + cache
+
+void c4_gloas_bootstrap_cache_key(bytes32_t block_root, bytes32_t out_key) {
+  // 4-byte prefix + 28 bytes of block_root. Same shape as the `ELH_` cache
+  // key in beacon.c; the prefix makes the namespace visually distinct
+  // from other 32-byte-key entries but does not by itself guarantee
+  // uniqueness against a caller that reuses the same prefix.
+  memcpy(out_key, "BSTR", 4);
+  memcpy(out_key + 4, block_root + 4, 28);
+}
+
+// Derives the beacon-block root from a Gloas bootstrap SSZ blob by
+// hash-tree-rooting the first 112 bytes (the embedded BeaconBlockHeader).
+static void gloas_bootstrap_derive_block_root(prover_ctx_t* ctx,
+                                              bytes_t       bootstrap_ssz,
+                                              bytes32_t     out_root) {
+  ssz_ob_t header = {
+      .def   = eth_ssz_type_for_denep(ETH_SSZ_BEACON_BLOCK_HEADER, ctx->chain_id),
+      .bytes = bytes(bootstrap_ssz.data, BEACON_BLOCK_HEADER_BYTES),
+  };
+  ssz_hash_tree_root(header, out_root);
+}
+
+c4_status_t c4_precompute_finalized_gloas_bootstrap(prover_ctx_t* ctx,
+                                                    bytes32_t     expected_block_root) {
+  if (!ctx) return C4_ERROR;
+
+#ifndef PROVER_CACHE
+  // Precomputing without a global cache to store the result would be a leak.
+  // Fail loudly so the caller knows the feature is unavailable.
+  (void) expected_block_root;
+  THROW_ERROR("c4_precompute_finalized_gloas_bootstrap: PROVER_CACHE is disabled");
+#else
+  bytes_t bootstrap = NULL_BYTES;
+  // Use state_id = "finalized" -- Lodestar serves this without triggering
+  // a state regen (unlike a raw state root), see Lodestar issue #7780 and
+  // PR #9641 (head/finalized/justified/genesis are exempt from the sync
+  // guard). This is the whole point of the precompute path.
+  TRY_ASYNC(c4_create_gloas_bootstrap(ctx, json_parse("\"finalized\""), &bootstrap));
+
+  // Anchor to the block root that the beacon event told us about, so a
+  // race between "finalized" state resolution and the SSE event -- where
+  // Lodestar could return a slightly newer finalized block than the one
+  // we announced -- is rejected instead of silently caching under the
+  // wrong key.
+  bytes32_t derived_root = {0};
+  gloas_bootstrap_derive_block_root(ctx, bootstrap, derived_root);
+
+  bool have_anchor = !bytes_all_zero(bytes(expected_block_root, 32));
+  if (have_anchor && memcmp(derived_root, expected_block_root, 32) != 0) {
+    safe_free(bootstrap.data);
+    THROW_ERROR("c4_precompute_finalized_gloas_bootstrap: derived block root differs from event anchor");
+  }
+
+  bytes32_t cache_key = {0};
+  c4_gloas_bootstrap_cache_key(derived_root, cache_key);
+
+  // TTL = 5 epochs (~32 min). Comfortably covers the ~6.4 min per-epoch
+  // finalization cadence so the next precompute refreshes the entry
+  // before this one expires, even if a single finalization event is
+  // missed. `c4_prover_cache_set` takes ownership of `bootstrap.data`;
+  // `safe_free` is a macro, so we hand the raw `free` symbol to the cache.
+  const uint64_t five_epochs_ms = 5ULL * 32ULL * 12ULL * 1000ULL;
+  c4_prover_cache_set(ctx, cache_key, bootstrap.data, bootstrap.len,
+                      five_epochs_ms, free);
+  return C4_SUCCESS;
+#endif
 }

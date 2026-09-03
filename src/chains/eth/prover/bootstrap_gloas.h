@@ -113,6 +113,51 @@ c4_status_t c4_create_gloas_bootstrap_by_root(prover_ctx_t* ctx,
                                               bytes_t*      out_bootstrap_ssz);
 
 /**
+ * Precomputes a Gloas `LightClientBootstrap` for the current finalized
+ * checkpoint and stores it in the global prover cache under a key derived
+ * from the finalized `block_root` (see `c4_gloas_bootstrap_cache_key`).
+ *
+ * Intended to run from the server-side beacon event handler when a new
+ * `finalized_checkpoint` event arrives: at that moment Lodestar still has
+ * the finalized `BeaconState` in the fork-choice and can serve the state
+ * proof via `state_id = "finalized"` (which is exempt from the sync/regen
+ * guard, unlike `state_id = "0x<state_root>"` -- see Lodestar issue #7780).
+ *
+ * If `expected_block_root` is non-zero, the freshly built bootstrap header
+ * is hashed and compared against it (defense against a Lodestar hop that
+ * races finalization and returns a newer block than the one we anchored to).
+ * On mismatch the call fails with `C4_ERROR`.
+ *
+ * Async: may return `C4_PENDING`.
+ *
+ * @param ctx prover context (server-owned; not tied to a client request)
+ * @param expected_block_root 32-byte anchor from the beacon event, or all-zero
+ *                            to skip the anchor check.
+ * @return `C4_SUCCESS` when the bootstrap has been built and cached,
+ *         `C4_PENDING` while beacon/lodestar round-trips are in flight,
+ *         or `C4_ERROR` on failure (including non-Gloas era).
+ */
+c4_status_t c4_precompute_finalized_gloas_bootstrap(prover_ctx_t* ctx,
+                                                    bytes32_t     expected_block_root);
+
+/**
+ * Computes the prover-cache key used for a precomputed Gloas bootstrap.
+ *
+ * Layout: 4-byte `"BSTR"` prefix + 28 bytes of `block_root`. The prefix
+ * keeps this namespace disjoint from other 32-byte-key caches (e.g.
+ * `"ELH_"` in `beacon.c`).
+ *
+ * The key is stable across `c4_precompute_finalized_gloas_bootstrap` and
+ * server-side lookup handlers so the light-client-bootstrap proxy path
+ * can hit the cached blob without duplicating the derivation logic.
+ *
+ * @param block_root the 32-byte beacon-block root the bootstrap header
+ *                   hashes to (light-client-bootstrap URL parameter).
+ * @param out_key 32-byte buffer receiving the derived cache key.
+ */
+void c4_gloas_bootstrap_cache_key(bytes32_t block_root, bytes32_t out_key);
+
+/**
  * Assembles the SSZ bytes of a `GLOAS_LIGHT_CLIENT_BOOTSTRAP` container from
  * its already-verified components. No allocations or network calls -- just a
  * fixed-size byte concatenation.

@@ -5,6 +5,7 @@
 
 #include "beacon.h"
 #include "beacon_types.h"
+#include "bootstrap_gloas.h"
 #include "el_header.h"
 #include "eth_conf.h"
 #include "eth_req.h"
@@ -242,6 +243,52 @@ static void c4_handle_finalized_checkpoint_cb(request_t* req) {
   }
 }
 
+#ifdef PROVER_CACHE
+// Async callback that precomputes the Gloas LightClientBootstrap for the
+// just-finalized checkpoint and stores it in the global prover cache.
+//
+// Runs in parallel to `c4_handle_finalized_checkpoint_cb` so a slow
+// beacon/lodestar round-trip on either side does not stall the other.
+//
+// The `expected_block_root` anchor is carried in `ctx->proof.data`
+// (repurposing the buffer that only the client-facing prover pipeline
+// uses -- see `handle_new_head_cb` for the same pattern). Ownership of
+// that buffer lives in `ctx->proof`, so `c4_prover_free` reclaims it.
+static void c4_precompute_finalized_bootstrap_cb(request_t* req) {
+  if (c4_check_retry_request(req)) return;
+  prover_ctx_t* ctx        = (prover_ctx_t*) req->ctx;
+  bytes32_t     block_root = {0};
+  if (ctx->proof.data && ctx->proof.len == 32)
+    memcpy(block_root, ctx->proof.data, 32);
+
+  switch (c4_precompute_finalized_gloas_bootstrap(ctx, block_root)) {
+    case C4_SUCCESS:
+      log_info("Precomputed Gloas LightClientBootstrap cached (block=0x%b)",
+               bytes(block_root, 32));
+      prover_request_free(req);
+      return;
+    case C4_ERROR:
+      // Post fork-gate, any error here is a real Lodestar/beacon issue
+      // (state regen failure, event/anchor race, malformed proof). The
+      // client-facing proxy still falls back to a live request, so this
+      // is not fatal -- but worth flagging.
+      log_warn("Bootstrap precompute failed: %s",
+               ctx->state.error ? ctx->state.error : "(unknown)");
+      prover_request_free(req);
+      return;
+    case C4_PENDING:
+      if (c4_state_get_pending_request(&ctx->state)) {
+        c4_start_curl_requests(req, &ctx->state);
+        return;
+      }
+      log_warn("Bootstrap precompute stalled without pending requests: %s",
+               ctx->state.error ? ctx->state.error : "(unknown)");
+      prover_request_free(req);
+      return;
+  }
+}
+#endif
+
 void c4_handle_finalized_checkpoint(json_t checkpoint) {
   request_t* req                          = (request_t*) safe_calloc(1, sizeof(request_t));
   req->cb                                 = c4_handle_finalized_checkpoint_cb;
@@ -250,4 +297,45 @@ void c4_handle_finalized_checkpoint(json_t checkpoint) {
   ((prover_ctx_t*) req->ctx)->client_type = BEACON_CLIENT_EVENT_SERVER;
   ((prover_ctx_t*) req->ctx)->flags       = http_server.prover_flags;
   req->cb(req);
+
+#ifdef PROVER_CACHE
+  // Fork-gate up front: the SSE payload carries the finalized epoch, and
+  // `c4_chain_fork_id` is a pure lookup. Skipping the request on pre-Gloas
+  // eras avoids a wasted Lodestar round-trip per finalization.
+  uint64_t  finalized_epoch = json_get_uint64(checkpoint, "epoch");
+  fork_id_t fork            = c4_chain_fork_id(http_server.chain_id, finalized_epoch);
+  if (fork != C4_FORK_GLOAS) return;
+
+  // Parallel precompute: pull the just-finalized bootstrap while Lodestar
+  // still has the state in the fork-choice, so client light_client/bootstrap
+  // requests for that root can be served from the cache instead of racing
+  // Lodestar's state eviction. Best-effort: any error is logged and swallowed
+  // (see `c4_precompute_finalized_bootstrap_cb`).
+  request_t*    preq = (request_t*) safe_calloc(1, sizeof(request_t));
+  prover_ctx_t* pctx = (prover_ctx_t*) safe_calloc(1, sizeof(prover_ctx_t));
+  pctx->chain_id     = http_server.chain_id;
+  pctx->client_type  = BEACON_CLIENT_EVENT_SERVER;
+  pctx->flags        = http_server.prover_flags;
+
+  // Stash the anchor from the SSE payload so the precompute can reject a
+  // mid-race Lodestar reply. Uses the same "proof-as-scratchpad" trick as
+  // `handle_new_head_cb`. `json_get_bytes` writes at most `allocated`
+  // bytes into a fixed-size buffer, and ownership of `anchor` transfers
+  // into `pctx->proof` where `c4_prover_free` reclaims it.
+  uint8_t* anchor    = (uint8_t*) safe_calloc(1, 32);
+  buffer_t anchor_bf = {.data = bytes(anchor, 0), .allocated = -32};
+  json_get_bytes(checkpoint, "block", &anchor_bf);
+  pctx->proof = bytes(anchor, 32);
+  // If the SSE payload is missing/mistyped, the race defense inside
+  // `c4_precompute_finalized_gloas_bootstrap` degrades to a no-op. Not
+  // fatal (the cache key is derived from the fetched bootstrap header),
+  // but the operator should notice repeated skips.
+  if (bytes_all_zero(bytes(anchor, 32)))
+    log_warn("finalized_checkpoint SSE payload missing/invalid `block` field; precompute anchor check disabled");
+
+  preq->client = NULL;
+  preq->ctx    = pctx;
+  preq->cb     = c4_precompute_finalized_bootstrap_cb;
+  preq->cb(preq);
+#endif
 }
