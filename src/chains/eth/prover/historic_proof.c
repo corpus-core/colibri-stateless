@@ -26,6 +26,7 @@
 #include "../server/eth_clients.h"
 #include "beacon.h"
 #include "beacon_types.h"
+#include "bootstrap_gloas.h"
 #include "eth_compute_units.h"
 #include "eth_req.h"
 #include "eth_tools.h"
@@ -275,16 +276,12 @@ void c4_free_block_proof(blockroot_proof_t* block_proof) {
   safe_free(block_proof->proof_header.data);
 }
 
-// Fetch and SSZ-validate a LightClientBootstrap for an explicit beacon block root.
-// On success `*out_bootstrap` is set to a typed SSZ object pointing at the response
-// bytes; the request layer owns the underlying buffer (lives for the prover_ctx).
-static c4_status_t fetch_bootstrap_by_root(prover_ctx_t* ctx, bytes32_t header_root, ssz_ob_t* out_bootstrap) {
-  ssz_ob_t result    = {0};
-  char     path[200] = {0};
-  sbprintf(path, "eth/v1/beacon/light_client/bootstrap/0x%x", bytes(header_root, 32));
-  TRY_ASYNC(c4_send_beacon_ssz(ctx, path, NULL, NULL, DEFAULT_TTL, &result));
-
-  fork_id_t fork = c4_eth_get_fork_for_lcu(ctx->chain_id, result.bytes);
+// Wraps a raw bootstrap SSZ blob in a typed ssz_ob_t after fork detection +
+// SSZ validation. Used for both the primary (beacon-served) and fallback
+// (self-built) paths so the two share exactly the same validation.
+static c4_status_t decode_bootstrap_bytes(prover_ctx_t* ctx, bytes_t raw, ssz_ob_t* out_bootstrap) {
+  ssz_ob_t  result = {.bytes = raw, .def = NULL};
+  fork_id_t fork   = c4_eth_get_fork_for_lcu(ctx->chain_id, result.bytes);
   if (fork == 0) THROW_ERROR("Invalid bootstrap data: cannot determine fork!");
   // Single source of truth for fork -> bootstrap container mapping.
   result.def = eth_get_light_client_bootstrap(fork);
@@ -292,6 +289,81 @@ static c4_status_t fetch_bootstrap_by_root(prover_ctx_t* ctx, bytes32_t header_r
   if (!ssz_is_valid(result, true, &ctx->state)) THROW_ERROR("Invalid bootstrap data!");
   *out_bootstrap = result;
   return C4_SUCCESS;
+}
+
+// Cache key for a self-built fallback bootstrap. The prefix keeps it distinct
+// from other cache entries that key by 32-byte root (e.g. `ELH_` in
+// beacon.c) so lookups cannot collide.
+static void bootstrap_fallback_cache_key(bytes32_t header_root, bytes32_t out_key) {
+  memcpy(out_key, "BSTR", 4);
+  memcpy(out_key + 4, header_root + 4, 28);
+}
+
+// Fetch and SSZ-validate a LightClientBootstrap for an explicit beacon block root.
+//
+// Preferred path: `eth/v1/beacon/light_client/bootstrap/{block_root}` on the
+// beacon node. Beacon clients typically only serve this endpoint for a small
+// window around the current finalized checkpoint (Lodestar keeps the state for
+// the newest finalized checkpoint in-memory; older roots return 404/500). When
+// the beacon node cannot serve the requested root we fall back to building
+// the bootstrap locally from a Lodestar CompactMultiProof state proof for the
+// SyncCommittee sub-tree (see `c4_create_gloas_bootstrap_by_root`).
+//
+// The self-built bootstrap does NOT live in the primary request's response
+// buffer -- we cache it via `c4_state_cache_set` so ownership transfers to the
+// prover state and it is freed together with `ctx` (mirroring how a beacon-
+// served bootstrap is owned by its `data_request_t.response`).
+static c4_status_t fetch_bootstrap_by_root(prover_ctx_t* ctx, bytes32_t header_root, ssz_ob_t* out_bootstrap) {
+  bytes32_t fallback_key = {0};
+  bootstrap_fallback_cache_key(header_root, fallback_key);
+
+  // 1) Fallback cache hit -> reuse the previously built bootstrap.
+  //    Once we go into the fallback path we always land here in follow-up
+  //    iterations, so a single `c4_state_cache_get` lookup replaces the
+  //    "fallback marker" bookkeeping.
+  bytes_t cached_fallback = c4_state_cache_get(&ctx->state, fallback_key);
+  if (cached_fallback.data)
+    return decode_bootstrap_bytes(ctx, cached_fallback, out_bootstrap);
+
+  // 2) Try the primary beacon endpoint. Check whether we already have a
+  //    completed-with-error data_request for this exact URL -- in that case
+  //    we skip re-calling `c4_send_beacon_ssz` (which would just re-emit
+  //    `THROW_ERROR(data_request->error)`) and go straight to fallback.
+  char     path[200] = {0};
+  buffer_t path_buf  = stack_buffer(path);
+  bprintf(&path_buf, "eth/v1/beacon/light_client/bootstrap/0x%x", bytes(header_root, 32));
+
+  bytes32_t primary_id = {0};
+  sha256(bytes((uint8_t*) path, strlen(path)), primary_id);
+  data_request_t* primary_req  = c4_state_get_data_request_by_id(&ctx->state, primary_id);
+  bool            skip_primary = primary_req && primary_req->error != NULL;
+
+  if (!skip_primary) {
+    ssz_ob_t    result = {0};
+    c4_status_t st     = c4_send_beacon_ssz(ctx, path, NULL, NULL, DEFAULT_TTL, &result);
+    if (st == C4_PENDING) return C4_PENDING;
+    if (st == C4_SUCCESS) return decode_bootstrap_bytes(ctx, result.bytes, out_bootstrap);
+
+    // Primary reported C4_ERROR. `ctx->state.error` was set inside the
+    // request layer and would abort the whole prover run -- clear it so we
+    // can attempt the fallback. The failed `data_request_t.error` stays set,
+    // so the next iteration into this function takes the `skip_primary`
+    // branch above and does not re-throw the same error.
+    safe_free(ctx->state.error);
+    ctx->state.error = NULL;
+  }
+
+  // 3) Fallback: self-build the Gloas bootstrap from a state proof. May
+  //    return C4_PENDING for its own beacon/lodestar round-trips.
+  bytes_t     built_ssz = NULL_BYTES;
+  c4_status_t fb        = c4_create_gloas_bootstrap_by_root(ctx, header_root, &built_ssz);
+  if (fb != C4_SUCCESS) return fb;
+
+  // 4) Cache the built bytes so `c4_state_free` releases them together with
+  //    the prover context. `c4_state_cache_set` takes ownership of
+  //    `built_ssz.data`.
+  bytes_t cached = c4_state_cache_set(&ctx->state, fallback_key, built_ssz);
+  return decode_bootstrap_bytes(ctx, cached, out_bootstrap);
 }
 
 static c4_status_t fetch_bootstrap_data(prover_ctx_t* ctx, syncdata_state_t* sync_data, ssz_ob_t* bootstrap) {
