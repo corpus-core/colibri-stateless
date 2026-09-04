@@ -254,6 +254,7 @@ static const ssz_def_t ETH_STORAGE_PROOF_DATA_CONTAINER = SSZ_CONTAINER("Storage
 // Account proof data as returned by eth_getProof.
 // Contains the account state and Merkle proofs for account and storage values.
 static const ssz_def_t ETH_PROOF_DATA[] = {
+    SSZ_ADDRESS("address"),                                          // the account address (per JSON-RPC spec)
     SSZ_UINT256("balance"),                                          // the account balance
     SSZ_BYTES32("codeHash"),                                         // the hash of the contract code (empty for EOA)
     SSZ_UINT256("nonce"),                                            // the account nonce
