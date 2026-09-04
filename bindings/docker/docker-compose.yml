@@ -3,14 +3,18 @@ version: '3.8'
 services:
   server:
     build:
-      context: ../../  # Set build context to project root
+      context: ../../ # Set build context to project root
       dockerfile: bindings/docker/Dockerfile # Path to Dockerfile relative to context
+      args:
+        # Set C4_VERSION when building so /health reports the real git tag.
+        # Example: C4_VERSION=$(git describe --tags --always --dirty) docker compose build
+        C4_VERSION: ${C4_VERSION:-0.1.0-dev}
     ports:
       - "8090:8090"
     # You can override default configuration using environment variables here
     environment:
-    #   - PORT=8080
-       - MEMCACHED_HOST=memcached # Use the service name as the hostname
+      #   - PORT=8080
+      - MEMCACHED_HOST=memcached # Use the service name as the hostname
     #   - MEMCACHED_PORT=11211 # Default port is usually correct
     #   - LOG_LEVEL=1
     #   - REQUEST_TIMEOUT=60
@@ -27,7 +31,7 @@ services:
     ports:
       - "11211:11211" # Expose memcached port if needed for direct access
     healthcheck:
-      test: ["CMD", "sh", "-c", "echo stats | nc 127.0.0.1 11211"]
+      test: [ "CMD", "sh", "-c", "echo stats | nc 127.0.0.1 11211" ]
       interval: 10s
       timeout: 5s
       retries: 5

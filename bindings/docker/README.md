@@ -228,7 +228,11 @@ The prover server itself is **lightweight** (uses libuv, single-threaded, ~100MB
 If you want to build the image yourself:
 
 ```bash
-docker build -t colibri-prover -f bindings/docker/Dockerfile .
+# Pass the same version CMake would derive from `git describe` locally.
+# Without this arg the image falls back to 0.1.0-dev (the build context has no .git).
+docker build -t colibri-prover \
+  --build-arg C4_VERSION="$(git describe --tags --always --dirty)" \
+  -f bindings/docker/Dockerfile .
 ```
 
 ## Multi-Architecture Support

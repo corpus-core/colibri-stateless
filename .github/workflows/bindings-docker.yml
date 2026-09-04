@@ -37,6 +37,18 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          # Full history + tags so `git describe` can resolve the real version.
+          # The Docker build context has no .git (not COPYed), so CMake cannot
+          # derive C4_VERSION itself.
+          fetch-depth: 0
+
+      - name: Determine version
+        id: version
+        run: |
+          VERSION="$(git describe --tags --always --dirty)"
+          echo "Using C4_VERSION=$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -66,6 +78,8 @@ jobs:
         with:
           context: .
           file: bindings/docker/Dockerfile
+          build-args: |
+            C4_VERSION=${{ steps.version.outputs.version }}
           # Multi-platform only for releases, single platform for dev/main/PRs (faster)
           platforms: ${{ inputs.ref_type == 'tag' && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
           push: ${{ inputs.push_image }}
@@ -82,6 +96,18 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          # Full history + tags so `git describe` can resolve the real version.
+          # The Docker build context has no .git (not COPYed), so CMake cannot
+          # derive C4_VERSION itself.
+          fetch-depth: 0
+
+      - name: Determine version
+        id: version
+        run: |
+          VERSION="$(git describe --tags --always --dirty)"
+          echo "Using C4_VERSION=$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -111,6 +137,8 @@ jobs:
         with:
           context: .
           file: bindings/docker/Dockerfile.verifier
+          build-args: |
+            C4_VERSION=${{ steps.version.outputs.version }}
           # Multi-platform only for releases, single platform for dev/main/PRs (faster)
           platforms: ${{ inputs.ref_type == 'tag' && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
           push: ${{ inputs.push_image }}

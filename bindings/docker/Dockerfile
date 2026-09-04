@@ -40,7 +40,14 @@ COPY scripts ./scripts
 # Configure and build the server with Kona-P2P bridge
 ENV CC=clang
 ENV CXX=clang++
-RUN cmake -DHTTP_SERVER=ON -DCLI=ON -DCMAKE_BUILD_TYPE=Release -DCHAIN_OP=ON -DCHAIN_ETH=ON -DEVMONE=OFF -DPROVER_CACHE=true -DPROVER_TRACE=true -DETH_ZKPROOF_BUILD_HOST=ON . \
+
+# CMake normally derives the version from `git describe`, but the build context
+# has no .git directory. Pass the version explicitly so CMake picks it up via
+# $ENV{C4_VERSION}; defaults to the same value CMake would fall back to.
+# `:-` guards against an empty build-arg (an empty env var would still be
+# DEFINED in CMake and produce an empty version).
+ARG C4_VERSION=0.1.0-dev
+RUN C4_VERSION="${C4_VERSION:-0.1.0-dev}" cmake -DHTTP_SERVER=ON -DCLI=ON -DCMAKE_BUILD_TYPE=Release -DCHAIN_OP=ON -DCHAIN_ETH=ON -DEVMONE=OFF -DPROVER_CACHE=true -DPROVER_TRACE=true -DETH_ZKPROOF_BUILD_HOST=ON . \
     && make -j"$(nproc)" colibri-server colibri-prover colibri-ssz colibri-verifier colibri-signer verify_zk_proof_cli
 
 # Use a small Debian image for the final stage
@@ -81,9 +88,13 @@ COPY --from=builder /build/bin/eth_sync_program /app/eth_sync_program
 # Allow running binaries directly (e.g. `colibri-signer`) without absolute paths.
 ENV PATH="/app:${PATH}"
 
+# ARG is per-stage; redeclare so the image version label matches the binary.
+ARG C4_VERSION=0.1.0-dev
+
 # Add OCI labels for better GHCR integration
 LABEL org.opencontainers.image.title="Colibri Prover"
 LABEL org.opencontainers.image.description="Highly efficient prover server for Ethereum and Layer-2 solutions"
+LABEL org.opencontainers.image.version="${C4_VERSION}"
 LABEL org.opencontainers.image.url="https://github.com/corpus-core/colibri-stateless"
 LABEL org.opencontainers.image.source="https://github.com/corpus-core/colibri-stateless"
 LABEL org.opencontainers.image.documentation="https://corpus-core.gitbook.io/specification-colibri-stateless"
