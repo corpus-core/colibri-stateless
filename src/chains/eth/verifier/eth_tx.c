@@ -889,12 +889,18 @@ INTERNAL bool c4_write_tx_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer
 
   if (blob_hashes.data) safe_free(blob_hashes.data);
 
+  // Final safety net: any get_rlp_field() call between the centralised error check
+  // (after the primary fields) and here can still populate ctx->state.error (e.g.
+  // nonce, input, r/s, gas, to, value, maxFee*, blobVersionedHashes, sourceHash,
+  // mint, isSystemTx, maxFeePerBlobGas). Refuse to hand out a half-populated SSZ.
+  if (ctx->state.error != NULL) return false;
+
   return true;
 }
 
 bool c4_write_receipt_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer, bytes_t tx_raw, bytes_t receipt_raw,
                                     bytes32_t block_hash, uint64_t block_number, uint32_t tx_index,
-                                    uint64_t base_fee, uint64_t excess_blob_gas, uint64_t block_timestamp,
+                                    uint64_t base_fee, uint64_t excess_blob_gas,
                                     uint64_t* out_cumulative_gas,
                                     uint32_t* out_log_index) {
   bytes_t                val             = {0};
@@ -1002,30 +1008,19 @@ bool c4_write_receipt_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer, by
   }
 
   // Receipt opt_mask: expose only fields that actually belong to this receipt's
-  // transaction type (issue #343). The bit indices track the order of fields in
-  // ETH_RECEIPT_DATA (see verify_data_types.h) - bit 0 is the mask itself,
-  // bit N corresponds to the Nth container element after the mask.
+  // transaction type (issue #343). See RCPT_* in eth_tx.h for the bit layout;
+  // it must stay in sync with the ETH_RECEIPT_DATA container order.
   const uint32_t receipt_base_mask =
-      (1u << 1) |  // blockHash
-      (1u << 2) |  // blockNumber
-      (1u << 3) |  // transactionHash
-      (1u << 4) |  // transactionIndex
-      (1u << 5) |  // type
-      (1u << 6) |  // from
-      (1u << 7) |  // to
-      (1u << 8) |  // cumulativeGasUsed
-      (1u << 9) |  // gasUsed
-      (1u << 10) | // logs
-      (1u << 11) | // logsBloom
-      (1u << 12) | // status
-      (1u << 13);  // effectiveGasPrice
+      RCPT_BLOCK_HASH | RCPT_BLOCK_NUMBER | RCPT_TRANSACTION_HASH | RCPT_TRANSACTION_INDEX |
+      RCPT_TYPE | RCPT_FROM | RCPT_TO | RCPT_CUMULATIVE_GAS_USED | RCPT_GAS_USED |
+      RCPT_LOGS | RCPT_LOGS_BLOOM | RCPT_STATUS | RCPT_EFFECTIVE_GAS_PRICE;
   uint32_t receipt_mask = receipt_base_mask;
   if (type == TX_TYPE_DEPOSITED)
-    receipt_mask |= (1u << 14) | (1u << 15); // depositNonce, depositReceiptVersion (OP Stack)
+    receipt_mask |= RCPT_DEPOSIT_NONCE | RCPT_DEPOSIT_RECEIPT_VERSION;
   if (has_contract_addr)
-    receipt_mask |= (1u << 16); // contractAddress
+    receipt_mask |= RCPT_CONTRACT_ADDRESS;
   if (type == TX_TYPE_EIP4844)
-    receipt_mask |= (1u << 17) | (1u << 18); // blobGasUsed, blobGasPrice
+    receipt_mask |= RCPT_BLOB_GAS_USED | RCPT_BLOB_GAS_PRICE;
   ssz_add_uint32(buffer, receipt_mask);
   ssz_add_bytes(buffer, "blockHash", bytes(block_hash, 32));
   ssz_add_uint64(buffer, block_number);
