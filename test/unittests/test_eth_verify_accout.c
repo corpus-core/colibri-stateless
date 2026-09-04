@@ -46,10 +46,15 @@ void test_eth_get_proof() {
   run_rpc_test("eth_getProof2", 0, 0);
 }
 
+void test_eth_get_proof1() {
+  run_rpc_test("eth_getProof1", 0, 0);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_balance);
   RUN_TEST(test_balance_electra);
   RUN_TEST(test_eth_get_proof);
+  RUN_TEST(test_eth_get_proof1);
   return UNITY_END();
 }

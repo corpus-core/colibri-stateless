@@ -44,15 +44,15 @@ void tearDown(void) {
 }
 
 void test_tx() {
-  verify("eth_getTransactionByHash1", "eth_getTransactionByHash", "[\"0xbe5d48ce06f29c69f57e1ac885a0486b7f7198dc1652a7ada78ffd782dc2dcbc\"]", C4_CHAIN_MAINNET);
+  run_rpc_test("eth_getTransactionByHash1", 0, 0);
 }
 
 void test_tx_electra() {
-  verify("eth_getTransactionByHash_electra", "eth_getTransactionByHash", "[\"0x7e3e4bfb2ac3266669923de636d01911df73fa9d2ae43d72dcbe44f27dc01d10\"]", C4_CHAIN_MAINNET);
+  run_rpc_test("eth_getTransactionByHash_electra", 0, 0);
 }
 
 void test_tx_with_history() {
-  verify("eth_getTransactionByHash2", "eth_getTransactionByHash", "[\"0xcaa25fb86d488aff51d177f811753f03b035590d82dc7df737eb2041ee76ae30\"]", C4_CHAIN_MAINNET);
+  run_rpc_test("eth_getTransactionByHash2", C4_PROVER_FLAG_INCLUDE_CODE | C4_PROVER_FLAG_CHAIN_STORE, 0);
 }
 
 void test_tx_by_hash_and_index() {
