@@ -318,49 +318,20 @@ uint64_t eth_fake_exponential(uint64_t factor, uint64_t numerator, uint64_t deno
   return output / denominator;
 }
 
-// EIP-7892 blob schedule: `BLOB_BASE_FEE_UPDATE_FRACTION` changes at every
-// Prague/Osaka/BPO activation. Timestamps come from the fork meta EIPs:
-//   * EIP-7892 (BPO framework)          * EIP-8134 (BPO1) * EIP-7607 (Fusaka)
-// See the `blobSchedule` block in go-ethereum's `params/config.go` for the
-// canonical mainnet / testnet values.
-typedef struct {
-  uint64_t timestamp;        // activation timestamp (Unix seconds)
-  uint64_t update_fraction;  // BLOB_BASE_FEE_UPDATE_FRACTION active from that timestamp on
-} eth_blob_fork_t;
-
-// Chain-specific tables sorted DESCENDING by timestamp (first match wins).
-static const eth_blob_fork_t MAINNET_BLOB_FORKS[] = {
-    {1767747671u, 11684671u}, // BPO2 (2026-01-07)
-    {1765290071u,  8346193u}, // BPO1 (2025-12-09)
-    {1764798551u,  5007716u}, // Fusaka / Osaka (2025-12-03), unchanged from Prague
-    {1746612311u,  5007716u}, // Prague / Pectra (2025-05-07)
-    {1710338135u,  3338477u}, // Cancun / Deneb (2024-03-13)
-};
-
-static const eth_blob_fork_t SEPOLIA_BLOB_FORKS[] = {
-    {1761607008u, 11684671u}, // BPO2 (2025-10-27)
-    {1761017184u,  8346193u}, // BPO1 (2025-10-21)
-    {1760427360u,  5007716u}, // Fusaka / Osaka (2025-10-14)
-    {1741159776u,  5007716u}, // Prague / Pectra (approx)
-    {1706655072u,  3338477u}, // Cancun / Deneb (2024-01-30)
-};
-
-static uint64_t lookup_blob_fork(const eth_blob_fork_t* table, size_t len, uint64_t timestamp) {
-  for (size_t i = 0; i < len; i++) {
-    if (timestamp >= table[i].timestamp) return table[i].update_fraction;
-  }
-  return ETH_BLOB_BASE_FEE_UPDATE_FRACTION; // pre-Cancun fallback (should never fire on live blob txs)
-}
-
 uint64_t eth_blob_base_fee_update_fraction(chain_id_t chain_id, uint64_t block_timestamp) {
-  if (chain_id == C4_CHAIN_MAINNET)
-    return lookup_blob_fork(MAINNET_BLOB_FORKS, sizeof(MAINNET_BLOB_FORKS) / sizeof(*MAINNET_BLOB_FORKS), block_timestamp);
-  if (chain_id == C4_CHAIN_SEPOLIA)
-    return lookup_blob_fork(SEPOLIA_BLOB_FORKS, sizeof(SEPOLIA_BLOB_FORKS) / sizeof(*SEPOLIA_BLOB_FORKS), block_timestamp);
-  // TODO(bpo): populate schedules for Hoodi, Holesky, Gnosis, L2s. For now
-  // fall back to the pre-BPO Cancun value; callers rendering `blobGasPrice`
-  // for unknown chains may see a slightly stale value on those networks.
-  return ETH_BLOB_BASE_FEE_UPDATE_FRACTION;
+  // EIP-7892 (Blob Parameter Only) schedule: each entry maps a fork activation
+  // timestamp to its `BLOB_BASE_FEE_UPDATE_FRACTION`. The table is populated
+  // per chain in `beacon_types.c` (mainnet + sepolia today; other chains fall
+  // through to the Cancun default). Post-Merge forks are timestamp-driven per
+  // go-ethereum's `params/config.go`; using block numbers would misfire on
+  // PoS chains where missed slots break a strict block<->fork mapping.
+  const chain_spec_t* spec = c4_eth_get_chain_spec(chain_id);
+  if (spec && spec->blob_schedule) {
+    for (const eth_blob_schedule_t* e = spec->blob_schedule; e->activation_timestamp != 0; e++) {
+      if (block_timestamp >= e->activation_timestamp) return e->update_fraction;
+    }
+  }
+  return ETH_BLOB_BASE_FEE_UPDATE_FRACTION; // Cancun-era default for chains without a schedule
 }
 
 c4_status_t eth_el_header_get_from_raw_block(c4_state_t* state, bytes_t raw_block, bytes_t* el_header, ssz_builder_t* body_builder) {

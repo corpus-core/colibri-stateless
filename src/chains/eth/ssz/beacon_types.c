@@ -34,6 +34,29 @@ static const uint64_t eth_sepolia_fork_epochs[]     = {50L, 100L, 56832L, 132608
 static const uint64_t eth_chiado_fork_epochs[]      = {90L, 180L, 244224L, 516608L, 948224L, 1353216L, NOT_ASSIGNED_YET, FORKS_END};
 static const uint64_t eth_plataberget_fork_epochs[] = {0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 1536ULL, FORKS_END};
 
+// EIP-7892 blob schedules, DESCENDING by activation timestamp so the first
+// match wins. Timestamps come from go-ethereum's `params/config.go` (mainnet,
+// sepolia, hoodi) and the associated EIP metas (7607/8134). Terminated by
+// {0,0}. Post-Merge forks are timestamp-based (see geth `config.go`, "Fork
+// scheduling was switched from blocks to timestamps here").
+static const eth_blob_schedule_t eth_mainnet_blob_schedule[] = {
+    {1767747671ULL, 11684671ULL}, // BPO2  (2026-01-07)
+    {1765290071ULL,  8346193ULL}, // BPO1  (2025-12-09)
+    {1764798551ULL,  5007716ULL}, // Fusaka/Osaka (2025-12-03), inherits Prague
+    {1746612311ULL,  5007716ULL}, // Prague/Pectra (2025-05-07)
+    {1710338135ULL,  3338477ULL}, // Cancun/Deneb  (2024-03-13)
+    {0ULL, 0ULL},
+};
+
+static const eth_blob_schedule_t eth_sepolia_blob_schedule[] = {
+    {1761607008ULL, 11684671ULL}, // BPO2  (2025-10-27)
+    {1761017184ULL,  8346193ULL}, // BPO1  (2025-10-21)
+    {1760427360ULL,  5007716ULL}, // Fusaka/Osaka (2025-10-14)
+    {1741159776ULL,  5007716ULL}, // Prague/Pectra
+    {1706655072ULL,  3338477ULL}, // Cancun/Deneb  (2024-01-30)
+    {0ULL, 0ULL},
+};
+
 static void mainnet_fork_version(chain_id_t chain_id, fork_id_t fork, uint8_t* version) {
   version[0] = (uint8_t) fork;
   version[1] = 0x00;
@@ -78,7 +101,8 @@ static const chain_spec_t chain_data[] = {
      .slots_per_epoch_bits     = 5,
      .epochs_per_period_bits   = 8,
      .weak_subjectivity_epochs = 3682,
-     .fork_version_func        = mainnet_fork_version},
+     .fork_version_func        = mainnet_fork_version,
+     .blob_schedule            = eth_mainnet_blob_schedule},
     {// Sepolia
      .chain_id                 = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 11155111),
      .fork_epochs              = eth_sepolia_fork_epochs,
@@ -87,7 +111,8 @@ static const chain_spec_t chain_data[] = {
      .slots_per_epoch_bits     = 5,
      .epochs_per_period_bits   = 8,
      .weak_subjectivity_epochs = 3682,
-     .fork_version_func        = sepolia_fork_version},
+     .fork_version_func        = sepolia_fork_version,
+     .blob_schedule            = eth_sepolia_blob_schedule},
     {// Plataberget
      .chain_id                 = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 7091047534),
      .fork_epochs              = eth_plataberget_fork_epochs,

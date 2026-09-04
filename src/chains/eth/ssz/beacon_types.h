@@ -110,15 +110,26 @@ typedef enum {
 // functionpointer for a function calculating the fork version from chain_id, fork and target bytes
 typedef void (*fork_version_func_t)(chain_id_t chain_id, fork_id_t fork, uint8_t* version);
 
+// EIP-7892 (Blob Parameter Only) schedule entry. `activation_timestamp` is the
+// EL block timestamp at which the fork's `BLOB_BASE_FEE_UPDATE_FRACTION` takes
+// effect; per go-ethereum's `params/config.go` all post-Merge forks are
+// timestamp-based (not block-based) because PoS aligns slots to real time.
+// Tables are terminated by an entry with `activation_timestamp == 0`.
 typedef struct {
-  chain_id_t          chain_id;
-  const uint64_t*     fork_epochs;
-  const bytes32_t     genesis_validators_root;
-  const bytes32_t     zk_sync_keys_root;        // initial zk sync keys root
-  const int           slots_per_epoch_bits;     // 5 = 32 slots per epoch
-  const int           epochs_per_period_bits;   // 8 = 256 epochs per period
-  const uint64_t      weak_subjectivity_epochs; // max epochs before checkpoint validation required
-  fork_version_func_t fork_version_func;
+  uint64_t activation_timestamp;
+  uint64_t update_fraction;
+} eth_blob_schedule_t;
+
+typedef struct {
+  chain_id_t                 chain_id;
+  const uint64_t*            fork_epochs;
+  const bytes32_t            genesis_validators_root;
+  const bytes32_t            zk_sync_keys_root;        // initial zk sync keys root
+  const int                  slots_per_epoch_bits;     // 5 = 32 slots per epoch
+  const int                  epochs_per_period_bits;   // 8 = 256 epochs per period
+  const uint64_t             weak_subjectivity_epochs; // max epochs before checkpoint validation required
+  fork_version_func_t        fork_version_func;
+  const eth_blob_schedule_t* blob_schedule;            // EIP-7892 blob schedule, DESCENDING by timestamp, {0,0}-terminated; NULL uses Cancun default
 } chain_spec_t;
 
 bool      c4_chain_genesis_validators_root(chain_id_t chain_id, bytes32_t genesis_validators_root);
