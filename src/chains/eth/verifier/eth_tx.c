@@ -983,13 +983,14 @@ bool c4_write_receipt_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer, by
   }
   if (ctx->state.error != NULL) return false;
 
-  // Blob gas price is priced by the EL from the block's excess_blob_gas. The
-  // `BLOB_BASE_FEE_UPDATE_FRACTION` denominator changes across BPO forks (EIP-
-  // 7892), so we resolve it from the block timestamp.
+  // Blob gas price is priced by the EL from the block's excess_blob_gas. Both
+  // the `MIN_BLOB_BASE_FEE` factor (Gnosis uses 1 gwei, Ethereum 1 wei) and the
+  // `BLOB_BASE_FEE_UPDATE_FRACTION` denominator (EIP-7892 BPO forks) are chain-
+  // and timestamp-dependent -- both come from chain_spec_t.
   uint64_t blob_gas_price = 0;
   uint64_t blob_gas_used  = (uint64_t) num_blobs * ETH_GAS_PER_BLOB;
   if (type == TX_TYPE_EIP4844)
-    blob_gas_price = eth_fake_exponential(ETH_MIN_BLOB_BASE_FEE, excess_blob_gas,
+    blob_gas_price = eth_fake_exponential(eth_min_blob_base_fee(ctx->chain_id), excess_blob_gas,
                                           eth_blob_base_fee_update_fraction(ctx->chain_id, block_timestamp));
 
   // Contract creation address: for successful signed txs where `to` is empty,

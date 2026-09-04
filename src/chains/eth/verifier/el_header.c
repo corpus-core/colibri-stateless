@@ -321,10 +321,10 @@ uint64_t eth_fake_exponential(uint64_t factor, uint64_t numerator, uint64_t deno
 uint64_t eth_blob_base_fee_update_fraction(chain_id_t chain_id, uint64_t block_timestamp) {
   // EIP-7892 (Blob Parameter Only) schedule: each entry maps a fork activation
   // timestamp to its `BLOB_BASE_FEE_UPDATE_FRACTION`. The table is populated
-  // per chain in `beacon_types.c` (mainnet + sepolia today; other chains fall
-  // through to the Cancun default). Post-Merge forks are timestamp-driven per
-  // go-ethereum's `params/config.go`; using block numbers would misfire on
-  // PoS chains where missed slots break a strict block<->fork mapping.
+  // per chain in `beacon_types.c` (mainnet, sepolia, gnosis, chiado today; other
+  // chains fall through to the Cancun default). Post-Merge forks are timestamp-
+  // driven per go-ethereum's `params/config.go`; using block numbers would
+  // misfire on PoS chains where missed slots break a strict block<->fork mapping.
   const chain_spec_t* spec = c4_eth_get_chain_spec(chain_id);
   if (spec && spec->blob_schedule) {
     for (const eth_blob_schedule_t* e = spec->blob_schedule; e->activation_timestamp != 0; e++) {
@@ -332,6 +332,13 @@ uint64_t eth_blob_base_fee_update_fraction(chain_id_t chain_id, uint64_t block_t
     }
   }
   return ETH_BLOB_BASE_FEE_UPDATE_FRACTION; // Cancun-era default for chains without a schedule
+}
+
+uint64_t eth_min_blob_base_fee(chain_id_t chain_id) {
+  // Gnosis-family chains price blob gas at 1 gwei minimum; Ethereum uses 1 wei.
+  const chain_spec_t* spec = c4_eth_get_chain_spec(chain_id);
+  if (spec && spec->min_blob_base_fee != 0) return spec->min_blob_base_fee;
+  return ETH_MIN_BLOB_BASE_FEE;
 }
 
 c4_status_t eth_el_header_get_from_raw_block(c4_state_t* state, bytes_t raw_block, bytes_t* el_header, ssz_builder_t* body_builder) {

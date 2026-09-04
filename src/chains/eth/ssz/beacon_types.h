@@ -130,6 +130,7 @@ typedef struct {
   const uint64_t             weak_subjectivity_epochs; // max epochs before checkpoint validation required
   fork_version_func_t        fork_version_func;
   const eth_blob_schedule_t* blob_schedule;            // EIP-7892 blob schedule, DESCENDING by timestamp, {0,0}-terminated; NULL uses Cancun default
+  uint64_t                   min_blob_base_fee;        // MIN_BLOB_BASE_FEE (`minBlobGasPrice`); 0 uses Ethereum's default (1 wei). Gnosis / Chiado use 1e9.
 } chain_spec_t;
 
 bool      c4_chain_genesis_validators_root(chain_id_t chain_id, bytes32_t genesis_validators_root);

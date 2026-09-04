@@ -57,6 +57,25 @@ static const eth_blob_schedule_t eth_sepolia_blob_schedule[] = {
     {0ULL, 0ULL},
 };
 
+// Gnosis chains keep `baseFeeUpdateFraction = 1112826` across all forks and
+// have no BPO scheduled (blob target/max stay at 1/2). Timestamps come from
+// erigontech/erigon `chainspecs/gnosis.json` and `chainspecs/chiado.json`.
+// NOTE: Gnosis' `minBlobGasPrice` is 1 gwei (1e9 wei), not 1 wei -- carried
+// on the chain_spec via `min_blob_base_fee` (below).
+static const eth_blob_schedule_t eth_gnosis_blob_schedule[] = {
+    {1776168380ULL, 1112826ULL}, // Osaka
+    {1746021820ULL, 1112826ULL}, // Prague/Pectra
+    {1710181820ULL, 1112826ULL}, // Cancun/Deneb
+    {0ULL, 0ULL},
+};
+
+static const eth_blob_schedule_t eth_chiado_blob_schedule[] = {
+    {1773653580ULL, 1112826ULL}, // Osaka
+    {1741254220ULL, 1112826ULL}, // Prague/Pectra
+    {1706724940ULL, 1112826ULL}, // Cancun/Deneb
+    {0ULL, 0ULL},
+};
+
 static void mainnet_fork_version(chain_id_t chain_id, fork_id_t fork, uint8_t* version) {
   version[0] = (uint8_t) fork;
   version[1] = 0x00;
@@ -130,7 +149,9 @@ static const chain_spec_t chain_data[] = {
      .slots_per_epoch_bits     = 4,
      .epochs_per_period_bits   = 9,
      .weak_subjectivity_epochs = 1500,
-     .fork_version_func        = gnosis_fork_version},
+     .fork_version_func        = gnosis_fork_version,
+     .blob_schedule            = eth_gnosis_blob_schedule,
+     .min_blob_base_fee        = 1000000000ULL},
     {// Gnosis chiado
      .chain_id                 = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 10200ULL),
      .fork_epochs              = eth_chiado_fork_epochs,
@@ -138,9 +159,9 @@ static const chain_spec_t chain_data[] = {
      .slots_per_epoch_bits     = 4,
      .epochs_per_period_bits   = 9,
      .weak_subjectivity_epochs = 1500,
-     .fork_version_func        = gnosis_fork_version
-
-    },
+     .fork_version_func        = gnosis_fork_version,
+     .blob_schedule            = eth_chiado_blob_schedule,
+     .min_blob_base_fee        = 1000000000ULL},
 };
 
 const chain_spec_t* c4_eth_get_chain_spec(chain_id_t id) {
