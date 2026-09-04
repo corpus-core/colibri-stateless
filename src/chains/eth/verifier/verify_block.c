@@ -107,7 +107,9 @@ static bool is_block_header_method(const char* method) {
 
 bool eth_set_block_data(verify_ctx_t* ctx, bytes_t el_header, bool include_txs, ssz_ob_t* body, uint32_t mask) {
   if (strcmp(ctx->method, "eth_blobBaseFee") == 0) {
-    uint64_t      fee     = eth_fake_exponential(ETH_MIN_BLOB_BASE_FEE, eth_el_header_get_uint64(el_header, EL_EXCESS_BLOB_GAS), ETH_BLOB_BASE_FEE_UPDATE_FRACTION);
+    uint64_t      block_ts = eth_el_header_get_uint64(el_header, EL_TIMESTAMP);
+    uint64_t      denom    = eth_blob_base_fee_update_fraction(ctx->chain_id, block_ts);
+    uint64_t      fee      = eth_fake_exponential(ETH_MIN_BLOB_BASE_FEE, eth_el_header_get_uint64(el_header, EL_EXCESS_BLOB_GAS), denom);
     ssz_builder_t builder = ssz_builder_for_type(ETH_SSZ_DATA_UINT256);
     ssz_add_uint64(&builder, fee);
     buffer_append(&builder.fixed, bytes(NULL, 24));

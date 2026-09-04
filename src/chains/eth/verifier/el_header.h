@@ -77,8 +77,20 @@ uint64_t    eth_el_header_get_uint64(bytes_t header, char* name);
 
 // EIP-4844 constants exposed for callers computing blob-related receipt fields.
 #define ETH_GAS_PER_BLOB                  131072u  // gas per blob (EIP-4844)
-#define ETH_BLOB_BASE_FEE_UPDATE_FRACTION 3338477u // per EIP-4844 spec
+#define ETH_BLOB_BASE_FEE_UPDATE_FRACTION 3338477u // Cancun default; use eth_blob_base_fee_update_fraction() for fork-aware value
 #define ETH_MIN_BLOB_BASE_FEE             1u       // wei
+
+/**
+ * Fork-aware `BLOB_BASE_FEE_UPDATE_FRACTION` per EIP-7892 (Blob Parameter Only
+ * hardforks). The value depends on the containing block's timestamp because
+ * mainnet and testnets ratchet it up in successive BPO forks (Cancun → Prague
+ * → Osaka → BPO1 → BPO2 ...). Unknown chains fall back to the Cancun value.
+ *
+ * @param chain_id target chain identifier
+ * @param block_timestamp Unix seconds of the containing block's EL header
+ * @return blob-base-fee update fraction to feed into `eth_fake_exponential`
+ */
+uint64_t eth_blob_base_fee_update_fraction(chain_id_t chain_id, uint64_t block_timestamp);
 
 /**
  * EIP-4844 blob base fee: MIN_BLOB_BASE_FEE * e^(excess_blob_gas / BLOB_BASE_FEE_UPDATE_FRACTION),
@@ -86,7 +98,7 @@ uint64_t    eth_el_header_get_uint64(bytes_t header, char* name);
  *
  * @param factor Base factor (typically ETH_MIN_BLOB_BASE_FEE).
  * @param numerator Exponent numerator (typically excess_blob_gas).
- * @param denominator Exponent denominator (typically ETH_BLOB_BASE_FEE_UPDATE_FRACTION).
+ * @param denominator Exponent denominator (fork-aware; see `eth_blob_base_fee_update_fraction`).
  * @return factor * e^(numerator/denominator), rounded down.
  */
 uint64_t eth_fake_exponential(uint64_t factor, uint64_t numerator, uint64_t denominator);

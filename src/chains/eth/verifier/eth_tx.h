@@ -94,16 +94,18 @@ bool    c4_write_tx_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer, byte
 /**
  * Build one ETH_RECEIPT_DATA SSZ from RLP receipt and tx.
  *
- * `excess_blob_gas` (from the containing block's EL header) is used to price
- * blob gas for EIP-4844 (type-3) receipts and may be 0 for callers without a
- * full header (the blob-gas fields will simply be 0 in the output).
+ * `excess_blob_gas` and `block_timestamp` (both from the containing block's EL
+ * header) are used to price blob gas for EIP-4844 (type-3) receipts. The
+ * timestamp selects the fork-appropriate `BLOB_BASE_FEE_UPDATE_FRACTION`
+ * (EIP-7892 blob schedule). May be 0 for callers without a full header (the
+ * blob-gas fields will simply be 0 in the output).
  *
  * @return Sets `*out_cumulative_gas` to receipt cumulativeGasUsed and
  *         `*out_log_index` to the next block-level log index.
  */
 bool c4_write_receipt_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer, bytes_t tx_raw, bytes_t receipt_raw,
                                     bytes32_t block_hash, uint64_t block_number, uint32_t tx_index,
-                                    uint64_t base_fee, uint64_t excess_blob_gas,
+                                    uint64_t base_fee, uint64_t excess_blob_gas, uint64_t block_timestamp,
                                     uint64_t* out_cumulative_gas,
                                     uint32_t* out_log_index);
 

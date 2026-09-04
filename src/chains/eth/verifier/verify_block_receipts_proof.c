@@ -77,6 +77,7 @@ bool verify_block_receipts_proof(verify_ctx_t* ctx) {
   ssz_builder_t data_builder    = ssz_builder_for_type(ETH_SSZ_DATA_BLOCK_RECEIPTS);
   uint64_t      base_fee        = eth_el_header_get_uint64(el_header, EL_BASE_FEE_PER_GAS);
   uint64_t      excess_blob_gas = eth_el_header_get_uint64(el_header, EL_EXCESS_BLOB_GAS);
+  uint64_t      block_ts        = eth_el_header_get_uint64(el_header, EL_TIMESTAMP);
   uint64_t      prev_cumulative = 0;
   uint32_t      next_log_index  = 0;
   ssz_ob_t      receipts        = ssz_get(&ctx->proof, "receipts");
@@ -90,7 +91,7 @@ bool verify_block_receipts_proof(verify_ctx_t* ctx) {
     ssz_builder_t item_builder = ssz_builder_for_def(data_builder.def->def.vector.type);
 
     if (!c4_write_receipt_data_from_raw(ctx, &item_builder, raw_tx, raw_receipt, block_hash, blk_num, i,
-                                        base_fee, excess_blob_gas,
+                                        base_fee, excess_blob_gas, block_ts,
                                         &prev_cumulative, &next_log_index)) {
       ssz_builder_free(&data_builder);
       ssz_builder_free(&item_builder);

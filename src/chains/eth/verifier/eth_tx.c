@@ -900,7 +900,7 @@ INTERNAL bool c4_write_tx_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer
 
 bool c4_write_receipt_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer, bytes_t tx_raw, bytes_t receipt_raw,
                                     bytes32_t block_hash, uint64_t block_number, uint32_t tx_index,
-                                    uint64_t base_fee, uint64_t excess_blob_gas,
+                                    uint64_t base_fee, uint64_t excess_blob_gas, uint64_t block_timestamp,
                                     uint64_t* out_cumulative_gas,
                                     uint32_t* out_log_index) {
   bytes_t                val             = {0};
@@ -983,11 +983,14 @@ bool c4_write_receipt_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer, by
   }
   if (ctx->state.error != NULL) return false;
 
-  // Blob gas price is priced by the EL from the block's excess_blob_gas.
+  // Blob gas price is priced by the EL from the block's excess_blob_gas. The
+  // `BLOB_BASE_FEE_UPDATE_FRACTION` denominator changes across BPO forks (EIP-
+  // 7892), so we resolve it from the block timestamp.
   uint64_t blob_gas_price = 0;
   uint64_t blob_gas_used  = (uint64_t) num_blobs * ETH_GAS_PER_BLOB;
   if (type == TX_TYPE_EIP4844)
-    blob_gas_price = eth_fake_exponential(ETH_MIN_BLOB_BASE_FEE, excess_blob_gas, ETH_BLOB_BASE_FEE_UPDATE_FRACTION);
+    blob_gas_price = eth_fake_exponential(ETH_MIN_BLOB_BASE_FEE, excess_blob_gas,
+                                          eth_blob_base_fee_update_fraction(ctx->chain_id, block_timestamp));
 
   // Contract creation address: for successful signed txs where `to` is empty,
   // the created contract address is keccak256(rlp([sender, nonce]))[12:32].
