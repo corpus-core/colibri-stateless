@@ -289,21 +289,13 @@ static void c4_precompute_finalized_bootstrap_cb(request_t* req) {
 }
 #endif
 
-void c4_handle_finalized_checkpoint(json_t checkpoint) {
-  request_t* req                          = (request_t*) safe_calloc(1, sizeof(request_t));
-  req->cb                                 = c4_handle_finalized_checkpoint_cb;
-  req->ctx                                = safe_calloc(1, sizeof(prover_ctx_t));
-  ((prover_ctx_t*) req->ctx)->chain_id    = http_server.chain_id;
-  ((prover_ctx_t*) req->ctx)->client_type = BEACON_CLIENT_EVENT_SERVER;
-  ((prover_ctx_t*) req->ctx)->flags       = http_server.prover_flags;
-  req->cb(req);
+static void c4_precompute_finalized_bootstrap(prover_ctx_t* ctx, json_t checkpoint) {
 
 #ifdef PROVER_CACHE
   // Fork-gate up front: the SSE payload carries the finalized epoch, and
   // `c4_chain_fork_id` is a pure lookup. Skipping the request on pre-Gloas
   // eras avoids a wasted Lodestar round-trip per finalization.
-  uint64_t  finalized_epoch = json_get_uint64(checkpoint, "epoch");
-  fork_id_t fork            = c4_chain_fork_id(http_server.chain_id, finalized_epoch);
+  fork_id_t fork = c4_chain_fork_id(http_server.chain_id, json_get_uint64(checkpoint, "epoch"));
   if (fork != C4_FORK_GLOAS) return;
 
   // Parallel precompute: pull the just-finalized bootstrap while Lodestar
@@ -338,4 +330,16 @@ void c4_handle_finalized_checkpoint(json_t checkpoint) {
   preq->cb     = c4_precompute_finalized_bootstrap_cb;
   preq->cb(preq);
 #endif
+}
+void c4_handle_finalized_checkpoint(json_t checkpoint) {
+  request_t* req                          = (request_t*) safe_calloc(1, sizeof(request_t));
+  req->cb                                 = c4_handle_finalized_checkpoint_cb;
+  req->ctx                                = safe_calloc(1, sizeof(prover_ctx_t));
+  ((prover_ctx_t*) req->ctx)->chain_id    = http_server.chain_id;
+  ((prover_ctx_t*) req->ctx)->client_type = BEACON_CLIENT_EVENT_SERVER;
+  ((prover_ctx_t*) req->ctx)->flags       = http_server.prover_flags;
+  req->cb(req);
+
+  // run in parallel
+  c4_precompute_finalized_bootstrap(req->ctx, checkpoint);
 }

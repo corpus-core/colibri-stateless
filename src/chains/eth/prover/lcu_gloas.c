@@ -34,9 +34,9 @@
 // SyncCommittee layout: 512 pubkeys of 48 bytes + 1 aggregate pubkey of 48 bytes.
 // Each 48-byte pubkey Merkleizes as 2 chunks (32 + 32, with the last 16 bytes
 // zero-padded).
-#define PUBKEY_CHUNKS               2u
-#define SYNC_COMMITTEE_PUBKEYS      512u
-#define AGGREGATE_PUBKEY_CHUNKS     2u
+#define PUBKEY_CHUNKS           2u
+#define SYNC_COMMITTEE_PUBKEYS  512u
+#define AGGREGATE_PUBKEY_CHUNKS 2u
 #define TOTAL_SYNC_COMMITTEE_CHUNKS \
   (SYNC_COMMITTEE_PUBKEYS * PUBKEY_CHUNKS + AGGREGATE_PUBKEY_CHUNKS) // 1026
 
@@ -51,14 +51,7 @@ typedef char c4_gloas_lcu_chunk_count_check
 // a constant drift before it turns into a run-time surprise (see the
 // defensive `off != C4_GLOAS_LCU_SSZ_SIZE` in c4_gloas_lcu_assemble).
 typedef char c4_gloas_lcu_layout_total_check
-    [(C4_GLOAS_LCU_HEADER_SIZE
-              + C4_GLOAS_LCU_SYNC_COMMITTEE_SIZE
-              + C4_GLOAS_LCU_NEXT_SC_BRANCH_SIZE
-              + C4_GLOAS_LCU_HEADER_SIZE
-              + C4_GLOAS_LCU_FINALITY_BRANCH_SIZE
-              + C4_GLOAS_LCU_SYNC_AGGREGATE_SIZE
-              + 8u
-          == C4_GLOAS_LCU_SSZ_SIZE)
+    [(C4_GLOAS_LCU_HEADER_SIZE + C4_GLOAS_LCU_SYNC_COMMITTEE_SIZE + C4_GLOAS_LCU_NEXT_SC_BRANCH_SIZE + C4_GLOAS_LCU_HEADER_SIZE + C4_GLOAS_LCU_FINALITY_BRANCH_SIZE + C4_GLOAS_LCU_SYNC_AGGREGATE_SIZE + 8u == C4_GLOAS_LCU_SSZ_SIZE)
          ? 1
          : -1];
 
@@ -428,7 +421,7 @@ c4_status_t c4_create_gloas_lcu(prover_ctx_t* ctx,
   // ---------------------------------------------------------------------------
   // 7. Assemble the final SSZ bytes.
   // ---------------------------------------------------------------------------
-  bytes_t lcu = NULL_BYTES;
+  bytes_t lcu       = NULL_BYTES;
   bool    assembled = c4_gloas_lcu_assemble(
       bytes(attested_header, sizeof(attested_header)),
       bytes(next_sync_committee_bytes, sizeof(next_sync_committee_bytes)),

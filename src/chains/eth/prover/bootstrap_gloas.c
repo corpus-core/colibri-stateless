@@ -34,10 +34,10 @@
 // SyncCommittee layout: 512 pubkeys of 48 bytes + 1 aggregate pubkey of 48 bytes.
 // Each 48-byte pubkey Merkleizes as 2 chunks (32 + 32, with the last 16 bytes
 // zero-padded).
-#define PUBKEY_BYTES               48u
-#define PUBKEY_CHUNKS              2u  // 48 bytes -> 2 * 32-byte chunks
-#define SYNC_COMMITTEE_PUBKEYS     512u
-#define AGGREGATE_PUBKEY_CHUNKS    2u
+#define PUBKEY_BYTES            48u
+#define PUBKEY_CHUNKS           2u // 48 bytes -> 2 * 32-byte chunks
+#define SYNC_COMMITTEE_PUBKEYS  512u
+#define AGGREGATE_PUBKEY_CHUNKS 2u
 #define TOTAL_SYNC_COMMITTEE_CHUNKS \
   (SYNC_COMMITTEE_PUBKEYS * PUBKEY_CHUNKS + AGGREGATE_PUBKEY_CHUNKS) // 1026
 
@@ -50,20 +50,20 @@ typedef char c4_gloas_bootstrap_chunk_count_check
 
 // BeaconBlockHeader layout: slot(8) + proposerIndex(8) + parentRoot(32)
 //                        + stateRoot(32) + bodyRoot(32) = 112 bytes.
-#define BEACON_BLOCK_HEADER_BYTES  112u
-#define STATE_ROOT_OFFSET          48u
+#define BEACON_BLOCK_HEADER_BYTES 112u
+#define STATE_ROOT_OFFSET         48u
 
 // SyncCommittee subroot depth in Gloas BeaconState: gindex 2945 has bitlen 12,
 // so the branch to state_root is 11 siblings.
 #define GLOAS_STATE_ROOT_TO_SC_DEPTH 11u
 
 // SyncCommittee-relative sub-gindices.
-#define SC_SUB_GINDEX_PUBKEYS            2u
-#define SC_SUB_GINDEX_AGGREGATE          3u
+#define SC_SUB_GINDEX_PUBKEYS   2u
+#define SC_SUB_GINDEX_AGGREGATE 3u
 // Pubkeys is a Vector[Pubkey48, 512]; each pubkey_i sits at sub-gindex 512 + i.
-#define PUBKEYS_SUB_GINDEX_ELEMENT_BASE  512u
+#define PUBKEYS_SUB_GINDEX_ELEMENT_BASE 512u
 // Each pubkey is a ByteVector[uint8, 48] with 2 chunks at sub-gindex 2, 3.
-#define PUBKEY_SUB_GINDEX_CHUNK_BASE     2u
+#define PUBKEY_SUB_GINDEX_CHUNK_BASE 2u
 
 // :: Chunk reassembly
 
@@ -106,10 +106,8 @@ bool c4_gloas_bootstrap_chunks_to_sync_committee(bytes_t chunk_leaves, bytes_t s
     memcpy(sc_data + i * PUBKEY_BYTES, chunk0, 32);
     memcpy(sc_data + i * PUBKEY_BYTES + 32, chunk1, 16);
   }
-  memcpy(sc_data + SYNC_COMMITTEE_PUBKEYS * PUBKEY_BYTES,
-         chunks + 1024u * 32u, 32);
-  memcpy(sc_data + SYNC_COMMITTEE_PUBKEYS * PUBKEY_BYTES + 32,
-         chunks + 1025u * 32u, 16);
+  memcpy(sc_data + SYNC_COMMITTEE_PUBKEYS * PUBKEY_BYTES, chunks + 1024u * 32u, 32);
+  memcpy(sc_data + SYNC_COMMITTEE_PUBKEYS * PUBKEY_BYTES + 32, chunks + 1025u * 32u, 16);
 
   return true;
 }
@@ -126,12 +124,9 @@ bool c4_gloas_bootstrap_assemble(bytes_t  cl_header,
   *out_bytes = NULL_BYTES;
   if (cl_header.data == NULL || cl_header.len != BEACON_BLOCK_HEADER_BYTES) return false;
   if (execution_block_hash.data == NULL || execution_block_hash.len != 32) return false;
-  if (execution_branch.data == NULL ||
-      execution_branch.len != C4_GLOAS_BOOTSTRAP_BRANCH_SIZE) return false;
-  if (sync_committee_bytes.data == NULL ||
-      sync_committee_bytes.len != C4_GLOAS_BOOTSTRAP_SYNC_COMMITTEE_SIZE) return false;
-  if (sync_committee_branch.data == NULL ||
-      sync_committee_branch.len != C4_GLOAS_BOOTSTRAP_BRANCH_SIZE) return false;
+  if (execution_branch.data == NULL || execution_branch.len != C4_GLOAS_BOOTSTRAP_BRANCH_SIZE) return false;
+  if (sync_committee_bytes.data == NULL || sync_committee_bytes.len != C4_GLOAS_BOOTSTRAP_SYNC_COMMITTEE_SIZE) return false;
+  if (sync_committee_branch.data == NULL || sync_committee_branch.len != C4_GLOAS_BOOTSTRAP_BRANCH_SIZE) return false;
 
   uint8_t* buf = (uint8_t*) safe_malloc(C4_GLOAS_BOOTSTRAP_SIZE);
 
@@ -383,9 +378,9 @@ c4_status_t c4_create_gloas_bootstrap(prover_ctx_t* ctx,
 static c4_status_t fetch_block_by_root_for_bootstrap(prover_ctx_t* ctx,
                                                      bytes32_t     header_root,
                                                      eth_block_t*  block_out) {
-  ssz_ob_t signed_block   = {0};
-  char     path[128]      = {0};
-  buffer_t path_buf       = stack_buffer(path);
+  ssz_ob_t signed_block = {0};
+  char     path[128]    = {0};
+  buffer_t path_buf     = stack_buffer(path);
   bprintf(&path_buf, "eth/v2/beacon/blocks/0x%x", bytes(header_root, 32));
 
   TRY_ASYNC(c4_send_beacon_ssz(ctx, path, NULL, NULL, DEFAULT_TTL, &signed_block));
@@ -421,7 +416,7 @@ static c4_status_t fetch_block_by_root_for_bootstrap(prover_ctx_t* ctx,
   // final bootstrap header to the caller's `header_root`.
   bytes32_t computed_root = {0};
   {
-    ssz_ob_t body      = ssz_get(&data_block, "body");
+    ssz_ob_t  body      = ssz_get(&data_block, "body");
     bytes32_t body_root = {0};
     ssz_hash_tree_root(body, body_root);
     uint8_t header_data[112] = {0};
