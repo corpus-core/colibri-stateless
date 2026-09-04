@@ -189,6 +189,24 @@ c4_status_t c4_send_beacon_ssz(prover_ctx_t* ctx, char* path, char* query, const
 c4_status_t c4_send_beacon_json_with_client_type(prover_ctx_t* ctx, char* path, char* query, uint32_t ttl, json_t* result, uint32_t client_type);
 c4_status_t c4_send_beacon_ssz_with_client_type(prover_ctx_t* ctx, char* path, char* query, const ssz_def_t* def, uint32_t ttl, ssz_ob_t* result, uint32_t client_type);
 c4_status_t c4_send_internal_request(prover_ctx_t* ctx, char* path, char* query, uint32_t ttl, bytes_t* result);
+
+/**
+ * Compute the deterministic `data_request_t.id` used by `c4_send_beacon_*`
+ * and `c4_send_internal_request` for the given `(path, query)` pair.
+ *
+ * Callers can use this to probe `ctx->state` for a prior request with the
+ * exact same URL (e.g. via `c4_state_get_data_request_by_id`) without
+ * duplicating the internal concatenation and hashing logic.
+ *
+ * The layout matches the request layer exactly:
+ *   - `query == NULL` -> `path`
+ *   - `query != NULL` -> `path + "?" + query`
+ *
+ * @param path   the request path (must not be NULL)
+ * @param query  optional query string appended after `?`; may be NULL
+ * @param out_id 32-byte buffer that receives the SHA-256 hash
+ */
+void c4_compute_request_id(const char* path, const char* query, bytes32_t out_id);
 #ifdef PROVER_CACHE
 c4_status_t c4_set_latest_block(prover_ctx_t* ctx, uint64_t latest_block_number);
 c4_status_t c4_eth_update_finality(prover_ctx_t* ctx, bytes32_t checkpoint, uint64_t* slot);

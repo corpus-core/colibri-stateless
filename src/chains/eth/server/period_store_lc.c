@@ -433,6 +433,11 @@ static void ps_build_lcu_cb(request_t* req) {
 void c4_ps_build_lcu(uint64_t period) {
   if (graceful_shutdown_in_progress) return;
   if (!eth_config.period_store) return;
+  // The self-build path uses Lodestar's unofficial CompactMultiProof
+  // endpoint (see `c4_create_state_proof` / `c4_create_gloas_lcu`). Do NOT
+  // attempt it when the operator did not opt into Lodestar compatibility --
+  // it would just churn round-trips against a beacon node that will 404.
+  if (!(http_server.prover_flags & C4_PROVER_FLAG_LODESTAR)) return;
   // Refuse to double-build if the file already exists (e.g. a previous
   // self-build succeeded and a new fetch fails on a network flake).
   if (c4_ps_file_exists(period, C4_PS_LCU_SSZ)) return;

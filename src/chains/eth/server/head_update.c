@@ -298,6 +298,12 @@ static void c4_precompute_finalized_bootstrap(prover_ctx_t* ctx, json_t checkpoi
   fork_id_t fork = c4_chain_fork_id(http_server.chain_id, json_get_uint64(checkpoint, "epoch"));
   if (fork != C4_FORK_GLOAS) return;
 
+  // The precompute relies on Lodestar's unofficial CompactMultiProof
+  // endpoint (see `c4_create_gloas_bootstrap`). Skip on non-Lodestar
+  // setups; the client-facing proxy already falls back to a live
+  // `light_client/bootstrap` request in that case.
+  if (!(http_server.prover_flags & C4_PROVER_FLAG_LODESTAR)) return;
+
   // Parallel precompute: pull the just-finalized bootstrap while Lodestar
   // still has the state in the fork-choice, so client light_client/bootstrap
   // requests for that root can be served from the cache instead of racing

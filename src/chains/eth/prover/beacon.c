@@ -901,8 +901,27 @@ c4_status_t c4_send_beacon_ssz_with_client_type(prover_ctx_t* ctx, char* path, c
   return C4_SUCCESS;
 }
 
+void c4_compute_request_id(const char* path, const char* query, bytes32_t out_id) {
+  // Single source of truth for `data_request_t.id`: the request layer keys
+  // its state on `sha256(path[?query])`. Keeping this in one place prevents
+  // silent drift between senders and probers (e.g. sticky-error checks in
+  // `fetch_bootstrap_by_root` / `fetch_updates_data`).
+  buffer_t buffer = {0};
+  buffer_add_chars(&buffer, path);
+  if (query) {
+    buffer_add_chars(&buffer, "?");
+    buffer_add_chars(&buffer, query);
+  }
+  sha256(buffer.data, out_id);
+  buffer_free(&buffer);
+}
+
 c4_status_t c4_send_internal_request(prover_ctx_t* ctx, char* path, char* query, uint32_t ttl, bytes_t* result) {
   eth_cu_add(ctx, CU_INTERNAL_REQUEST);
+  // The inlined concatenation below has to stay byte-identical to
+  // `c4_compute_request_id`; the buffer doubles as the request URL that we
+  // hand to `data_request_t.url` (ownership transfer), so we cannot simply
+  // delegate to the helper without an extra allocation.
   bytes32_t id     = {0};
   buffer_t  buffer = {0};
   buffer_add_chars(&buffer, path);

@@ -28,6 +28,7 @@ void eth_configure() {
   conf_int(&eth_config.eth_logs_cache_blocks, "ETH_LOGS_CACHE_BLOCKS", "eth_logs_cache_blocks", 0, "max number of contiguous blocks to cache logs for eth_getLogs", 0, 131072);
   conf_int(&eth_config.logs_completeness_max_blocks, "ETH_LOGS_COMPLETENESS_MAX_BLOCKS", "logs_completeness_max_blocks", 0, "max block range for an eth_getLogs completeness proof (0 = default)", 0, 131072);
   conf_int(&eth_config.nimbus, "C4_NIMBUS", "nimbus", 0, "Nimbus CL compatibility (slot-scan parent lookup, nimbus historical_summaries)", 0, 1);
+  conf_int(&eth_config.lodestar, "C4_LODESTAR", "lodestar", 0, "Lodestar CL compatibility (enables self-build fallback for LC bootstrap/update via the unofficial CompactMultiProof endpoint)", 0, 1);
   conf_string(&eth_config.period_store, "DATA", "data", 'd', "path to the data-directory holding blockroots and light client updates");
   conf_string(&eth_config.period_master_url, "PERIOD_MASTER_URL", "period_master_url", 0, "URL of the master node to use. if set, the server will not write to the period-store but fetch it when needed.");
   conf_int(&eth_config.period_full_sync, "C4_PERIOD_FULL_SYNC", "period_full_sync", 0, "if enabled and period_master_url is set, periodically sync full period_store from master", 0, 1);
@@ -51,4 +52,5 @@ void eth_configure() {
 
   http_server.prover_flags |= (eth_config.period_store ? C4_PROVER_FLAG_CHAIN_STORE : 0);
   http_server.prover_flags |= (eth_config.nimbus ? C4_PROVER_FLAG_NIMBUS : 0);
+  http_server.prover_flags |= (eth_config.lodestar ? C4_PROVER_FLAG_LODESTAR : 0);
 }
