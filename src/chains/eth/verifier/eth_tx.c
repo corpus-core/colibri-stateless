@@ -644,7 +644,7 @@ static ssz_builder_t build_authorization_list_ssz(verify_ctx_t* ctx, bytes_t rlp
 
 INTERNAL bool c4_write_tx_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer, bytes_t raw_tx,
                                         bytes32_t tx_hash, bytes32_t block_hash, uint64_t block_number,
-                                        uint32_t transaction_index, uint64_t base_fee) {
+                                        uint32_t transaction_index, uint64_t base_fee, uint64_t block_timestamp) {
   if (!ctx || !buffer || !buffer->def || !raw_tx.data || raw_tx.len == 0) return false;
   address_t from_address  = {0};
   tx_type_t type          = 0;
@@ -740,21 +740,65 @@ INTERNAL bool c4_write_tx_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer
 
   // --- Add fields to SSZ Builder IN ORDER OF ETH_TX_DATA DEFINITION ---
 
-  // First, add the optional mask based on transaction type
+  // Build the SSZ opt_mask so ssz_dump only emits fields that are actually defined for
+  // this transaction type per the Ethereum JSON-RPC / Execution API spec (issue #343).
+  // We always write every SSZ slot (SSZ containers require it); the mask just controls
+  // JSON visibility.
+  //
+  // Common base for every signed transaction type (0..4). Legacy transactions do have
+  // v/r/s and a gasPrice, so those bits belong to the base too.
+  const uint32_t base_mask =
+      TX_BLOCK_HASH | TX_BLOCK_NUMBER | TX_HASH | TX_TRANSACTION_INDEX | TX_TYPE |
+      TX_NONCE | TX_INPUT | TX_R | TX_S | TX_V | TX_GAS | TX_FROM | TX_TO | TX_VALUE |
+      TX_GAS_PRICE;
+
   uint32_t field_mask = 0;
-  if (type == TX_TYPE_DEPOSITED) {
-    // For Deposited Transactions, only show relevant fields + OP Stack specific fields
-    field_mask = TX_BLOCK_HASH | TX_BLOCK_NUMBER | TX_HASH | TX_TRANSACTION_INDEX | TX_TYPE |
-                 TX_NONCE | TX_INPUT | TX_GAS | TX_FROM | TX_TO | TX_VALUE | TX_GAS_PRICE |
-                 TX_SOURCE_HASH | TX_MINT | TX_IS_SYSTEM_TX | TX_DEPOSIT_RECEIPT_VERSION;
+  switch (type) {
+    case TX_TYPE_DEPOSITED:
+      // Optimism deposit txs have no signature and different fields entirely.
+      field_mask = TX_BLOCK_HASH | TX_BLOCK_NUMBER | TX_HASH | TX_TRANSACTION_INDEX |
+                   TX_TYPE | TX_NONCE | TX_INPUT | TX_GAS | TX_FROM | TX_TO | TX_VALUE |
+                   TX_GAS_PRICE | TX_SOURCE_HASH | TX_MINT | TX_IS_SYSTEM_TX |
+                   TX_DEPOSIT_RECEIPT_VERSION;
+      break;
+    case TX_TYPE_LEGACY:
+      // Legacy transactions signed post-EIP-155 have chain_id derived from v.
+      // If the derivation gave chain_id == 0 the tx is pre-EIP-155 and we must not
+      // report chainId.
+      field_mask = base_mask;
+      if (chain_id != 0) field_mask |= TX_CHAIN_ID;
+      break;
+    case TX_TYPE_EIP2930:
+      field_mask = base_mask | TX_CHAIN_ID | TX_Y_PARITY | TX_ACCESS_LIST;
+      break;
+    case TX_TYPE_EIP1559:
+      field_mask = base_mask | TX_CHAIN_ID | TX_Y_PARITY | TX_ACCESS_LIST |
+                   TX_MAX_FEE_PER_GAS | TX_MAX_PRIORITY_FEE_PER_GAS;
+      break;
+    case TX_TYPE_EIP4844:
+      field_mask = base_mask | TX_CHAIN_ID | TX_Y_PARITY | TX_ACCESS_LIST |
+                   TX_MAX_FEE_PER_GAS | TX_MAX_PRIORITY_FEE_PER_GAS |
+                   TX_BLOB_VERSIONED_HASHES | TX_MAX_FEE_PER_BLOB_GAS;
+      break;
+    case TX_TYPE_EIP7702:
+      field_mask = base_mask | TX_CHAIN_ID | TX_Y_PARITY | TX_ACCESS_LIST |
+                   TX_MAX_FEE_PER_GAS | TX_MAX_PRIORITY_FEE_PER_GAS |
+                   TX_AUTHORIZATION_LIST;
+      break;
+    default:
+      // Unknown / future transaction types: fall back to the union of the currently
+      // known bits so we don't accidentally drop information.
+      field_mask = base_mask | TX_CHAIN_ID | TX_Y_PARITY | TX_ACCESS_LIST |
+                   TX_MAX_FEE_PER_GAS | TX_MAX_PRIORITY_FEE_PER_GAS |
+                   TX_BLOB_VERSIONED_HASHES | TX_MAX_FEE_PER_BLOB_GAS |
+                   TX_AUTHORIZATION_LIST;
+      break;
   }
-  else {
-    // For all other transaction types, show all fields except OP Stack specific ones
-    field_mask = TX_BLOCK_HASH | TX_BLOCK_NUMBER | TX_HASH | TX_TRANSACTION_INDEX | TX_TYPE |
-                 TX_NONCE | TX_INPUT | TX_R | TX_S | TX_CHAIN_ID | TX_V | TX_GAS | TX_FROM |
-                 TX_TO | TX_VALUE | TX_GAS_PRICE | TX_MAX_FEE_PER_GAS | TX_MAX_PRIORITY_FEE_PER_GAS |
-                 TX_ACCESS_LIST | TX_AUTHORIZATION_LIST | TX_BLOB_VERSIONED_HASHES | TX_Y_PARITY;
-  }
+  // blockTimestamp is only meaningful once the transaction has been mined and we know
+  // the block. Callers that operate on a not-yet-mined tx (pending, local reconstruction)
+  // pass block_timestamp == 0 and we suppress the field.
+  if (block_timestamp != 0)
+    field_mask |= TX_BLOCK_TIMESTAMP;
   ssz_add_uint32(buffer, field_mask);
 
   ssz_add_bytes(buffer, "blockHash", bytes(block_hash, 32));
@@ -832,6 +876,16 @@ INTERNAL bool c4_write_tx_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer
     ssz_add_bytes(buffer, "depositReceiptVersion", NULL_BYTES);
   }
 
+  // maxFeePerBlobGas: only present in the raw tx for EIP-4844 (type 3). For other
+  // types we still have to serialize the SSZ slot, but the field mask will hide it.
+  if (type == TX_TYPE_EIP4844)
+    ssz_add_uint256(buffer, get_rlp_field(ctx, rlp_list_payload, defs_ptr, "maxFeePerBlobGas", RLP_ITEM));
+  else
+    ssz_add_uint256(buffer, NULL_BYTES);
+
+  // blockTimestamp: caller supplies 0 for pending / not-yet-mined transactions.
+  ssz_add_uint64(buffer, block_timestamp);
+
   if (blob_hashes.data) safe_free(blob_hashes.data);
 
   return true;
@@ -904,7 +958,28 @@ bool c4_write_receipt_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer, by
   if (type >= TX_TYPE_EIP1559 && type != TX_TYPE_DEPOSITED)
     effective_gas = base_fee + (max_priority_fee_per_gas_rlp_val < (max_fee_per_gas_rlp_val - base_fee) ? max_priority_fee_per_gas_rlp_val : (max_fee_per_gas_rlp_val - base_fee));
 
-  ssz_add_uint32(buffer, 0xFFFFFFFFu);
+  // Receipt opt_mask: expose only fields that actually belong to this receipt's
+  // transaction type (issue #343). The bit indices track the order of fields in
+  // ETH_RECEIPT_DATA (see verify_data_types.h) - bit 0 is the mask itself,
+  // bit N corresponds to the Nth container element after the mask.
+  const uint32_t receipt_base_mask =
+      (1u << 1) |  // blockHash
+      (1u << 2) |  // blockNumber
+      (1u << 3) |  // transactionHash
+      (1u << 4) |  // transactionIndex
+      (1u << 5) |  // type
+      (1u << 6) |  // from
+      (1u << 7) |  // to
+      (1u << 8) |  // cumulativeGasUsed
+      (1u << 9) |  // gasUsed
+      (1u << 10) | // logs
+      (1u << 11) | // logsBloom
+      (1u << 12) | // status
+      (1u << 13);  // effectiveGasPrice
+  uint32_t receipt_mask = receipt_base_mask;
+  if (type == TX_TYPE_DEPOSITED)
+    receipt_mask |= (1u << 14) | (1u << 15); // depositNonce, depositReceiptVersion (OP Stack)
+  ssz_add_uint32(buffer, receipt_mask);
   ssz_add_bytes(buffer, "blockHash", bytes(block_hash, 32));
   ssz_add_uint64(buffer, block_number);
   ssz_add_bytes(buffer, "transactionHash", bytes(tx_hash, 32));

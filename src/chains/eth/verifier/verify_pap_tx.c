@@ -147,12 +147,13 @@ static bool extract_tx_from_block_proof(verify_ctx_t* ctx, ssz_ob_t proof_req,
   if (expected_tx_hash && memcmp(tx_hash_computed, expected_tx_hash, 32) != 0)
     RETURN_VERIFY_ERROR(ctx, "PAP: extracted tx hash does not match requested hash");
 
-  uint64_t      block_number = eth_el_header_get_uint64(el_header, EL_BLOCK_NUMBER);
-  uint64_t      base_fee     = eth_el_header_get_uint64(el_header, EL_BASE_FEE_PER_GAS);
-  ssz_builder_t tx_data      = ssz_builder_for_type(ETH_SSZ_DATA_TX);
+  uint64_t      block_number    = eth_el_header_get_uint64(el_header, EL_BLOCK_NUMBER);
+  uint64_t      base_fee        = eth_el_header_get_uint64(el_header, EL_BASE_FEE_PER_GAS);
+  uint64_t      block_timestamp = eth_el_header_get_uint64(el_header, EL_TIMESTAMP);
+  ssz_builder_t tx_data         = ssz_builder_for_type(ETH_SSZ_DATA_TX);
   if (!c4_write_tx_data_from_raw(ctx, &tx_data, raw_tx, tx_hash_computed,
                                  el_block_hash,
-                                 block_number, target_tx_index, base_fee)) {
+                                 block_number, target_tx_index, base_fee, block_timestamp)) {
     buffer_free(&tx_data.dynamic);
     buffer_free(&tx_data.fixed);
     if (!ctx->state.error)

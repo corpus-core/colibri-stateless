@@ -29,9 +29,8 @@
         "maxFeePerGas": "0x399925ec3",
         "maxPriorityFeePerGas": "0x2540be400",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -53,9 +52,8 @@
         "maxFeePerGas": "0x276da9116",
         "maxPriorityFeePerGas": "0x2540be400",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -77,9 +75,8 @@
         "maxFeePerGas": "0x2540be400",
         "maxPriorityFeePerGas": "0x2540be400",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -101,9 +98,8 @@
         "maxFeePerGas": "0x94fd7998",
         "maxPriorityFeePerGas": "0x77359400",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -125,9 +121,8 @@
         "maxFeePerGas": "0x94b52265",
         "maxPriorityFeePerGas": "0x77359400",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -184,9 +179,8 @@
             ]
           }
         ],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -205,12 +199,7 @@
         "to": "0xdac17f958d2ee523a2206206994597c13d831ec7",
         "value": "0x0",
         "gasPrice": "0x218711a00",
-        "maxFeePerGas": "0x0",
-        "maxPriorityFeePerGas": "0x0",
-        "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -229,12 +218,7 @@
         "to": "0xdac17f958d2ee523a2206206994597c13d831ec7",
         "value": "0x0",
         "gasPrice": "0x218711a00",
-        "maxFeePerGas": "0x0",
-        "maxPriorityFeePerGas": "0x0",
-        "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -253,12 +237,7 @@
         "to": "0xdac17f958d2ee523a2206206994597c13d831ec7",
         "value": "0x0",
         "gasPrice": "0xcea80ebc",
-        "maxFeePerGas": "0x0",
-        "maxPriorityFeePerGas": "0x0",
-        "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -280,9 +259,8 @@
         "maxFeePerGas": "0x41dabf36",
         "maxPriorityFeePerGas": "0x1dcd6500",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -304,9 +282,8 @@
         "maxFeePerGas": "0x17bfac7c00",
         "maxPriorityFeePerGas": "0x77359400",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -328,9 +305,8 @@
         "maxFeePerGas": "0x36d61600",
         "maxPriorityFeePerGas": "0x4b571c0",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -352,9 +328,8 @@
         "maxFeePerGas": "0x17bfac7c00",
         "maxPriorityFeePerGas": "0x77359400",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -376,9 +351,8 @@
         "maxFeePerGas": "0x2cb417800",
         "maxPriorityFeePerGas": "0x77359400",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -400,9 +374,8 @@
         "maxFeePerGas": "0x5c59aeba",
         "maxPriorityFeePerGas": "0x3b9aca00",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -424,9 +397,8 @@
         "maxFeePerGas": "0x77359400",
         "maxPriorityFeePerGas": "0x3b9aca00",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -448,9 +420,8 @@
         "maxFeePerGas": "0x77359400",
         "maxPriorityFeePerGas": "0x3b9aca00",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -469,12 +440,7 @@
         "to": "0xdac17f958d2ee523a2206206994597c13d831ec7",
         "value": "0x0",
         "gasPrice": "0xcea80ebc",
-        "maxFeePerGas": "0x0",
-        "maxPriorityFeePerGas": "0x0",
-        "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -496,9 +462,8 @@
         "maxFeePerGas": "0x5c61d042",
         "maxPriorityFeePerGas": "0x3b9aca00",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -520,9 +485,8 @@
         "maxFeePerGas": "0x425b415e",
         "maxPriorityFeePerGas": "0x1e2ecc89",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -544,9 +508,8 @@
         "maxFeePerGas": "0x56c18e03",
         "maxPriorityFeePerGas": "0x1dcd6500",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -568,9 +531,8 @@
         "maxFeePerGas": "0x74e1881c00",
         "maxPriorityFeePerGas": "0x77359400",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -592,9 +554,8 @@
         "maxFeePerGas": "0x17bfac7c00",
         "maxPriorityFeePerGas": "0x77359400",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -616,9 +577,8 @@
         "maxFeePerGas": "0x400f3f08",
         "maxPriorityFeePerGas": "0x26be3680",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -707,9 +667,8 @@
             ]
           }
         ],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -728,12 +687,7 @@
         "to": "0x13e4b8cffe704d3de6f19e52b201d92c21ec18bd",
         "value": "0x0",
         "gasPrice": "0xcea80ebc",
-        "maxFeePerGas": "0x0",
-        "maxPriorityFeePerGas": "0x0",
-        "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -755,9 +709,8 @@
         "maxFeePerGas": "0x17bfac7c00",
         "maxPriorityFeePerGas": "0x77359400",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -779,9 +732,8 @@
         "maxFeePerGas": "0x5c97df54",
         "maxPriorityFeePerGas": "0x3b9aca00",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -803,9 +755,8 @@
         "maxFeePerGas": "0x74e1881c00",
         "maxPriorityFeePerGas": "0x77359400",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -827,9 +778,8 @@
         "maxFeePerGas": "0x25b7f3d400",
         "maxPriorityFeePerGas": "0x5f5e1000",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -848,12 +798,7 @@
         "to": "0xdac17f958d2ee523a2206206994597c13d831ec7",
         "value": "0x0",
         "gasPrice": "0xcea80ebc",
-        "maxFeePerGas": "0x0",
-        "maxPriorityFeePerGas": "0x0",
-        "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -875,9 +820,8 @@
         "maxFeePerGas": "0x74e1881c00",
         "maxPriorityFeePerGas": "0x77359400",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -899,9 +843,8 @@
         "maxFeePerGas": "0x5c9f1aaa",
         "maxPriorityFeePerGas": "0x3b9aca00",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -923,9 +866,8 @@
         "maxFeePerGas": "0x29d1d66a",
         "maxPriorityFeePerGas": "0xe514da7",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -947,9 +889,8 @@
         "maxFeePerGas": "0x7a23db75",
         "maxPriorityFeePerGas": "0x3bb5ba48",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -971,9 +912,8 @@
         "maxFeePerGas": "0x92b61cc3",
         "maxPriorityFeePerGas": "0x77359400",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -995,9 +935,8 @@
         "maxFeePerGas": "0x17bfac7c00",
         "maxPriorityFeePerGas": "0x77359400",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -1019,9 +958,8 @@
         "maxFeePerGas": "0x5ca62db3",
         "maxPriorityFeePerGas": "0x3b9aca00",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -1040,12 +978,7 @@
         "to": "0x5d31543ee96b92891834b0590820976eff21f299",
         "value": "0x189926eb3546c00",
         "gasPrice": "0xcea80ebc",
-        "maxFeePerGas": "0x0",
-        "maxPriorityFeePerGas": "0x0",
-        "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -1067,9 +1000,8 @@
         "maxFeePerGas": "0x2e90edd000",
         "maxPriorityFeePerGas": "0x77359400",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -1091,9 +1023,8 @@
         "maxFeePerGas": "0x684ee180",
         "maxPriorityFeePerGas": "0x3b9aca00",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -1115,9 +1046,8 @@
         "maxFeePerGas": "0x684ee180",
         "maxPriorityFeePerGas": "0x3b9aca00",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -1139,9 +1069,8 @@
         "maxFeePerGas": "0x684ee180",
         "maxPriorityFeePerGas": "0x3b9aca00",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -1163,9 +1092,8 @@
         "maxFeePerGas": "0x684ee180",
         "maxPriorityFeePerGas": "0x3b9aca00",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -1187,9 +1115,8 @@
         "maxFeePerGas": "0x3b9aca00",
         "maxPriorityFeePerGas": "0x1dcd6500",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -1211,9 +1138,8 @@
         "maxFeePerGas": "0x41dabf36",
         "maxPriorityFeePerGas": "0x1dcd6500",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -1235,9 +1161,8 @@
         "maxFeePerGas": "0x5cac34e8",
         "maxPriorityFeePerGas": "0x3b9aca00",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -1256,12 +1181,7 @@
         "to": "0x28e32cba20df5da3e9c718d828026164fa614ec0",
         "value": "0xf30a885515a000",
         "gasPrice": "0xcea80ebc",
-        "maxFeePerGas": "0x0",
-        "maxPriorityFeePerGas": "0x0",
-        "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -1283,9 +1203,8 @@
         "maxFeePerGas": "0x2e90edd000",
         "maxPriorityFeePerGas": "0x77359400",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -1307,9 +1226,8 @@
         "maxFeePerGas": "0x4339dacb",
         "maxPriorityFeePerGas": "0x1dcd6500",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -1331,9 +1249,8 @@
         "maxFeePerGas": "0x4339dacb",
         "maxPriorityFeePerGas": "0x1dcd6500",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -1355,9 +1272,8 @@
         "maxFeePerGas": "0x4717c386",
         "maxPriorityFeePerGas": "0x23c34600",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -1376,12 +1292,7 @@
         "to": "0xdac17f958d2ee523a2206206994597c13d831ec7",
         "value": "0x0",
         "gasPrice": "0x3b9aca00",
-        "maxFeePerGas": "0x0",
-        "maxPriorityFeePerGas": "0x0",
-        "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -1403,9 +1314,8 @@
         "maxFeePerGas": "0x4717c386",
         "maxPriorityFeePerGas": "0x23c34600",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -1424,12 +1334,7 @@
         "to": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
         "value": "0x0",
         "gasPrice": "0xcea80ebc",
-        "maxFeePerGas": "0x0",
-        "maxPriorityFeePerGas": "0x0",
-        "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -1451,9 +1356,8 @@
         "maxFeePerGas": "0x5cb23c1d",
         "maxPriorityFeePerGas": "0x3b9aca00",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -1472,12 +1376,7 @@
         "to": "0xdac17f958d2ee523a2206206994597c13d831ec7",
         "value": "0x0",
         "gasPrice": "0x3b9aca00",
-        "maxFeePerGas": "0x0",
-        "maxPriorityFeePerGas": "0x0",
-        "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -1499,9 +1398,8 @@
         "maxFeePerGas": "0x169280e00",
         "maxPriorityFeePerGas": "0x2154b700",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -1523,9 +1421,8 @@
         "maxFeePerGas": "0x169280e00",
         "maxPriorityFeePerGas": "0x2154b700",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -1547,9 +1444,8 @@
         "maxFeePerGas": "0x169280e00",
         "maxPriorityFeePerGas": "0x2154b700",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -1571,9 +1467,8 @@
         "maxFeePerGas": "0x169280e00",
         "maxPriorityFeePerGas": "0x2154b700",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -1595,9 +1490,8 @@
         "maxFeePerGas": "0x169280e00",
         "maxPriorityFeePerGas": "0x2154b700",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -1619,9 +1513,8 @@
         "maxFeePerGas": "0x169280e00",
         "maxPriorityFeePerGas": "0x2154b700",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -1640,12 +1533,7 @@
         "to": "0xfaf17849fb05a11a4e233f221bac99ca43fc83f8",
         "value": "0x0",
         "gasPrice": "0xcea80ebc",
-        "maxFeePerGas": "0x0",
-        "maxPriorityFeePerGas": "0x0",
-        "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -1667,9 +1555,8 @@
         "maxFeePerGas": "0x5cbef59f",
         "maxPriorityFeePerGas": "0x3b9aca00",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -1691,9 +1578,8 @@
         "maxFeePerGas": "0x169280e00",
         "maxPriorityFeePerGas": "0x2154b700",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -1715,9 +1601,8 @@
         "maxFeePerGas": "0x169280e00",
         "maxPriorityFeePerGas": "0x2154b700",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -1739,9 +1624,8 @@
         "maxFeePerGas": "0x169280e00",
         "maxPriorityFeePerGas": "0x2154b700",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -1763,9 +1647,8 @@
         "maxFeePerGas": "0x169280e00",
         "maxPriorityFeePerGas": "0x2154b700",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -1787,9 +1670,8 @@
         "maxFeePerGas": "0x169280e00",
         "maxPriorityFeePerGas": "0x2154b700",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -1811,9 +1693,8 @@
         "maxFeePerGas": "0x169280e00",
         "maxPriorityFeePerGas": "0x2154b700",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -1835,9 +1716,8 @@
         "maxFeePerGas": "0x169280e00",
         "maxPriorityFeePerGas": "0x2154b700",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -1859,9 +1739,8 @@
         "maxFeePerGas": "0x169280e00",
         "maxPriorityFeePerGas": "0x2154b700",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -1883,9 +1762,8 @@
         "maxFeePerGas": "0x5cc4fcd4",
         "maxPriorityFeePerGas": "0x3b9aca00",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -1907,9 +1785,8 @@
         "maxFeePerGas": "0x572a6432",
         "maxPriorityFeePerGas": "0x3bb2411f",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -1931,9 +1808,8 @@
         "maxFeePerGas": "0x169280e00",
         "maxPriorityFeePerGas": "0x2154b700",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -1955,9 +1831,8 @@
         "maxFeePerGas": "0x41dabf36",
         "maxPriorityFeePerGas": "0x1dcd6500",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -1979,9 +1854,8 @@
         "maxFeePerGas": "0xa09843e5",
         "maxPriorityFeePerGas": "0x80c8f2c5",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -2003,9 +1877,8 @@
         "maxFeePerGas": "0x169280e00",
         "maxPriorityFeePerGas": "0x2154b700",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -2027,9 +1900,8 @@
         "maxFeePerGas": "0x169280e00",
         "maxPriorityFeePerGas": "0x2154b700",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -2051,9 +1923,8 @@
         "maxFeePerGas": "0x5ce230f6",
         "maxPriorityFeePerGas": "0x3b9aca00",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -2075,9 +1946,8 @@
         "maxFeePerGas": "0x3527e108",
         "maxPriorityFeePerGas": "0x19afbdf5",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -2099,9 +1969,8 @@
         "maxFeePerGas": "0x5cc9f835",
         "maxPriorityFeePerGas": "0x3b9aca00",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -2123,9 +1992,8 @@
         "maxFeePerGas": "0x36d61600",
         "maxPriorityFeePerGas": "0x4b571c0",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -2147,9 +2015,8 @@
         "maxFeePerGas": "0x746a528800",
         "maxPriorityFeePerGas": "0x5f5e100",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -2171,9 +2038,8 @@
         "maxFeePerGas": "0x83bcc4ce",
         "maxPriorityFeePerGas": "0x5e477db3",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -2192,12 +2058,7 @@
         "to": "0xeba88149813bec1cccccfdb0dacefaaa5de94cb1",
         "value": "0x1369a48be38800",
         "gasPrice": "0x3b9aca00",
-        "maxFeePerGas": "0x0",
-        "maxPriorityFeePerGas": "0x0",
-        "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -2216,12 +2077,7 @@
         "to": "0xeba88149813bec1cccccfdb0dacefaaa5de94cb1",
         "value": "0x5208ce19897dc00",
         "gasPrice": "0x3b9aca00",
-        "maxFeePerGas": "0x0",
-        "maxPriorityFeePerGas": "0x0",
-        "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -2243,9 +2099,8 @@
         "maxFeePerGas": "0x425b415e",
         "maxPriorityFeePerGas": "0x1e2ecc89",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -2267,9 +2122,8 @@
         "maxFeePerGas": "0x425b415e",
         "maxPriorityFeePerGas": "0x1e2ecc89",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -2291,9 +2145,8 @@
         "maxFeePerGas": "0x41832c34",
         "maxPriorityFeePerGas": "0x1dcd6500",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -2315,9 +2168,8 @@
         "maxFeePerGas": "0x4339dacb",
         "maxPriorityFeePerGas": "0x1dcd6500",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -2339,9 +2191,8 @@
         "maxFeePerGas": "0x5cd13fa5",
         "maxPriorityFeePerGas": "0x3b9aca00",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -2363,9 +2214,8 @@
         "maxFeePerGas": "0x4190ab00",
         "maxPriorityFeePerGas": "0x23c34600",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -2387,9 +2237,8 @@
         "maxFeePerGas": "0x5e264a6b",
         "maxPriorityFeePerGas": "0x3b9aca00",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -2411,9 +2260,8 @@
         "maxFeePerGas": "0x39a546f4",
         "maxPriorityFeePerGas": "0x54e0840",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -2435,9 +2283,8 @@
         "maxFeePerGas": "0x31bd2246",
         "maxPriorityFeePerGas": "0x11edd126",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -2459,9 +2306,8 @@
         "maxFeePerGas": "0x3b9aca00",
         "maxPriorityFeePerGas": "0x1dcd6500",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -2509,9 +2355,8 @@
             ]
           }
         ],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -2533,9 +2378,8 @@
         "maxFeePerGas": "0x21aae2e9",
         "maxPriorityFeePerGas": "0x54e0840",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -2557,9 +2401,8 @@
         "maxFeePerGas": "0x5cddb8a5",
         "maxPriorityFeePerGas": "0x3b9aca00",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -2578,12 +2421,7 @@
         "to": "0x059738e331cb84ea87f3eaec6e37d1c00f4a7847",
         "value": "0x0",
         "gasPrice": "0x20e9572c",
-        "maxFeePerGas": "0x0",
-        "maxPriorityFeePerGas": "0x0",
-        "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -2605,9 +2443,8 @@
         "maxFeePerGas": "0x1fa549fa",
         "maxPriorityFeePerGas": "0x1fa549fa",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -2629,9 +2466,8 @@
         "maxFeePerGas": "0x3850dff8",
         "maxPriorityFeePerGas": "0x5e4b092",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -2653,9 +2489,8 @@
         "maxFeePerGas": "0x32871fae",
         "maxPriorityFeePerGas": "0x1af048",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -2677,9 +2512,8 @@
         "maxFeePerGas": "0x320ca46c",
         "maxPriorityFeePerGas": "0x1af048",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -2701,9 +2535,8 @@
         "maxFeePerGas": "0x20708432",
         "maxPriorityFeePerGas": "0x5f5e100",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -2725,9 +2558,8 @@
         "maxFeePerGas": "0x3b9aca00",
         "maxPriorityFeePerGas": "0x1dcd6500",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -2749,9 +2581,8 @@
         "maxFeePerGas": "0x23c34600",
         "maxPriorityFeePerGas": "0x2faf080",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -2773,9 +2604,8 @@
         "maxFeePerGas": "0x1dcd6500",
         "maxPriorityFeePerGas": "0x2faf080",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -2797,9 +2627,8 @@
         "maxFeePerGas": "0x5cfb087b",
         "maxPriorityFeePerGas": "0x3b9aca00",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -2821,9 +2650,8 @@
         "maxFeePerGas": "0x1fa549fa",
         "maxPriorityFeePerGas": "0x1fa549fa",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -2845,9 +2673,8 @@
         "maxFeePerGas": "0x1a89b19e7",
         "maxPriorityFeePerGas": "0x610d148",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -2869,9 +2696,8 @@
         "maxFeePerGas": "0x746a528800",
         "maxPriorityFeePerGas": "0x5f5e100",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -2893,9 +2719,8 @@
         "maxFeePerGas": "0x23c34600",
         "maxPriorityFeePerGas": "0x2faf080",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -2917,9 +2742,8 @@
         "maxFeePerGas": "0x201d89bb",
         "maxPriorityFeePerGas": "0x201d89bb",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -2941,9 +2765,8 @@
         "maxFeePerGas": "0x1e613cc6",
         "maxPriorityFeePerGas": "0x1e613cc6",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -2965,9 +2788,8 @@
         "maxFeePerGas": "0x23c34600",
         "maxPriorityFeePerGas": "0x2faf080",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -2989,9 +2811,8 @@
         "maxFeePerGas": "0x20708432",
         "maxPriorityFeePerGas": "0x5f5e100",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -3013,9 +2834,8 @@
         "maxFeePerGas": "0x5d010fb0",
         "maxPriorityFeePerGas": "0x3b9aca00",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -3037,9 +2857,8 @@
         "maxFeePerGas": "0x1f58bcf1",
         "maxPriorityFeePerGas": "0x1f58bcf1",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -3061,9 +2880,8 @@
         "maxFeePerGas": "0x1cd2654c",
         "maxPriorityFeePerGas": "0x3d98b3a",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -3085,9 +2903,8 @@
         "maxFeePerGas": "0x320ca46c",
         "maxPriorityFeePerGas": "0x1af048",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -3106,12 +2923,7 @@
         "to": "0xaf11086d5a233439a2e68e069b01cf44ce26ff3f",
         "value": "0x2540be400",
         "gasPrice": "0x1d1d2f8b",
-        "maxFeePerGas": "0x0",
-        "maxPriorityFeePerGas": "0x0",
-        "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -3133,9 +2945,8 @@
         "maxFeePerGas": "0x2622999e",
         "maxPriorityFeePerGas": "0x6767809",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -3157,9 +2968,8 @@
         "maxFeePerGas": "0x32871fae",
         "maxPriorityFeePerGas": "0x1af048",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -3181,9 +2991,8 @@
         "maxFeePerGas": "0x32a20ff6",
         "maxPriorityFeePerGas": "0x35e090",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -3205,9 +3014,8 @@
         "maxFeePerGas": "0x32215523",
         "maxPriorityFeePerGas": "0x93623",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -3229,9 +3037,8 @@
         "maxFeePerGas": "0x320ca46c",
         "maxPriorityFeePerGas": "0x1af048",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -3253,9 +3060,8 @@
         "maxFeePerGas": "0x5d2c9a89",
         "maxPriorityFeePerGas": "0x3b9aca00",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -3277,9 +3083,8 @@
         "maxFeePerGas": "0x322794b4",
         "maxPriorityFeePerGas": "0x35e090",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -3301,9 +3106,8 @@
         "maxFeePerGas": "0x322794b4",
         "maxPriorityFeePerGas": "0x1af048",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -3325,9 +3129,8 @@
         "maxFeePerGas": "0x1c32e59c",
         "maxPriorityFeePerGas": "0x1af048",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -3349,9 +3152,8 @@
         "maxFeePerGas": "0x320ca46c",
         "maxPriorityFeePerGas": "0x1af048",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -3373,9 +3175,8 @@
         "maxFeePerGas": "0x1f319e6e",
         "maxPriorityFeePerGas": "0x8028e",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -3397,9 +3198,8 @@
         "maxFeePerGas": "0x1e5bd985",
         "maxPriorityFeePerGas": "0x1af048",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -3421,9 +3221,8 @@
         "maxFeePerGas": "0x1fa0ecd7",
         "maxPriorityFeePerGas": "0x8028e",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -3445,9 +3244,8 @@
         "maxFeePerGas": "0x307554b6",
         "maxPriorityFeePerGas": "0x1af048",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -3469,9 +3267,8 @@
         "maxFeePerGas": "0x1b80f2b0",
         "maxPriorityFeePerGas": "0x1b80f2b0",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -3493,9 +3290,8 @@
         "maxFeePerGas": "0x5d3c62c4",
         "maxPriorityFeePerGas": "0x3b9aca00",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -3517,9 +3313,8 @@
         "maxFeePerGas": "0x1b80f2b0",
         "maxPriorityFeePerGas": "0x1b80f2b0",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -3541,9 +3336,8 @@
         "maxFeePerGas": "0x5d47a7c9",
         "maxPriorityFeePerGas": "0x3b9aca00",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -3565,9 +3359,8 @@
         "maxFeePerGas": "0x1d825e37",
         "maxPriorityFeePerGas": "0x1d825e37",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -3589,9 +3382,8 @@
         "maxFeePerGas": "0x5d4daefe",
         "maxPriorityFeePerGas": "0x3b9aca00",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -3613,9 +3405,8 @@
         "maxFeePerGas": "0x5ea1c60c",
         "maxPriorityFeePerGas": "0x3b9aca00",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -3637,9 +3428,8 @@
         "maxFeePerGas": "0x5eb07c34",
         "maxPriorityFeePerGas": "0x3b9aca00",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -3661,9 +3451,8 @@
         "maxFeePerGas": "0x5ec2ad66",
         "maxPriorityFeePerGas": "0x3b9aca00",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -3685,9 +3474,8 @@
         "maxFeePerGas": "0x5ed01000",
         "maxPriorityFeePerGas": "0x3b9aca00",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -3709,9 +3497,8 @@
         "maxFeePerGas": "0x5edff685",
         "maxPriorityFeePerGas": "0x3b9aca00",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -3733,9 +3520,8 @@
         "maxFeePerGas": "0x5eea0f61",
         "maxPriorityFeePerGas": "0x3b9aca00",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -3757,9 +3543,8 @@
         "maxFeePerGas": "0x5ef7abf0",
         "maxPriorityFeePerGas": "0x3b9aca00",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -3781,9 +3566,8 @@
         "maxFeePerGas": "0x5effb0ec",
         "maxPriorityFeePerGas": "0x3b9aca00",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -3805,9 +3589,8 @@
         "maxFeePerGas": "0x5f0a0081",
         "maxPriorityFeePerGas": "0x3b9aca00",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -3829,9 +3612,8 @@
         "maxFeePerGas": "0x5f1bc25c",
         "maxPriorityFeePerGas": "0x3b9aca00",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -3853,9 +3635,8 @@
         "maxFeePerGas": "0x5f2e6e15",
         "maxPriorityFeePerGas": "0x3b9aca00",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -3877,9 +3658,8 @@
         "maxFeePerGas": "0x5f350ffa",
         "maxPriorityFeePerGas": "0x3b9aca00",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -3901,9 +3681,8 @@
         "maxFeePerGas": "0x5f3df503",
         "maxPriorityFeePerGas": "0x3b9aca00",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -3925,9 +3704,8 @@
         "maxFeePerGas": "0x5f69c625",
         "maxPriorityFeePerGas": "0x3b9aca00",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -3949,9 +3727,8 @@
         "maxFeePerGas": "0x5f78a48c",
         "maxPriorityFeePerGas": "0x3b9aca00",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -3973,9 +3750,8 @@
         "maxFeePerGas": "0x5f7e1fc4",
         "maxPriorityFeePerGas": "0x3b9aca00",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -3997,9 +3773,8 @@
         "maxFeePerGas": "0x5f9d06de",
         "maxPriorityFeePerGas": "0x3b9aca00",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -4021,9 +3796,8 @@
         "maxFeePerGas": "0x5fa28217",
         "maxPriorityFeePerGas": "0x3b9aca00",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -4045,9 +3819,8 @@
         "maxFeePerGas": "0x684ee1800",
         "maxPriorityFeePerGas": "0xb2d05e00",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -4069,9 +3842,8 @@
         "maxFeePerGas": "0x5fb59379",
         "maxPriorityFeePerGas": "0x3b9aca00",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -4093,9 +3865,8 @@
         "maxFeePerGas": "0x5fbd522e",
         "maxPriorityFeePerGas": "0x3b9aca00",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -4114,12 +3885,7 @@
         "to": "0xdac17f958d2ee523a2206206994597c13d831ec7",
         "value": "0x0",
         "gasPrice": "0x3b9aca00",
-        "maxFeePerGas": "0x0",
-        "maxPriorityFeePerGas": "0x0",
-        "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -4141,9 +3907,8 @@
         "maxFeePerGas": "0x320ca46c",
         "maxPriorityFeePerGas": "0x1af048",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -4165,11 +3930,12 @@
         "maxFeePerGas": "0x7aef40a00",
         "maxPriorityFeePerGas": "0xb2d05e00",
         "accessList": [],
-        "authorizationList": [],
         "blobVersionedHashes": [
           "0x01b77d285e274c4f60bb901fc27832fbc17b7c867938371a215d17cdf5d8753d"
         ],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "maxFeePerBlobGas": "0x3b9aca00",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -4191,7 +3957,6 @@
         "maxFeePerGas": "0x37fdb9980",
         "maxPriorityFeePerGas": "0x12a9e8880",
         "accessList": [],
-        "authorizationList": [],
         "blobVersionedHashes": [
           "0x018bee7e0097c66be8119e4adeb9acfd24cdd83267529a2cf766eb6293265189",
           "0x014ca7922b4dbf55e1015f9cab6d794d5070b2eed58b1d6e1cdb0dbef7f42b40",
@@ -4199,7 +3964,9 @@
           "0x016e313798004d93aa73c8fc47c44b41f07c72733cfc54b13311258ab62da188",
           "0x01a2b854a1195a4e38501a0d9d1ae902793ad21c079d4f5e35b194e8b769b71f"
         ],
-        "yParity": "0x0"
+        "yParity": "0x0",
+        "maxFeePerBlobGas": "0x3b9aca00",
+        "blockTimestamp": "0x67f10a2f"
       },
       {
         "blockHash": "0x6525df29f1dba877605ec653607b609ae21526d9a090673d2116fda4dd45b80b",
@@ -4221,9 +3988,8 @@
         "maxFeePerGas": "0x1b8088c3",
         "maxPriorityFeePerGas": "0x0",
         "accessList": [],
-        "authorizationList": [],
-        "blobVersionedHashes": [],
-        "yParity": "0x1"
+        "yParity": "0x1",
+        "blockTimestamp": "0x67f10a2f"
       }
     ],
     "logsBloom": "0x99e34955b121ef33af065cccd5304b2125af032d0dd94160ce0e0514fc3a88d284510584a52932a6e9142fc240830fac77605f38eee23cb150b2a6cd0029c0c75400d1a3f0d8c8bee860f9f82060a1e22bce1a748d74e831541e82de896d3e771e0ce32cbb62b5762320a0c91c2a3c2ada376d3b1f807660a3c038b6e57a6b153238304d4ffa01886705e1756a5c4f1780e2e689abb5081961a8eb54129ad2fb9f605d3231bf6956015a9c95beda555820ccc518c0f1500cc5ee48aa0c6a5e698e8659eec8c63a294375509a413a5e49488cd34a84005e1442c5143ad5d060db433fbc5b732e2f3a0ded320098e1035746e98829713c2965500fb7bfa88cfc5d",

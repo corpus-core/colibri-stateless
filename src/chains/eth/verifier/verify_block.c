@@ -45,8 +45,9 @@ static ssz_builder_t create_txs_builder(verify_ctx_t* ctx, const ssz_def_t* tx_u
   ssz_builder_t txs_builder  = ssz_builder_for_def(tx_union_def->def.container.elements + ((int) include_txs));
   node_t*       root         = NULL;
   ssz_builder_t tx_builder   = ssz_builder_for_def(txs_builder.def->def.vector.type);
-  uint64_t      block_number = eth_el_header_get_uint64(el_header, EL_BLOCK_NUMBER);
-  uint64_t      base_fee     = eth_el_header_get_uint64(el_header, EL_BASE_FEE_PER_GAS);
+  uint64_t      block_number    = eth_el_header_get_uint64(el_header, EL_BLOCK_NUMBER);
+  uint64_t      base_fee        = eth_el_header_get_uint64(el_header, EL_BASE_FEE_PER_GAS);
+  uint64_t      block_timestamp = eth_el_header_get_uint64(el_header, EL_TIMESTAMP);
 
   int len = ssz_len(txs);
   for (int i = 0; i < len; i++) {
@@ -58,7 +59,7 @@ static ssz_builder_t create_txs_builder(verify_ctx_t* ctx, const ssz_def_t* tx_u
       // we reset the builder to to avoid allocating memory too ofter and simply resuing the already allocated memory
       tx_builder.fixed.data.len   = 0;
       tx_builder.dynamic.data.len = 0;
-      if (!c4_write_tx_data_from_raw(ctx, &tx_builder, raw_tx, tx_hash, block_hash, block_number, i, base_fee)) break;
+      if (!c4_write_tx_data_from_raw(ctx, &tx_builder, raw_tx, tx_hash, block_hash, block_number, i, base_fee, block_timestamp)) break;
       buffer_append(&tx_builder.fixed, tx_builder.dynamic.data);
       ssz_add_dynamic_list_bytes(&txs_builder, len, tx_builder.fixed.data);
     }

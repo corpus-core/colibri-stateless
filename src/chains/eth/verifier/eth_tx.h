@@ -56,6 +56,8 @@ extern "C" {
 #define TX_MINT                     16777216
 #define TX_IS_SYSTEM_TX             33554432
 #define TX_DEPOSIT_RECEIPT_VERSION  67108864
+#define TX_MAX_FEE_PER_BLOB_GAS     134217728  // bit 27 — set only for type-3 (blob) transactions
+#define TX_BLOCK_TIMESTAMP          268435456  // bit 28 — timestamp of the containing block
 
 // tools for eth tx and receipt handling
 
@@ -66,7 +68,8 @@ bool    c4_verify_mpt_proof(verify_ctx_t* ctx, ssz_ob_t receipt_proof, uint32_t 
 bool    c4_tx_verify_log_data(verify_ctx_t* ctx, ssz_ob_t log, bytes32_t block_hash, uint64_t block_number, uint32_t tx_index, bytes_t tx_raw, bytes_t receipt_raw);
 bytes_t c4_eth_create_tx_path(uint32_t tx_index, buffer_t* buf);
 bool    c4_write_tx_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer, bytes_t raw_tx,
-                                  bytes32_t tx_hash, bytes32_t block_hash, uint64_t block_number, uint32_t transaction_index, uint64_t base_fee);
+                                  bytes32_t tx_hash, bytes32_t block_hash, uint64_t block_number, uint32_t transaction_index,
+                                  uint64_t base_fee, uint64_t block_timestamp);
 /** Build one ETH_RECEIPT_DATA SSZ from RLP receipt and tx; sets *out_cumulative_gas to receipt cumulativeGasUsed and *out_log_index to the next block-level log index. */
 bool c4_write_receipt_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer, bytes_t tx_raw, bytes_t receipt_raw,
                                     bytes32_t block_hash, uint64_t block_number, uint32_t tx_index,

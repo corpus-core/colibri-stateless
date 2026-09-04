@@ -124,7 +124,9 @@ static const ssz_def_t ETH_TX_DATA[] = {
     SSZ_BYTES32("sourceHash"),                                                 // unique identifier for deposit origin (OP Stack only)
     SSZ_UINT256("mint"),                                                       // ETH value to mint on L2 (OP Stack only) - rendered as uint
     SSZ_BOOLEAN("isSystemTx"),                                                 // system transaction flag as bytes (OP Stack only) - rendered as uint
-    SSZ_UINT8("depositReceiptVersion")                                         // deposit receipt version (OP Stack only) - rendered as uint
+    SSZ_UINT8("depositReceiptVersion"),                                        // deposit receipt version (OP Stack only) - rendered as uint
+    SSZ_UINT256("maxFeePerBlobGas"),                                           // the maximum fee per blob gas the sender is willing to pay (EIP-4844, type-3 only)
+    SSZ_UINT64("blockTimestamp")                                               // the timestamp of the block containing the transaction (post-Cancun)
 };
 
 // :: Logs Proof
