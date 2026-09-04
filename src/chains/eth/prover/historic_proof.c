@@ -21,9 +21,9 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "../server/period_store_files.h"
 #include "historic_proof.h"
 #include "../server/eth_clients.h"
+#include "../server/period_store_files.h"
 #include "beacon.h"
 #include "beacon_types.h"
 #include "bootstrap_gloas.h"
@@ -171,7 +171,7 @@ static c4_status_t check_historic_proof_direct(prover_ctx_t* ctx, blockroot_proo
   TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, json_parse("\"latest\""), &block)); // we get the latest because we know for latest we get the a proof for the state. Older sztates are not stored
   TRY_ADD_ASYNC(status, get_historical_summaries(ctx, &block, &history_proof));
   TRY_ADD_ASYNC(status, c4_send_internal_request(ctx, bprintf(&buf2, C4_PS_INTERNAL_PREFIX "%d/" C4_PS_BLOCKS_SSZ, block_period), NULL, 0, &blocks)); // get the blockd
-  TRY_ASYNC(status);                                                                                                                  // finish requests before continuing
+  TRY_ASYNC(status);                                                                                                                                  // finish requests before continuing
 
   uint32_t offset_period = (uint32_t) (chain->fork_epochs[C4_FORK_CAPELLA - 1] >> chain->epochs_per_period_bits);
   json_t   data          = json_get(history_proof, "data"); // the main json-object
@@ -435,8 +435,8 @@ static c4_status_t fetch_updates_data(prover_ctx_t* ctx, syncdata_state_t* sync_
       // (13 chars + 19 padding = 32 bytes).
       static const bytes32_t LCU_FALLBACK_LOGGED_KEY = {
           'L', 'C', 'U', '_', 'F', 'A', 'L', 'L', 'B', 'A', 'C', 'K', '_',
-          'L', 'O', 'G', 'G', 'E', 'D', 0,   0,   0,   0,   0,   0,   0,
-          0,   0,   0,   0,   0,   0};
+          'L', 'O', 'G', 'G', 'E', 'D', 0, 0, 0, 0, 0, 0, 0,
+          0, 0, 0, 0, 0, 0};
       bytes_t already_logged = c4_state_cache_get(&ctx->state, (uint8_t*) LCU_FALLBACK_LOGGED_KEY);
       if (!already_logged.data) {
         log_warn("historic_proof: internal lcu_updates fallback to beacon (status=%d, len=%u)",
