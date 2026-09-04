@@ -166,6 +166,9 @@ static const ssz_def_t ETH_RECEIPT_DATA[] = {
     SSZ_UINT64("effectiveGasPrice"),                       // the effective gas price of the transaction
     SSZ_UINT64("depositNonce"),                            // the deposit nonce of the transaction
     SSZ_UINT32("depositReceiptVersion"),                   // the deposit receipt version of the transaction
+    SSZ_NULLABLE_BYTES("contractAddress", 20),             // address of the created contract (contract-creation only)
+    SSZ_UINT64("blobGasUsed"),                             // blob gas used by the transaction (EIP-4844, type-3 only)
+    SSZ_UINT64("blobGasPrice"),                            // blob gas price paid by the transaction (EIP-4844, type-3 only)
 };
 
 static const ssz_def_t ETH_RECEIPT_DATA_CONTAINER = SSZ_CONTAINER("EthTransactionReceipt", ETH_RECEIPT_DATA);

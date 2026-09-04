@@ -74,6 +74,22 @@ void eth_get_block_access_list_hash(bytes32_t out_hash, bytes_t rlp_encoded_bal)
 
 bytes_t     eth_el_header_get(bytes_t header, char* name);
 uint64_t    eth_el_header_get_uint64(bytes_t header, char* name);
+
+// EIP-4844 constants exposed for callers computing blob-related receipt fields.
+#define ETH_GAS_PER_BLOB                  131072u  // gas per blob (EIP-4844)
+#define ETH_BLOB_BASE_FEE_UPDATE_FRACTION 3338477u // per EIP-4844 spec
+#define ETH_MIN_BLOB_BASE_FEE             1u       // wei
+
+/**
+ * EIP-4844 blob base fee: MIN_BLOB_BASE_FEE * e^(excess_blob_gas / BLOB_BASE_FEE_UPDATE_FRACTION),
+ * approximated via a Taylor series. Same algorithm the execution layer uses to price blob gas.
+ *
+ * @param factor Base factor (typically ETH_MIN_BLOB_BASE_FEE).
+ * @param numerator Exponent numerator (typically excess_blob_gas).
+ * @param denominator Exponent denominator (typically ETH_BLOB_BASE_FEE_UPDATE_FRACTION).
+ * @return factor * e^(numerator/denominator), rounded down.
+ */
+uint64_t eth_fake_exponential(uint64_t factor, uint64_t numerator, uint64_t denominator);
 c4_status_t eth_el_header_build_from_ep(bytes_t* el_header, eth_el_header_ctx_t* ctx);
 c4_status_t eth_el_header_build_from_json(c4_state_t* state, bytes_t* el_header, fork_id_t fork, json_t block);
 c4_status_t eth_el_header_get_from_raw_block(c4_state_t* state, bytes_t raw_block, bytes_t* el_header, ssz_builder_t* body_builder);

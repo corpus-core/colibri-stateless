@@ -25,6 +25,7 @@
 #include "beacon_types.h"
 #include "bytes.h"
 #include "crypto.h"
+#include "el_header.h"
 #include "json.h"
 #include "patricia.h"
 #include "rlp.h"
@@ -893,7 +894,8 @@ INTERNAL bool c4_write_tx_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer
 
 bool c4_write_receipt_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer, bytes_t tx_raw, bytes_t receipt_raw,
                                     bytes32_t block_hash, uint64_t block_number, uint32_t tx_index,
-                                    uint64_t base_fee, uint64_t* out_cumulative_gas,
+                                    uint64_t base_fee, uint64_t excess_blob_gas, uint64_t block_timestamp,
+                                    uint64_t* out_cumulative_gas,
                                     uint32_t* out_log_index) {
   bytes_t                val             = {0};
   bytes_t                receipt_list    = receipt_raw;
@@ -907,6 +909,8 @@ bool c4_write_receipt_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer, by
   uint64_t               effective_gas   = 0;
   uint64_t               deposit_nonce   = 0;
   uint32_t               deposit_ver     = 0;
+  uint64_t               tx_nonce        = 0;
+  uint32_t               num_blobs       = 0;
   const rlp_type_defs_t* defs_ptr        = NULL;
 
   if (!buffer || !buffer->def || !out_cumulative_gas || !out_log_index) return false;
@@ -958,6 +962,45 @@ bool c4_write_receipt_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer, by
   if (type >= TX_TYPE_EIP1559 && type != TX_TYPE_DEPOSITED)
     effective_gas = base_fee + (max_priority_fee_per_gas_rlp_val < (max_fee_per_gas_rlp_val - base_fee) ? max_priority_fee_per_gas_rlp_val : (max_fee_per_gas_rlp_val - base_fee));
 
+  // Extract tx nonce (deposit txs also encode a `nonce`, but we prefer the receipt
+  // depositNonce for them, so read only for signed txs).
+  if (type != TX_TYPE_DEPOSITED)
+    tx_nonce = bytes_as_be(get_rlp_field(ctx, tx_list_payload, defs_ptr, "nonce", RLP_ITEM));
+
+  // Blob count for EIP-4844: number of blob versioned hashes in the tx.
+  if (type == TX_TYPE_EIP4844) {
+    bytes_t blob_hashes = get_rlp_field(ctx, tx_list_payload, defs_ptr, "blobVersionedHashes", RLP_LIST);
+    if (blob_hashes.data) {
+      int n = rlp_decode(&blob_hashes, -1, NULL);
+      if (n > 0) num_blobs = (uint32_t) n;
+    }
+  }
+  if (ctx->state.error != NULL) return false;
+
+  // Blob gas price is priced by the EL from the block's excess_blob_gas.
+  uint64_t blob_gas_price = 0;
+  uint64_t blob_gas_used  = (uint64_t) num_blobs * ETH_GAS_PER_BLOB;
+  if (type == TX_TYPE_EIP4844)
+    blob_gas_price = eth_fake_exponential(ETH_MIN_BLOB_BASE_FEE, excess_blob_gas, ETH_BLOB_BASE_FEE_UPDATE_FRACTION);
+
+  // Contract creation address: for successful signed txs where `to` is empty,
+  // the created contract address is keccak256(rlp([sender, nonce]))[12:32].
+  // CREATE2-style deployments produce their own address inside the EVM and are
+  // NOT set on the outer receipt.  Deposit txs never create contracts here.
+  bytes32_t contract_hash_buf   = {0};
+  bytes_t   contract_address    = NULL_BYTES;
+  bool      has_contract_addr   = false;
+  if (type != TX_TYPE_DEPOSITED && status_u64 == 1 && to_field.len == 0) {
+    uint8_t  rlp_tmp[64] = {0};
+    buffer_t rlp_buf     = {.data = {.data = rlp_tmp, .len = 0}, .allocated = -(int32_t) sizeof(rlp_tmp)};
+    rlp_add_item(&rlp_buf, bytes(from_address, 20));
+    rlp_add_uint64(&rlp_buf, tx_nonce);
+    rlp_to_list(&rlp_buf);
+    keccak(rlp_buf.data, contract_hash_buf);
+    contract_address  = bytes(contract_hash_buf + 12, 20);
+    has_contract_addr = true;
+  }
+
   // Receipt opt_mask: expose only fields that actually belong to this receipt's
   // transaction type (issue #343). The bit indices track the order of fields in
   // ETH_RECEIPT_DATA (see verify_data_types.h) - bit 0 is the mask itself,
@@ -979,6 +1022,10 @@ bool c4_write_receipt_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer, by
   uint32_t receipt_mask = receipt_base_mask;
   if (type == TX_TYPE_DEPOSITED)
     receipt_mask |= (1u << 14) | (1u << 15); // depositNonce, depositReceiptVersion (OP Stack)
+  if (has_contract_addr)
+    receipt_mask |= (1u << 16); // contractAddress
+  if (type == TX_TYPE_EIP4844)
+    receipt_mask |= (1u << 17) | (1u << 18); // blobGasUsed, blobGasPrice
   ssz_add_uint32(buffer, receipt_mask);
   ssz_add_bytes(buffer, "blockHash", bytes(block_hash, 32));
   ssz_add_uint64(buffer, block_number);
@@ -986,9 +1033,15 @@ bool c4_write_receipt_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer, by
   ssz_add_uint32(buffer, tx_index);
   ssz_add_uint8(buffer, (uint8_t) type);
   ssz_add_bytes(buffer, "from", bytes(from_address, 20));
-  uint8_t to_pad[20] = {0};
-  if (to_field.len > 0 && to_field.len <= 20) memcpy(to_pad, to_field.data, to_field.len);
-  ssz_add_bytes(buffer, "to", bytes(to_pad, 20));
+  // `to` is SSZ_NULLABLE_BYTES(20): empty payload => rendered as `null` (contract creation).
+  if (to_field.len == 0) {
+    ssz_add_bytes(buffer, "to", NULL_BYTES);
+  }
+  else {
+    uint8_t to_pad[20] = {0};
+    if (to_field.len <= 20) memcpy(to_pad, to_field.data, to_field.len);
+    ssz_add_bytes(buffer, "to", bytes(to_pad, 20));
+  }
   ssz_add_uint64(buffer, cumulative_gas);
   ssz_add_uint64(buffer, gas_used);
 
@@ -1033,6 +1086,10 @@ bool c4_write_receipt_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer, by
   ssz_add_uint64(buffer, effective_gas);
   ssz_add_uint64(buffer, deposit_nonce);
   ssz_add_uint32(buffer, deposit_ver);
+  // contractAddress: nullable list; empty payload -> `null` in JSON.
+  ssz_add_bytes(buffer, "contractAddress", has_contract_addr ? contract_address : NULL_BYTES);
+  ssz_add_uint64(buffer, blob_gas_used);
+  ssz_add_uint64(buffer, blob_gas_price);
   *out_cumulative_gas = cumulative_gas;
   *out_log_index      = *out_log_index + (uint32_t) num_logs;
   return true;

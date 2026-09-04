@@ -303,6 +303,21 @@ uint64_t eth_el_header_get_uint64(bytes_t header, char* name) {
   return bytes_as_be(value);
 }
 
+uint64_t eth_fake_exponential(uint64_t factor, uint64_t numerator, uint64_t denominator) {
+  // EIP-4844 blob base fee approximation: factor * e^(numerator/denominator) via Taylor series.
+  // Uses (a*b)/c = (a/c)*b + (a%c)*b/c to avoid 128-bit intermediate values.
+  uint64_t i = 1, output = 0, numerator_accum = factor * denominator;
+  while (numerator_accum > 0) {
+    output += numerator_accum;
+    uint64_t div    = denominator * i;
+    uint64_t q      = numerator_accum / div;
+    uint64_t r      = numerator_accum % div;
+    numerator_accum = q * numerator + r * numerator / div;
+    i++;
+  }
+  return output / denominator;
+}
+
 c4_status_t eth_el_header_get_from_raw_block(c4_state_t* state, bytes_t raw_block, bytes_t* el_header, ssz_builder_t* body_builder) {
   buffer_t buffer       = {0};
   bytes_t  transactions = NULL_BYTES;

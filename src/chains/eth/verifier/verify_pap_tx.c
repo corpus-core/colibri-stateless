@@ -245,12 +245,14 @@ static bool pap_tx_receipt(verify_ctx_t* ctx) {
 #else
   RETURN_VERIFY_ERROR(ctx, "PAP: ETH_RECEIPT is not enabled");
 #endif
-  ssz_ob_t receipts        = ssz_get(&receipt_proof, "receipts");
-  ssz_ob_t transactions    = ssz_get(&receipt_proof, "transactions");
-  uint64_t blk_num         = eth_el_header_get_uint64(el_header, EL_BLOCK_NUMBER);
-  uint64_t base_fee        = eth_el_header_get_uint64(el_header, EL_BASE_FEE_PER_GAS);
-  uint32_t num_receipts    = ssz_len(receipts);
-  uint64_t prev_cumulative = 0;
+  ssz_ob_t receipts         = ssz_get(&receipt_proof, "receipts");
+  ssz_ob_t transactions     = ssz_get(&receipt_proof, "transactions");
+  uint64_t blk_num          = eth_el_header_get_uint64(el_header, EL_BLOCK_NUMBER);
+  uint64_t base_fee         = eth_el_header_get_uint64(el_header, EL_BASE_FEE_PER_GAS);
+  uint64_t excess_blob_gas  = eth_el_header_get_uint64(el_header, EL_EXCESS_BLOB_GAS);
+  uint64_t block_ts         = eth_el_header_get_uint64(el_header, EL_TIMESTAMP);
+  uint32_t num_receipts     = ssz_len(receipts);
+  uint64_t prev_cumulative  = 0;
   uint32_t next_log_index  = 0;
   if (tx_index > num_receipts) RETURN_VERIFY_ERROR(ctx, "PAP: invalid transaction index");
 
@@ -260,7 +262,9 @@ static bool pap_tx_receipt(verify_ctx_t* ctx) {
     buffer_reset(&builder.fixed);
     bytes_t raw_tx      = ssz_at(transactions, i).bytes;
     bytes_t raw_receipt = ssz_at(receipts, i).bytes;
-    if (!c4_write_receipt_data_from_raw(ctx, &builder, raw_tx, raw_receipt, el_block_hash, blk_num, i, base_fee, &prev_cumulative, &next_log_index))
+    if (!c4_write_receipt_data_from_raw(ctx, &builder, raw_tx, raw_receipt, el_block_hash, blk_num, i,
+                                        base_fee, excess_blob_gas, block_ts,
+                                        &prev_cumulative, &next_log_index))
       RETURN_VERIFY_ERROR(ctx, "invalid receipt data from RLP!");
   }
 
