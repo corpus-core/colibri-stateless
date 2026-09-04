@@ -466,7 +466,7 @@ c4_status_t c4_fetch_client_updates(prover_ctx_t* ctx, uint64_t start_period, ui
 }
 
 static c4_status_t fetch_updates_data(prover_ctx_t* ctx, syncdata_state_t* sync_data, ssz_builder_t* updates) {
-  uint32_t count = (uint32_t) (sync_data->required_period - sync_data->newest_period);
+  uint32_t count          = (uint32_t) (sync_data->required_period - sync_data->newest_period);
   bytes_t  client_updates = {0};
   TRY_ASYNC(c4_fetch_client_updates(ctx, sync_data->newest_period, count, &client_updates));
 
