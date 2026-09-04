@@ -609,26 +609,23 @@ static ssz_builder_t build_authorization_list_ssz(verify_ctx_t* ctx, bytes_t rlp
       ssz_add_uint64(&auth_entry_builder, bytes_as_be(rlp_item_nonce));
 
       // Field 3 in SSZ: r (from RLP index 4)
-      bytes32_t r_val = {0};
       if (rlp_decode(&auth_tuple_rlp, 4, &rlp_item_r) != RLP_ITEM || rlp_item_r.len > 32) {
         c4_state_add_error(&ctx->state, "build_authorization_list_ssz: Failed to decode auth r or r too long");
         ssz_builder_free(&auth_entry_builder);
         ssz_builder_free(&authorization_list_builder);
         return (ssz_builder_t) {0};
       }
-      if (rlp_item_r.len > 0) memcpy(r_val + (32 - rlp_item_r.len), rlp_item_r.data, rlp_item_r.len);
-      ssz_add_bytes(&auth_entry_builder, "r", bytes(r_val, 32));
+      // RLP is big-endian, SSZ UINT256 stores little-endian; ssz_add_uint256 performs the swap.
+      ssz_add_uint256(&auth_entry_builder, rlp_item_r);
 
       // Field 4 in SSZ: s (from RLP index 5)
-      bytes32_t s_val = {0};
       if (rlp_decode(&auth_tuple_rlp, 5, &rlp_item_s) != RLP_ITEM || rlp_item_s.len > 32) {
         c4_state_add_error(&ctx->state, "build_authorization_list_ssz: Failed to decode auth s or s too long");
         ssz_builder_free(&auth_entry_builder);
         ssz_builder_free(&authorization_list_builder);
         return (ssz_builder_t) {0};
       }
-      if (rlp_item_s.len > 0) memcpy(s_val + (32 - rlp_item_s.len), rlp_item_s.data, rlp_item_s.len);
-      ssz_add_bytes(&auth_entry_builder, "s", bytes(s_val, 32));
+      ssz_add_uint256(&auth_entry_builder, rlp_item_s);
 
       // Field 5 in SSZ: yParity (from RLP index 3)
       if (rlp_decode(&auth_tuple_rlp, 3, &rlp_item_y_parity) != RLP_ITEM) {
@@ -772,14 +769,16 @@ INTERNAL bool c4_write_tx_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer
   ssz_add_uint64(buffer, type == TX_TYPE_DEPOSITED ? 0 : bytes_as_be(get_rlp_field(ctx, rlp_list_payload, defs_ptr, "nonce", RLP_ITEM)));
   ssz_add_bytes(buffer, "input", get_rlp_field(ctx, rlp_list_payload, defs_ptr, "input", RLP_ITEM));
 
-  // Handle signature fields - deposited transactions don't have signatures
+  // Handle signature fields - deposited transactions don't have signatures.
+  // r/s are UINT256 (little-endian in SSZ, rendered as QUANTITY in JSON per RPC spec).
+  // ssz_add_uint256 converts big-endian RLP input to little-endian SSZ storage.
   if (type == TX_TYPE_DEPOSITED) {
-    ssz_add_bytes(buffer, "r", NULL_BYTES);
-    ssz_add_bytes(buffer, "s", NULL_BYTES);
+    ssz_add_uint256(buffer, NULL_BYTES);
+    ssz_add_uint256(buffer, NULL_BYTES);
   }
   else {
-    ssz_add_bytes(buffer, "r", get_rlp_field(ctx, rlp_list_payload, defs_ptr, "r", RLP_ITEM));
-    ssz_add_bytes(buffer, "s", get_rlp_field(ctx, rlp_list_payload, defs_ptr, "s", RLP_ITEM));
+    ssz_add_uint256(buffer, get_rlp_field(ctx, rlp_list_payload, defs_ptr, "r", RLP_ITEM));
+    ssz_add_uint256(buffer, get_rlp_field(ctx, rlp_list_payload, defs_ptr, "s", RLP_ITEM));
   }
 
   ssz_add_uint32(buffer, chain_id);
@@ -815,15 +814,8 @@ INTERNAL bool c4_write_tx_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer
     // Populate with actual values for deposited transactions
     ssz_add_bytes(buffer, "sourceHash", get_rlp_field(ctx, rlp_list_payload, defs_ptr, "sourceHash", RLP_ITEM));
 
-    // Convert mint from RLP (big-endian) to SSZ (little-endian) bytes
-    bytes_t mint_rlp = get_rlp_field(ctx, rlp_list_payload, defs_ptr, "mint", RLP_ITEM);
-    // Only use as many bytes as needed, convert big-endian to little-endian
-    uint8_t mint_le[32] = {0}; // Max 32 bytes for uint256
-    int     actual_len  = mint_rlp.len > 32 ? 32 : mint_rlp.len;
-    for (int i = 0; i < actual_len; i++) {
-      mint_le[i] = mint_rlp.data[mint_rlp.len - 1 - i];
-    }
-    ssz_add_bytes(buffer, "mint", bytes(mint_le, actual_len ? actual_len : 1));
+    // mint is UINT256; ssz_add_uint256 performs the big-endian -> little-endian swap.
+    ssz_add_uint256(buffer, get_rlp_field(ctx, rlp_list_payload, defs_ptr, "mint", RLP_ITEM));
     ssz_add_bytes(buffer, "isSystemTx", bytes(&system_tx_true, 1));
 
     // Add depositReceiptVersion (always 1 for current Optimism version)
@@ -831,9 +823,11 @@ INTERNAL bool c4_write_tx_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer
     ssz_add_bytes(buffer, "depositReceiptVersion", bytes(&deposit_receipt_version, 1));
   }
   else {
-    // Add empty values for non-deposited transactions
+    // Add empty values for non-deposited transactions.
+    // sourceHash is BYTES32 (32 fixed bytes), mint is UINT256 (32 little-endian bytes),
+    // isSystemTx is BOOLEAN (1 byte), depositReceiptVersion is UINT8 (1 byte).
     ssz_add_bytes(buffer, "sourceHash", NULL_BYTES);
-    ssz_add_bytes(buffer, "mint", NULL_BYTES);
+    ssz_add_uint256(buffer, NULL_BYTES);
     ssz_add_bytes(buffer, "isSystemTx", NULL_BYTES);
     ssz_add_bytes(buffer, "depositReceiptVersion", NULL_BYTES);
   }

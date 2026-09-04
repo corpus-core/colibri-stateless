@@ -88,8 +88,8 @@ static const ssz_def_t ETH_AUTHORIZATION_LIST_DATA[] = {
     SSZ_ADDRESS("address"), // the codebase to be used for the authorization
     SSZ_UINT32("chainId"),  // the chainId of the transaction
     SSZ_UINT64("nonce"),    // nonce of the transaction
-    SSZ_BYTES32("r"),       // the r value of the transaction
-    SSZ_BYTES32("s"),       // the s value of the transaction
+    SSZ_UINT256("r"),       // the r value of the transaction signature (QUANTITY per RPC spec)
+    SSZ_UINT256("s"),       // the s value of the transaction signature (QUANTITY per RPC spec)
     SSZ_UINT8("yParity")    // the yParity of the transaction
 };
 // Container type for authorization list entries (EIP-7702)
@@ -106,8 +106,8 @@ static const ssz_def_t ETH_TX_DATA[] = {
     SSZ_UINT8("type"),                                                         // the type of the transaction
     SSZ_UINT64("nonce"),                                                       // the nonce of the transaction
     SSZ_BYTES("input", 1073741824),                                            // the raw transaction payload
-    SSZ_BYTES32("r"),                                                          // the r value of the transaction
-    SSZ_BYTES32("s"),                                                          // the s value of the transaction signature
+    SSZ_UINT256("r"),                                                          // the r value of the transaction signature (QUANTITY per RPC spec)
+    SSZ_UINT256("s"),                                                          // the s value of the transaction signature (QUANTITY per RPC spec)
     SSZ_UINT32("chainId"),                                                     // the chain ID of the transaction
     SSZ_UINT64("v"),                                                           // the v value of the transaction signature
     SSZ_UINT64("gas"),                                                         // the gas limit
@@ -238,9 +238,9 @@ static const ssz_def_t ETH_BLOCK_HEADER_DATA[] = {
 
 // Represents the storage proof of a key. The value can be taken from the last entry, which is the leaf of the proof.
 static const ssz_def_t ETH_STORAGE_PROOF_DATA[] = {
-    SSZ_BYTES32("key"),                     // the key
-    SSZ_BYTES32("value"),                   // the value
-    SSZ_LIST("proof", ssz_bytes_list, 1024) // Patricia merkle proof (simplified)
+    SSZ_BYTES32("key"),                      // the key
+    SSZ_UINT256("value"),                    // the value (QUANTITY per RPC spec)
+    SSZ_LIST("proof", ssz_bytes_list, 1024), // Patricia merkle proof (simplified)
 };
 
 // Container type for storage proof data
