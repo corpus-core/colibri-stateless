@@ -325,50 +325,30 @@ static c4_status_t fetch_bootstrap_by_root(prover_ctx_t* ctx, bytes32_t header_r
   if (cached_fallback.data)
     return decode_bootstrap_bytes(ctx, cached_fallback, out_bootstrap);
 
-  // 2) Try the primary beacon endpoint. Check whether we already have a
-  //    completed-with-error data_request for this exact URL -- in that case
-  //    we skip re-calling `c4_send_beacon_ssz` (which would just re-emit
-  //    `THROW_ERROR(data_request->error)`) and go straight to fallback.
+  // 2) Try the primary beacon endpoint. Use the non-throwing variant so a
+  //    404 / regen error does not abort the whole prover run -- we want to
+  //    catch it and switch to the Lodestar self-build fallback (when the
+  //    operator opted in via C4_PROVER_FLAG_LODESTAR).
   char     path[200] = {0};
   buffer_t path_buf  = stack_buffer(path);
   bprintf(&path_buf, "eth/v1/beacon/light_client/bootstrap/0x%x", bytes(header_root, 32));
 
-  bytes32_t primary_id = {0};
-  c4_compute_request_id(path, NULL, primary_id);
-  data_request_t* primary_req  = c4_state_get_data_request_by_id(&ctx->state, primary_id);
-  bool            skip_primary = primary_req && primary_req->error != NULL;
+  data_request_t* primary_req = NULL;
+  c4_status_t     st          = c4_send_beacon_ssz_no_throw(ctx, path, NULL, DEFAULT_TTL, &primary_req);
+  if (st == C4_PENDING) return C4_PENDING;
+  if (st == C4_SUCCESS) return decode_bootstrap_bytes(ctx, primary_req->response, out_bootstrap);
 
-  if (!skip_primary) {
-    ssz_ob_t    result = {0};
-    c4_status_t st     = c4_send_beacon_ssz(ctx, path, NULL, NULL, DEFAULT_TTL, &result);
-    if (st == C4_PENDING) return C4_PENDING;
-    if (st == C4_SUCCESS) return decode_bootstrap_bytes(ctx, result.bytes, out_bootstrap);
-
-    // Primary reported C4_ERROR. The self-build fallback below relies on
-    // Lodestar's unofficial CompactMultiProof endpoint, so it only makes
-    // sense to attempt it against a Lodestar node. Without the flag we
-    // propagate the primary error unchanged so the prover fails fast.
-    if (!(ctx->flags & C4_PROVER_FLAG_LODESTAR)) return C4_ERROR;
-
-    // `ctx->state.error` was set inside the request layer and would abort
-    // the whole prover run -- clear it so we can attempt the fallback. The
-    // failed `data_request_t.error` stays set, so the next iteration into
-    // this function takes the `skip_primary` branch above and does not
-    // re-throw the same error.
-    safe_free(ctx->state.error);
-    ctx->state.error = NULL;
-  }
-
-  // 3) Fallback: self-build the Gloas bootstrap from a state proof. May
-  //    return C4_PENDING for its own beacon/lodestar round-trips. Guarded
-  //    by C4_PROVER_FLAG_LODESTAR above (also enforced here for a defense-
-  //    in-depth check when the cached-fallback branch is re-entered).
+  // st == C4_ERROR: the request layer left `ctx->state.error` untouched, so
+  // we can decide locally whether to fall back or to surface the error.
   if (!(ctx->flags & C4_PROVER_FLAG_LODESTAR)) {
-    // Preserve the concrete primary-request cause in the error message so
-    // the operator sees "HTTP 404 ..." rather than just the meta-hint.
+    // No fallback available. Preserve the concrete primary-request cause
+    // so the operator sees "HTTP 404 ..." rather than just a meta-hint.
     THROW_ERROR_WITH("beacon bootstrap failed and Lodestar fallback disabled: %s",
                      primary_req && primary_req->error ? primary_req->error : "unknown error");
   }
+
+  // 3) Fallback: self-build the Gloas bootstrap from a state proof. May
+  //    return C4_PENDING for its own beacon/lodestar round-trips.
   bytes_t     built_ssz = NULL_BYTES;
   c4_status_t fb        = c4_create_gloas_bootstrap_by_root(ctx, header_root, &built_ssz);
   if (fb != C4_SUCCESS) return fb;
@@ -433,52 +413,47 @@ static c4_status_t fetch_updates_data(prover_ctx_t* ctx, syncdata_state_t* sync_
   // missing periods from a beacon node. It's noticeably cheaper than a
   // dedicated beacon roundtrip when the cache is warm.
   //
-  // Fallback: if the internal handler errors out, or returns a body that is
-  // too short to even hold one update prefix, drop back to a direct beacon
-  // fetch. The failed internal-request error stays sticky on the underlying
-  // `data_request_t` (keyed by URL hash), so we detect that state on the
-  // async re-entry and go straight to the beacon path instead of re-throwing
-  // the same error. Mirrors the pattern in `fetch_bootstrap_by_root`.
+  // Fallback: if the internal handler errors out or returns a body that is
+  // too short to hold even one update prefix, drop back to a direct beacon
+  // fetch. `_no_throw` leaves `ctx->state.error` untouched, so the transient
+  // error is invisible to the outer prover run. A per-context state-cache
+  // marker keyed by a fixed 32-byte ASCII sentinel ensures the warning is
+  // emitted exactly once across all async re-entries -- the collision
+  // probability with any sha256(url) is 2^-256 and the sentinel is never
+  // derived from user data, so it cannot alias a real request id.
   bool internal_ok = false;
   if (ctx->flags & C4_PROVER_FLAG_CHAIN_STORE) {
-    // Sticky-error probe: look up the exact request-id `c4_send_internal_request`
-    // would create for this (path, query). If a prior attempt already errored
-    // out (via a real transport error or by us marking a short response,
-    // below), skip straight to the beacon path -- avoids re-throwing the
-    // same error, redundant `log_warn`s, and re-hashing on every async
-    // re-entry.
-    bytes32_t internal_id = {0};
-    c4_compute_request_id("lcu_updates", query, internal_id);
-    data_request_t* prior         = c4_state_get_data_request_by_id(&ctx->state, internal_id);
-    bool            skip_internal = prior && prior->error != NULL;
-
-    if (!skip_internal) {
-      c4_status_t st = c4_send_internal_request(ctx, "lcu_updates", query, 0, &result.bytes);
-      if (st == C4_PENDING) return C4_PENDING;
-      if (st == C4_SUCCESS && result.bytes.len >= UPDATE_PREFIX_SIZE) {
-        internal_ok = true;
-      }
-      else {
-        // First-time fallback: log once so the operator can distinguish a
-        // real store miss from a transient beacon-side issue behind the
-        // internal handler.
+    data_request_t* internal_req = NULL;
+    c4_status_t     st           = c4_send_internal_request_no_throw(ctx, "lcu_updates", query, 0, &internal_req);
+    if (st == C4_PENDING) return C4_PENDING;
+    if (st == C4_SUCCESS && internal_req->response.len >= UPDATE_PREFIX_SIZE) {
+      result.bytes = internal_req->response;
+      internal_ok  = true;
+    }
+    else {
+      // ASCII sentinel key "LCU_FALLBACK_LOGGED\0\0\0\0\0\0\0\0\0\0\0\0\0"
+      // (13 chars + 19 padding = 32 bytes).
+      static const bytes32_t LCU_FALLBACK_LOGGED_KEY = {
+          'L', 'C', 'U', '_', 'F', 'A', 'L', 'L', 'B', 'A', 'C', 'K', '_',
+          'L', 'O', 'G', 'G', 'E', 'D', 0,   0,   0,   0,   0,   0,   0,
+          0,   0,   0,   0,   0,   0};
+      bytes_t already_logged = c4_state_cache_get(&ctx->state, (uint8_t*) LCU_FALLBACK_LOGGED_KEY);
+      if (!already_logged.data) {
         log_warn("historic_proof: internal lcu_updates fallback to beacon (status=%d, len=%u)",
-                 (int) st, (unsigned) result.bytes.len);
-
-        // For the short-response branch (`st == C4_SUCCESS` but too small
-        // to be a valid update list) the request layer left `.error == NULL`
-        // -- mark it here so the `skip_internal` probe above short-circuits
-        // subsequent async re-entries. The transport-error path already has
-        // `.error` set.
-        if (st == C4_SUCCESS) {
-          data_request_t* cur = c4_state_get_data_request_by_id(&ctx->state, internal_id);
-          if (cur && !cur->error)
-            cur->error = strdup("internal lcu_updates: short response");
-        }
-        safe_free(ctx->state.error);
-        ctx->state.error = NULL;
-        result           = (ssz_ob_t) {0};
+                 (int) st, (unsigned) internal_req->response.len);
+        // Store a 1-byte sentinel (value irrelevant, presence matters).
+        // Ownership transfers to the state cache; freed with the ctx.
+        uint8_t* sentinel = (uint8_t*) safe_calloc(1, 1);
+        c4_state_cache_set(&ctx->state, (uint8_t*) LCU_FALLBACK_LOGGED_KEY, bytes(sentinel, 1));
       }
+      // Short-response branch (`st == C4_SUCCESS` but too small to be a
+      // valid update list): the request layer left `.error == NULL`. Mark
+      // it so future `_no_throw` calls in this ctx short-circuit to
+      // `C4_ERROR` without re-probing the response. Semantically this
+      // overloads `.error` with an application-level state -- documented
+      // here so future readers do not mistake it for a transport error.
+      if (st == C4_SUCCESS && !internal_req->error)
+        internal_req->error = strdup("internal lcu_updates: short response");
     }
   }
   if (!internal_ok)

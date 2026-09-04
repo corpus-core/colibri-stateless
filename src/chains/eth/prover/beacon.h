@@ -191,22 +191,44 @@ c4_status_t c4_send_beacon_ssz_with_client_type(prover_ctx_t* ctx, char* path, c
 c4_status_t c4_send_internal_request(prover_ctx_t* ctx, char* path, char* query, uint32_t ttl, bytes_t* result);
 
 /**
- * Compute the deterministic `data_request_t.id` used by `c4_send_beacon_*`
- * and `c4_send_internal_request` for the given `(path, query)` pair.
+ * Non-throwing variant of `c4_send_beacon_json`. Enqueues the request (or
+ * reuses an existing one) and returns the underlying `data_request_t*`
+ * without touching `ctx->state.error`. This lets callers handle transport
+ * errors locally -- e.g. clearing them, falling back to another endpoint,
+ * or mapping "404 / not found" to a domain-level empty result.
  *
- * Callers can use this to probe `ctx->state` for a prior request with the
- * exact same URL (e.g. via `c4_state_get_data_request_by_id`) without
- * duplicating the internal concatenation and hashing logic.
+ * @param ctx     prover context
+ * @param path    beacon API path (e.g. `"eth/v1/beacon/headers?slot=..."`)
+ * @param query   optional query string (appended after `?`); may be NULL
+ * @param ttl     cache TTL in seconds (0 = default)
+ * @param out_req receives the underlying `data_request_t*`; never NULL on
+ *                any of the three returned statuses
  *
- * The layout matches the request layer exactly:
- *   - `query == NULL` -> `path`
- *   - `query != NULL` -> `path + "?" + query`
- *
- * @param path   the request path (must not be NULL)
- * @param query  optional query string appended after `?`; may be NULL
- * @param out_id 32-byte buffer that receives the SHA-256 hash
+ * @return
+ *   - `C4_PENDING`: request was enqueued or is still awaiting a response.
+ *   - `C4_SUCCESS`: response is available. Read `(*out_req)->response`.
+ *     The caller is responsible for JSON-parsing / validating the body.
+ *   - `C4_ERROR`: request completed with an error. Read `(*out_req)->error`.
+ *     `ctx->state.error` is NOT set; the caller decides whether to propagate
+ *     via `THROW_ERROR(...)` or to recover.
  */
-void c4_compute_request_id(const char* path, const char* query, bytes32_t out_id);
+c4_status_t c4_send_beacon_json_no_throw(prover_ctx_t* ctx, char* path, char* query, uint32_t ttl, data_request_t** out_req);
+
+/**
+ * Non-throwing variant of `c4_send_beacon_ssz`. See
+ * `c4_send_beacon_json_no_throw` for the general contract. On `C4_SUCCESS`
+ * the caller receives raw response bytes via `(*out_req)->response`; no
+ * SSZ definition is attached and no SSZ validation is performed.
+ */
+c4_status_t c4_send_beacon_ssz_no_throw(prover_ctx_t* ctx, char* path, char* query, uint32_t ttl, data_request_t** out_req);
+
+/**
+ * Non-throwing variant of `c4_send_internal_request`. See
+ * `c4_send_beacon_json_no_throw` for the general contract. Used to talk to
+ * in-process server handlers (`c4_handle_*`) via the same `data_request_t`
+ * pipeline as external endpoints, but with local error handling.
+ */
+c4_status_t c4_send_internal_request_no_throw(prover_ctx_t* ctx, char* path, char* query, uint32_t ttl, data_request_t** out_req);
 #ifdef PROVER_CACHE
 c4_status_t c4_set_latest_block(prover_ctx_t* ctx, uint64_t latest_block_number);
 c4_status_t c4_eth_update_finality(prover_ctx_t* ctx, bytes32_t checkpoint, uint64_t* slot);
