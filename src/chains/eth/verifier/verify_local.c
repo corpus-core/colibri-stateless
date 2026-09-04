@@ -113,7 +113,8 @@ static ssz_ob_t colibri_decodeTransaction(verify_ctx_t* ctx) {
   bytes32_t     tx_hash    = {0};
   bytes32_t     block_hash = {0};
   keccak(raw, tx_hash);
-  bool success = c4_write_tx_data_from_raw(ctx, &tx_data, raw, tx_hash, block_hash, 0, 0, 0);
+  // block_timestamp = 0 => blockTimestamp field is suppressed (not yet mined).
+  bool success = c4_write_tx_data_from_raw(ctx, &tx_data, raw, tx_hash, block_hash, 0, 0, 0, 0);
   buffer_free(&raw_tx_buf);
   if (!success) {
     buffer_free(&tx_data.dynamic);

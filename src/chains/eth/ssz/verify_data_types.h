@@ -88,8 +88,8 @@ static const ssz_def_t ETH_AUTHORIZATION_LIST_DATA[] = {
     SSZ_ADDRESS("address"), // the codebase to be used for the authorization
     SSZ_UINT32("chainId"),  // the chainId of the transaction
     SSZ_UINT64("nonce"),    // nonce of the transaction
-    SSZ_BYTES32("r"),       // the r value of the transaction
-    SSZ_BYTES32("s"),       // the s value of the transaction
+    SSZ_UINT256("r"),       // the r value of the transaction signature (QUANTITY per RPC spec)
+    SSZ_UINT256("s"),       // the s value of the transaction signature (QUANTITY per RPC spec)
     SSZ_UINT8("yParity")    // the yParity of the transaction
 };
 // Container type for authorization list entries (EIP-7702)
@@ -106,8 +106,8 @@ static const ssz_def_t ETH_TX_DATA[] = {
     SSZ_UINT8("type"),                                                         // the type of the transaction
     SSZ_UINT64("nonce"),                                                       // the nonce of the transaction
     SSZ_BYTES("input", 1073741824),                                            // the raw transaction payload
-    SSZ_BYTES32("r"),                                                          // the r value of the transaction
-    SSZ_BYTES32("s"),                                                          // the s value of the transaction signature
+    SSZ_UINT256("r"),                                                          // the r value of the transaction signature (QUANTITY per RPC spec)
+    SSZ_UINT256("s"),                                                          // the s value of the transaction signature (QUANTITY per RPC spec)
     SSZ_UINT32("chainId"),                                                     // the chain ID of the transaction
     SSZ_UINT64("v"),                                                           // the v value of the transaction signature
     SSZ_UINT64("gas"),                                                         // the gas limit
@@ -124,7 +124,9 @@ static const ssz_def_t ETH_TX_DATA[] = {
     SSZ_BYTES32("sourceHash"),                                                 // unique identifier for deposit origin (OP Stack only)
     SSZ_UINT256("mint"),                                                       // ETH value to mint on L2 (OP Stack only) - rendered as uint
     SSZ_BOOLEAN("isSystemTx"),                                                 // system transaction flag as bytes (OP Stack only) - rendered as uint
-    SSZ_UINT8("depositReceiptVersion")                                         // deposit receipt version (OP Stack only) - rendered as uint
+    SSZ_UINT8("depositReceiptVersion"),                                        // deposit receipt version (OP Stack only) - rendered as uint
+    SSZ_UINT256("maxFeePerBlobGas"),                                           // the maximum fee per blob gas the sender is willing to pay (EIP-4844, type-3 only)
+    SSZ_UINT64("blockTimestamp")                                               // the timestamp of the block containing the transaction (post-Cancun)
 };
 
 // :: Logs Proof
@@ -164,6 +166,9 @@ static const ssz_def_t ETH_RECEIPT_DATA[] = {
     SSZ_UINT64("effectiveGasPrice"),                       // the effective gas price of the transaction
     SSZ_UINT64("depositNonce"),                            // the deposit nonce of the transaction
     SSZ_UINT32("depositReceiptVersion"),                   // the deposit receipt version of the transaction
+    SSZ_NULLABLE_BYTES("contractAddress", 20),             // address of the created contract (contract-creation only)
+    SSZ_UINT64("blobGasUsed"),                             // blob gas used by the transaction (EIP-4844, type-3 only)
+    SSZ_UINT64("blobGasPrice"),                            // blob gas price paid by the transaction (EIP-4844, type-3 only)
 };
 
 static const ssz_def_t ETH_RECEIPT_DATA_CONTAINER = SSZ_CONTAINER("EthTransactionReceipt", ETH_RECEIPT_DATA);
@@ -238,9 +243,9 @@ static const ssz_def_t ETH_BLOCK_HEADER_DATA[] = {
 
 // Represents the storage proof of a key. The value can be taken from the last entry, which is the leaf of the proof.
 static const ssz_def_t ETH_STORAGE_PROOF_DATA[] = {
-    SSZ_BYTES32("key"),                     // the key
-    SSZ_BYTES32("value"),                   // the value
-    SSZ_LIST("proof", ssz_bytes_list, 1024) // Patricia merkle proof (simplified)
+    SSZ_BYTES32("key"),                      // the key
+    SSZ_UINT256("value"),                    // the value (QUANTITY per RPC spec)
+    SSZ_LIST("proof", ssz_bytes_list, 1024), // Patricia merkle proof (simplified)
 };
 
 // Container type for storage proof data
@@ -249,6 +254,7 @@ static const ssz_def_t ETH_STORAGE_PROOF_DATA_CONTAINER = SSZ_CONTAINER("Storage
 // Account proof data as returned by eth_getProof.
 // Contains the account state and Merkle proofs for account and storage values.
 static const ssz_def_t ETH_PROOF_DATA[] = {
+    SSZ_ADDRESS("address"),                                          // the account address (per JSON-RPC spec)
     SSZ_UINT256("balance"),                                          // the account balance
     SSZ_BYTES32("codeHash"),                                         // the hash of the contract code (empty for EOA)
     SSZ_UINT256("nonce"),                                            // the account nonce

@@ -24,11 +24,6 @@
     "to": "0xbd216513d74c8cf14cf4747e6aaa6420ff64ee9e",
     "value": "0xfd9ed9a6e410e",
     "gasPrice": "0x1512323a0",
-    "maxFeePerGas": "0x0",
-    "maxPriorityFeePerGas": "0x0",
-    "accessList": [],
-    "authorizationList": [],
-    "blobVersionedHashes": [],
-    "yParity": "0x1"
+    "blockTimestamp": "0x6a886c27"
   }
 }

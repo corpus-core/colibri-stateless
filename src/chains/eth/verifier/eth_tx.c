@@ -25,6 +25,7 @@
 #include "beacon_types.h"
 #include "bytes.h"
 #include "crypto.h"
+#include "el_header.h"
 #include "json.h"
 #include "patricia.h"
 #include "rlp.h"
@@ -609,26 +610,23 @@ static ssz_builder_t build_authorization_list_ssz(verify_ctx_t* ctx, bytes_t rlp
       ssz_add_uint64(&auth_entry_builder, bytes_as_be(rlp_item_nonce));
 
       // Field 3 in SSZ: r (from RLP index 4)
-      bytes32_t r_val = {0};
       if (rlp_decode(&auth_tuple_rlp, 4, &rlp_item_r) != RLP_ITEM || rlp_item_r.len > 32) {
         c4_state_add_error(&ctx->state, "build_authorization_list_ssz: Failed to decode auth r or r too long");
         ssz_builder_free(&auth_entry_builder);
         ssz_builder_free(&authorization_list_builder);
         return (ssz_builder_t) {0};
       }
-      if (rlp_item_r.len > 0) memcpy(r_val + (32 - rlp_item_r.len), rlp_item_r.data, rlp_item_r.len);
-      ssz_add_bytes(&auth_entry_builder, "r", bytes(r_val, 32));
+      // RLP is big-endian, SSZ UINT256 stores little-endian; ssz_add_uint256 performs the swap.
+      ssz_add_uint256(&auth_entry_builder, rlp_item_r);
 
       // Field 4 in SSZ: s (from RLP index 5)
-      bytes32_t s_val = {0};
       if (rlp_decode(&auth_tuple_rlp, 5, &rlp_item_s) != RLP_ITEM || rlp_item_s.len > 32) {
         c4_state_add_error(&ctx->state, "build_authorization_list_ssz: Failed to decode auth s or s too long");
         ssz_builder_free(&auth_entry_builder);
         ssz_builder_free(&authorization_list_builder);
         return (ssz_builder_t) {0};
       }
-      if (rlp_item_s.len > 0) memcpy(s_val + (32 - rlp_item_s.len), rlp_item_s.data, rlp_item_s.len);
-      ssz_add_bytes(&auth_entry_builder, "s", bytes(s_val, 32));
+      ssz_add_uint256(&auth_entry_builder, rlp_item_s);
 
       // Field 5 in SSZ: yParity (from RLP index 3)
       if (rlp_decode(&auth_tuple_rlp, 3, &rlp_item_y_parity) != RLP_ITEM) {
@@ -647,7 +645,7 @@ static ssz_builder_t build_authorization_list_ssz(verify_ctx_t* ctx, bytes_t rlp
 
 INTERNAL bool c4_write_tx_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer, bytes_t raw_tx,
                                         bytes32_t tx_hash, bytes32_t block_hash, uint64_t block_number,
-                                        uint32_t transaction_index, uint64_t base_fee) {
+                                        uint32_t transaction_index, uint64_t base_fee, uint64_t block_timestamp) {
   if (!ctx || !buffer || !buffer->def || !raw_tx.data || raw_tx.len == 0) return false;
   address_t from_address  = {0};
   tx_type_t type          = 0;
@@ -743,21 +741,65 @@ INTERNAL bool c4_write_tx_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer
 
   // --- Add fields to SSZ Builder IN ORDER OF ETH_TX_DATA DEFINITION ---
 
-  // First, add the optional mask based on transaction type
+  // Build the SSZ opt_mask so ssz_dump only emits fields that are actually defined for
+  // this transaction type per the Ethereum JSON-RPC / Execution API spec (issue #343).
+  // We always write every SSZ slot (SSZ containers require it); the mask just controls
+  // JSON visibility.
+  //
+  // Common base for every signed transaction type (0..4). Legacy transactions do have
+  // v/r/s and a gasPrice, so those bits belong to the base too.
+  const uint32_t base_mask =
+      TX_BLOCK_HASH | TX_BLOCK_NUMBER | TX_HASH | TX_TRANSACTION_INDEX | TX_TYPE |
+      TX_NONCE | TX_INPUT | TX_R | TX_S | TX_V | TX_GAS | TX_FROM | TX_TO | TX_VALUE |
+      TX_GAS_PRICE;
+
   uint32_t field_mask = 0;
-  if (type == TX_TYPE_DEPOSITED) {
-    // For Deposited Transactions, only show relevant fields + OP Stack specific fields
-    field_mask = TX_BLOCK_HASH | TX_BLOCK_NUMBER | TX_HASH | TX_TRANSACTION_INDEX | TX_TYPE |
-                 TX_NONCE | TX_INPUT | TX_GAS | TX_FROM | TX_TO | TX_VALUE | TX_GAS_PRICE |
-                 TX_SOURCE_HASH | TX_MINT | TX_IS_SYSTEM_TX | TX_DEPOSIT_RECEIPT_VERSION;
+  switch (type) {
+    case TX_TYPE_DEPOSITED:
+      // Optimism deposit txs have no signature and different fields entirely.
+      field_mask = TX_BLOCK_HASH | TX_BLOCK_NUMBER | TX_HASH | TX_TRANSACTION_INDEX |
+                   TX_TYPE | TX_NONCE | TX_INPUT | TX_GAS | TX_FROM | TX_TO | TX_VALUE |
+                   TX_GAS_PRICE | TX_SOURCE_HASH | TX_MINT | TX_IS_SYSTEM_TX |
+                   TX_DEPOSIT_RECEIPT_VERSION;
+      break;
+    case TX_TYPE_LEGACY:
+      // Legacy transactions signed post-EIP-155 have chain_id derived from v.
+      // If the derivation gave chain_id == 0 the tx is pre-EIP-155 and we must not
+      // report chainId.
+      field_mask = base_mask;
+      if (chain_id != 0) field_mask |= TX_CHAIN_ID;
+      break;
+    case TX_TYPE_EIP2930:
+      field_mask = base_mask | TX_CHAIN_ID | TX_Y_PARITY | TX_ACCESS_LIST;
+      break;
+    case TX_TYPE_EIP1559:
+      field_mask = base_mask | TX_CHAIN_ID | TX_Y_PARITY | TX_ACCESS_LIST |
+                   TX_MAX_FEE_PER_GAS | TX_MAX_PRIORITY_FEE_PER_GAS;
+      break;
+    case TX_TYPE_EIP4844:
+      field_mask = base_mask | TX_CHAIN_ID | TX_Y_PARITY | TX_ACCESS_LIST |
+                   TX_MAX_FEE_PER_GAS | TX_MAX_PRIORITY_FEE_PER_GAS |
+                   TX_BLOB_VERSIONED_HASHES | TX_MAX_FEE_PER_BLOB_GAS;
+      break;
+    case TX_TYPE_EIP7702:
+      field_mask = base_mask | TX_CHAIN_ID | TX_Y_PARITY | TX_ACCESS_LIST |
+                   TX_MAX_FEE_PER_GAS | TX_MAX_PRIORITY_FEE_PER_GAS |
+                   TX_AUTHORIZATION_LIST;
+      break;
+    default:
+      // Unknown / future transaction types: fall back to the union of the currently
+      // known bits so we don't accidentally drop information.
+      field_mask = base_mask | TX_CHAIN_ID | TX_Y_PARITY | TX_ACCESS_LIST |
+                   TX_MAX_FEE_PER_GAS | TX_MAX_PRIORITY_FEE_PER_GAS |
+                   TX_BLOB_VERSIONED_HASHES | TX_MAX_FEE_PER_BLOB_GAS |
+                   TX_AUTHORIZATION_LIST;
+      break;
   }
-  else {
-    // For all other transaction types, show all fields except OP Stack specific ones
-    field_mask = TX_BLOCK_HASH | TX_BLOCK_NUMBER | TX_HASH | TX_TRANSACTION_INDEX | TX_TYPE |
-                 TX_NONCE | TX_INPUT | TX_R | TX_S | TX_CHAIN_ID | TX_V | TX_GAS | TX_FROM |
-                 TX_TO | TX_VALUE | TX_GAS_PRICE | TX_MAX_FEE_PER_GAS | TX_MAX_PRIORITY_FEE_PER_GAS |
-                 TX_ACCESS_LIST | TX_AUTHORIZATION_LIST | TX_BLOB_VERSIONED_HASHES | TX_Y_PARITY;
-  }
+  // blockTimestamp is only meaningful once the transaction has been mined and we know
+  // the block. Callers that operate on a not-yet-mined tx (pending, local reconstruction)
+  // pass block_timestamp == 0 and we suppress the field.
+  if (block_timestamp != 0)
+    field_mask |= TX_BLOCK_TIMESTAMP;
   ssz_add_uint32(buffer, field_mask);
 
   ssz_add_bytes(buffer, "blockHash", bytes(block_hash, 32));
@@ -772,14 +814,16 @@ INTERNAL bool c4_write_tx_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer
   ssz_add_uint64(buffer, type == TX_TYPE_DEPOSITED ? 0 : bytes_as_be(get_rlp_field(ctx, rlp_list_payload, defs_ptr, "nonce", RLP_ITEM)));
   ssz_add_bytes(buffer, "input", get_rlp_field(ctx, rlp_list_payload, defs_ptr, "input", RLP_ITEM));
 
-  // Handle signature fields - deposited transactions don't have signatures
+  // Handle signature fields - deposited transactions don't have signatures.
+  // r/s are UINT256 (little-endian in SSZ, rendered as QUANTITY in JSON per RPC spec).
+  // ssz_add_uint256 converts big-endian RLP input to little-endian SSZ storage.
   if (type == TX_TYPE_DEPOSITED) {
-    ssz_add_bytes(buffer, "r", NULL_BYTES);
-    ssz_add_bytes(buffer, "s", NULL_BYTES);
+    ssz_add_uint256(buffer, NULL_BYTES);
+    ssz_add_uint256(buffer, NULL_BYTES);
   }
   else {
-    ssz_add_bytes(buffer, "r", get_rlp_field(ctx, rlp_list_payload, defs_ptr, "r", RLP_ITEM));
-    ssz_add_bytes(buffer, "s", get_rlp_field(ctx, rlp_list_payload, defs_ptr, "s", RLP_ITEM));
+    ssz_add_uint256(buffer, get_rlp_field(ctx, rlp_list_payload, defs_ptr, "r", RLP_ITEM));
+    ssz_add_uint256(buffer, get_rlp_field(ctx, rlp_list_payload, defs_ptr, "s", RLP_ITEM));
   }
 
   ssz_add_uint32(buffer, chain_id);
@@ -815,15 +859,8 @@ INTERNAL bool c4_write_tx_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer
     // Populate with actual values for deposited transactions
     ssz_add_bytes(buffer, "sourceHash", get_rlp_field(ctx, rlp_list_payload, defs_ptr, "sourceHash", RLP_ITEM));
 
-    // Convert mint from RLP (big-endian) to SSZ (little-endian) bytes
-    bytes_t mint_rlp = get_rlp_field(ctx, rlp_list_payload, defs_ptr, "mint", RLP_ITEM);
-    // Only use as many bytes as needed, convert big-endian to little-endian
-    uint8_t mint_le[32] = {0}; // Max 32 bytes for uint256
-    int     actual_len  = mint_rlp.len > 32 ? 32 : mint_rlp.len;
-    for (int i = 0; i < actual_len; i++) {
-      mint_le[i] = mint_rlp.data[mint_rlp.len - 1 - i];
-    }
-    ssz_add_bytes(buffer, "mint", bytes(mint_le, actual_len ? actual_len : 1));
+    // mint is UINT256; ssz_add_uint256 performs the big-endian -> little-endian swap.
+    ssz_add_uint256(buffer, get_rlp_field(ctx, rlp_list_payload, defs_ptr, "mint", RLP_ITEM));
     ssz_add_bytes(buffer, "isSystemTx", bytes(&system_tx_true, 1));
 
     // Add depositReceiptVersion (always 1 for current Optimism version)
@@ -831,21 +868,40 @@ INTERNAL bool c4_write_tx_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer
     ssz_add_bytes(buffer, "depositReceiptVersion", bytes(&deposit_receipt_version, 1));
   }
   else {
-    // Add empty values for non-deposited transactions
+    // Add empty values for non-deposited transactions.
+    // sourceHash is BYTES32 (32 fixed bytes), mint is UINT256 (32 little-endian bytes),
+    // isSystemTx is BOOLEAN (1 byte), depositReceiptVersion is UINT8 (1 byte).
     ssz_add_bytes(buffer, "sourceHash", NULL_BYTES);
-    ssz_add_bytes(buffer, "mint", NULL_BYTES);
+    ssz_add_uint256(buffer, NULL_BYTES);
     ssz_add_bytes(buffer, "isSystemTx", NULL_BYTES);
     ssz_add_bytes(buffer, "depositReceiptVersion", NULL_BYTES);
   }
 
+  // maxFeePerBlobGas: only present in the raw tx for EIP-4844 (type 3). For other
+  // types we still have to serialize the SSZ slot, but the field mask will hide it.
+  if (type == TX_TYPE_EIP4844)
+    ssz_add_uint256(buffer, get_rlp_field(ctx, rlp_list_payload, defs_ptr, "maxFeePerBlobGas", RLP_ITEM));
+  else
+    ssz_add_uint256(buffer, NULL_BYTES);
+
+  // blockTimestamp: caller supplies 0 for pending / not-yet-mined transactions.
+  ssz_add_uint64(buffer, block_timestamp);
+
   if (blob_hashes.data) safe_free(blob_hashes.data);
+
+  // Final safety net: any get_rlp_field() call between the centralised error check
+  // (after the primary fields) and here can still populate ctx->state.error (e.g.
+  // nonce, input, r/s, gas, to, value, maxFee*, blobVersionedHashes, sourceHash,
+  // mint, isSystemTx, maxFeePerBlobGas). Refuse to hand out a half-populated SSZ.
+  if (ctx->state.error != NULL) return false;
 
   return true;
 }
 
 bool c4_write_receipt_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer, bytes_t tx_raw, bytes_t receipt_raw,
                                     bytes32_t block_hash, uint64_t block_number, uint32_t tx_index,
-                                    uint64_t base_fee, uint64_t* out_cumulative_gas,
+                                    uint64_t base_fee, uint64_t excess_blob_gas, uint64_t block_timestamp,
+                                    uint64_t* out_cumulative_gas,
                                     uint32_t* out_log_index) {
   bytes_t                val             = {0};
   bytes_t                receipt_list    = receipt_raw;
@@ -859,6 +915,8 @@ bool c4_write_receipt_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer, by
   uint64_t               effective_gas   = 0;
   uint64_t               deposit_nonce   = 0;
   uint32_t               deposit_ver     = 0;
+  uint64_t               tx_nonce        = 0;
+  uint32_t               num_blobs       = 0;
   const rlp_type_defs_t* defs_ptr        = NULL;
 
   if (!buffer || !buffer->def || !out_cumulative_gas || !out_log_index) return false;
@@ -910,16 +968,79 @@ bool c4_write_receipt_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer, by
   if (type >= TX_TYPE_EIP1559 && type != TX_TYPE_DEPOSITED)
     effective_gas = base_fee + (max_priority_fee_per_gas_rlp_val < (max_fee_per_gas_rlp_val - base_fee) ? max_priority_fee_per_gas_rlp_val : (max_fee_per_gas_rlp_val - base_fee));
 
-  ssz_add_uint32(buffer, 0xFFFFFFFFu);
+  // Extract tx nonce (deposit txs also encode a `nonce`, but we prefer the receipt
+  // depositNonce for them, so read only for signed txs).
+  if (type != TX_TYPE_DEPOSITED)
+    tx_nonce = bytes_as_be(get_rlp_field(ctx, tx_list_payload, defs_ptr, "nonce", RLP_ITEM));
+
+  // Blob count for EIP-4844: number of blob versioned hashes in the tx.
+  if (type == TX_TYPE_EIP4844) {
+    bytes_t blob_hashes = get_rlp_field(ctx, tx_list_payload, defs_ptr, "blobVersionedHashes", RLP_LIST);
+    if (blob_hashes.data) {
+      int n = rlp_decode(&blob_hashes, -1, NULL);
+      if (n > 0) num_blobs = (uint32_t) n;
+    }
+  }
+  if (ctx->state.error != NULL) return false;
+
+  // Blob gas price is priced by the EL from the block's excess_blob_gas. Both
+  // the `MIN_BLOB_BASE_FEE` factor (Gnosis uses 1 gwei, Ethereum 1 wei) and the
+  // `BLOB_BASE_FEE_UPDATE_FRACTION` denominator (EIP-7892 BPO forks) are chain-
+  // and timestamp-dependent -- both come from chain_spec_t.
+  uint64_t blob_gas_price = 0;
+  uint64_t blob_gas_used  = (uint64_t) num_blobs * ETH_GAS_PER_BLOB;
+  if (type == TX_TYPE_EIP4844)
+    blob_gas_price = eth_fake_exponential(eth_min_blob_base_fee(ctx->chain_id), excess_blob_gas,
+                                          eth_blob_base_fee_update_fraction(ctx->chain_id, block_timestamp));
+
+  // Contract creation address: for successful signed txs where `to` is empty,
+  // the created contract address is keccak256(rlp([sender, nonce]))[12:32].
+  // CREATE2-style deployments produce their own address inside the EVM and are
+  // NOT set on the outer receipt.  Deposit txs never create contracts here.
+  bytes32_t contract_hash_buf   = {0};
+  bytes_t   contract_address    = NULL_BYTES;
+  bool      has_contract_addr   = false;
+  if (type != TX_TYPE_DEPOSITED && status_u64 == 1 && to_field.len == 0) {
+    uint8_t  rlp_tmp[64] = {0};
+    buffer_t rlp_buf     = {.data = {.data = rlp_tmp, .len = 0}, .allocated = -(int32_t) sizeof(rlp_tmp)};
+    rlp_add_item(&rlp_buf, bytes(from_address, 20));
+    rlp_add_uint64(&rlp_buf, tx_nonce);
+    rlp_to_list(&rlp_buf);
+    keccak(rlp_buf.data, contract_hash_buf);
+    contract_address  = bytes(contract_hash_buf + 12, 20);
+    has_contract_addr = true;
+  }
+
+  // Receipt opt_mask: expose only fields that actually belong to this receipt's
+  // transaction type (issue #343). See RCPT_* in eth_tx.h for the bit layout;
+  // it must stay in sync with the ETH_RECEIPT_DATA container order.
+  const uint32_t receipt_base_mask =
+      RCPT_BLOCK_HASH | RCPT_BLOCK_NUMBER | RCPT_TRANSACTION_HASH | RCPT_TRANSACTION_INDEX |
+      RCPT_TYPE | RCPT_FROM | RCPT_TO | RCPT_CUMULATIVE_GAS_USED | RCPT_GAS_USED |
+      RCPT_LOGS | RCPT_LOGS_BLOOM | RCPT_STATUS | RCPT_EFFECTIVE_GAS_PRICE;
+  uint32_t receipt_mask = receipt_base_mask;
+  if (type == TX_TYPE_DEPOSITED)
+    receipt_mask |= RCPT_DEPOSIT_NONCE | RCPT_DEPOSIT_RECEIPT_VERSION;
+  if (has_contract_addr)
+    receipt_mask |= RCPT_CONTRACT_ADDRESS;
+  if (type == TX_TYPE_EIP4844)
+    receipt_mask |= RCPT_BLOB_GAS_USED | RCPT_BLOB_GAS_PRICE;
+  ssz_add_uint32(buffer, receipt_mask);
   ssz_add_bytes(buffer, "blockHash", bytes(block_hash, 32));
   ssz_add_uint64(buffer, block_number);
   ssz_add_bytes(buffer, "transactionHash", bytes(tx_hash, 32));
   ssz_add_uint32(buffer, tx_index);
   ssz_add_uint8(buffer, (uint8_t) type);
   ssz_add_bytes(buffer, "from", bytes(from_address, 20));
-  uint8_t to_pad[20] = {0};
-  if (to_field.len > 0 && to_field.len <= 20) memcpy(to_pad, to_field.data, to_field.len);
-  ssz_add_bytes(buffer, "to", bytes(to_pad, 20));
+  // `to` is SSZ_NULLABLE_BYTES(20): empty payload => rendered as `null` (contract creation).
+  if (to_field.len == 0) {
+    ssz_add_bytes(buffer, "to", NULL_BYTES);
+  }
+  else {
+    uint8_t to_pad[20] = {0};
+    if (to_field.len <= 20) memcpy(to_pad, to_field.data, to_field.len);
+    ssz_add_bytes(buffer, "to", bytes(to_pad, 20));
+  }
   ssz_add_uint64(buffer, cumulative_gas);
   ssz_add_uint64(buffer, gas_used);
 
@@ -964,6 +1085,10 @@ bool c4_write_receipt_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer, by
   ssz_add_uint64(buffer, effective_gas);
   ssz_add_uint64(buffer, deposit_nonce);
   ssz_add_uint32(buffer, deposit_ver);
+  // contractAddress: nullable list; empty payload -> `null` in JSON.
+  ssz_add_bytes(buffer, "contractAddress", has_contract_addr ? contract_address : NULL_BYTES);
+  ssz_add_uint64(buffer, blob_gas_used);
+  ssz_add_uint64(buffer, blob_gas_price);
   *out_cumulative_gas = cumulative_gas;
   *out_log_index      = *out_log_index + (uint32_t) num_logs;
   return true;

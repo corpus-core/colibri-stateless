@@ -164,13 +164,16 @@ void ssz_add_bytes(ssz_builder_t* buffer, const char* name, bytes_t data) {
 }
 
 void ssz_add_uint256(ssz_builder_t* buffer, bytes_t data) {
+  // UINT256 always occupies exactly 32 bytes. Callers may pass shorter big-endian
+  // inputs (typical case) OR oversized RLP fields from untrusted producers -- clamp
+  // the copy length so a malicious 33+ byte input cannot spill past the grown region.
   buffer_grow(&buffer->fixed, buffer->fixed.data.len + 32);
   uint8_t* ptr = buffer->fixed.data.data + buffer->fixed.data.len;
-  for (int i = 0; i < data.len; i++, ptr++) {
+  uint32_t n   = data.len > 32 ? 32 : data.len;
+  for (uint32_t i = 0; i < n; i++, ptr++)
     *ptr = data.data[data.len - i - 1];
-  }
-  if (data.len < 32)
-    memset(ptr, 0, 32 - data.len);
+  if (n < 32)
+    memset(ptr, 0, 32 - n);
 
   buffer->fixed.data.len += 32;
 }

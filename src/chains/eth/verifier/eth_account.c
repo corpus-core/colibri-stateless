@@ -268,13 +268,18 @@ bool eth_account_verify_data(verify_ctx_t* ctx, address_t verified_address, eth_
         ssz_ob_t      storage_proof = ssz_get(&ctx->proof, "storageProof");
         bytes_t       account       = get_leaf(ssz_get(&ctx->proof, "accountProof"));
         bytes_t       value         = {0};
+        // Address is authoritative from the proof container (verified against the
+        // trie path when the account leaf is checked).
+        ssz_add_bytes(&builder, "address", ssz_get(&ctx->proof, "address").bytes);
         if (account.data && rlp_decode(&account, 0, &account) == RLP_LIST && rlp_decode(&account, -1, NULL) == 4) {
           ssz_builder_t storage_list_builder = ssz_builder_for_def(ssz_get_def(builder.def, "storageProof"));
           for (int i = 0; i < values.len / 32; i++) {
             ssz_builder_t storage_builder = ssz_builder_for_def(storage_list_builder.def->def.vector.type);
             ssz_ob_t      storage         = ssz_at(storage_proof, i);
             ssz_add_bytes(&storage_builder, "key", ssz_get(&storage, "key").bytes);
-            ssz_add_bytes(&storage_builder, "value", bytes(values.data + i * 32, 32));
+            // Storage value is a QUANTITY per eth_getProof spec, stored as UINT256 (little-endian in SSZ).
+            // `values` is 32-byte big-endian (right-aligned trie leaf), ssz_add_uint256 performs the byte swap.
+            ssz_add_uint256(&storage_builder, bytes(values.data + i * 32, 32));
             ssz_add_bytes(&storage_builder, "proof", ssz_get(&storage, "proof").bytes);
             ssz_add_dynamic_list_builders(&storage_list_builder, values.len / 32, storage_builder);
           }

@@ -23,6 +23,7 @@
 
 #include "beacon_types.h"
 #include "chains.h"
+#include "el_header.h"
 #include "unity.h"
 #include <string.h>
 
@@ -175,6 +176,48 @@ void test_chain_schedules_fork(void) {
   TEST_ASSERT_FALSE(c4_chain_schedules_fork(CHAIN(999999), C4_FORK_GLOAS));
 }
 
+// EIP-7892 BLOB_BASE_FEE_UPDATE_FRACTION per active fork; the timestamps come
+// from go-ethereum's `params/config.go` (mainnet + sepolia). Pre-Cancun input
+// as well as chains without a schedule fall back to the Cancun value.
+void test_blob_base_fee_update_fraction(void) {
+  // Mainnet: probe each fork boundary (activation-1 vs. activation).
+  TEST_ASSERT_EQUAL_UINT64(3338477ULL, eth_blob_base_fee_update_fraction(C4_CHAIN_MAINNET, 0));              // pre-Cancun
+  TEST_ASSERT_EQUAL_UINT64(3338477ULL, eth_blob_base_fee_update_fraction(C4_CHAIN_MAINNET, 1710338134ULL));  // 1s before Cancun
+  TEST_ASSERT_EQUAL_UINT64(3338477ULL, eth_blob_base_fee_update_fraction(C4_CHAIN_MAINNET, 1710338135ULL));  // Cancun activation
+  TEST_ASSERT_EQUAL_UINT64(5007716ULL, eth_blob_base_fee_update_fraction(C4_CHAIN_MAINNET, 1746612311ULL));  // Prague
+  TEST_ASSERT_EQUAL_UINT64(5007716ULL, eth_blob_base_fee_update_fraction(C4_CHAIN_MAINNET, 1764798551ULL));  // Fusaka/Osaka (unchanged from Prague)
+  TEST_ASSERT_EQUAL_UINT64(8346193ULL, eth_blob_base_fee_update_fraction(C4_CHAIN_MAINNET, 1765290071ULL));  // BPO1
+  TEST_ASSERT_EQUAL_UINT64(8346193ULL, eth_blob_base_fee_update_fraction(C4_CHAIN_MAINNET, 1767747670ULL));  // 1s before BPO2 → still BPO1
+  TEST_ASSERT_EQUAL_UINT64(11684671ULL, eth_blob_base_fee_update_fraction(C4_CHAIN_MAINNET, 1767747671ULL)); // BPO2
+  TEST_ASSERT_EQUAL_UINT64(11684671ULL, eth_blob_base_fee_update_fraction(C4_CHAIN_MAINNET, 0xffffffffULL)); // far future stays at newest known
+
+  // Sepolia: quick smoke test.
+  TEST_ASSERT_EQUAL_UINT64(3338477ULL, eth_blob_base_fee_update_fraction(C4_CHAIN_SEPOLIA, 1706655072ULL));  // Cancun
+  TEST_ASSERT_EQUAL_UINT64(11684671ULL, eth_blob_base_fee_update_fraction(C4_CHAIN_SEPOLIA, 1761607008ULL)); // BPO2
+
+  // Gnosis / Chiado: single flat update fraction across all forks, no BPO.
+  TEST_ASSERT_EQUAL_UINT64(1112826ULL, eth_blob_base_fee_update_fraction(C4_CHAIN_GNOSIS, 1710181820ULL));        // Gnosis Cancun
+  TEST_ASSERT_EQUAL_UINT64(1112826ULL, eth_blob_base_fee_update_fraction(C4_CHAIN_GNOSIS, 1776168380ULL));        // Gnosis Osaka
+  TEST_ASSERT_EQUAL_UINT64(3338477ULL, eth_blob_base_fee_update_fraction(C4_CHAIN_GNOSIS, 1710181819ULL));        // pre-Cancun → default
+  TEST_ASSERT_EQUAL_UINT64(1112826ULL, eth_blob_base_fee_update_fraction(C4_CHAIN_GNOSIS_CHIADO, 1706724940ULL)); // Chiado Cancun
+
+  // Chains without a populated blob schedule (e.g. Plataberget) fall back to
+  // the Cancun default regardless of timestamp.
+  TEST_ASSERT_EQUAL_UINT64(3338477ULL, eth_blob_base_fee_update_fraction(C4_CHAIN_PLATABERGET, 1767747671ULL));
+  TEST_ASSERT_EQUAL_UINT64(3338477ULL, eth_blob_base_fee_update_fraction(CHAIN(999999), 1767747671ULL));
+}
+
+// MIN_BLOB_BASE_FEE differs between Ethereum (1 wei) and Gnosis (1 gwei); the
+// chain_spec_t override propagates through `eth_min_blob_base_fee`.
+void test_min_blob_base_fee(void) {
+  TEST_ASSERT_EQUAL_UINT64(1ULL, eth_min_blob_base_fee(C4_CHAIN_MAINNET));
+  TEST_ASSERT_EQUAL_UINT64(1ULL, eth_min_blob_base_fee(C4_CHAIN_SEPOLIA));
+  TEST_ASSERT_EQUAL_UINT64(1000000000ULL, eth_min_blob_base_fee(C4_CHAIN_GNOSIS));
+  TEST_ASSERT_EQUAL_UINT64(1000000000ULL, eth_min_blob_base_fee(C4_CHAIN_GNOSIS_CHIADO));
+  TEST_ASSERT_EQUAL_UINT64(1ULL, eth_min_blob_base_fee(C4_CHAIN_PLATABERGET));
+  TEST_ASSERT_EQUAL_UINT64(1ULL, eth_min_blob_base_fee(CHAIN(999999)));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_plataberget_genesis_validators_root);
@@ -187,5 +230,7 @@ int main(void) {
   RUN_TEST(test_mainnet_gloas_still_unassigned);
   RUN_TEST(test_zk_sync_trust_anchors);
   RUN_TEST(test_chain_schedules_fork);
+  RUN_TEST(test_blob_base_fee_update_fraction);
+  RUN_TEST(test_min_blob_base_fee);
   return UNITY_END();
 }

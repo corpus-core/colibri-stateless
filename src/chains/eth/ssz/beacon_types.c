@@ -34,6 +34,48 @@ static const uint64_t eth_sepolia_fork_epochs[]     = {50L, 100L, 56832L, 132608
 static const uint64_t eth_chiado_fork_epochs[]      = {90L, 180L, 244224L, 516608L, 948224L, 1353216L, NOT_ASSIGNED_YET, FORKS_END};
 static const uint64_t eth_plataberget_fork_epochs[] = {0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 1536ULL, FORKS_END};
 
+// EIP-7892 blob schedules, DESCENDING by activation timestamp so the first
+// match wins. Timestamps come from go-ethereum's `params/config.go` (mainnet,
+// sepolia, hoodi) and the associated EIP metas (7607/8134). Terminated by
+// {0,0}. Post-Merge forks are timestamp-based (see geth `config.go`, "Fork
+// scheduling was switched from blocks to timestamps here").
+static const eth_blob_schedule_t eth_mainnet_blob_schedule[] = {
+    {1767747671ULL, 11684671ULL}, // BPO2  (2026-01-07)
+    {1765290071ULL,  8346193ULL}, // BPO1  (2025-12-09)
+    {1764798551ULL,  5007716ULL}, // Fusaka/Osaka (2025-12-03), inherits Prague
+    {1746612311ULL,  5007716ULL}, // Prague/Pectra (2025-05-07)
+    {1710338135ULL,  3338477ULL}, // Cancun/Deneb  (2024-03-13)
+    {0ULL, 0ULL},
+};
+
+static const eth_blob_schedule_t eth_sepolia_blob_schedule[] = {
+    {1761607008ULL, 11684671ULL}, // BPO2  (2025-10-27)
+    {1761017184ULL,  8346193ULL}, // BPO1  (2025-10-21)
+    {1760427360ULL,  5007716ULL}, // Fusaka/Osaka (2025-10-14)
+    {1741159776ULL,  5007716ULL}, // Prague/Pectra
+    {1706655072ULL,  3338477ULL}, // Cancun/Deneb  (2024-01-30)
+    {0ULL, 0ULL},
+};
+
+// Gnosis chains keep `baseFeeUpdateFraction = 1112826` across all forks and
+// have no BPO scheduled (blob target/max stay at 1/2). Timestamps come from
+// erigontech/erigon `chainspecs/gnosis.json` and `chainspecs/chiado.json`.
+// NOTE: Gnosis' `minBlobGasPrice` is 1 gwei (1e9 wei), not 1 wei -- carried
+// on the chain_spec via `min_blob_base_fee` (below).
+static const eth_blob_schedule_t eth_gnosis_blob_schedule[] = {
+    {1776168380ULL, 1112826ULL}, // Osaka
+    {1746021820ULL, 1112826ULL}, // Prague/Pectra
+    {1710181820ULL, 1112826ULL}, // Cancun/Deneb
+    {0ULL, 0ULL},
+};
+
+static const eth_blob_schedule_t eth_chiado_blob_schedule[] = {
+    {1773653580ULL, 1112826ULL}, // Osaka
+    {1741254220ULL, 1112826ULL}, // Prague/Pectra
+    {1706724940ULL, 1112826ULL}, // Cancun/Deneb
+    {0ULL, 0ULL},
+};
+
 static void mainnet_fork_version(chain_id_t chain_id, fork_id_t fork, uint8_t* version) {
   version[0] = (uint8_t) fork;
   version[1] = 0x00;
@@ -78,7 +120,8 @@ static const chain_spec_t chain_data[] = {
      .slots_per_epoch_bits     = 5,
      .epochs_per_period_bits   = 8,
      .weak_subjectivity_epochs = 3682,
-     .fork_version_func        = mainnet_fork_version},
+     .fork_version_func        = mainnet_fork_version,
+     .blob_schedule            = eth_mainnet_blob_schedule},
     {// Sepolia
      .chain_id                 = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 11155111),
      .fork_epochs              = eth_sepolia_fork_epochs,
@@ -87,7 +130,8 @@ static const chain_spec_t chain_data[] = {
      .slots_per_epoch_bits     = 5,
      .epochs_per_period_bits   = 8,
      .weak_subjectivity_epochs = 3682,
-     .fork_version_func        = sepolia_fork_version},
+     .fork_version_func        = sepolia_fork_version,
+     .blob_schedule            = eth_sepolia_blob_schedule},
     {// Plataberget
      .chain_id                 = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 7091047534),
      .fork_epochs              = eth_plataberget_fork_epochs,
@@ -105,7 +149,9 @@ static const chain_spec_t chain_data[] = {
      .slots_per_epoch_bits     = 4,
      .epochs_per_period_bits   = 9,
      .weak_subjectivity_epochs = 1500,
-     .fork_version_func        = gnosis_fork_version},
+     .fork_version_func        = gnosis_fork_version,
+     .blob_schedule            = eth_gnosis_blob_schedule,
+     .min_blob_base_fee        = 1000000000ULL},
     {// Gnosis chiado
      .chain_id                 = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 10200ULL),
      .fork_epochs              = eth_chiado_fork_epochs,
@@ -113,9 +159,9 @@ static const chain_spec_t chain_data[] = {
      .slots_per_epoch_bits     = 4,
      .epochs_per_period_bits   = 9,
      .weak_subjectivity_epochs = 1500,
-     .fork_version_func        = gnosis_fork_version
-
-    },
+     .fork_version_func        = gnosis_fork_version,
+     .blob_schedule            = eth_chiado_blob_schedule,
+     .min_blob_base_fee        = 1000000000ULL},
 };
 
 const chain_spec_t* c4_eth_get_chain_spec(chain_id_t id) {

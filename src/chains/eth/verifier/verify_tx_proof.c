@@ -38,12 +38,12 @@
 #include <stdlib.h>
 #include <string.h>
 
-static bool create_eth_tx_data(verify_ctx_t* ctx, bytes_t raw, bytes32_t block_hash, uint64_t block_number, uint64_t base_fee_per_gas, uint32_t tx_index) {
+static bool create_eth_tx_data(verify_ctx_t* ctx, bytes_t raw, bytes32_t block_hash, uint64_t block_number, uint64_t base_fee_per_gas, uint32_t tx_index, uint64_t block_timestamp) {
   if (ctx->data.def->type != SSZ_TYPE_NONE) RETURN_VERIFY_ERROR(ctx, "data must be empty!");
   ssz_builder_t tx_data = ssz_builder_for_type(ETH_SSZ_DATA_TX);
   bytes32_t     tx_hash = {0};
   keccak(raw, tx_hash);
-  bool success = c4_write_tx_data_from_raw(ctx, &tx_data, raw, tx_hash, block_hash, block_number, tx_index, base_fee_per_gas);
+  bool success = c4_write_tx_data_from_raw(ctx, &tx_data, raw, tx_hash, block_hash, block_number, tx_index, base_fee_per_gas, block_timestamp);
   if (!success) {
     buffer_free(&tx_data.dynamic);
     buffer_free(&tx_data.fixed);
@@ -93,7 +93,8 @@ bool verify_tx_proof(verify_ctx_t* ctx) {
 
   if (!verify_args(ctx, raw_tx, idx, el_header)) return false;
   if (!create_eth_tx_data(ctx, raw_tx, block_hash, eth_el_header_get_uint64(el_header, EL_BLOCK_NUMBER),
-                          eth_el_header_get_uint64(el_header, EL_BASE_FEE_PER_GAS), idx)) return false;
+                          eth_el_header_get_uint64(el_header, EL_BASE_FEE_PER_GAS), idx,
+                          eth_el_header_get_uint64(el_header, EL_TIMESTAMP))) return false;
 
   ctx->success = true;
   return true;

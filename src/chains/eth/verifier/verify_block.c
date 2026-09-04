@@ -45,8 +45,9 @@ static ssz_builder_t create_txs_builder(verify_ctx_t* ctx, const ssz_def_t* tx_u
   ssz_builder_t txs_builder  = ssz_builder_for_def(tx_union_def->def.container.elements + ((int) include_txs));
   node_t*       root         = NULL;
   ssz_builder_t tx_builder   = ssz_builder_for_def(txs_builder.def->def.vector.type);
-  uint64_t      block_number = eth_el_header_get_uint64(el_header, EL_BLOCK_NUMBER);
-  uint64_t      base_fee     = eth_el_header_get_uint64(el_header, EL_BASE_FEE_PER_GAS);
+  uint64_t      block_number    = eth_el_header_get_uint64(el_header, EL_BLOCK_NUMBER);
+  uint64_t      base_fee        = eth_el_header_get_uint64(el_header, EL_BASE_FEE_PER_GAS);
+  uint64_t      block_timestamp = eth_el_header_get_uint64(el_header, EL_TIMESTAMP);
 
   int len = ssz_len(txs);
   for (int i = 0; i < len; i++) {
@@ -58,7 +59,7 @@ static ssz_builder_t create_txs_builder(verify_ctx_t* ctx, const ssz_def_t* tx_u
       // we reset the builder to to avoid allocating memory too ofter and simply resuing the already allocated memory
       tx_builder.fixed.data.len   = 0;
       tx_builder.dynamic.data.len = 0;
-      if (!c4_write_tx_data_from_raw(ctx, &tx_builder, raw_tx, tx_hash, block_hash, block_number, i, base_fee)) break;
+      if (!c4_write_tx_data_from_raw(ctx, &tx_builder, raw_tx, tx_hash, block_hash, block_number, i, base_fee, block_timestamp)) break;
       buffer_append(&tx_builder.fixed, tx_builder.dynamic.data);
       ssz_add_dynamic_list_bytes(&txs_builder, len, tx_builder.fixed.data);
     }
@@ -100,28 +101,16 @@ bool c4_eth_matches_blocknumber(verify_ctx_t* ctx, ssz_ob_t block, json_t req_bl
   return true;
 }
 
-// EIP-4844 blob base fee: factor * e^(numerator/denominator) via Taylor series.
-// Uses (a*b)/c = (a/c)*b + (a%c)*b/c to avoid 128-bit intermediate values.
-static uint64_t fake_exponential(uint64_t factor, uint64_t numerator, uint64_t denominator) {
-  uint64_t i = 1, output = 0, numerator_accum = factor * denominator;
-  while (numerator_accum > 0) {
-    output += numerator_accum;
-    uint64_t div    = denominator * i;
-    uint64_t q      = numerator_accum / div;
-    uint64_t r      = numerator_accum % div;
-    numerator_accum = q * numerator + r * numerator / div;
-    i++;
-  }
-  return output / denominator;
-}
-
 static bool is_block_header_method(const char* method) {
   return strcmp(method, "eth_getBlockHeader") == 0 || strcmp(method, "eth_blockNumber") == 0 || strcmp(method, "eth_blobBaseFee") == 0 || strcmp(method, "eth_maxPriorityFeePerGas") == 0;
 }
 
 bool eth_set_block_data(verify_ctx_t* ctx, bytes_t el_header, bool include_txs, ssz_ob_t* body, uint32_t mask) {
   if (strcmp(ctx->method, "eth_blobBaseFee") == 0) {
-    uint64_t      fee     = fake_exponential(1, eth_el_header_get_uint64(el_header, EL_EXCESS_BLOB_GAS), 3338477);
+    uint64_t      block_ts = eth_el_header_get_uint64(el_header, EL_TIMESTAMP);
+    uint64_t      denom    = eth_blob_base_fee_update_fraction(ctx->chain_id, block_ts);
+    uint64_t      factor   = eth_min_blob_base_fee(ctx->chain_id);
+    uint64_t      fee      = eth_fake_exponential(factor, eth_el_header_get_uint64(el_header, EL_EXCESS_BLOB_GAS), denom);
     ssz_builder_t builder = ssz_builder_for_type(ETH_SSZ_DATA_UINT256);
     ssz_add_uint64(&builder, fee);
     buffer_append(&builder.fixed, bytes(NULL, 24));
