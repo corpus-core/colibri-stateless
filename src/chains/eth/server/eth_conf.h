@@ -14,6 +14,7 @@ typedef struct {
   int   eth_logs_cache_blocks;
   int   logs_completeness_max_blocks; // max block range for an eth_getLogs completeness proof (0 = keep default)
   int   nimbus;                       // Nimbus CL: slot-scan parent lookup + nimbus historical_summaries URL
+  int   lodestar;                     // Lodestar CL: enables unofficial CompactMultiProof endpoint used to self-build LC bootstrap/update when standard endpoints fail
 
 } eth_config_t;
 

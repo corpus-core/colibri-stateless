@@ -82,6 +82,7 @@ typedef enum {
   C4_PROVER_FLAG_LOGS_COMPLETENESS  = 1 << 12, // if true, eth_getLogs generates a completeness proof over the requested block range (proves no matching log was omitted)
   C4_PROVER_FLAG_INPUT_VALIDATED    = 1 << 13, // internal/transient: set once the request input params have been validated (see CHECK_JSON_INPUT). Prevents re-validation on async re-entries and nested dispatch. Not a request option and never serialized.
   C4_PROVER_FLAG_NIMBUS             = 1 << 14, // Nimbus CL compatibility: find child headers via slot scan instead of `headers?parent_root=` (status-im/nimbus-eth2#7305) and use the Nimbus historical_summaries URL.
+  C4_PROVER_FLAG_LODESTAR           = 1 << 15, // Lodestar CL compatibility: enables the unofficial `/eth/v0/beacon/proof/state/{state_id}` (CompactMultiProof) endpoint used as a self-build fallback for LightClientBootstrap and Gloas LightClientUpdate when the standard endpoints do not return data. Must be OFF for non-Lodestar beacon clients so the fallback is never attempted.
 } prover_flag_types_t;
 
 /**

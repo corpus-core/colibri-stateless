@@ -21,11 +21,12 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "../server/period_store_files.h"
 #include "historic_proof.h"
 #include "../server/eth_clients.h"
+#include "../server/period_store_files.h"
 #include "beacon.h"
 #include "beacon_types.h"
+#include "bootstrap_gloas.h"
 #include "eth_compute_units.h"
 #include "eth_req.h"
 #include "eth_tools.h"
@@ -170,7 +171,7 @@ static c4_status_t check_historic_proof_direct(prover_ctx_t* ctx, blockroot_proo
   TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, json_parse("\"latest\""), &block)); // we get the latest because we know for latest we get the a proof for the state. Older sztates are not stored
   TRY_ADD_ASYNC(status, get_historical_summaries(ctx, &block, &history_proof));
   TRY_ADD_ASYNC(status, c4_send_internal_request(ctx, bprintf(&buf2, C4_PS_INTERNAL_PREFIX "%d/" C4_PS_BLOCKS_SSZ, block_period), NULL, 0, &blocks)); // get the blockd
-  TRY_ASYNC(status);                                                                                                                  // finish requests before continuing
+  TRY_ASYNC(status);                                                                                                                                  // finish requests before continuing
 
   uint32_t offset_period = (uint32_t) (chain->fork_epochs[C4_FORK_CAPELLA - 1] >> chain->epochs_per_period_bits);
   json_t   data          = json_get(history_proof, "data"); // the main json-object
@@ -275,16 +276,12 @@ void c4_free_block_proof(blockroot_proof_t* block_proof) {
   safe_free(block_proof->proof_header.data);
 }
 
-// Fetch and SSZ-validate a LightClientBootstrap for an explicit beacon block root.
-// On success `*out_bootstrap` is set to a typed SSZ object pointing at the response
-// bytes; the request layer owns the underlying buffer (lives for the prover_ctx).
-static c4_status_t fetch_bootstrap_by_root(prover_ctx_t* ctx, bytes32_t header_root, ssz_ob_t* out_bootstrap) {
-  ssz_ob_t result    = {0};
-  char     path[200] = {0};
-  sbprintf(path, "eth/v1/beacon/light_client/bootstrap/0x%x", bytes(header_root, 32));
-  TRY_ASYNC(c4_send_beacon_ssz(ctx, path, NULL, NULL, DEFAULT_TTL, &result));
-
-  fork_id_t fork = c4_eth_get_fork_for_lcu(ctx->chain_id, result.bytes);
+// Wraps a raw bootstrap SSZ blob in a typed ssz_ob_t after fork detection +
+// SSZ validation. Used for both the primary (beacon-served) and fallback
+// (self-built) paths so the two share exactly the same validation.
+static c4_status_t decode_bootstrap_bytes(prover_ctx_t* ctx, bytes_t raw, ssz_ob_t* out_bootstrap) {
+  ssz_ob_t  result = {.bytes = raw, .def = NULL};
+  fork_id_t fork   = c4_eth_get_fork_for_lcu(ctx->chain_id, result.bytes);
   if (fork == 0) THROW_ERROR("Invalid bootstrap data: cannot determine fork!");
   // Single source of truth for fork -> bootstrap container mapping.
   result.def = eth_get_light_client_bootstrap(fork);
@@ -292,6 +289,75 @@ static c4_status_t fetch_bootstrap_by_root(prover_ctx_t* ctx, bytes32_t header_r
   if (!ssz_is_valid(result, true, &ctx->state)) THROW_ERROR("Invalid bootstrap data!");
   *out_bootstrap = result;
   return C4_SUCCESS;
+}
+
+// Cache key for a self-built fallback bootstrap. The prefix keeps it distinct
+// from other cache entries that key by 32-byte root (e.g. `ELH_` in
+// beacon.c) so lookups cannot collide.
+static void bootstrap_fallback_cache_key(bytes32_t header_root, bytes32_t out_key) {
+  memcpy(out_key, "BSTR", 4);
+  memcpy(out_key + 4, header_root + 4, 28);
+}
+
+// Fetch and SSZ-validate a LightClientBootstrap for an explicit beacon block root.
+//
+// Preferred path: `eth/v1/beacon/light_client/bootstrap/{block_root}` on the
+// beacon node. Beacon clients typically only serve this endpoint for a small
+// window around the current finalized checkpoint (Lodestar keeps the state for
+// the newest finalized checkpoint in-memory; older roots return 404/500). When
+// the beacon node cannot serve the requested root we fall back to building
+// the bootstrap locally from a Lodestar CompactMultiProof state proof for the
+// SyncCommittee sub-tree (see `c4_create_gloas_bootstrap_by_root`).
+//
+// The self-built bootstrap does NOT live in the primary request's response
+// buffer -- we cache it via `c4_state_cache_set` so ownership transfers to the
+// prover state and it is freed together with `ctx` (mirroring how a beacon-
+// served bootstrap is owned by its `data_request_t.response`).
+static c4_status_t fetch_bootstrap_by_root(prover_ctx_t* ctx, bytes32_t header_root, ssz_ob_t* out_bootstrap) {
+  bytes32_t fallback_key = {0};
+  bootstrap_fallback_cache_key(header_root, fallback_key);
+
+  // 1) Fallback cache hit -> reuse the previously built bootstrap.
+  //    Once we go into the fallback path we always land here in follow-up
+  //    iterations, so a single `c4_state_cache_get` lookup replaces the
+  //    "fallback marker" bookkeeping.
+  bytes_t cached_fallback = c4_state_cache_get(&ctx->state, fallback_key);
+  if (cached_fallback.data)
+    return decode_bootstrap_bytes(ctx, cached_fallback, out_bootstrap);
+
+  // 2) Try the primary beacon endpoint. Use the non-throwing variant so a
+  //    404 / regen error does not abort the whole prover run -- we want to
+  //    catch it and switch to the Lodestar self-build fallback (when the
+  //    operator opted in via C4_PROVER_FLAG_LODESTAR).
+  char     path[200] = {0};
+  buffer_t path_buf  = stack_buffer(path);
+  bprintf(&path_buf, "eth/v1/beacon/light_client/bootstrap/0x%x", bytes(header_root, 32));
+
+  data_request_t* primary_req = NULL;
+  c4_status_t     st          = c4_send_beacon_ssz_no_throw(ctx, path, NULL, DEFAULT_TTL, &primary_req);
+  if (st == C4_PENDING) return C4_PENDING;
+  if (st == C4_SUCCESS) return decode_bootstrap_bytes(ctx, primary_req->response, out_bootstrap);
+
+  // st == C4_ERROR: the request layer left `ctx->state.error` untouched, so
+  // we can decide locally whether to fall back or to surface the error.
+  if (!(ctx->flags & C4_PROVER_FLAG_LODESTAR)) {
+    // No fallback available. Preserve the concrete primary-request cause
+    // so the operator sees "HTTP 404 ..." rather than just a meta-hint.
+    THROW_ERROR_WITH("beacon bootstrap failed and Lodestar fallback disabled: %s",
+                     primary_req && primary_req->error ? primary_req->error : "unknown error");
+  }
+
+  // 3) Fallback: self-build the Gloas bootstrap from a state proof. May
+  //    return C4_PENDING for its own beacon/lodestar round-trips.
+  bytes_t     built_ssz = NULL_BYTES;
+  c4_status_t fb        = c4_create_gloas_bootstrap_by_root(ctx, header_root, &built_ssz);
+  if (fb != C4_SUCCESS) return fb;
+
+  // 4) Cache the built bytes so `c4_state_free` releases them together with
+  //    the prover context. `c4_state_cache_set` takes ownership of
+  //    `built_ssz.data`.
+  bytes_t cached = c4_state_cache_set(&ctx->state, fallback_key, built_ssz);
+  return decode_bootstrap_bytes(ctx, cached, out_bootstrap);
 }
 
 static c4_status_t fetch_bootstrap_data(prover_ctx_t* ctx, syncdata_state_t* sync_data, ssz_ob_t* bootstrap) {
@@ -334,20 +400,79 @@ static c4_status_t fetch_finalized_checkpoint_proof(prover_ctx_t* ctx, ssz_ob_t*
   return C4_SUCCESS;
 }
 
-static c4_status_t fetch_updates_data(prover_ctx_t* ctx, syncdata_state_t* sync_data, ssz_builder_t* updates) {
-  ssz_ob_t result     = {0};
-  uint32_t count      = (uint32_t) (sync_data->required_period - sync_data->newest_period);
-  char     query[100] = {0};
-  sbprintf(query, "start_period=%l&count=%l", sync_data->newest_period, sync_data->required_period - sync_data->newest_period);
-  //  if (ctx->flags & C4_PROVER_FLAG_CHAIN_STORE)
-  //    TRY_ASYNC(c4_send_internal_request(ctx, "lcu_updates", query, 0, &result.bytes));
-  //  else
+c4_status_t c4_fetch_client_updates(prover_ctx_t* ctx, uint64_t start_period, uint32_t count, bytes_t* out_data) {
+  if (!out_data) THROW_ERROR("c4_fetch_client_updates: out_data must not be NULL");
+  *out_data = NULL_BYTES;
+
+  char query[100] = {0};
+  sbprintf(query, "start_period=%l&count=%d", start_period, count);
+
+  // Preferred path (server context): read the LCUs from the local period_store
+  // via the internal `lcu_updates` handler. That handler concatenates the
+  // per-period `lcu.ssz` files (already in Beacon-API wire format: 8-byte LE
+  // length + 4-byte fork_version + LCU SSZ) and transparently backfills
+  // missing periods from a beacon node. It's noticeably cheaper than a
+  // dedicated beacon roundtrip when the cache is warm.
+  //
+  // Fallback: if the internal handler errors out or returns a body that is
+  // too short to hold even one update prefix, drop back to a direct beacon
+  // fetch. `_no_throw` leaves `ctx->state.error` untouched, so the transient
+  // error is invisible to the outer prover run. A per-context state-cache
+  // marker keyed by a fixed 32-byte ASCII sentinel ensures the warning is
+  // emitted exactly once across all async re-entries -- the collision
+  // probability with any sha256(url) is 2^-256 and the sentinel is never
+  // derived from user data, so it cannot alias a real request id.
+  if (ctx->flags & C4_PROVER_FLAG_CHAIN_STORE) {
+    data_request_t* internal_req = NULL;
+    c4_status_t     st           = c4_send_internal_request_no_throw(ctx, "lcu_updates", query, 0, &internal_req);
+    if (st == C4_PENDING) return C4_PENDING;
+    if (st == C4_SUCCESS && internal_req->response.len >= UPDATE_PREFIX_SIZE) {
+      *out_data = internal_req->response;
+      return C4_SUCCESS;
+    }
+    // Internal path did not yield a usable body -> fall through to beacon.
+    // ASCII sentinel key "LCU_FALLBACK_LOGGED\0\0\0\0\0\0\0\0\0\0\0\0\0"
+    // (19 chars + 13 padding = 32 bytes).
+    static const bytes32_t LCU_FALLBACK_LOGGED_KEY = {
+        'L', 'C', 'U', '_', 'F', 'A', 'L', 'L', 'B', 'A', 'C', 'K', '_',
+        'L', 'O', 'G', 'G', 'E', 'D', 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0};
+    // `send_request_impl` guarantees `internal_req != NULL` for every
+    // return code (C4_PENDING was handled above with an early return), so
+    // it is safe to dereference unconditionally here.
+    bytes_t already_logged = c4_state_cache_get(&ctx->state, (uint8_t*) LCU_FALLBACK_LOGGED_KEY);
+    if (!already_logged.data) {
+      log_warn("historic_proof: internal lcu_updates fallback to beacon (status=%d, len=%u)",
+               (int) st, (unsigned) internal_req->response.len);
+      // Store a 1-byte sentinel (value irrelevant, presence matters).
+      // Ownership transfers to the state cache; freed with the ctx.
+      uint8_t* sentinel = (uint8_t*) safe_calloc(1, 1);
+      c4_state_cache_set(&ctx->state, (uint8_t*) LCU_FALLBACK_LOGGED_KEY, bytes(sentinel, 1));
+    }
+    // Short-response branch (`st == C4_SUCCESS` but too small to be a
+    // valid update list): the request layer left `.error == NULL`. Mark
+    // it so future `_no_throw` calls in this ctx short-circuit to
+    // `C4_ERROR` without re-probing the response. Semantically this
+    // overloads `.error` with an application-level state -- documented
+    // here so future readers do not mistake it for a transport error.
+    if (st == C4_SUCCESS && !internal_req->error)
+      internal_req->error = strdup("internal lcu_updates: short response");
+  }
+
+  ssz_ob_t result = {0};
   TRY_ASYNC(c4_send_beacon_ssz(ctx, "eth/v1/beacon/light_client/updates", query, NULL, DEFAULT_TTL, &result));
+  *out_data = result.bytes;
+  return C4_SUCCESS;
+}
+
+static c4_status_t fetch_updates_data(prover_ctx_t* ctx, syncdata_state_t* sync_data, ssz_builder_t* updates) {
+  uint32_t count = (uint32_t) (sync_data->required_period - sync_data->newest_period);
+  bytes_t  client_updates = {0};
+  TRY_ASYNC(c4_fetch_client_updates(ctx, sync_data->newest_period, count, &client_updates));
 
   if (!updates) return C4_SUCCESS;
 
-  bytes_t  client_updates = result.bytes;
-  uint64_t length         = 0;
+  uint64_t length = 0;
   for (uint32_t pos = 0; pos + UPDATE_PREFIX_SIZE < client_updates.len; pos += length + SSZ_LENGTH_SIZE) {
     uint32_t data_offset        = pos + SSZ_LENGTH_SIZE + SSZ_OFFSET_SIZE;
     uint32_t data_length_offset = SSZ_OFFSET_SIZE;

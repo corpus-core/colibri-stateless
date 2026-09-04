@@ -25,6 +25,7 @@
 #include "eth_compute_units.h"
 #include "eth_tools.h"
 #include "eth_verify.h"
+#include "historic_proof.h"
 #include "prover.h"
 #include "ssz.h"
 #include "sync_committee.h"
@@ -33,36 +34,6 @@
 // The `next_sync_committee` gindex is fork-dependent; the resolver lives in
 // `beacon_types.c` (`c4_next_sync_committee_gindex`) so all fork-aware selections
 // share one source of truth.
-
-static c4_status_t req_client_update(prover_ctx_t* ctx, uint32_t period, uint32_t count, chain_id_t chain_id, bytes_t* data) {
-  // This helper enqueues a Beacon-API SSZ request directly on `ctx->state`
-  // instead of going through `c4_send_beacon_ssz`, so we have to add the CU
-  // ourselves to keep accounting consistent with the rest of the code.
-  eth_cu_add(ctx, CU_BEACON_SSZ);
-  buffer_t tmp = {0};
-  bprintf(&tmp, "eth/v1/beacon/light_client/updates?start_period=%d&count=%d", period, count);
-
-  data_request_t* req = c4_state_get_data_request_by_url(&ctx->state, (char*) tmp.data.data);
-  if (req) {
-    buffer_free(&tmp);
-    if (req->response.data) {
-      *data = req->response;
-      return C4_SUCCESS;
-    }
-    else if (req->error) {
-      ctx->state.error = strdup(req->error);
-      return C4_ERROR;
-    }
-    return C4_PENDING;
-  }
-  data_request_t* new_req = safe_calloc(1, sizeof(data_request_t));
-  new_req->chain_id       = chain_id;
-  new_req->url            = (char*) tmp.data.data;
-  new_req->encoding       = C4_DATA_ENCODING_SSZ;
-  new_req->type           = C4_DATA_TYPE_BEACON_API;
-  c4_state_add_request(&ctx->state, new_req);
-  return C4_PENDING;
-}
 
 typedef struct {
 
@@ -172,8 +143,12 @@ c4_status_t c4_proof_sync(prover_ctx_t* ctx) {
   c4_status_t   status        = C4_SUCCESS;
 
   if (period == 0) THROW_ERROR_WITH("Invalid period: %j", period_data);
-  TRY_ADD_ASYNC(status, req_client_update(ctx, period - 2, 1, ctx->chain_id, &old_data));
-  TRY_ADD_ASYNC(status, req_client_update(ctx, period - 1, 1, ctx->chain_id, &new_data));
+  // Fetch the two consecutive periods needed to prove the sync-committee
+  // handoff. `c4_fetch_client_updates` reuses the same period_store-first /
+  // beacon-fallback path as `fetch_updates_data`, so both LCU consumers share
+  // a single strategy for cache warming, error handling, and CU accounting.
+  TRY_ADD_ASYNC(status, c4_fetch_client_updates(ctx, period - 2, 1, &old_data));
+  TRY_ADD_ASYNC(status, c4_fetch_client_updates(ctx, period - 1, 1, &new_data));
   TRY_ASYNC(status);
   TRY_ASYNC(extract_sync_data(ctx, old_data, new_data, &period_values));
   return create_proof(ctx, &period_values);

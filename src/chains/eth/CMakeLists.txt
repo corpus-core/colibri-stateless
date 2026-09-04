@@ -205,6 +205,9 @@ add_prover(
     prover/proof_witness.c
     prover/historic_proof.c
     prover/historic_proof_zk.c
+    prover/state_proofs.c
+    prover/bootstrap_gloas.c
+    prover/lcu_gloas.c
   DEPENDS util eth_verifier verifier
   PROOF eth_prover_execute
   RESET_CACHES c4_eth_reset_prover_caches

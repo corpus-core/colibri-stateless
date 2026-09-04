@@ -267,13 +267,25 @@ static c4_status_t fetch_headers_at_slot(prover_ctx_t* ctx, uint64_t slot, json_
   buffer_t path_buffer = stack_buffer(path);
 
   bprintf(&path_buffer, "eth/v1/beacon/headers?slot=%l", slot);
-  c4_status_t status = c4_send_beacon_json(ctx, path, NULL, PARENT_CHILD_SLOT_TTL, result);
-  if (status != C4_ERROR || !beacon_slot_missing_error(ctx->state.error)) return status;
-
-  safe_free(ctx->state.error);
-  ctx->state.error = NULL;
-  *result          = (json_t) {.type = JSON_TYPE_NOT_FOUND};
-  return C4_SUCCESS;
+  // Use the non-throwing variant so we can distinguish a real transport
+  // failure from Nimbus' "empty slot" (404 / "not been found") without
+  // clearing an already-set `ctx->state.error` after the fact.
+  data_request_t* req    = NULL;
+  c4_status_t     status = c4_send_beacon_json_no_throw(ctx, path, NULL, PARENT_CHILD_SLOT_TTL, &req);
+  if (status == C4_PENDING) return C4_PENDING;
+  if (status == C4_SUCCESS) {
+    json_t response = json_parse((char*) req->response.data);
+    if (response.type == JSON_TYPE_INVALID) THROW_ERROR("Invalid JSON response");
+    *result = response;
+    return C4_SUCCESS;
+  }
+  // status == C4_ERROR: map the well-known "no header at that slot" errors
+  // (empty slot on Nimbus, 404 on Lodestar) to a domain-level empty result.
+  if (beacon_slot_missing_error(req ? req->error : NULL)) {
+    *result = (json_t) {.type = JSON_TYPE_NOT_FOUND};
+    return C4_SUCCESS;
+  }
+  THROW_ERROR(req && req->error ? req->error : "Data request failed");
 }
 
 static c4_status_t get_beacon_header_at_slot_with_parent(prover_ctx_t* ctx, uint64_t slot, bytes32_t expected_parent, json_t* header, bytes32_t root) {
@@ -770,11 +782,45 @@ c4_status_t c4_send_beacon_json(prover_ctx_t* ctx, char* path, char* query, uint
   return c4_send_beacon_json_with_client_type(ctx, path, query, ttl, result, 0);
 }
 
-c4_status_t c4_send_beacon_json_with_client_type(prover_ctx_t* ctx, char* path, char* query, uint32_t ttl, json_t* result, uint32_t client_type) {
-#ifdef HTTP_SERVER
-  client_type |= ctx->client_type;
-#endif
-  eth_cu_add(ctx, CU_BEACON_JSON);
+/**
+ * Shared enqueue-and-probe routine for all request variants.
+ *
+ * Computes the request-id from `(path, query)`, looks up the request in
+ * `ctx->state`, and either creates it (returning `C4_PENDING`) or reports
+ * the current status. Never touches `ctx->state.error`; error reporting is
+ * the caller's responsibility (either by threading the error through the
+ * returned `data_request_t.error`, or by wrapping into a `THROW_ERROR`).
+ *
+ * Ownership: on the "new request" path, the URL buffer is transferred to
+ * `data_request_t.url` (must NOT be freed here). On the "existing request"
+ * path, the local buffer is freed.
+ *
+ * Compute-unit accounting: `cu_cost` is added to `ctx` only when a new
+ * `data_request_t` is enqueued -- looking up an already-completed request
+ * (success or sticky error) is free. That keeps CU accounting tied to
+ * network work, not to sticky-error re-probes on async re-entries.
+ *
+ * @param ctx           prover context
+ * @param path          request path
+ * @param query         optional query string (appended after `?`); may be NULL
+ * @param ttl           cache TTL in seconds
+ * @param data_type     request source type (`data_request_type_t`)
+ * @param data_encoding wire encoding for the response (`data_request_encoding_t`)
+ * @param client_type   preferred client type bitmask
+ * @param cu_cost       compute units to charge when a new request is enqueued
+ * @param out_req       receives the underlying `data_request_t*` on all
+ *                      return statuses; may be NULL if the caller does not
+ *                      care about the returned handle
+ */
+static c4_status_t send_request_impl(prover_ctx_t*           ctx,
+                                     char*                   path,
+                                     char*                   query,
+                                     uint32_t                ttl,
+                                     data_request_type_t     data_type,
+                                     data_request_encoding_t data_encoding,
+                                     uint32_t                client_type,
+                                     uint32_t                cu_cost,
+                                     data_request_t**        out_req) {
   bytes32_t id     = {0};
   buffer_t  buffer = {0};
   buffer_add_chars(&buffer, path);
@@ -786,30 +832,54 @@ c4_status_t c4_send_beacon_json_with_client_type(prover_ctx_t* ctx, char* path, 
   data_request_t* data_request = c4_state_get_data_request_by_id(&ctx->state, id);
   if (data_request) {
     buffer_free(&buffer);
+    if (out_req) *out_req = data_request;
     if (c4_state_is_pending(data_request)) return C4_PENDING;
-    if (!data_request->error && data_request->response.data) {
-      json_t response = json_parse((char*) data_request->response.data);
-      if (response.type == JSON_TYPE_INVALID) THROW_ERROR("Invalid JSON response");
-      *result = response;
-      return C4_SUCCESS;
-    }
-    else
-      THROW_ERROR(data_request->error ? data_request->error : "Data request failed");
+    if (!data_request->error && data_request->response.data) return C4_SUCCESS;
+    return C4_ERROR;
   }
-  else {
-    data_request = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
-    memcpy(data_request->id, id, 32);
-    data_request->url                   = (char*) buffer.data.data;
-    data_request->encoding              = C4_DATA_ENCODING_JSON;
-    data_request->method                = C4_DATA_METHOD_GET;
-    data_request->type                  = C4_DATA_TYPE_BEACON_API;
-    data_request->ttl                   = ttl;
-    data_request->preferred_client_type = client_type;
-    c4_state_add_request(&ctx->state, data_request);
-    return C4_PENDING;
-  }
+  // New request: charge CU exactly once (at enqueue). All subsequent
+  // lookups for the same id (success, error, or pending re-entries) are
+  // free -- they do no I/O.
+  eth_cu_add(ctx, cu_cost);
+  data_request = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
+  memcpy(data_request->id, id, 32);
+  data_request->url                   = (char*) buffer.data.data;
+  data_request->encoding              = data_encoding;
+  data_request->method                = C4_DATA_METHOD_GET;
+  data_request->type                  = data_type;
+  data_request->ttl                   = ttl;
+  data_request->preferred_client_type = client_type;
+  c4_state_add_request(&ctx->state, data_request);
+  if (out_req) *out_req = data_request;
+  return C4_PENDING;
+}
 
-  return C4_SUCCESS;
+c4_status_t c4_send_beacon_json_no_throw(prover_ctx_t* ctx, char* path, char* query, uint32_t ttl, data_request_t** out_req) {
+#ifdef HTTP_SERVER
+  uint32_t client_type = ctx->client_type;
+#else
+  uint32_t client_type = 0;
+#endif
+  return send_request_impl(ctx, path, query, ttl,
+                           C4_DATA_TYPE_BEACON_API, C4_DATA_ENCODING_JSON,
+                           client_type, CU_BEACON_JSON, out_req);
+}
+
+c4_status_t c4_send_beacon_json_with_client_type(prover_ctx_t* ctx, char* path, char* query, uint32_t ttl, json_t* result, uint32_t client_type) {
+#ifdef HTTP_SERVER
+  client_type |= ctx->client_type;
+#endif
+  data_request_t* req    = NULL;
+  c4_status_t     status = send_request_impl(ctx, path, query, ttl,
+                                             C4_DATA_TYPE_BEACON_API, C4_DATA_ENCODING_JSON,
+                                             client_type, CU_BEACON_JSON, &req);
+  if (status == C4_ERROR) THROW_ERROR(req && req->error ? req->error : "Data request failed");
+  if (status == C4_SUCCESS) {
+    json_t response = json_parse((char*) req->response.data);
+    if (response.type == JSON_TYPE_INVALID) THROW_ERROR("Invalid JSON response");
+    *result = response;
+  }
+  return status;
 }
 
 static bool convert_to_ssz(prover_ctx_t* ctx, data_request_t* data_request, ssz_ob_t* result) {
@@ -856,83 +926,48 @@ static bool convert_to_ssz(prover_ctx_t* ctx, data_request_t* data_request, ssz_
 c4_status_t c4_send_beacon_ssz(prover_ctx_t* ctx, char* path, char* query, const ssz_def_t* def, uint32_t ttl, ssz_ob_t* result) {
   return c4_send_beacon_ssz_with_client_type(ctx, path, query, def, ttl, result, 0);
 }
+
+c4_status_t c4_send_beacon_ssz_no_throw(prover_ctx_t* ctx, char* path, char* query, uint32_t ttl, data_request_t** out_req) {
+#ifdef HTTP_SERVER
+  uint32_t client_type = ctx->client_type;
+#else
+  uint32_t client_type = 0;
+#endif
+  return send_request_impl(ctx, path, query, ttl,
+                           C4_DATA_TYPE_BEACON_API, C4_DATA_ENCODING_SSZ,
+                           client_type, CU_BEACON_SSZ, out_req);
+}
+
 c4_status_t c4_send_beacon_ssz_with_client_type(prover_ctx_t* ctx, char* path, char* query, const ssz_def_t* def, uint32_t ttl, ssz_ob_t* result, uint32_t client_type) {
 #ifdef HTTP_SERVER
   client_type |= ctx->client_type;
 #endif
-  eth_cu_add(ctx, CU_BEACON_SSZ);
-  bytes32_t id     = {0};
-  buffer_t  buffer = {0};
-  buffer_add_chars(&buffer, path);
-  if (query) {
-    buffer_add_chars(&buffer, "?");
-    buffer_add_chars(&buffer, query);
-  }
-  sha256(buffer.data, id);
-  data_request_t* data_request = c4_state_get_data_request_by_id(&ctx->state, id);
-  if (data_request) {
-    buffer_free(&buffer);
-    if (c4_state_is_pending(data_request)) return C4_PENDING;
-    if (!data_request->error && data_request->response.data) {
-      *result = (ssz_ob_t) {.def = def, .bytes = data_request->response};
-      if (!data_request->validated) {
-        if (result->bytes.len > 20 && result->bytes.data[0] == '{' && result->bytes.data[1] == '"' && !convert_to_ssz(ctx, data_request, result)) return C4_ERROR;
-        if (def && !ssz_is_valid(*result, true, &ctx->state)) return C4_ERROR;
-        data_request->validated = true;
-      }
-      return C4_SUCCESS;
+  data_request_t* req    = NULL;
+  c4_status_t     status = send_request_impl(ctx, path, query, ttl,
+                                             C4_DATA_TYPE_BEACON_API, C4_DATA_ENCODING_SSZ,
+                                             client_type, CU_BEACON_SSZ, &req);
+  if (status == C4_ERROR) THROW_ERROR(req && req->error ? req->error : "Data request failed");
+  if (status == C4_SUCCESS) {
+    *result = (ssz_ob_t) {.def = def, .bytes = req->response};
+    if (!req->validated) {
+      if (result->bytes.len > 20 && result->bytes.data[0] == '{' && result->bytes.data[1] == '"' && !convert_to_ssz(ctx, req, result)) return C4_ERROR;
+      if (def && !ssz_is_valid(*result, true, &ctx->state)) return C4_ERROR;
+      req->validated = true;
     }
-    else
-      THROW_ERROR(data_request->error ? data_request->error : "Data request failed");
   }
-  else {
-    data_request = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
-    memcpy(data_request->id, id, 32);
-    data_request->url                   = (char*) buffer.data.data;
-    data_request->encoding              = C4_DATA_ENCODING_SSZ;
-    data_request->method                = C4_DATA_METHOD_GET;
-    data_request->type                  = C4_DATA_TYPE_BEACON_API;
-    data_request->ttl                   = ttl;
-    data_request->preferred_client_type = client_type;
-    c4_state_add_request(&ctx->state, data_request);
-    return C4_PENDING;
-  }
+  return status;
+}
 
-  return C4_SUCCESS;
+c4_status_t c4_send_internal_request_no_throw(prover_ctx_t* ctx, char* path, char* query, uint32_t ttl, data_request_t** out_req) {
+  return send_request_impl(ctx, path, query, ttl,
+                           C4_DATA_TYPE_INTERN, C4_DATA_ENCODING_SSZ,
+                           0, CU_INTERNAL_REQUEST, out_req);
 }
 
 c4_status_t c4_send_internal_request(prover_ctx_t* ctx, char* path, char* query, uint32_t ttl, bytes_t* result) {
-  eth_cu_add(ctx, CU_INTERNAL_REQUEST);
-  bytes32_t id     = {0};
-  buffer_t  buffer = {0};
-  buffer_add_chars(&buffer, path);
-  if (query) {
-    buffer_add_chars(&buffer, "?");
-    buffer_add_chars(&buffer, query);
-  }
-  sha256(buffer.data, id);
-  data_request_t* data_request = c4_state_get_data_request_by_id(&ctx->state, id);
-  if (data_request) {
-    buffer_free(&buffer);
-    if (c4_state_is_pending(data_request)) return C4_PENDING;
-    if (!data_request->error && data_request->response.data) {
-      *result = data_request->response;
-      return C4_SUCCESS;
-    }
-    else
-      THROW_ERROR(data_request->error ? data_request->error : "Data request failed");
-  }
-  else {
-    data_request = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
-    memcpy(data_request->id, id, 32);
-    data_request->url      = (char*) buffer.data.data;
-    data_request->encoding = C4_DATA_ENCODING_SSZ;
-    data_request->method   = C4_DATA_METHOD_GET;
-    data_request->type     = C4_DATA_TYPE_INTERN;
-    data_request->ttl      = ttl;
-    c4_state_add_request(&ctx->state, data_request);
-    return C4_PENDING;
-  }
-
-  return C4_SUCCESS;
+  data_request_t* req    = NULL;
+  c4_status_t     status = c4_send_internal_request_no_throw(ctx, path, query, ttl, &req);
+  if (status == C4_ERROR) THROW_ERROR(req && req->error ? req->error : "Data request failed");
+  if (status == C4_SUCCESS) *result = req->response;
+  return status;
 }

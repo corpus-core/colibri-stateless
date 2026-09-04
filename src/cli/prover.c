@@ -82,6 +82,7 @@
 // | `-i`           |                 | Include code in the proof                                                   |              |
 // | `-G`           |                 | Generate an `eth_getLogs` completeness proof over the requested block range (proves no matching log was omitted; sets `C4_PROVER_FLAG_LOGS_COMPLETENESS`) |              |
 // | `-N`           |                 | Nimbus CL compatibility (slot-scan parent lookup, nimbus historical_summaries; sets `C4_PROVER_FLAG_NIMBUS`) |              |
+// | `-D`           |                 | Lodestar CL compatibility (enables self-build fallback for LC bootstrap/update via CompactMultiProof; sets `C4_PROVER_FLAG_LODESTAR`) |              |
 // | `<method>`     |                 | The method to execute                                                       |              |
 // | `<params>`     |                 | Parameters for the method                                                   |              |
 
@@ -119,6 +120,7 @@ int main(int argc, char* argv[]) {
                     "  -i               : include code in the proof\n"
                     "  -G               : generate an eth_getLogs completeness proof over the requested block range (proves no matching log was omitted)\n"
                     "  -N               : Nimbus CL compatibility (slot-scan parent lookup, nimbus historical_summaries)\n"
+                    "  -D               : Lodestar CL compatibility (self-build fallback for LC bootstrap/update via CompactMultiProof)\n"
                     "  --version, -v    : display version information\n"
                     "\n",
             argv[0]);
@@ -170,6 +172,12 @@ int main(int argc, char* argv[]) {
             break;
           case 'N':
             flags |= C4_PROVER_FLAG_NIMBUS;
+            break;
+          case 'D':
+            // Lodestar CL compatibility: enables the unofficial CompactMultiProof
+            // endpoint used to self-build LC bootstrap/update when the standard
+            // beacon endpoints do not return data. Do NOT set for other clients.
+            flags |= C4_PROVER_FLAG_LODESTAR;
             break;
 #ifdef TEST
 #ifdef USE_CURL
