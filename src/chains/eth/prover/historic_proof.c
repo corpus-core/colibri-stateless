@@ -400,11 +400,12 @@ static c4_status_t fetch_finalized_checkpoint_proof(prover_ctx_t* ctx, ssz_ob_t*
   return C4_SUCCESS;
 }
 
-static c4_status_t fetch_updates_data(prover_ctx_t* ctx, syncdata_state_t* sync_data, ssz_builder_t* updates) {
-  ssz_ob_t result     = {0};
-  uint32_t count      = (uint32_t) (sync_data->required_period - sync_data->newest_period);
-  char     query[100] = {0};
-  sbprintf(query, "start_period=%l&count=%l", sync_data->newest_period, count);
+c4_status_t c4_fetch_client_updates(prover_ctx_t* ctx, uint64_t start_period, uint32_t count, bytes_t* out_data) {
+  if (!out_data) THROW_ERROR("c4_fetch_client_updates: out_data must not be NULL");
+  *out_data = NULL_BYTES;
+
+  char query[100] = {0};
+  sbprintf(query, "start_period=%l&count=%d", start_period, count);
 
   // Preferred path (server context): read the LCUs from the local period_store
   // via the internal `lcu_updates` handler. That handler concatenates the
@@ -421,48 +422,57 @@ static c4_status_t fetch_updates_data(prover_ctx_t* ctx, syncdata_state_t* sync_
   // emitted exactly once across all async re-entries -- the collision
   // probability with any sha256(url) is 2^-256 and the sentinel is never
   // derived from user data, so it cannot alias a real request id.
-  bool internal_ok = false;
   if (ctx->flags & C4_PROVER_FLAG_CHAIN_STORE) {
     data_request_t* internal_req = NULL;
     c4_status_t     st           = c4_send_internal_request_no_throw(ctx, "lcu_updates", query, 0, &internal_req);
     if (st == C4_PENDING) return C4_PENDING;
     if (st == C4_SUCCESS && internal_req->response.len >= UPDATE_PREFIX_SIZE) {
-      result.bytes = internal_req->response;
-      internal_ok  = true;
+      *out_data = internal_req->response;
+      return C4_SUCCESS;
     }
-    else {
-      // ASCII sentinel key "LCU_FALLBACK_LOGGED\0\0\0\0\0\0\0\0\0\0\0\0\0"
-      // (13 chars + 19 padding = 32 bytes).
-      static const bytes32_t LCU_FALLBACK_LOGGED_KEY = {
-          'L', 'C', 'U', '_', 'F', 'A', 'L', 'L', 'B', 'A', 'C', 'K', '_',
-          'L', 'O', 'G', 'G', 'E', 'D', 0, 0, 0, 0, 0, 0, 0,
-          0, 0, 0, 0, 0, 0};
-      bytes_t already_logged = c4_state_cache_get(&ctx->state, (uint8_t*) LCU_FALLBACK_LOGGED_KEY);
-      if (!already_logged.data) {
-        log_warn("historic_proof: internal lcu_updates fallback to beacon (status=%d, len=%u)",
-                 (int) st, (unsigned) internal_req->response.len);
-        // Store a 1-byte sentinel (value irrelevant, presence matters).
-        // Ownership transfers to the state cache; freed with the ctx.
-        uint8_t* sentinel = (uint8_t*) safe_calloc(1, 1);
-        c4_state_cache_set(&ctx->state, (uint8_t*) LCU_FALLBACK_LOGGED_KEY, bytes(sentinel, 1));
-      }
-      // Short-response branch (`st == C4_SUCCESS` but too small to be a
-      // valid update list): the request layer left `.error == NULL`. Mark
-      // it so future `_no_throw` calls in this ctx short-circuit to
-      // `C4_ERROR` without re-probing the response. Semantically this
-      // overloads `.error` with an application-level state -- documented
-      // here so future readers do not mistake it for a transport error.
-      if (st == C4_SUCCESS && !internal_req->error)
-        internal_req->error = strdup("internal lcu_updates: short response");
+    // Internal path did not yield a usable body -> fall through to beacon.
+    // ASCII sentinel key "LCU_FALLBACK_LOGGED\0\0\0\0\0\0\0\0\0\0\0\0\0"
+    // (19 chars + 13 padding = 32 bytes).
+    static const bytes32_t LCU_FALLBACK_LOGGED_KEY = {
+        'L', 'C', 'U', '_', 'F', 'A', 'L', 'L', 'B', 'A', 'C', 'K', '_',
+        'L', 'O', 'G', 'G', 'E', 'D', 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0};
+    // `send_request_impl` guarantees `internal_req != NULL` for every
+    // return code (C4_PENDING was handled above with an early return), so
+    // it is safe to dereference unconditionally here.
+    bytes_t already_logged = c4_state_cache_get(&ctx->state, (uint8_t*) LCU_FALLBACK_LOGGED_KEY);
+    if (!already_logged.data) {
+      log_warn("historic_proof: internal lcu_updates fallback to beacon (status=%d, len=%u)",
+               (int) st, (unsigned) internal_req->response.len);
+      // Store a 1-byte sentinel (value irrelevant, presence matters).
+      // Ownership transfers to the state cache; freed with the ctx.
+      uint8_t* sentinel = (uint8_t*) safe_calloc(1, 1);
+      c4_state_cache_set(&ctx->state, (uint8_t*) LCU_FALLBACK_LOGGED_KEY, bytes(sentinel, 1));
     }
+    // Short-response branch (`st == C4_SUCCESS` but too small to be a
+    // valid update list): the request layer left `.error == NULL`. Mark
+    // it so future `_no_throw` calls in this ctx short-circuit to
+    // `C4_ERROR` without re-probing the response. Semantically this
+    // overloads `.error` with an application-level state -- documented
+    // here so future readers do not mistake it for a transport error.
+    if (st == C4_SUCCESS && !internal_req->error)
+      internal_req->error = strdup("internal lcu_updates: short response");
   }
-  if (!internal_ok)
-    TRY_ASYNC(c4_send_beacon_ssz(ctx, "eth/v1/beacon/light_client/updates", query, NULL, DEFAULT_TTL, &result));
+
+  ssz_ob_t result = {0};
+  TRY_ASYNC(c4_send_beacon_ssz(ctx, "eth/v1/beacon/light_client/updates", query, NULL, DEFAULT_TTL, &result));
+  *out_data = result.bytes;
+  return C4_SUCCESS;
+}
+
+static c4_status_t fetch_updates_data(prover_ctx_t* ctx, syncdata_state_t* sync_data, ssz_builder_t* updates) {
+  uint32_t count = (uint32_t) (sync_data->required_period - sync_data->newest_period);
+  bytes_t  client_updates = {0};
+  TRY_ASYNC(c4_fetch_client_updates(ctx, sync_data->newest_period, count, &client_updates));
 
   if (!updates) return C4_SUCCESS;
 
-  bytes_t  client_updates = result.bytes;
-  uint64_t length         = 0;
+  uint64_t length = 0;
   for (uint32_t pos = 0; pos + UPDATE_PREFIX_SIZE < client_updates.len; pos += length + SSZ_LENGTH_SIZE) {
     uint32_t data_offset        = pos + SSZ_LENGTH_SIZE + SSZ_OFFSET_SIZE;
     uint32_t data_length_offset = SSZ_OFFSET_SIZE;
