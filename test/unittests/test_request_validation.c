@@ -7,6 +7,7 @@
  */
 
 #include "unity.h"
+#include "beacon.h"
 #include "bytes.h"
 #include "chains.h"
 #include "eth_req.h"
@@ -94,6 +95,24 @@ void test_eth_get_block_validates_once(void) {
   c4_prover_free(ctx);
 }
 
+void test_send_beacon_ssz_null_def_does_not_validate(void) {
+  prover_ctx_t*   ctx    = c4_prover_create("eth_getBlockByNumber", "[\"0x1\",false]", C4_CHAIN_MAINNET, 0);
+  ssz_ob_t        result = {0};
+  data_request_t* req    = NULL;
+
+  TEST_ASSERT_EQUAL_INT(C4_PENDING, c4_send_beacon_ssz(ctx, "eth/v2/beacon/blocks/head", NULL, NULL, 0, &result, &req));
+  TEST_ASSERT_NOT_NULL(req);
+
+  uint8_t* body = safe_calloc(32, 1);
+  req->response = bytes(body, 32);
+
+  TEST_ASSERT_EQUAL_INT(C4_SUCCESS, c4_send_beacon_ssz(ctx, "eth/v2/beacon/blocks/head", NULL, NULL, 0, &result, &req));
+  TEST_ASSERT_FALSE(req->validated);
+  TEST_ASSERT_EQUAL_PTR(body, result.bytes.data);
+
+  c4_prover_free(ctx);
+}
+
 #ifdef EVMONE
 void test_eth_get_storage_at_rejects_invalid_result(void) {
   verify_ctx_t      vctx = {0};
@@ -127,6 +146,7 @@ int main(void) {
   RUN_TEST(test_get_data_request_by_response);
   RUN_TEST(test_eth_get_block_rejects_incomplete_json);
   RUN_TEST(test_eth_get_block_validates_once);
+  RUN_TEST(test_send_beacon_ssz_null_def_does_not_validate);
 #ifdef EVMONE
   RUN_TEST(test_eth_get_storage_at_rejects_invalid_result);
 #endif
