@@ -1042,13 +1042,11 @@ static c4_status_t c4_try_sync_from_next_period(verify_ctx_t* ctx, uint32_t peri
 
     uint64_t length                    = uint64_from_le(light_client_update.data + offset);
     bytes_t  light_client_update_bytes = bytes(light_client_update.data + offset + UPDATE_PREFIX_SIZE, length - SSZ_OFFSET_SIZE);
-    ssz_ob_t        update_ob = {.bytes = light_client_update_bytes, .def = client_update_def};
-    data_request_t* src_req   = c4_state_get_data_request_by_response(&ctx->state, light_client_update);
-    if (!(src_req && src_req->validated)) {
-      if (!ssz_is_valid(update_ob, true, &ctx->state))
-        THROW_ERROR("Invalid SSZ structure in light client update");
-      if (src_req) src_req->validated = true;
-    }
+    ssz_ob_t update_ob                 = {.bytes = light_client_update_bytes, .def = client_update_def};
+    // One item is not the enclosing list. Leave the list request unvalidated
+    // until a list-level SSZ check exists.
+    if (!ssz_is_valid(update_ob, true, &ctx->state))
+      THROW_ERROR("Invalid SSZ structure in light client update");
 
     // Step 4: Extract nextSyncCommittee from the update (this is period N+1's committee in period N's update)
     ssz_ob_t next_sync_committee = ssz_get(&update_ob, "nextSyncCommittee");

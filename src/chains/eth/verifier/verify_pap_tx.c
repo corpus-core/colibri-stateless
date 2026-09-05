@@ -80,8 +80,8 @@ static c4_status_t fetch_tx_cache_from_server(verify_ctx_t* ctx) {
     ssz_ob_t snapshot = {.bytes = response, .def = &PAP_TX_CACHE_SNAPSHOT};
     if (!ssz_is_valid(snapshot, true, &ctx->state))
       return C4_ERROR;
+    if (req) req->validated = true;
   }
-  if (req) req->validated = true;
 
   if (incremental)
     pap_tx_cache_merge_from_ssz(ctx->chain_id, response);
