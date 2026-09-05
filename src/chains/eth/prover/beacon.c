@@ -174,7 +174,12 @@ void c4_beacon_cache_update_blockdata(prover_ctx_t* ctx, eth_block_t* beacon_blo
 #endif
 
 static c4_status_t get_finality_check_points(prover_ctx_t* ctx, json_t* result) {
-  TRY_ASYNC(c4_send_beacon_json(ctx, "eth/v1/beacon/states/head/finality_checkpoints", NULL, 0, result));
+  data_request_t* req = NULL;
+  TRY_ASYNC(c4_send_beacon_json(ctx, "eth/v1/beacon/states/head/finality_checkpoints", NULL, 0, result, &req));
+  if (req && !req->validated) {
+    CHECK_JSON(*result, JSON_BEACON_FINALITY, "Invalid finality checkpoints: ");
+    req->validated = true;
+  }
   *result = json_get(*result, "data");
   return C4_SUCCESS;
 }
@@ -276,6 +281,10 @@ static c4_status_t fetch_headers_at_slot(prover_ctx_t* ctx, uint64_t slot, json_
   if (status == C4_SUCCESS) {
     json_t response = json_parse((char*) req->response.data);
     if (response.type == JSON_TYPE_INVALID) THROW_ERROR("Invalid JSON response");
+    if (!req->validated) {
+      CHECK_JSON(response, JSON_BEACON_HEADER_LIST, "Invalid beacon headers: ");
+      req->validated = true;
+    }
     *result = response;
     return C4_SUCCESS;
   }
@@ -324,7 +333,12 @@ static c4_status_t get_beacon_header_by_parent_hash_scan(prover_ctx_t* ctx, byte
   buffer_t path_buffer = stack_buffer(path);
 
   bprintf(&path_buffer, "eth/v1/beacon/headers/0x%x", bytes(parent_root, 32));
-  TRY_ASYNC(c4_send_beacon_json(ctx, path, NULL, DEFAULT_TTL, &parent_res));
+  data_request_t* req = NULL;
+  TRY_ASYNC(c4_send_beacon_json(ctx, path, NULL, DEFAULT_TTL, &parent_res, &req));
+  if (req && !req->validated) {
+    CHECK_JSON(parent_res, JSON_BEACON_HEADER_OBJECT, "Invalid parent beacon header: ");
+    req->validated = true;
+  }
 
   json_t parent_entry = beacon_header_unwrap_data(parent_res);
   if (parent_entry.type != JSON_TYPE_OBJECT) THROW_ERROR("Parent beacon header not found!");
@@ -341,7 +355,12 @@ static c4_status_t get_beacon_header_by_parent_hash_query(prover_ctx_t* ctx, byt
   buffer_t path_buffer = stack_buffer(path);
 
   bprintf(&path_buffer, "eth/v1/beacon/headers?parent_root=0x%x", bytes(parent_root, 32));
-  TRY_ASYNC(c4_send_beacon_json_with_client_type(ctx, path, NULL, PARENT_CHILD_SLOT_TTL, &result, BEACON_SUPPORTS_PARENT_ROOT_HEADERS));
+  data_request_t* req = NULL;
+  TRY_ASYNC(c4_send_beacon_json_with_client_type(ctx, path, NULL, PARENT_CHILD_SLOT_TTL, &result, BEACON_SUPPORTS_PARENT_ROOT_HEADERS, &req));
+  if (req && !req->validated) {
+    CHECK_JSON(result, JSON_BEACON_HEADER_LIST, "Invalid beacon headers: ");
+    req->validated = true;
+  }
 
   json_t entry = beacon_header_child_in_result(result, parent_root);
   if (entry.type != JSON_TYPE_OBJECT) {
@@ -368,7 +387,7 @@ static c4_status_t get_beacon_header_by_parent_hash(prover_ctx_t* ctx, bytes32_t
   return find_child_header(ctx, parent_root, NULL, header, root);
 }
 
-static c4_status_t determine_fork(prover_ctx_t* ctx, ssz_ob_t* block) {
+static c4_status_t determine_fork(prover_ctx_t* ctx, ssz_ob_t* block, data_request_t* req) {
   if (!block || !block->bytes.data) THROW_ERROR("no block data!");
   if (block->bytes.len < 108) THROW_ERROR_WITH("Invalid block data len=%d !", block->bytes.len);
   bytes_t  data   = block->bytes;
@@ -380,7 +399,10 @@ static c4_status_t determine_fork(prover_ctx_t* ctx, ssz_ob_t* block) {
   fork_id_t fork = c4_chain_fork_id(ctx->chain_id, epoch_for_slot(slot, chain));
   block->def     = eth_ssz_type_for_fork(ETH_SSZ_SIGNED_BEACON_BLOCK_CONTAINER, fork, ctx->chain_id);
   if (!block->def) THROW_ERROR("Invalid fork id!");
-  return ssz_is_valid(*block, true, &ctx->state) ? C4_SUCCESS : C4_ERROR;
+  if (req && req->validated) return C4_SUCCESS;
+  if (!ssz_is_valid(*block, true, &ctx->state)) return C4_ERROR;
+  if (req) req->validated = true;
+  return C4_SUCCESS;
 }
 
 static c4_status_t get_block(prover_ctx_t* ctx, beacon_head_t* b, ssz_ob_t* block) {
@@ -399,8 +421,9 @@ static c4_status_t get_block(prover_ctx_t* ctx, beacon_head_t* b, ssz_ob_t* bloc
   else
     bprintf(&buffer, "eth/v2/beacon/blocks/%l", b->slot);
 
-  TRY_ASYNC(c4_send_beacon_ssz(ctx, path, NULL, NULL, ttl, block));
-  TRY_ASYNC(determine_fork(ctx, block));
+  data_request_t* req = NULL;
+  TRY_ASYNC(c4_send_beacon_ssz(ctx, path, NULL, NULL, ttl, block, &req));
+  TRY_ASYNC(determine_fork(ctx, block, req));
 
   *block = ssz_get(block, "message");
   return C4_SUCCESS;
@@ -637,7 +660,12 @@ static c4_status_t get_el_header_and_branch(prover_ctx_t* ctx, el_header_and_bra
     char          tmp[100]          = {0};
     sbprintf(tmp, "[\"0x%x\"]", bytes(parent_block_hash, 32));
 
-    TRY_ASYNC(c4_send_eth_rpc(ctx, "debug_getRawBlock", tmp, DEFAULT_TTL, &result, NULL));
+    data_request_t* req = NULL;
+    TRY_ASYNC(c4_send_eth_rpc(ctx, "debug_getRawBlock", tmp, DEFAULT_TTL, &result, &req));
+    if (req && !req->validated) {
+      CHECK_JSON(result, "bytes", "Invalid results for debug_getRawBlock: ");
+      req->validated = true;
+    }
     buffer_grow(&buffer, result.len / 2 + 1);
     TRY_ASYNC_FINAL(eth_el_header_get_from_raw_block(&ctx->state, json_as_bytes(result, &buffer), &generated_header, &body_builder), buffer_free(&buffer));
 
@@ -778,8 +806,8 @@ ssz_builder_t c4_proof_add_header(ssz_ob_t block, bytes32_t body_root) {
   ssz_add_bytes(&beacon_header, "bodyRoot", bytes(body_root, 32));
   return beacon_header;
 }
-c4_status_t c4_send_beacon_json(prover_ctx_t* ctx, char* path, char* query, uint32_t ttl, json_t* result) {
-  return c4_send_beacon_json_with_client_type(ctx, path, query, ttl, result, 0);
+c4_status_t c4_send_beacon_json(prover_ctx_t* ctx, char* path, char* query, uint32_t ttl, json_t* result, data_request_t** req) {
+  return c4_send_beacon_json_with_client_type(ctx, path, query, ttl, result, 0, req);
 }
 
 /**
@@ -865,7 +893,7 @@ c4_status_t c4_send_beacon_json_no_throw(prover_ctx_t* ctx, char* path, char* qu
                            client_type, CU_BEACON_JSON, out_req);
 }
 
-c4_status_t c4_send_beacon_json_with_client_type(prover_ctx_t* ctx, char* path, char* query, uint32_t ttl, json_t* result, uint32_t client_type) {
+c4_status_t c4_send_beacon_json_with_client_type(prover_ctx_t* ctx, char* path, char* query, uint32_t ttl, json_t* result, uint32_t client_type, data_request_t** out_req) {
 #ifdef HTTP_SERVER
   client_type |= ctx->client_type;
 #endif
@@ -873,6 +901,7 @@ c4_status_t c4_send_beacon_json_with_client_type(prover_ctx_t* ctx, char* path, 
   c4_status_t     status = send_request_impl(ctx, path, query, ttl,
                                              C4_DATA_TYPE_BEACON_API, C4_DATA_ENCODING_JSON,
                                              client_type, CU_BEACON_JSON, &req);
+  if (out_req) *out_req = req;
   if (status == C4_ERROR) THROW_ERROR(req && req->error ? req->error : "Data request failed");
   if (status == C4_SUCCESS) {
     json_t response = json_parse((char*) req->response.data);
@@ -923,8 +952,8 @@ static bool convert_to_ssz(prover_ctx_t* ctx, data_request_t* data_request, ssz_
   result->bytes          = ssz_result.bytes;
   return true;
 }
-c4_status_t c4_send_beacon_ssz(prover_ctx_t* ctx, char* path, char* query, const ssz_def_t* def, uint32_t ttl, ssz_ob_t* result) {
-  return c4_send_beacon_ssz_with_client_type(ctx, path, query, def, ttl, result, 0);
+c4_status_t c4_send_beacon_ssz(prover_ctx_t* ctx, char* path, char* query, const ssz_def_t* def, uint32_t ttl, ssz_ob_t* result, data_request_t** req) {
+  return c4_send_beacon_ssz_with_client_type(ctx, path, query, def, ttl, result, 0, req);
 }
 
 c4_status_t c4_send_beacon_ssz_no_throw(prover_ctx_t* ctx, char* path, char* query, uint32_t ttl, data_request_t** out_req) {
@@ -938,7 +967,7 @@ c4_status_t c4_send_beacon_ssz_no_throw(prover_ctx_t* ctx, char* path, char* que
                            client_type, CU_BEACON_SSZ, out_req);
 }
 
-c4_status_t c4_send_beacon_ssz_with_client_type(prover_ctx_t* ctx, char* path, char* query, const ssz_def_t* def, uint32_t ttl, ssz_ob_t* result, uint32_t client_type) {
+c4_status_t c4_send_beacon_ssz_with_client_type(prover_ctx_t* ctx, char* path, char* query, const ssz_def_t* def, uint32_t ttl, ssz_ob_t* result, uint32_t client_type, data_request_t** out_req) {
 #ifdef HTTP_SERVER
   client_type |= ctx->client_type;
 #endif
@@ -946,13 +975,16 @@ c4_status_t c4_send_beacon_ssz_with_client_type(prover_ctx_t* ctx, char* path, c
   c4_status_t     status = send_request_impl(ctx, path, query, ttl,
                                              C4_DATA_TYPE_BEACON_API, C4_DATA_ENCODING_SSZ,
                                              client_type, CU_BEACON_SSZ, &req);
+  if (out_req) *out_req = req;
   if (status == C4_ERROR) THROW_ERROR(req && req->error ? req->error : "Data request failed");
   if (status == C4_SUCCESS) {
     *result = (ssz_ob_t) {.def = def, .bytes = req->response};
     if (!req->validated) {
       if (result->bytes.len > 20 && result->bytes.data[0] == '{' && result->bytes.data[1] == '"' && !convert_to_ssz(ctx, req, result)) return C4_ERROR;
-      if (def && !ssz_is_valid(*result, true, &ctx->state)) return C4_ERROR;
-      req->validated = true;
+      if (def) {
+        if (!ssz_is_valid(*result, true, &ctx->state)) return C4_ERROR;
+        req->validated = true;
+      }
     }
   }
   return status;

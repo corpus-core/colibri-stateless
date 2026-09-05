@@ -554,7 +554,7 @@ c4_status_t c4_state_proofs_beacon_fetch(prover_ctx_t* ctx,
   c4_status_t status   = c4_send_beacon_ssz_with_client_type(
       ctx, path, (char*) query.data.data,
       &COMPACT_MULTI_PROOF_CONTAINER, DEFAULT_TTL, &response,
-      BEACON_CLIENT_LODESTAR);
+      BEACON_CLIENT_LODESTAR, NULL);
   buffer_free(&query);
   if (status != C4_SUCCESS) return status;
 

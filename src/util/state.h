@@ -324,6 +324,18 @@ void c4_append_prover_request_props(buffer_t* payload, bytes_t client_state, cha
 data_request_t* c4_state_get_data_request_by_id(c4_state_t* state, bytes32_t id);
 
 /**
+ * Finds a data request whose `response` pointer matches the given bytes.
+ *
+ * Used to attach `validated` to the request that produced a consumed buffer
+ * without changing every consume-function signature.
+ *
+ * @param state Pointer to the state object
+ * @param response Response bytes (matched by `data` pointer, not contents)
+ * @return Pointer to the matching request, or NULL if not found
+ */
+data_request_t* c4_state_get_data_request_by_response(c4_state_t* state, bytes_t response);
+
+/**
  * Gets a `C4_DATA_TYPE_CACHE` snapshot from the request list.
  *
  * Walks the request list and matches only `C4_DATA_TYPE_CACHE` entries with a
@@ -740,7 +752,8 @@ static inline bool c4_check_json_verify_cached_inline(c4_state_t* state, bool* s
       req->node_exclude_mask |= (1 << req->response_node_index);                                                                                                                              \
     log_warn("   [retry] request (%s) returned invalid response (%r) from node index=%d, retrying", c4_req_info(req->type, req->url, req->payload), req->response, req->response_node_index); \
     safe_free(req->response.data);                                                                                                                                                            \
-    req->response = NULL_BYTES;                                                                                                                                                               \
+    req->response  = NULL_BYTES;                                                                                                                                                              \
+    req->validated = false;                                                                                                                                                                   \
     return C4_PENDING;                                                                                                                                                                        \
   } while (0)
 

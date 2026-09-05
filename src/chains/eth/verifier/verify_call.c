@@ -642,6 +642,7 @@ static bool proof_call(verify_ctx_t* ctx, evm_call_ctx_t* evm) {
     buffer_free(&payload);
     bool result = pap_verify_proof_response(ctx, evm->accounts, req->response, &values_changed);
     if (!result) return false;
+    req->validated = true;
     if (values_changed) {
       evm->evm_done = false; // we need to repeat with the updates values
       return true;

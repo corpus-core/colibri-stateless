@@ -184,10 +184,17 @@ c4_status_t c4_hybrid_test_resolve_block_hash(prover_ctx_t* ctx, const uint8_t* 
 // creates a new header with the body_root passed and returns the ssz_builder_t, which must be freed
 ssz_builder_t c4_proof_add_header(ssz_ob_t header, bytes32_t body_root);
 
-c4_status_t c4_send_beacon_json(prover_ctx_t* ctx, char* path, char* query, uint32_t ttl, json_t* result);
-c4_status_t c4_send_beacon_ssz(prover_ctx_t* ctx, char* path, char* query, const ssz_def_t* def, uint32_t ttl, ssz_ob_t* result);
-c4_status_t c4_send_beacon_json_with_client_type(prover_ctx_t* ctx, char* path, char* query, uint32_t ttl, json_t* result, uint32_t client_type);
-c4_status_t c4_send_beacon_ssz_with_client_type(prover_ctx_t* ctx, char* path, char* query, const ssz_def_t* def, uint32_t ttl, ssz_ob_t* result, uint32_t client_type);
+#define JSON_BEACON_HEADER_MESSAGE     "{slot:suint,proposer_index:suint,parent_root:bytes32,state_root:bytes32,body_root:bytes32}"
+#define JSON_BEACON_HEADER_ENTRY       "{root:bytes32,canonical?:bool,header:{message:" JSON_BEACON_HEADER_MESSAGE "}}"
+#define JSON_BEACON_HEADER_OBJECT      "{data:" JSON_BEACON_HEADER_ENTRY "}"
+#define JSON_BEACON_HEADER_LIST        "{data:[" JSON_BEACON_HEADER_ENTRY "]}"
+#define JSON_BEACON_FINALITY           "{data:{current_justified:{epoch:suint,root:bytes32},finalized:{epoch:suint,root:bytes32}}}"
+#define JSON_BEACON_HISTORICAL_SUMMARIES "{data:{historical_summaries:[{block_summary_root:bytes32,state_summary_root:bytes32}],proof:[bytes32]}}"
+
+c4_status_t c4_send_beacon_json(prover_ctx_t* ctx, char* path, char* query, uint32_t ttl, json_t* result, data_request_t** req);
+c4_status_t c4_send_beacon_ssz(prover_ctx_t* ctx, char* path, char* query, const ssz_def_t* def, uint32_t ttl, ssz_ob_t* result, data_request_t** req);
+c4_status_t c4_send_beacon_json_with_client_type(prover_ctx_t* ctx, char* path, char* query, uint32_t ttl, json_t* result, uint32_t client_type, data_request_t** req);
+c4_status_t c4_send_beacon_ssz_with_client_type(prover_ctx_t* ctx, char* path, char* query, const ssz_def_t* def, uint32_t ttl, ssz_ob_t* result, uint32_t client_type, data_request_t** req);
 c4_status_t c4_send_internal_request(prover_ctx_t* ctx, char* path, char* query, uint32_t ttl, bytes_t* result);
 
 /**

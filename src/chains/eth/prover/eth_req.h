@@ -32,6 +32,9 @@ extern "C" {
 #include "../verifier/eth_tx.h"
 #include "prover.h"
 
+/** Header fields read from `eth_getBlockBy*` results. Extra properties (e.g. `transactions`) are ignored. */
+#define JSON_BLOCK_HEADER_FIELDS "{number:hexuint,hash:bytes32,stateRoot:bytes32,receiptsRoot:bytes32,transactionsRoot:bytes32,logsBloom?:bytes,parentBeaconBlockRoot?:bytes32,slotNumber?:hexuint}"
+
 // get the eth transaction for the given hash
 c4_status_t get_eth_tx(prover_ctx_t* ctx, json_t txhash, json_t* tx_data);
 

@@ -383,7 +383,8 @@ static c4_status_t fetch_block_by_root_for_bootstrap(prover_ctx_t* ctx,
   buffer_t path_buf     = stack_buffer(path);
   bprintf(&path_buf, "eth/v2/beacon/blocks/0x%x", bytes(header_root, 32));
 
-  TRY_ASYNC(c4_send_beacon_ssz(ctx, path, NULL, NULL, DEFAULT_TTL, &signed_block));
+  data_request_t* req = NULL;
+  TRY_ASYNC(c4_send_beacon_ssz(ctx, path, NULL, NULL, DEFAULT_TTL, &signed_block, &req));
 
   // The SSZ envelope arrived without a definition attached; determine the fork
   // from the on-wire slot and validate the SSZ layout before we descend into
@@ -403,8 +404,11 @@ static c4_status_t fetch_block_by_root_for_bootstrap(prover_ctx_t* ctx,
   signed_block.def = eth_ssz_type_for_fork(ETH_SSZ_SIGNED_BEACON_BLOCK_CONTAINER, fork, ctx->chain_id);
   if (!signed_block.def)
     THROW_ERROR("c4_create_gloas_bootstrap_by_root: no SSZ def for signed block");
-  if (!ssz_is_valid(signed_block, true, &ctx->state))
-    THROW_ERROR("c4_create_gloas_bootstrap_by_root: invalid signed block SSZ");
+  if (!(req && req->validated)) {
+    if (!ssz_is_valid(signed_block, true, &ctx->state))
+      THROW_ERROR("c4_create_gloas_bootstrap_by_root: invalid signed block SSZ");
+    if (req) req->validated = true;
+  }
 
   ssz_ob_t data_block = ssz_get(&signed_block, "message");
   if (!data_block.bytes.data)
