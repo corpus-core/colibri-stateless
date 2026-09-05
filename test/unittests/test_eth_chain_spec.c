@@ -25,6 +25,7 @@
 #include "chains.h"
 #include "el_header.h"
 #include "unity.h"
+#include <stdint.h>
 #include <string.h>
 
 void setUp(void) {}
@@ -176,6 +177,17 @@ void test_chain_schedules_fork(void) {
   TEST_ASSERT_FALSE(c4_chain_schedules_fork(CHAIN(999999), C4_FORK_GLOAS));
 }
 
+void test_chain_fork_epoch(void) {
+  TEST_ASSERT_EQUAL_UINT64(0ULL, c4_chain_fork_epoch(C4_CHAIN_MAINNET, C4_FORK_PHASE0));
+  TEST_ASSERT_EQUAL_UINT64(364032ULL, c4_chain_fork_epoch(C4_CHAIN_MAINNET, C4_FORK_ELECTRA));
+  TEST_ASSERT_EQUAL_UINT64(411392ULL, c4_chain_fork_epoch(C4_CHAIN_MAINNET, C4_FORK_FULU));
+  TEST_ASSERT_EQUAL_UINT64(UINT64_MAX, c4_chain_fork_epoch(C4_CHAIN_MAINNET, C4_FORK_GLOAS));
+  TEST_ASSERT_EQUAL_UINT64(UINT64_MAX, c4_chain_fork_epoch(CHAIN(999999), C4_FORK_FULU));
+  // 0 is a valid activation epoch (Platåberget genesis-at-Fulu), not "unset".
+  TEST_ASSERT_EQUAL_UINT64(0ULL, c4_chain_fork_epoch(C4_CHAIN_PLATABERGET, C4_FORK_FULU));
+  TEST_ASSERT_EQUAL_UINT64(1536ULL, c4_chain_fork_epoch(C4_CHAIN_PLATABERGET, C4_FORK_GLOAS));
+}
+
 // EIP-7892 BLOB_BASE_FEE_UPDATE_FRACTION per active fork; the timestamps come
 // from go-ethereum's `params/config.go` (mainnet + sepolia). Pre-Cancun input
 // as well as chains without a schedule fall back to the Cancun value.
@@ -230,6 +242,7 @@ int main(void) {
   RUN_TEST(test_mainnet_gloas_still_unassigned);
   RUN_TEST(test_zk_sync_trust_anchors);
   RUN_TEST(test_chain_schedules_fork);
+  RUN_TEST(test_chain_fork_epoch);
   RUN_TEST(test_blob_base_fee_update_fraction);
   RUN_TEST(test_min_blob_base_fee);
   return UNITY_END();

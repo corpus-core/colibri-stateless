@@ -24,6 +24,7 @@
 #include "historic_proof.h"
 #include "../server/eth_clients.h"
 #include "../server/period_store_files.h"
+#include "../verifier/lcu_wire.h"
 #include "beacon.h"
 #include "beacon_types.h"
 #include "bootstrap_gloas.h"
@@ -259,17 +260,8 @@ void c4_free_block_proof(blockroot_proof_t* block_proof) {
 // SSZ validation. Used for both the primary (beacon-served) and fallback
 // (self-built) paths so the two share exactly the same validation.
 static c4_status_t decode_bootstrap_bytes(prover_ctx_t* ctx, bytes_t raw, ssz_ob_t* out_bootstrap, data_request_t* req) {
-  ssz_ob_t  result = {.bytes = raw, .def = NULL};
-  fork_id_t fork   = c4_eth_get_fork_for_lcu(ctx->chain_id, result.bytes);
-  if (fork == 0) THROW_ERROR("Invalid bootstrap data: cannot determine fork!");
-  // Single source of truth for fork -> bootstrap container mapping.
-  result.def = eth_get_light_client_bootstrap(fork);
-  if (!result.def) THROW_ERROR("Invalid bootstrap data: unsupported fork!");
-  if (!(req && req->validated)) {
-    if (!ssz_is_valid(result, true, &ctx->state)) THROW_ERROR("Invalid bootstrap data!");
-    if (req) req->validated = true;
-  }
-  *out_bootstrap = result;
+  if (!c4_eth_decode_bootstrap(ctx->chain_id, raw, &ctx->state, req, out_bootstrap))
+    return C4_ERROR;
   return C4_SUCCESS;
 }
 
@@ -392,9 +384,9 @@ c4_status_t c4_fetch_client_updates(prover_ctx_t* ctx, uint64_t start_period, ui
   // Preferred path (server context): read the LCUs from the local period_store
   // via the internal `lcu_updates` handler. That handler concatenates the
   // per-period `lcu.ssz` files (already in Beacon-API wire format: 8-byte LE
-  // length + 4-byte fork_version + LCU SSZ) and transparently backfills
-  // missing periods from a beacon node. It's noticeably cheaper than a
-  // dedicated beacon roundtrip when the cache is warm.
+  // length + 4-byte context (ForkDigest) + LCU SSZ) and transparently
+  // backfills missing periods from a beacon node. It's noticeably cheaper
+  // than a dedicated beacon roundtrip when the cache is warm.
   //
   // Fallback: if the internal handler errors out or returns a body that is
   // too short to hold even one update prefix, drop back to a direct beacon
@@ -447,6 +439,33 @@ c4_status_t c4_fetch_client_updates(prover_ctx_t* ctx, uint64_t start_period, ui
   return C4_SUCCESS;
 }
 
+// Context for the fetch_updates_data walker callback: it appends each chunk
+// to the SSZ builder with the correct union tag.
+typedef struct {
+  ssz_builder_t* updates;
+  uint32_t       count;
+} fetch_updates_cb_ctx_t;
+
+static bool fetch_updates_append_cb(void* user, const c4_lcu_chunk_t* chunk) {
+  fetch_updates_cb_ctx_t* c = (fetch_updates_cb_ctx_t*) user;
+
+  bytes_t prefixed = bytes(safe_malloc(chunk->update.bytes.len + 1), chunk->update.bytes.len + 1);
+  memcpy(prefixed.data + 1, chunk->update.bytes.data, chunk->update.bytes.len);
+  // Union tag for `C4_ETH_SYNCDATA_UPDATE_UNION`:
+  //   0 = DenepLightClientUpdate,
+  //   1 = ElectraLightClientUpdate (also used for Fulu),
+  //   2 = GloasLightClientUpdate.
+  uint8_t union_tag = 0;
+  if (chunk->fork >= C4_FORK_GLOAS)
+    union_tag = 2;
+  else if (chunk->fork >= C4_FORK_ELECTRA)
+    union_tag = 1;
+  prefixed.data[0] = union_tag;
+  ssz_add_dynamic_list_bytes(c->updates, c->count, prefixed);
+  safe_free(prefixed.data);
+  return true;
+}
+
 static c4_status_t fetch_updates_data(prover_ctx_t* ctx, syncdata_state_t* sync_data, ssz_builder_t* updates) {
   uint32_t count          = (uint32_t) (sync_data->required_period - sync_data->newest_period);
   bytes_t  client_updates = {0};
@@ -454,33 +473,14 @@ static c4_status_t fetch_updates_data(prover_ctx_t* ctx, syncdata_state_t* sync_
 
   if (!updates) return C4_SUCCESS;
 
-  uint64_t length = 0;
-  for (uint32_t pos = 0; pos + UPDATE_PREFIX_SIZE < client_updates.len; pos += length + SSZ_LENGTH_SIZE) {
-    uint32_t data_offset        = pos + SSZ_LENGTH_SIZE + SSZ_OFFSET_SIZE;
-    uint32_t data_length_offset = SSZ_OFFSET_SIZE;
-    length                      = uint64_from_le(client_updates.data + pos);
-
-    if (pos + SSZ_LENGTH_SIZE + length > client_updates.len && length > UPDATE_PREFIX_SIZE) break;
-
-    bytes_t   client_update_bytes = bytes(client_updates.data + data_offset, length - data_length_offset);
-    fork_id_t fork                = c4_eth_get_fork_for_lcu(ctx->chain_id, client_update_bytes);
-    ssz_ob_t  update              = {.bytes = client_update_bytes, .def = eth_get_light_client_update(fork)};
-    if (!update.def) THROW_ERROR("Invalid update data!");
-
-    bytes_t prefixed = bytes(safe_malloc(update.bytes.len + 1), update.bytes.len + 1);
-    memcpy(prefixed.data + 1, update.bytes.data, update.bytes.len);
-    // Union tag for `C4_ETH_SYNCDATA_UPDATE_UNION`:
-    //   0 = DenepLightClientUpdate, 1 = ElectraLightClientUpdate (also used for Fulu),
-    //   2 = GloasLightClientUpdate.
-    uint8_t union_tag = 0;
-    if (fork >= C4_FORK_GLOAS)
-      union_tag = 2;
-    else if (fork >= C4_FORK_ELECTRA)
-      union_tag = 1;
-    prefixed.data[0] = union_tag;
-    ssz_add_dynamic_list_bytes(updates, count, prefixed);
-    safe_free(prefixed.data);
-  }
+  // Walk the LCU list with framing + per-chunk SSZ validation. Consuming
+  // via the walker keeps the prover and verifier on the same wire-format
+  // rules (issue #356 acceptance criterion).
+  data_request_t* src_req = c4_state_get_data_request_by_response(&ctx->state, client_updates);
+  fetch_updates_cb_ctx_t cb_ctx = {.updates = updates, .count = count};
+  if (!c4_eth_walk_lcu_list(ctx->chain_id, client_updates, &ctx->state, src_req,
+                            /*validate_ssz*/ true, fetch_updates_append_cb, &cb_ctx))
+    THROW_ERROR("Invalid light client update list from beacon");
 
   return C4_SUCCESS;
 }

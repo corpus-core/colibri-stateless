@@ -2,6 +2,7 @@
 #include "beacon_types.h"
 #include "eth_conf.h"
 #include "lcu_gloas.h"
+#include "lcu_wire.h"
 #include "logger.h"
 #include "period_store.h"
 #include "prover.h"
@@ -274,6 +275,12 @@ void c4_ps_fetch_lcb_for_checkpoint(bytes32_t checkpoint, uint64_t period) {
   *pdata                     = period;
   c4_add_request(&lcu_client, req, pdata, fetch_lcu_cb);
 }
+static bool fetch_lcb_first_cb(void* user, const c4_lcu_chunk_t* chunk) {
+  ssz_ob_t* out = (ssz_ob_t*) user;
+  if (!out->def) *out = chunk->update;
+  return true;
+}
+
 static void fetch_lcb_cb(client_t* client, void* data, data_request_t* r) {
   (void) client;
   uint64_t period = data ? *((uint64_t*) data) : 0;
@@ -283,10 +290,20 @@ static void fetch_lcb_cb(client_t* client, void* data, data_request_t* r) {
   if (r->error) THROW_PERIOD_ERROR(r, "period_store: LCU fetch for period %l failed: %s", period, r->error);
   if (r->response.len < UPDATE_PREFIX_SIZE) THROW_PERIOD_ERROR(r, "period_store: LCU fetch for period %l failed: response too short", period);
 
-  ssz_ob_t update = {.bytes = bytes(r->response.data + UPDATE_PREFIX_SIZE, uint64_from_le(r->response.data) - SSZ_OFFSET_SIZE), .def = NULL};
-  if (update.bytes.data + update.bytes.len > r->response.data + r->response.len) THROW_PERIOD_ERROR(r, "period_store: LCU fetch for period %l failed: response too short", period);
-  update.def = eth_get_light_client_update(c4_eth_get_fork_for_lcu(http_server.chain_id, update.bytes));
-  if (!update.def) THROW_PERIOD_ERROR(r, "period_store: LCU fetch for period %l failed: invalid update data len=%l", period, update.bytes.len);
+  // Framing + ForkDigest + SSZ in one place. `count=1` so the first chunk
+  // is the only one we need.
+  c4_state_t walk_state = {0};
+  ssz_ob_t   update     = {0};
+  bool       walked     = c4_eth_walk_lcu_list(http_server.chain_id, r->response, &walk_state, r,
+                                               /*validate_ssz*/ true, fetch_lcb_first_cb, &update);
+  if (!walked || !update.def) {
+    const char* err = walk_state.error ? walk_state.error : "invalid LCU list";
+    log_warn("period_store: LCU fetch for period %l failed: %s", period, err);
+    c4_state_free(&walk_state);
+    c4_request_free(r);
+    return;
+  }
+  c4_state_free(&walk_state);
   ssz_ob_t finalized         = ssz_get(&update, "finalizedHeader");
   ssz_ob_t header            = ssz_get(&finalized, "beacon");
   uint64_t checkpoint_period = ssz_get_uint64(&header, "slot") >> 13;
@@ -363,20 +380,28 @@ static void ps_build_lcu_cb(request_t* req) {
   switch (status) {
     case C4_SUCCESS: {
       // Wrap into the Beacon-API `light_client/updates` wire format so the
-      // existing consumers can parse it without any special-case.
+      // existing consumers can parse it without any special-case. Beacon
+      // nodes emit the 4-byte `ForkDigest` (not the raw fork_version) in
+      // the context slot, so we mirror that here to keep self-built and
+      // beacon-served entries indistinguishable to downstream parsers.
+      // Gloas LCU starts with attestedHeader.beacon.slot (uint64 LE).
+      // The digest is epoch-dependent after Fulu (EIP-7892 BPO mix-in).
       const chain_spec_t* chain = c4_eth_get_chain_spec(ctx->chain_id);
-      if (!chain || !chain->fork_version_func) {
-        // Defense-in-depth: every registered chain sets `fork_version_func`,
-        // but a future entry might forget. Fail loudly instead of NULL-deref.
-        log_warn("period_store: LCU self-build for period %l: chain spec missing fork_version_func", period);
+      uint64_t            slot  = (lcu_ssz.len >= 8) ? uint64_from_le(lcu_ssz.data) : 0;
+      uint64_t            epoch = epoch_for_slot(slot, chain);
+      uint8_t             fork_digest[4] = {0};
+      if (!c4_eth_compute_fork_digest(ctx->chain_id, epoch, fork_digest)) {
+        // Defense-in-depth: `c4_eth_compute_fork_digest` only fails if the
+        // chain spec is missing `fork_version_func` or `genesis_validators_root`,
+        // both of which every registered chain sets. Fail loudly instead of
+        // silently writing zeros.
+        log_warn("period_store: LCU self-build for period %l: cannot compute fork digest", period);
         safe_free(lcu_ssz.data);
         c4_prover_free(ctx);
         safe_free(req);
         return;
       }
-      uint8_t fork_version[4] = {0};
-      chain->fork_version_func(ctx->chain_id, C4_FORK_GLOAS, fork_version);
-      bytes_t wire = c4_gloas_lcu_wrap_beacon_response(lcu_ssz, fork_version);
+      bytes_t wire = c4_gloas_lcu_wrap_beacon_response(lcu_ssz, fork_digest);
       safe_free(lcu_ssz.data);
       if (!wire.data) {
         log_warn("period_store: LCU self-build wrapping failed for period %l", period);

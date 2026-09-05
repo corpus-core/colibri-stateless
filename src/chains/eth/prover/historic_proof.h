@@ -102,7 +102,7 @@ c4_status_t c4_fetch_zk_proof_data(prover_ctx_t* ctx, zk_proof_data_t* zk_proof,
 /**
  * Fetches the raw wire bytes of `[start_period .. start_period + count - 1]`
  * `LightClientUpdate`s in Beacon-API list format (each entry is prefixed with
- * an 8-byte LE length + 4-byte fork_version).
+ * an 8-byte LE length + 4-byte context, per spec the `ForkDigest`).
  *
  * Two lookup paths are tried in order:
  *

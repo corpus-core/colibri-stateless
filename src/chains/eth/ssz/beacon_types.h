@@ -120,17 +120,34 @@ typedef struct {
   uint64_t update_fraction;
 } eth_blob_schedule_t;
 
+/**
+ * Consensus-layer `BLOB_SCHEDULE` entry (EIP-7892 / Fulu).
+ *
+ * Used by `compute_fork_digest` after `FULU_FORK_EPOCH`: the digest is
+ * `xor(base_digest, sha256(epoch || max_blobs_per_block))[:4]`. Distinct
+ * from `eth_blob_schedule_t`, which carries the execution-layer
+ * `BLOB_BASE_FEE_UPDATE_FRACTION` keyed by timestamp.
+ *
+ * Tables are ASCENDING by epoch and terminated by `{0, 0}`.
+ */
 typedef struct {
-  chain_id_t                 chain_id;
-  const uint64_t*            fork_epochs;
-  const bytes32_t            genesis_validators_root;
-  const bytes32_t            zk_sync_keys_root;        // initial zk sync keys root
-  const int                  slots_per_epoch_bits;     // 5 = 32 slots per epoch
-  const int                  epochs_per_period_bits;   // 8 = 256 epochs per period
-  const uint64_t             weak_subjectivity_epochs; // max epochs before checkpoint validation required
-  fork_version_func_t        fork_version_func;
-  const eth_blob_schedule_t* blob_schedule;            // EIP-7892 blob schedule, DESCENDING by timestamp, {0,0}-terminated; NULL uses Cancun default
-  uint64_t                   min_blob_base_fee;        // MIN_BLOB_BASE_FEE (`minBlobGasPrice`); 0 uses Ethereum's default (1 wei). Gnosis / Chiado use 1e9.
+  uint64_t epoch;
+  uint64_t max_blobs_per_block;
+} eth_cl_blob_schedule_t;
+
+typedef struct {
+  chain_id_t                    chain_id;
+  const uint64_t*               fork_epochs;
+  const bytes32_t               genesis_validators_root;
+  const bytes32_t               zk_sync_keys_root;        // initial zk sync keys root
+  const int                     slots_per_epoch_bits;     // 5 = 32 slots per epoch
+  const int                     epochs_per_period_bits;   // 8 = 256 epochs per period
+  const uint64_t                weak_subjectivity_epochs; // max epochs before checkpoint validation required
+  fork_version_func_t           fork_version_func;
+  const eth_blob_schedule_t*    blob_schedule;            // EIP-7892 EL schedule, DESCENDING by timestamp, {0,0}-terminated; NULL uses Cancun default
+  uint64_t                      min_blob_base_fee;           // MIN_BLOB_BASE_FEE (`minBlobGasPrice`); 0 uses Ethereum's default (1 wei). Gnosis / Chiado use 1e9.
+  const eth_cl_blob_schedule_t* cl_blob_schedule;            // EIP-7892 CL BLOB_SCHEDULE, ASCENDING by epoch, {0,0}-terminated; NULL = no BPO entries
+  uint64_t                      electra_max_blobs_per_block; // `MAX_BLOBS_PER_BLOCK_ELECTRA` used as the Fulu digest fallback when `BLOB_SCHEDULE` has no matching entry. 0 = Ethereum default (9). Gnosis / Chiado use 2.
 } chain_spec_t;
 
 bool      c4_chain_genesis_validators_root(chain_id_t chain_id, bytes32_t genesis_validators_root);
@@ -145,6 +162,15 @@ fork_id_t c4_chain_fork_id(chain_id_t chain_id, uint64_t epoch);
  * @return true if the fork is on the chain's schedule
  */
 bool                c4_chain_schedules_fork(chain_id_t chain_id, fork_id_t fork);
+/**
+ * Activation epoch of `fork` on `chain_id`.
+ *
+ * @param chain_id chain to inspect
+ * @param fork fork id (Altair or later; Phase0 returns 0)
+ * @return the activation epoch, or `UINT64_MAX` if the fork is unscheduled
+ *         or the chain is unknown
+ */
+uint64_t            c4_chain_fork_epoch(chain_id_t chain_id, fork_id_t fork);
 const chain_spec_t* c4_eth_get_chain_spec(chain_id_t id);
 const ssz_def_t*    eth_ssz_type_for_fork(eth_ssz_type_t type, fork_id_t fork, chain_id_t chain_id);
 

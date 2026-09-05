@@ -52,6 +52,7 @@
 #include "../util/crypto.h"
 #include "../util/logger.h"
 #include "../util/plugin.h"
+#include "./lcu_wire.h"
 #include "./sync_committee.h"
 #include <stdint.h>
 #include <stdio.h>
@@ -323,19 +324,13 @@ static bool req_bootstrap(c4_state_t* state, bytes32_t block_root, chain_id_t ch
 
 c4_status_t c4_handle_bootstrap(verify_ctx_t* ctx, bytes_t bootstrap_data, bytes32_t trusted_checkpoint) {
   // Parse bootstrap data as SSZ. The bootstrap container layout differs by fork
-  // (branch depth changes), so we resolve it via the central helper.
-  fork_id_t        fork          = c4_eth_get_fork_for_lcu(ctx->chain_id, bootstrap_data);
-  const ssz_def_t* bootstrap_def = eth_get_light_client_bootstrap(fork);
-  if (!bootstrap_def) THROW_ERROR("Bootstrap data: unsupported fork");
-  ssz_ob_t  bootstrap             = {.bytes = bootstrap_data, .def = bootstrap_def};
-  bytes32_t previous_pubkeys_hash = {0}; // in case of a bootstrap, there is no previous pubkey hash, so we set it to 0
-
-  data_request_t* src_req = c4_state_get_data_request_by_response(&ctx->state, bootstrap_data);
-  if (!(src_req && src_req->validated)) {
-    if (!ssz_is_valid(bootstrap, true, &ctx->state))
-      THROW_ERROR("Invalid SSZ structure in bootstrap data");
-    if (src_req) src_req->validated = true;
-  }
+  // (branch depth changes), so we resolve it via container size + `ssz_is_valid`
+  // in `c4_eth_decode_bootstrap`. Sets `src_req->validated` on success.
+  ssz_ob_t        bootstrap             = {0};
+  data_request_t* src_req               = c4_state_get_data_request_by_response(&ctx->state, bootstrap_data);
+  bytes32_t       previous_pubkeys_hash = {0}; // in case of a bootstrap, there is no previous pubkey hash, so we set it to 0
+  if (!c4_eth_decode_bootstrap(ctx->chain_id, bootstrap_data, &ctx->state, src_req, &bootstrap))
+    return C4_ERROR;
 
   // Extract components (no need for ssz_is_error checks after validation)
   ssz_ob_t header                 = ssz_get(&bootstrap, "header");
@@ -672,6 +667,23 @@ static c4_sync_validators_t get_validators_from_cache(verify_ctx_t* ctx, uint32_
   return result;
 }
 
+// Helper state for the edge-case sync `c4_try_sync_from_next_period`: capture
+// the first LCU chunk returned by the walker and abort the walk after it.
+// Declared before the `USE_CHECKPOINTZ` gate because the edge-case path is
+// compiled unconditionally.
+typedef struct {
+  bool     have_first;
+  ssz_ob_t first;
+} first_lcu_chunk_t;
+
+static bool capture_first_lcu_chunk_cb(void* user, const c4_lcu_chunk_t* chunk) {
+  first_lcu_chunk_t* f = (first_lcu_chunk_t*) user;
+  if (f->have_first) return false;
+  f->first      = chunk->update;
+  f->have_first = true;
+  return false; // stop the walker after the first chunk
+}
+
 #ifdef USE_CHECKPOINTZ
 /**
  * Anchor a locally derived finalized header root against an external `checkpointz` / Beacon API
@@ -832,6 +844,37 @@ INTERNAL c4_status_t c4_verify_checkpointz_root(verify_ctx_t* ctx, uint64_t slot
  *         malformed bootstrap, `C4_PENDING` while checkpointz or bootstrap requests are
  *         in flight.
  */
+// Helper state for WSP chain-of-trust scan: locate the LCU whose
+// `attestedHeader.beacon.slot` is inside `target_period` and, once found,
+// record `hash_tree_root(nextSyncCommittee.pubkeys)` for the bootstrap
+// cross-check.
+typedef struct {
+  const chain_spec_t* spec;
+  uint32_t            target_period;
+  bool                found;
+  bytes32_t           pubkeys_root;
+} wsp_scan_state_t;
+
+static bool wsp_locate_target_lcu_cb(void* user, const c4_lcu_chunk_t* chunk) {
+  wsp_scan_state_t* scan = (wsp_scan_state_t*) user;
+  if (scan->found) return false; // stop the walker as soon as we have a hit
+
+  ssz_ob_t update          = chunk->update;
+  ssz_ob_t attested        = ssz_get(&update, "attestedHeader");
+  ssz_ob_t attested_beacon = ssz_get(&attested, "beacon");
+  uint64_t attested_slot   = ssz_get_uint64(&attested_beacon, "slot");
+  uint32_t attested_period = (uint32_t) (attested_slot >> (scan->spec->slots_per_epoch_bits + scan->spec->epochs_per_period_bits));
+
+  if (attested_period == scan->target_period) {
+    ssz_ob_t next_sync_committee = ssz_get(&update, "nextSyncCommittee");
+    ssz_ob_t next_pubkeys        = ssz_get(&next_sync_committee, "pubkeys");
+    ssz_hash_tree_root(next_pubkeys, scan->pubkeys_root);
+    scan->found = true;
+    return false; // abort the walk; we have what we need
+  }
+  return true;
+}
+
 static c4_status_t c4_check_weak_subjectivity(verify_ctx_t* ctx, c4_sync_validators_t* sync_state, uint32_t target_period) {
   const chain_spec_t* spec = c4_eth_get_chain_spec(ctx->chain_id);
   if (!spec) return C4_SUCCESS; // Cannot validate without spec
@@ -860,20 +903,11 @@ static c4_status_t c4_check_weak_subjectivity(verify_ctx_t* ctx, c4_sync_validat
     return ctx->state.error ? C4_ERROR : C4_PENDING;
 
   // 3. Parse the bootstrap SSZ and bind the header to the checkpointz root.
-  fork_id_t        fork          = c4_eth_get_fork_for_lcu(ctx->chain_id, bootstrap_data);
-  const ssz_def_t* bootstrap_def = eth_get_light_client_bootstrap(fork);
-  if (!bootstrap_def) {
-    clear_sync_state(ctx->chain_id);
-    return c4_state_add_error(&ctx->state, "WSP bootstrap: unsupported fork");
-  }
-  ssz_ob_t        bootstrap = {.bytes = bootstrap_data, .def = bootstrap_def};
+  ssz_ob_t        bootstrap = {0};
   data_request_t* src_req   = c4_state_get_data_request_by_response(&ctx->state, bootstrap_data);
-  if (!(src_req && src_req->validated)) {
-    if (!ssz_is_valid(bootstrap, true, &ctx->state)) {
-      clear_sync_state(ctx->chain_id);
-      return c4_state_add_error(&ctx->state, "WSP bootstrap: invalid SSZ structure");
-    }
-    if (src_req) src_req->validated = true;
+  if (!c4_eth_decode_bootstrap(ctx->chain_id, bootstrap_data, &ctx->state, src_req, &bootstrap)) {
+    clear_sync_state(ctx->chain_id);
+    return C4_ERROR;
   }
 
   ssz_ob_t header                 = ssz_get(&bootstrap, "header");
@@ -901,9 +935,9 @@ static c4_status_t c4_check_weak_subjectivity(verify_ctx_t* ctx, c4_sync_validat
 
   // 5. Chain-of-trust: find the LCU whose `nextSyncCommittee.pubkeys` are the keys for
   //    `bootstrap_period` -- i.e. the LCU with `attested_slot` in `bootstrap_period - 1`.
-  uint32_t  target_lcu_period = bootstrap_period - 1;
-  bytes32_t lcu_pubkeys_root  = {0};
-  bool      found_lcu         = false;
+  wsp_scan_state_t scan = {.spec = spec, .target_period = bootstrap_period - 1};
+
+  bool found_lcu = false;
   for (data_request_t* req = ctx->state.requests; req && !found_lcu; req = req->next) {
     if (req->type != C4_DATA_TYPE_BEACON_API ||
         strncmp(req->url, "eth/v1/beacon/light_client/updates", 34) != 0 ||
@@ -911,33 +945,16 @@ static c4_status_t c4_check_weak_subjectivity(verify_ctx_t* ctx, c4_sync_validat
         req->encoding != C4_DATA_ENCODING_SSZ)
       continue;
 
-    bytes_t  client_updates = req->response;
-    uint64_t length         = 0;
-    for (uint32_t pos = 0; pos + UPDATE_PREFIX_SIZE < client_updates.len && !found_lcu; pos += length + SSZ_LENGTH_SIZE) {
-      uint32_t data_offset        = pos + SSZ_LENGTH_SIZE + SSZ_OFFSET_SIZE;
-      uint32_t data_length_offset = SSZ_OFFSET_SIZE;
-      length                      = uint64_from_le(client_updates.data + pos);
-      if (pos + SSZ_LENGTH_SIZE + length > client_updates.len && length > UPDATE_PREFIX_SIZE) break;
-
-      bytes_t          client_update_bytes = bytes(client_updates.data + data_offset, length - data_length_offset);
-      fork_id_t        lcu_fork            = c4_eth_get_fork_for_lcu(ctx->chain_id, client_update_bytes);
-      const ssz_def_t* lcu_def             = eth_get_light_client_update(lcu_fork);
-      if (!lcu_def) break;
-
-      ssz_ob_t update          = {.bytes = client_update_bytes, .def = lcu_def};
-      ssz_ob_t attested        = ssz_get(&update, "attestedHeader");
-      ssz_ob_t attested_beacon = ssz_get(&attested, "beacon");
-      uint64_t attested_slot   = ssz_get_uint64(&attested_beacon, "slot");
-      uint32_t attested_period = (uint32_t) (attested_slot >> (spec->slots_per_epoch_bits + spec->epochs_per_period_bits));
-
-      if (attested_period == target_lcu_period) {
-        ssz_ob_t next_sync_committee = ssz_get(&update, "nextSyncCommittee");
-        ssz_ob_t next_pubkeys        = ssz_get(&next_sync_committee, "pubkeys");
-        ssz_hash_tree_root(next_pubkeys, lcu_pubkeys_root);
-        found_lcu = true;
-      }
-    }
+    // Best-effort: ignore walker errors here (the response might be from a
+    // prior successful sync and validation state need not survive re-scans).
+    // `validate_ssz` is off because per-chunk SSZ was already checked when
+    // the response first went through `c4_process_light_client_updates`.
+    (void) c4_eth_walk_lcu_list(ctx->chain_id, req->response, /*state*/ NULL, /*req*/ NULL,
+                                /*validate_ssz*/ false, wsp_locate_target_lcu_cb, &scan);
+    found_lcu = scan.found;
   }
+  bytes32_t lcu_pubkeys_root = {0};
+  if (found_lcu) memcpy(lcu_pubkeys_root, scan.pubkeys_root, 32);
 
   if (!found_lcu) {
     // The verifier did sync into `sync_state->highest_period` via LCUs but none of the
@@ -1028,25 +1045,20 @@ static c4_status_t c4_try_sync_from_next_period(verify_ctx_t* ctx, uint32_t peri
   bytes_t   light_client_update = {0};
   bytes32_t computed_root       = {0};
   if (req_client_update(&ctx->state, period, 1, ctx->chain_id, &light_client_update)) {
-    // Parse the SSZ-encoded update
-    fork_id_t        fork              = c4_eth_get_fork_for_lcu(ctx->chain_id, light_client_update);
-    const ssz_def_t* client_update_def = eth_get_light_client_update(fork);
-
-    if (!client_update_def || light_client_update.len < UPDATE_PREFIX_SIZE)
-      THROW_ERROR("Invalid light client update format in edge case sync");
-
-    // Navigate to the first update in the list
-    uint32_t offset = uint32_from_le(light_client_update.data);
-    if (offset + UPDATE_PREFIX_SIZE > light_client_update.len)
-      THROW_ERROR("Invalid offset in light client update list");
-
-    uint64_t length                    = uint64_from_le(light_client_update.data + offset);
-    bytes_t  light_client_update_bytes = bytes(light_client_update.data + offset + UPDATE_PREFIX_SIZE, length - SSZ_OFFSET_SIZE);
-    ssz_ob_t update_ob                 = {.bytes = light_client_update_bytes, .def = client_update_def};
-    // One item is not the enclosing list. Leave the list request unvalidated
-    // until a list-level SSZ check exists.
-    if (!ssz_is_valid(update_ob, true, &ctx->state))
-      THROW_ERROR("Invalid SSZ structure in light client update");
+    // Validate list framing + first-chunk SSZ + fork resolution in one shot.
+    // The previous code sniffed the wire prefix as if it were an SSZ offset
+    // (see the removed `c4_eth_get_fork_for_lcu` and its TODO(gloas));
+    // replace it with the walker which uses the `ForkDigest` context and
+    // marks the request `validated`.
+    data_request_t*      lcu_req = c4_state_get_data_request_by_response(&ctx->state, light_client_update);
+    first_lcu_chunk_t    first   = {0};
+    bool ok = c4_eth_walk_lcu_list(ctx->chain_id, light_client_update, &ctx->state, lcu_req,
+                                   /*validate_ssz*/ true, capture_first_lcu_chunk_cb, &first);
+    if (!ok && !first.have_first)
+      THROW_ERROR("Invalid light client update in edge case sync");
+    if (!first.have_first)
+      THROW_ERROR("Edge case sync: LCU list is empty");
+    ssz_ob_t update_ob = first.first;
 
     // Step 4: Extract nextSyncCommittee from the update (this is period N+1's committee in period N's update)
     ssz_ob_t next_sync_committee = ssz_get(&update_ob, "nextSyncCommittee");
