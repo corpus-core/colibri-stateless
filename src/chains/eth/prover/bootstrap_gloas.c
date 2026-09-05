@@ -272,8 +272,8 @@ static c4_status_t build_gloas_bootstrap_from_block(prover_ctx_t* ctx,
   // ---------------------------------------------------------------------------
   ssz_ob_t    leaves_ob     = {0};
   ssz_ob_t    descriptor_ob = {0};
-  c4_status_t status        = c4_state_proofs_beacon_fetch(ctx, state_root, descriptor,
-                                                           &leaves_ob, &descriptor_ob);
+  c4_status_t status        = cl_get_state_proof(ctx, state_root, descriptor,
+                                                 &leaves_ob, &descriptor_ob);
   safe_free(descriptor.data);
   descriptor.data = NULL;
   descriptor.len  = 0;
@@ -347,7 +347,7 @@ static c4_status_t build_gloas_bootstrap_from_block(prover_ctx_t* ctx,
   safe_free(sync_committee_branch.data);
 
   // Account for the reconstruction cost. The per-request CU was already
-  // charged by c4_state_proofs_beacon_fetch -> c4_send_beacon_ssz_*.
+  // charged by cl_get_state_proof -> c4_send_beacon_ssz_*.
   eth_cu_add_proof(ctx);
 
   *out_bootstrap_ssz = bootstrap;
@@ -379,36 +379,17 @@ static c4_status_t fetch_block_by_root_for_bootstrap(prover_ctx_t* ctx,
                                                      bytes32_t     header_root,
                                                      eth_block_t*  block_out) {
   ssz_ob_t signed_block = {0};
-  char     path[128]    = {0};
-  buffer_t path_buf     = stack_buffer(path);
-  bprintf(&path_buf, "eth/v2/beacon/blocks/0x%x", bytes(header_root, 32));
-
-  TRY_ASYNC(c4_send_beacon_ssz(ctx, path, NULL, NULL, DEFAULT_TTL, &signed_block));
-
-  // The SSZ envelope arrived without a definition attached; determine the fork
-  // from the on-wire slot and validate the SSZ layout before we descend into
-  // container access.
-  if (signed_block.bytes.len < 108)
-    THROW_ERROR("c4_create_gloas_bootstrap_by_root: signed block too short");
-  const chain_spec_t* chain = c4_eth_get_chain_spec(ctx->chain_id);
-  if (!chain) THROW_ERROR("c4_create_gloas_bootstrap_by_root: unknown chain");
-  uint64_t block_slot_offset = uint32_from_le(signed_block.bytes.data);
-  if (block_slot_offset > signed_block.bytes.len - 8)
-    THROW_ERROR("c4_create_gloas_bootstrap_by_root: invalid signed block layout");
-  uint64_t  slot = uint64_from_le(signed_block.bytes.data + block_slot_offset);
-  fork_id_t fork = c4_chain_fork_id(ctx->chain_id, epoch_for_slot(slot, chain));
-  if (fork != C4_FORK_GLOAS)
-    THROW_ERROR("c4_create_gloas_bootstrap_by_root: block root does not resolve to a Gloas block");
-
-  signed_block.def = eth_ssz_type_for_fork(ETH_SSZ_SIGNED_BEACON_BLOCK_CONTAINER, fork, ctx->chain_id);
-  if (!signed_block.def)
-    THROW_ERROR("c4_create_gloas_bootstrap_by_root: no SSZ def for signed block");
-  if (!ssz_is_valid(signed_block, true, &ctx->state))
-    THROW_ERROR("c4_create_gloas_bootstrap_by_root: invalid signed block SSZ");
+  TRY_ASYNC(cl_fetch_signed_beacon_block(ctx, header_root, 0, &signed_block));
 
   ssz_ob_t data_block = ssz_get(&signed_block, "message");
   if (!data_block.bytes.data)
     THROW_ERROR("c4_create_gloas_bootstrap_by_root: message field missing");
+
+  const chain_spec_t* chain = c4_eth_get_chain_spec(ctx->chain_id);
+  if (!chain) THROW_ERROR("c4_create_gloas_bootstrap_by_root: unknown chain");
+  fork_id_t fork = c4_chain_fork_id(ctx->chain_id, epoch_for_slot(ssz_get_uint64(&data_block, "slot"), chain));
+  if (fork != C4_FORK_GLOAS)
+    THROW_ERROR("c4_create_gloas_bootstrap_by_root: block root does not resolve to a Gloas block");
 
   // Anchor the returned block to the caller-provided header_root: if
   // hash_tree_root(header) differs, we would silently build a bootstrap for

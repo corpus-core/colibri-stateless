@@ -27,9 +27,12 @@
 #include "eth_account.h"
 #include "eth_verify.h"
 #include "plugin.h"
+#include "state.h"
 #include "state_overrides.h"
 #include <stdlib.h>
 #include <string.h>
+
+#define JSON_ETH_PROOF_FIELDS "{accountProof:[bytes],storageProof:[{key:hex32,value:hexuint,proof:[bytes]}],balance:hexuint,codeHash:bytes32,nonce:hexuint,storageHash:bytes32}"
 
 // :: Account lookup helpers (traverse parent chain)
 
@@ -153,7 +156,13 @@ void call_account_lazy_fetch_storage(evmone_context_t* ctx, const address_t addr
         c4_state_add_error(&ctx->ctx->state, "oblivious eth_getProof returned an error");
         return;
       }
-      json_t proof_item = json_get(json_at(json_get(json_get(response, "result"), "storageProof"), 0), "value");
+      json_t proof_result = json_get(response, "result");
+      if (!req->validated) {
+        if (c4_check_json_inline(&ctx->ctx->state, proof_result, JSON_ETH_PROOF_FIELDS, "Invalid results for eth_getProof: ") != C4_SUCCESS)
+          return;
+        req->validated = true;
+      }
+      json_t proof_item = json_get(json_at(json_get(proof_result, "storageProof"), 0), "value");
       if (proof_item.type == JSON_TYPE_STRING) {
         buffer_t val_buf = stack_buffer(val);
         bytes_t  b       = json_as_bytes(proof_item, &val_buf);
@@ -167,6 +176,11 @@ void call_account_lazy_fetch_storage(evmone_context_t* ctx, const address_t addr
     }
     else {
       json_t val_json = json_get(response, "result");
+      if (!req->validated) {
+        if (c4_check_json_inline(&ctx->ctx->state, val_json, "hex32", "Invalid results for eth_getStorageAt: ") != C4_SUCCESS)
+          return;
+        req->validated = true;
+      }
       if (val_json.type == JSON_TYPE_STRING) {
         buffer_t val_buf = stack_buffer(val);
         bytes_t  b       = json_as_bytes(val_json, &val_buf);

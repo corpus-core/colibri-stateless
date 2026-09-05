@@ -75,10 +75,12 @@ static c4_status_t fetch_tx_cache_from_server(verify_ctx_t* ctx) {
   if (response.len > PAP_TX_CACHE_MAX_SSZ_SIZE)
     THROW_ERROR("PAP: tx_cache response exceeds size limit");
 
-  if (response.len > 0) {
+  data_request_t* req = c4_state_get_data_request_by_response(&ctx->state, response);
+  if (response.len > 0 && !(req && req->validated)) {
     ssz_ob_t snapshot = {.bytes = response, .def = &PAP_TX_CACHE_SNAPSHOT};
     if (!ssz_is_valid(snapshot, true, &ctx->state))
       return C4_ERROR;
+    if (req) req->validated = true;
   }
 
   if (incremental)

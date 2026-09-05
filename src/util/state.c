@@ -128,6 +128,16 @@ data_request_t* c4_state_get_data_request_by_id(c4_state_t* state, bytes32_t id)
   return NULL;
 }
 
+data_request_t* c4_state_get_data_request_by_response(c4_state_t* state, bytes_t response) {
+  if (!state || !response.data) return NULL;
+  data_request_t* data_request = state->requests;
+  while (data_request) {
+    if (data_request->response.data == response.data) return data_request;
+    data_request = data_request->next;
+  }
+  return NULL;
+}
+
 data_request_t* c4_state_get_data_request_by_url(c4_state_t* state, char* url) {
   data_request_t* data_request = state->requests;
   while (data_request) {
@@ -157,6 +167,7 @@ bool c4_state_retry_after(data_request_t* req, uint32_t delay_ms, uint16_t max_r
   // try"). Unlike `RETRY_REQUEST`, we explicitly do NOT exclude the node.
   req->response_node_index = 0;
   req->node_exclude_mask   = 0;
+  req->validated           = false;
   req->delay               = delay_ms;
   req->retry_count++;
   return true;

@@ -144,7 +144,12 @@ INTERNAL c4_status_t eth_fetch_account_code(verify_ctx_t* ctx, call_account_t* a
   data_request_t* req = c4_state_get_data_request_by_id(&ctx->state, hash);
   if (req && req->response.data) {
     buffer_reset(&buf);
-    json_t result = json_get(json_parse((char*) req->response.data), "result");
+    json_t response = json_parse((char*) req->response.data);
+    json_t result   = json_get(response, "result");
+    if (!req->validated) {
+      CHECK_JSON(result, "bytes", "Invalid results for Code: ");
+      req->validated = true;
+    }
     if (result.type == JSON_TYPE_STRING) {
       buffer_t code_data = {0};
       ac->code           = json_as_bytes(result, &code_data);

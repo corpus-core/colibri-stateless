@@ -79,7 +79,7 @@ foreach(test_source ${TEST_SOURCES})
         target_link_libraries(${test_name} PRIVATE eth_bn254 intx_wrapper eth_precompiles)
     endif()
 
-    if("${test_name}" MATCHES "^test_evmone_")
+    if("${test_name}" MATCHES "^test_evmone_" OR "${test_name}" STREQUAL "test_request_validation")
         if(EVMONE)
             target_compile_definitions(${test_name} PRIVATE EVMONE)
             target_link_libraries(${test_name} PRIVATE evmone_wrapper)

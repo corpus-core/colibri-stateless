@@ -3,11 +3,86 @@
 
 import assert from 'node:assert';
 import * as fs from 'node:fs';
+import { inspect } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 export const testdir = join(__dirname, '../../../test/data');
+
+// node:assert inspects AssertionError.actual/expected with depth 2, so nested
+// RPC fields collapse to `[Object]`. Compare ourselves and report only the
+// differing paths, with color, and without attaching the full trees.
+const MISSING = Symbol('missing');
+const useColor = !process.env.NO_COLOR && process.env.FORCE_COLOR !== '0';
+const paint = (code, text) => useColor ? `\x1b[${code}m${text}\x1b[0m` : text;
+
+function inspectVal(value) {
+    if (value === MISSING) return paint('2', '(missing)');
+    return inspect(value, {
+        depth: Infinity,
+        colors: useColor,
+        compact: true,
+        breakLength: 100,
+        maxStringLength: 200,
+        maxArrayLength: 20,
+    });
+}
+
+function isPlainObject(value) {
+    return value !== null && typeof value === 'object' && !Array.isArray(value) && !ArrayBuffer.isView(value);
+}
+
+function collectDiffs(actual, expected, path, diffs) {
+    if (Object.is(actual, expected)) return;
+
+    if (isPlainObject(actual) && isPlainObject(expected)) {
+        const keys = new Set([...Object.keys(actual), ...Object.keys(expected)]);
+        for (const key of keys) {
+            const next = path ? `${path}.${key}` : key;
+            const aHas = Object.hasOwn(actual, key);
+            const eHas = Object.hasOwn(expected, key);
+            if (!aHas) diffs.push({ path: next, actual: MISSING, expected: expected[key] });
+            else if (!eHas) diffs.push({ path: next, actual: actual[key], expected: MISSING });
+            else collectDiffs(actual[key], expected[key], next, diffs);
+        }
+        return;
+    }
+
+    if (Array.isArray(actual) && Array.isArray(expected)) {
+        const n = Math.max(actual.length, expected.length);
+        for (let i = 0; i < n; i++) {
+            const next = path ? `${path}[${i}]` : `[${i}]`;
+            if (i >= actual.length) diffs.push({ path: next, actual: MISSING, expected: expected[i] });
+            else if (i >= expected.length) diffs.push({ path: next, actual: actual[i], expected: MISSING });
+            else collectDiffs(actual[i], expected[i], next, diffs);
+        }
+        return;
+    }
+
+    diffs.push({ path: path || '(root)', actual, expected });
+}
+
+function assertDeepEqual(actual, expected, message) {
+    const diffs = [];
+    collectDiffs(actual, expected, '', diffs);
+    if (diffs.length === 0) return;
+
+    const lines = [`${message} (${diffs.length} difference${diffs.length === 1 ? '' : 's'})`, ''];
+    for (const diff of diffs) {
+        lines.push(`  ${paint('1;36', diff.path)}`);
+        lines.push(`    ${paint('31', 'actual:  ')} ${inspectVal(diff.actual)}`);
+        lines.push(`    ${paint('32', 'expected:')} ${inspectVal(diff.expected)}`);
+        lines.push('');
+    }
+
+    // A plain Error keeps node:test from re-inspecting the full trees (depth 2
+    // -> `[Object]`) and from appending a `+ undefined / - undefined` assert diff.
+    const err = new Error(lines.join('\n'));
+    err.name = 'AssertionError';
+    Error.captureStackTrace(err, assertDeepEqual);
+    throw err;
+}
 
 function create_cache(dir) {
     return {
@@ -164,7 +239,7 @@ export async function run_rpc_suite(t, Colibri, decode_proof) {
             // rpc() fetches the recorded proof from the mock prover and verifies it.
             if (conf.privacy_mode == "basic" || test_conf.remote_prover) {
                 const result = await c4.rpc(test_conf.method, test_conf.params);
-                assert.deepStrictEqual(result, test_conf.expected_result, 'Proof should be valid');
+                assertDeepEqual(result, test_conf.expected_result, 'Proof should be valid');
                 return;
             }
 
@@ -196,7 +271,7 @@ export async function run_rpc_suite(t, Colibri, decode_proof) {
                 console.log(`Total: ${totalDuration.toFixed(2)}ms`);
                 console.log(`================================\n`);
             }
-            assert.deepEqual(result, test_conf.expected_result, 'Proof should be valid');
+            assertDeepEqual(result, test_conf.expected_result, 'Proof should be valid');
         });
     }
 }

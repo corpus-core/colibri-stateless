@@ -32,35 +32,6 @@ extern "C" {
 #include "ssz.h"
 
 /**
- * Issues a Lodestar `CompactMultiProof` state-proof request against
- * `state_root` with the given caller-supplied `descriptor`, and returns the
- * SSZ objects of the response's `leaves` list and its echoed `descriptor`.
- *
- * The echoed descriptor is byte-checked against the request descriptor as a
- * defense-in-depth guard before returning; the reconstruction root check is
- * still the primary anchor of trust.
- *
- * Async: may return `C4_PENDING`; the caller must retry after fulfilling the
- * pending data request. Requests are routed to Lodestar
- * (`BEACON_CLIENT_LODESTAR`).
- *
- * `leaves_out` and `descriptor_out` point into the response cache and must
- * not be freed by the caller.
- *
- * @param ctx prover context
- * @param state_root the anchor beacon-state root
- * @param descriptor caller-computed compact-multi-proof descriptor bitlist
- * @param leaves_out on success, borrowed `leaves` ssz_ob_t
- * @param descriptor_out on success, borrowed `descriptor` ssz_ob_t
- * @return `C4_SUCCESS`, `C4_PENDING`, or `C4_ERROR`
- */
-c4_status_t c4_state_proofs_beacon_fetch(prover_ctx_t* ctx,
-                                         bytes32_t     state_root,
-                                         bytes_t       descriptor,
-                                         ssz_ob_t*     leaves_out,
-                                         ssz_ob_t*     descriptor_out);
-
-/**
  * Fetches a classical Merkle branch for a `BeaconState` field via Lodestar's
  * unofficial `/eth/v0/beacon/proof/state/{state_id}` endpoint.
  *

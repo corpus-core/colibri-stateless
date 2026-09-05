@@ -24,6 +24,10 @@
 #ifndef eth_req_h__
 #define eth_req_h__
 
+#ifndef DEFAULT_TTL
+#define DEFAULT_TTL (3600 * 24)
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -31,6 +35,9 @@ extern "C" {
 #include "../util/state.h"
 #include "../verifier/eth_tx.h"
 #include "prover.h"
+
+/** Header fields read from `eth_getBlockBy*` results. Extra properties (e.g. `transactions`) are ignored. */
+#define JSON_BLOCK_HEADER_FIELDS "{number:hexuint,hash:bytes32,stateRoot:bytes32,receiptsRoot:bytes32,transactionsRoot:bytes32,logsBloom?:bytes,parentBeaconBlockRoot?:bytes32,slotNumber?:hexuint}"
 
 // get the eth transaction for the given hash
 c4_status_t get_eth_tx(prover_ctx_t* ctx, json_t txhash, json_t* tx_data);
@@ -46,6 +53,21 @@ c4_status_t eth_get_logs(prover_ctx_t* ctx, json_t params, json_t* logs);
 // get the block receipts for the given block
 c4_status_t eth_getBlockReceipts(prover_ctx_t* ctx, json_t block, json_t* receipts_array);
 c4_status_t eth_get_block(prover_ctx_t* ctx, json_t block, bool full_tx, json_t* result);
+c4_status_t eth_block_number(prover_ctx_t* ctx, uint64_t* number_out);
+/**
+ * Fetches a raw execution block via `debug_getRawBlock`.
+ *
+ * On first success the JSON-RPC hex result is decoded and stored in the request.
+ * `validated` on this request means `response` is already raw RLP (not a JSON
+ * envelope). Later calls reuse those bytes. The returned `bytes_t` is a view of
+ * that response; the prover state owns the memory.
+ *
+ * @param ctx prover context
+ * @param block_hash 32-byte execution block hash
+ * @param result receives the decoded raw block bytes
+ * @return `C4_SUCCESS`, `C4_PENDING`, or `C4_ERROR`
+ */
+c4_status_t eth_debug_get_raw_block(prover_ctx_t* ctx, const uint8_t* block_hash, bytes_t* result);
 // serialize the receipt for the given json using the buffer to allocate memory
 bytes_t c4_serialize_receipt(json_t r, buffer_t* buf);
 

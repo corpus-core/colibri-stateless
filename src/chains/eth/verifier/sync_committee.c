@@ -532,6 +532,8 @@ INTERNAL bool c4_process_light_client_updates(verify_ctx_t* ctx, bytes_t light_c
   bool     lighthouse = detect_update_format(light_client_updates);
   int      idx        = 0;
 
+  // Per-update ssz_is_valid only. The enclosing list request stays
+  // unvalidated until a list-level check exists.
   for (uint32_t pos = 0; pos + UPDATE_PREFIX_SIZE < light_client_updates.len; pos += length + SSZ_LENGTH_SIZE, idx++) {
     uint32_t data_offset        = pos + SSZ_LENGTH_SIZE + SSZ_OFFSET_SIZE;
     uint32_t data_length_offset = SSZ_OFFSET_SIZE;
@@ -573,7 +575,6 @@ INTERNAL bool c4_process_light_client_updates(verify_ctx_t* ctx, bytes_t light_c
 
     ssz_ob_t light_client_update_ob = {.bytes = light_client_update_bytes, .def = light_client_update_def};
 
-    // Validate SSZ structure (checks offsets and ensures all properties exist)
     if (!ssz_is_valid(light_client_update_ob, true, &ctx->state)) {
       success = false;
       c4_state_add_error(&ctx->state, "Invalid SSZ structure in light client update");

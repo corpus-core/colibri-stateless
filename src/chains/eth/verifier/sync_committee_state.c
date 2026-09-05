@@ -243,10 +243,13 @@ bool c4_req_checkpointz_status(c4_state_t* state, chain_id_t chain_id, uint64_t*
       // generic `string` (not `bytes32`) because some Beacon API providers emit block
       // roots WITHOUT the `0x` prefix; `json_as_bytes` -> `hex_to_bytes` accepts both,
       // we just enforce the 32-byte length after decoding.
-      const char* err = json_validate(res, "{data:{finalized:{epoch:suint,root:string}}}", "finality checkpoints");
-      if (err) {
-        c4_state_add_error(state, err);
-        return false;
+      if (!req->validated) {
+        const char* err = json_validate(res, "{data:{finalized:{epoch:suint,root:string}}}", "finality checkpoints");
+        if (err) {
+          c4_state_add_error(state, err);
+          return false;
+        }
+        req->validated = true;
       }
 
       json_t data      = json_get(res, "data");
@@ -327,9 +330,12 @@ c4_status_t c4_handle_bootstrap(verify_ctx_t* ctx, bytes_t bootstrap_data, bytes
   ssz_ob_t  bootstrap             = {.bytes = bootstrap_data, .def = bootstrap_def};
   bytes32_t previous_pubkeys_hash = {0}; // in case of a bootstrap, there is no previous pubkey hash, so we set it to 0
 
-  // Validate SSZ structure (checks offsets and ensures all properties exist)
-  if (!ssz_is_valid(bootstrap, true, &ctx->state))
-    THROW_ERROR("Invalid SSZ structure in bootstrap data");
+  data_request_t* src_req = c4_state_get_data_request_by_response(&ctx->state, bootstrap_data);
+  if (!(src_req && src_req->validated)) {
+    if (!ssz_is_valid(bootstrap, true, &ctx->state))
+      THROW_ERROR("Invalid SSZ structure in bootstrap data");
+    if (src_req) src_req->validated = true;
+  }
 
   // Extract components (no need for ssz_is_error checks after validation)
   ssz_ob_t header                 = ssz_get(&bootstrap, "header");
@@ -758,7 +764,10 @@ INTERNAL c4_status_t c4_verify_checkpointz_root(verify_ctx_t* ctx, uint64_t slot
   // `json_as_bytes`) accepts both variants, so we just need to enforce the 32-byte
   // length after decoding.
   json_t res = json_parse((char*) req->response.data);
-  CHECK_JSON(res, "{data:{root:string}}", "checkpointz response");
+  if (!req->validated) {
+    CHECK_JSON(res, "{data:{root:string}}", "checkpointz response");
+    req->validated = true;
+  }
 
   bytes32_t checkpointz_root = {0};
   buffer_t  root_buf         = stack_buffer(checkpointz_root);
@@ -857,10 +866,14 @@ static c4_status_t c4_check_weak_subjectivity(verify_ctx_t* ctx, c4_sync_validat
     clear_sync_state(ctx->chain_id);
     return c4_state_add_error(&ctx->state, "WSP bootstrap: unsupported fork");
   }
-  ssz_ob_t bootstrap = {.bytes = bootstrap_data, .def = bootstrap_def};
-  if (!ssz_is_valid(bootstrap, true, &ctx->state)) {
-    clear_sync_state(ctx->chain_id);
-    return c4_state_add_error(&ctx->state, "WSP bootstrap: invalid SSZ structure");
+  ssz_ob_t        bootstrap = {.bytes = bootstrap_data, .def = bootstrap_def};
+  data_request_t* src_req   = c4_state_get_data_request_by_response(&ctx->state, bootstrap_data);
+  if (!(src_req && src_req->validated)) {
+    if (!ssz_is_valid(bootstrap, true, &ctx->state)) {
+      clear_sync_state(ctx->chain_id);
+      return c4_state_add_error(&ctx->state, "WSP bootstrap: invalid SSZ structure");
+    }
+    if (src_req) src_req->validated = true;
   }
 
   ssz_ob_t header                 = ssz_get(&bootstrap, "header");
@@ -1030,6 +1043,10 @@ static c4_status_t c4_try_sync_from_next_period(verify_ctx_t* ctx, uint32_t peri
     uint64_t length                    = uint64_from_le(light_client_update.data + offset);
     bytes_t  light_client_update_bytes = bytes(light_client_update.data + offset + UPDATE_PREFIX_SIZE, length - SSZ_OFFSET_SIZE);
     ssz_ob_t update_ob                 = {.bytes = light_client_update_bytes, .def = client_update_def};
+    // One item is not the enclosing list. Leave the list request unvalidated
+    // until a list-level SSZ check exists.
+    if (!ssz_is_valid(update_ob, true, &ctx->state))
+      THROW_ERROR("Invalid SSZ structure in light client update");
 
     // Step 4: Extract nextSyncCommittee from the update (this is period N+1's committee in period N's update)
     ssz_ob_t next_sync_committee = ssz_get(&update_ob, "nextSyncCommittee");

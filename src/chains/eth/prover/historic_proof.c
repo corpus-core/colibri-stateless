@@ -49,20 +49,7 @@ static const ssz_def_t SUMMARIES                    = SSZ_LIST("summaries", HIST
 static const ssz_def_t BLOCKS                       = SSZ_VECTOR("blocks", ssz_bytes32, 8192);
 
 static c4_status_t get_beacon_header(prover_ctx_t* ctx, bytes32_t block_hash, json_t* header) {
-
-  char     path[200]   = {0};
-  json_t   result      = {0};
-  buffer_t path_buffer = stack_buffer(path);
-  bprintf(&path_buffer, "eth/v1/beacon/headers/0x%x", bytes(block_hash, 32));
-
-  TRY_ASYNC(c4_send_beacon_json(ctx, path, NULL, DEFAULT_TTL, &result));
-
-  json_t val = json_get(result, "data");
-  if (val.type != JSON_TYPE_OBJECT) THROW_ERROR("Invalid header!");
-  val     = json_get(val, "header");
-  *header = json_get(val, "message");
-  if (!header->start) THROW_ERROR("Invalid header!");
-  return C4_SUCCESS;
+  return cl_get_header_message_by_root(ctx, block_hash, header);
 }
 
 static void verify_proof(char* name, bytes32_t leaf, bytes32_t root, bytes_t proof, gindex_t gindex) {
@@ -122,15 +109,7 @@ static c4_status_t check_historic_proof_header(prover_ctx_t* ctx, blockroot_proo
 }
 
 static c4_status_t get_historical_summaries(prover_ctx_t* ctx, eth_block_t* block, json_t* history_proof) {
-  if (ctx->state.error) return C4_ERROR;
-  uint8_t     tmp[200] = {0};
-  buffer_t    buf      = stack_buffer(tmp);
-  bytes_t     state    = ssz_get(&block->beacon.cl_header, "stateRoot").bytes;
-  bool        nimbus   = (ctx->flags & C4_PROVER_FLAG_NIMBUS) != 0;
-  const char* path     = nimbus ? "nimbus/v1/debug/beacon/states/0x%b/historical_summaries"
-                                : "eth/v1/lodestar/states/0x%b/historical_summaries";
-  uint32_t    client   = nimbus ? BEACON_CLIENT_NIMBUS : BEACON_CLIENT_LODESTAR;
-  return c4_send_beacon_json_with_client_type(ctx, bprintf(&buf, path, state), NULL, 120, history_proof, client);
+  return cl_get_historical_summaries(ctx, ssz_get(&block->beacon.cl_header, "stateRoot").bytes, history_proof);
 }
 
 #ifdef TEST
@@ -279,14 +258,17 @@ void c4_free_block_proof(blockroot_proof_t* block_proof) {
 // Wraps a raw bootstrap SSZ blob in a typed ssz_ob_t after fork detection +
 // SSZ validation. Used for both the primary (beacon-served) and fallback
 // (self-built) paths so the two share exactly the same validation.
-static c4_status_t decode_bootstrap_bytes(prover_ctx_t* ctx, bytes_t raw, ssz_ob_t* out_bootstrap) {
+static c4_status_t decode_bootstrap_bytes(prover_ctx_t* ctx, bytes_t raw, ssz_ob_t* out_bootstrap, data_request_t* req) {
   ssz_ob_t  result = {.bytes = raw, .def = NULL};
   fork_id_t fork   = c4_eth_get_fork_for_lcu(ctx->chain_id, result.bytes);
   if (fork == 0) THROW_ERROR("Invalid bootstrap data: cannot determine fork!");
   // Single source of truth for fork -> bootstrap container mapping.
   result.def = eth_get_light_client_bootstrap(fork);
   if (!result.def) THROW_ERROR("Invalid bootstrap data: unsupported fork!");
-  if (!ssz_is_valid(result, true, &ctx->state)) THROW_ERROR("Invalid bootstrap data!");
+  if (!(req && req->validated)) {
+    if (!ssz_is_valid(result, true, &ctx->state)) THROW_ERROR("Invalid bootstrap data!");
+    if (req) req->validated = true;
+  }
   *out_bootstrap = result;
   return C4_SUCCESS;
 }
@@ -323,7 +305,7 @@ static c4_status_t fetch_bootstrap_by_root(prover_ctx_t* ctx, bytes32_t header_r
   //    "fallback marker" bookkeeping.
   bytes_t cached_fallback = c4_state_cache_get(&ctx->state, fallback_key);
   if (cached_fallback.data)
-    return decode_bootstrap_bytes(ctx, cached_fallback, out_bootstrap);
+    return decode_bootstrap_bytes(ctx, cached_fallback, out_bootstrap, NULL);
 
   // 2) Try the primary beacon endpoint. Use the non-throwing variant so a
   //    404 / regen error does not abort the whole prover run -- we want to
@@ -336,7 +318,7 @@ static c4_status_t fetch_bootstrap_by_root(prover_ctx_t* ctx, bytes32_t header_r
   data_request_t* primary_req = NULL;
   c4_status_t     st          = c4_send_beacon_ssz_no_throw(ctx, path, NULL, DEFAULT_TTL, &primary_req);
   if (st == C4_PENDING) return C4_PENDING;
-  if (st == C4_SUCCESS) return decode_bootstrap_bytes(ctx, primary_req->response, out_bootstrap);
+  if (st == C4_SUCCESS) return decode_bootstrap_bytes(ctx, primary_req->response, out_bootstrap, primary_req);
 
   // st == C4_ERROR: the request layer left `ctx->state.error` untouched, so
   // we can decide locally whether to fall back or to surface the error.
@@ -357,7 +339,7 @@ static c4_status_t fetch_bootstrap_by_root(prover_ctx_t* ctx, bytes32_t header_r
   //    the prover context. `c4_state_cache_set` takes ownership of
   //    `built_ssz.data`.
   bytes_t cached = c4_state_cache_set(&ctx->state, fallback_key, built_ssz);
-  return decode_bootstrap_bytes(ctx, cached, out_bootstrap);
+  return decode_bootstrap_bytes(ctx, cached, out_bootstrap, NULL);
 }
 
 static c4_status_t fetch_bootstrap_data(prover_ctx_t* ctx, syncdata_state_t* sync_data, ssz_ob_t* bootstrap) {
@@ -460,7 +442,7 @@ c4_status_t c4_fetch_client_updates(prover_ctx_t* ctx, uint64_t start_period, ui
   }
 
   ssz_ob_t result = {0};
-  TRY_ASYNC(c4_send_beacon_ssz(ctx, "eth/v1/beacon/light_client/updates", query, NULL, DEFAULT_TTL, &result));
+  TRY_ASYNC(c4_send_beacon_ssz(ctx, "eth/v1/beacon/light_client/updates", query, NULL, DEFAULT_TTL, &result, NULL));
   *out_data = result.bytes;
   return C4_SUCCESS;
 }

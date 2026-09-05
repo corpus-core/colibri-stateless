@@ -102,11 +102,13 @@ void test_retry_after_clears_response_and_error(void) {
   data_request_t req = {0};
   req.response       = bytes_dup(bytes((uint8_t*) "x", 1));
   req.error          = strdup("transient error");
+  req.validated      = true;
 
   TEST_ASSERT_TRUE(c4_state_retry_after(&req, 1500, 5));
   TEST_ASSERT_NULL(req.response.data);
   TEST_ASSERT_EQUAL_UINT32(0, req.response.len);
   TEST_ASSERT_NULL(req.error);
+  TEST_ASSERT_FALSE(req.validated);
   TEST_ASSERT_EQUAL_UINT32(1500, req.delay);
 }
 
