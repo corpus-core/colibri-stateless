@@ -26,6 +26,7 @@
 #include "crypto.h"
 #include "eth_verify.h"
 #include "json.h"
+#include "lcu_wire.h"
 #include "logger.h"
 #include "plugin.h"
 #include "ssz.h"
@@ -488,21 +489,6 @@ INTERNAL c4_status_t c4_update_from_sync_data(verify_ctx_t* ctx) {
     RETURN_VERIFY_ERROR_STATUS(ctx, "unknown sync_data type!");
 }
 
-fork_id_t c4_eth_get_fork_for_lcu(chain_id_t chain_id, bytes_t data) {
-  if (data.len < 4) return 0;
-  uint64_t slot   = 0;
-  uint32_t offset = uint32_from_le(data.data);
-  if (offset + 8 > data.len)
-    // this is most likely a gloas bootstrap!
-    // TODO(gloas): this may break if the lower 4 bytes of the slot are smaller than the lcu length.
-    // so in 99% of the cases it will work, but we should find a better way to detect the fork.
-    slot = uint64_from_le(data.data);
-  else
-    slot = uint64_from_le(data.data + offset);
-  const chain_spec_t* spec = c4_eth_get_chain_spec(chain_id);
-  return c4_chain_fork_id(chain_id, epoch_for_slot(slot, spec));
-}
-
 /**
  * Detects the format of light client updates (Standard SSZ or Lighthouse variant).
  * Lighthouse format uses a different offset structure.
@@ -517,55 +503,75 @@ static bool detect_update_format(bytes_t data) {
          uint32_from_le(data.data) < 1000;
 }
 
-/**
- * Process light client updates with a callback function for each update.
- * This handles both standard SSZ and Lighthouse formats.
- *
- * @param ctx Verification context
- * @param light_client_updates Raw bytes containing one or more light client updates
- * @param process_update Callback function to process each individual update
- * @return true if all updates were processed successfully, false otherwise
- */
-INTERNAL bool c4_process_light_client_updates(verify_ctx_t* ctx, bytes_t light_client_updates, bool (*process_update)(verify_ctx_t*, ssz_ob_t*)) {
-  uint64_t length     = 0;
-  bool     success    = true;
-  bool     lighthouse = detect_update_format(light_client_updates);
-  int      idx        = 0;
+// Trampoline that adapts the walker's `c4_lcu_chunk_cb_t` to the verifier's
+// `(verify_ctx_t*, ssz_ob_t*)` callback signature.
+typedef struct {
+  verify_ctx_t* ctx;
+  bool (*process_update)(verify_ctx_t*, ssz_ob_t*);
+} lcu_verify_cb_ctx_t;
 
-  // Per-update ssz_is_valid only. The enclosing list request stays
-  // unvalidated until a list-level check exists.
+static bool lcu_verify_chunk_cb(void* user, const c4_lcu_chunk_t* chunk) {
+  lcu_verify_cb_ctx_t* c = (lcu_verify_cb_ctx_t*) user;
+  // `chunk->update` is const in intent, but `ssz_get` / callers may mutate
+  // ancillary caches inside the ssz_ob_t. Copy locally to keep the
+  // walker-owned view untouched.
+  ssz_ob_t update = chunk->update;
+  return c->process_update(c->ctx, &update);
+}
+
+// Legacy fallback for the Lighthouse variant of the update list. Lighthouse
+// clients emit a per-list SSZ offset table instead of the Beacon-API framing,
+// so we cannot feed it into `c4_eth_walk_lcu_list`. Kept as a pre-existing
+// compatibility path -- issue #356 leaves the Lighthouse format out of scope.
+static bool process_lighthouse_updates(verify_ctx_t* ctx, bytes_t light_client_updates, bool (*process_update)(verify_ctx_t*, ssz_ob_t*)) {
+  uint64_t length  = 0;
+  bool     success = true;
+  int      idx     = 0;
+
   for (uint32_t pos = 0; pos + UPDATE_PREFIX_SIZE < light_client_updates.len; pos += length + SSZ_LENGTH_SIZE, idx++) {
-    uint32_t data_offset        = pos + SSZ_LENGTH_SIZE + SSZ_OFFSET_SIZE;
-    uint32_t data_length_offset = SSZ_OFFSET_SIZE;
+    uint32_t data_offset = pos + SSZ_LENGTH_SIZE + SSZ_OFFSET_SIZE;
 
-    if (lighthouse) {
-      // Check bounds before reading offset
-      if (idx * SSZ_OFFSET_SIZE + SSZ_OFFSET_SIZE > light_client_updates.len) {
-        success = false;
-        c4_state_add_error(&ctx->state, "invalid lighthouse index exceeds data bounds!");
-        break;
-      }
-      pos = uint32_from_le(light_client_updates.data + (idx * SSZ_OFFSET_SIZE));
-      if (pos + UPDATE_PREFIX_SIZE > light_client_updates.len) {
-        success = false;
-        c4_state_add_error(&ctx->state, "invalid offset in lighthouse client update!");
-        break;
-      }
-      data_offset = pos + LIGHTHOUSE_OFFSET_SIZE + SSZ_OFFSET_SIZE;
+    // Check bounds before reading offset
+    if (idx * SSZ_OFFSET_SIZE + SSZ_OFFSET_SIZE > light_client_updates.len) {
+      success = false;
+      c4_state_add_error(&ctx->state, "invalid lighthouse index exceeds data bounds!");
+      break;
     }
+    pos = uint32_from_le(light_client_updates.data + (idx * SSZ_OFFSET_SIZE));
+    if (pos + UPDATE_PREFIX_SIZE > light_client_updates.len) {
+      success = false;
+      c4_state_add_error(&ctx->state, "invalid offset in lighthouse client update!");
+      break;
+    }
+    data_offset = pos + LIGHTHOUSE_OFFSET_SIZE + SSZ_OFFSET_SIZE;
 
     length = uint64_from_le(light_client_updates.data + pos);
 
     // Check for integer overflow and bounds
-    if (length > UPDATE_PREFIX_SIZE && (pos + SSZ_LENGTH_SIZE + length > light_client_updates.len || pos + SSZ_LENGTH_SIZE + length < pos)) {
+    if (length < SSZ_OFFSET_SIZE ||
+        (length > UPDATE_PREFIX_SIZE && (pos + SSZ_LENGTH_SIZE + length > light_client_updates.len || pos + SSZ_LENGTH_SIZE + length < pos))) {
       success = false;
       c4_state_add_error(&ctx->state, "invalid length causes overflow or exceeds bounds!");
       break;
     }
 
-    bytes_t          light_client_update_bytes = bytes(light_client_updates.data + data_offset, length - data_length_offset);
-    fork_id_t        fork                      = c4_eth_get_fork_for_lcu(ctx->chain_id, light_client_update_bytes);
-    const ssz_def_t* light_client_update_def   = eth_get_light_client_update(fork);
+    bytes_t light_client_update_bytes = bytes(light_client_updates.data + data_offset, length - SSZ_OFFSET_SIZE);
+    // Lighthouse framing puts its own header between the length prefix and
+    // the payload -- the 4 bytes at `pos+8` are NOT a ForkDigest. Recover
+    // the fork from the attested-header slot inside the payload (the
+    // pre-#356 heuristic), which is out of scope for the shared walker.
+    uint64_t            slot = 0;
+    if (light_client_update_bytes.len >= 4) {
+      uint32_t hdr_off = uint32_from_le(light_client_update_bytes.data);
+      // 64-bit compare: `hdr_off + 8` as uint32 wraps for hdr_off > UINT32_MAX-8.
+      if ((uint64_t) hdr_off + 8u <= (uint64_t) light_client_update_bytes.len)
+        slot = uint64_from_le(light_client_update_bytes.data + hdr_off);
+      else if (light_client_update_bytes.len >= 8)
+        slot = uint64_from_le(light_client_update_bytes.data);
+    }
+    const chain_spec_t* spec                   = c4_eth_get_chain_spec(ctx->chain_id);
+    fork_id_t           fork                   = c4_chain_fork_id(ctx->chain_id, epoch_for_slot(slot, spec));
+    const ssz_def_t*    light_client_update_def = eth_get_light_client_update(fork);
 
     if (!light_client_update_def) {
       c4_state_add_error(&ctx->state, "light client update: unknown/unsupported fork");
@@ -589,6 +595,31 @@ INTERNAL bool c4_process_light_client_updates(verify_ctx_t* ctx, bytes_t light_c
   }
 
   return success;
+}
+
+/**
+ * Process light client updates with a callback function for each update.
+ *
+ * Uses `c4_eth_walk_lcu_list` for the Beacon-API framing (which also marks
+ * the enclosing `data_request_t` as `validated` on structural success -- see
+ * issue #356). Falls back to a Lighthouse-specific parser when the input is
+ * detected as the offset-table variant.
+ *
+ * @param ctx Verification context
+ * @param light_client_updates Raw bytes containing one or more light client updates
+ * @param process_update Callback function to process each individual update
+ * @return true if all updates were processed successfully, false otherwise
+ */
+INTERNAL bool c4_process_light_client_updates(verify_ctx_t* ctx, bytes_t light_client_updates, bool (*process_update)(verify_ctx_t*, ssz_ob_t*)) {
+  if (detect_update_format(light_client_updates))
+    return process_lighthouse_updates(ctx, light_client_updates, process_update);
+
+  // Standard Beacon-API format: hand off to the shared walker, which also
+  // marks the request `validated` on framing success.
+  data_request_t* src_req = c4_state_get_data_request_by_response(&ctx->state, light_client_updates);
+  lcu_verify_cb_ctx_t cb_ctx = {.ctx = ctx, .process_update = process_update};
+  return c4_eth_walk_lcu_list(ctx->chain_id, light_client_updates, &ctx->state, src_req,
+                              /*validate_ssz*/ true, lcu_verify_chunk_cb, &cb_ctx);
 }
 
 INTERNAL bool c4_handle_client_updates(verify_ctx_t* ctx, bytes_t light_client_updates) {

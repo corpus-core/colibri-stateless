@@ -92,6 +92,7 @@ set(VERIFIER_SOURCES
   verifier/sync_committee.c
   verifier/sync_committee_state.c
   verifier/beacon_header.c
+  verifier/lcu_wire.c
   verifier/eth_tx.c
   verifier/eth_account.c
   verifier/eth_verify.c

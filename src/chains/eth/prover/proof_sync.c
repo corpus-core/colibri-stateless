@@ -21,6 +21,7 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include "../verifier/lcu_wire.h"
 #include "beacon_types.h"
 #include "eth_compute_units.h"
 #include "eth_tools.h"
@@ -47,16 +48,35 @@ typedef struct {
   bytes_t  proposer_index;
 } period_data_t;
 
+// Walker callback that captures the first chunk of a light-client-update
+// list. Aborts the walk after the first hit -- `c4_proof_sync` always fetches
+// with `count=1`.
+typedef struct {
+  bool     have_first;
+  ssz_ob_t first;
+} first_lcu_t;
+
+static bool capture_first_cb(void* user, const c4_lcu_chunk_t* chunk) {
+  first_lcu_t* f = (first_lcu_t*) user;
+  if (f->have_first) return false;
+  f->first      = chunk->update;
+  f->have_first = true;
+  return false;
+}
+
+// Framing-validated single-chunk unwrap. On success sets `.validated` on the
+// backing request and returns the first chunk as `{.bytes, .def}`; otherwise
+// returns `{.bytes = NULL_BYTES, .def = NULL}`.
 static ssz_ob_t unwrap_lcu_response(prover_ctx_t* ctx, bytes_t data) {
   ssz_ob_t result = {.bytes = NULL_BYTES, .def = NULL};
-  if (data.len < 12) return result;
-  uint64_t payload_len = uint64_from_le(data.data);
-  if (payload_len < 4 || 8 + payload_len > data.len) return result;
-  result.bytes          = bytes(data.data + 12, payload_len - 4);
-  fork_id_t        fork = c4_eth_get_fork_for_lcu(ctx->chain_id, result.bytes);
-  const ssz_def_t* def  = eth_get_light_client_update(fork);
-  result.def            = def;
-  return result;
+
+  data_request_t* src_req = c4_state_get_data_request_by_response(&ctx->state, data);
+  first_lcu_t     first   = {0};
+  bool ok = c4_eth_walk_lcu_list(ctx->chain_id, data, &ctx->state, src_req,
+                                 /*validate_ssz*/ true, capture_first_cb, &first);
+  if (!ok && !first.have_first) return result;
+  if (!first.have_first) return result;
+  return first.first;
 }
 
 static c4_status_t extract_sync_data(prover_ctx_t* ctx, bytes_t old_data, bytes_t new_data, period_data_t* period) {
@@ -68,7 +88,12 @@ static c4_status_t extract_sync_data(prover_ctx_t* ctx, bytes_t old_data, bytes_
   ssz_ob_t new_update = unwrap_lcu_response(ctx, new_data);
   if (!new_update.def) THROW_ERROR("invalid new client_update");
 
-  fork_id_t fork = c4_eth_get_fork_for_lcu(ctx->chain_id, new_update.bytes);
+  // Attested-header slot's fork drives the LCU container layout choice,
+  // exactly what the walker used to resolve `def` above.
+  ssz_ob_t attested = ssz_get(&new_update, "attestedHeader");
+  ssz_ob_t beacon0  = ssz_get(&attested, "beacon");
+  const chain_spec_t* spec = c4_eth_get_chain_spec(ctx->chain_id);
+  fork_id_t fork = c4_chain_fork_id(ctx->chain_id, epoch_for_slot(ssz_get_uint64(&beacon0, "slot"), spec));
 
   ssz_ob_t old_sync_keys  = ssz_get(&old_update, "nextSyncCommittee");
   ssz_ob_t new_sync_keys  = ssz_get(&new_update, "nextSyncCommittee");

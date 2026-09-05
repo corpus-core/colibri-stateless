@@ -25,6 +25,7 @@
 
 #include "beacon_types.h"
 #include "ssz.h"
+#include <stdint.h>
 
 // fork_epochs[n] = activation epoch of fork (n+1) (Altair ..).
 // 0 = active at genesis. NOT_ASSIGNED_YET = not scheduled. Terminated by FORKS_END.
@@ -67,6 +68,21 @@ static const eth_blob_schedule_t eth_gnosis_blob_schedule[] = {
     {1746021820ULL, 1112826ULL}, // Prague/Pectra
     {1710181820ULL, 1112826ULL}, // Cancun/Deneb
     {0ULL, 0ULL},
+};
+
+// Consensus-layer BLOB_SCHEDULE (epoch + max_blobs). Used by
+// `compute_fork_digest` after Fulu (EIP-7892). Values from
+// `ethereum/consensus-specs` configs and `eth-clients/{mainnet,sepolia}`.
+static const eth_cl_blob_schedule_t eth_mainnet_cl_blob_schedule[] = {
+    {412672ULL, 15}, // BPO1 (2025-12-09)
+    {419072ULL, 21}, // BPO2 (2026-01-07)
+    {0, 0},
+};
+
+static const eth_cl_blob_schedule_t eth_sepolia_cl_blob_schedule[] = {
+    {274176ULL, 15}, // BPO1
+    {275712ULL, 21}, // BPO2
+    {0, 0},
 };
 
 static const eth_blob_schedule_t eth_chiado_blob_schedule[] = {
@@ -121,7 +137,8 @@ static const chain_spec_t chain_data[] = {
      .epochs_per_period_bits   = 8,
      .weak_subjectivity_epochs = 3682,
      .fork_version_func        = mainnet_fork_version,
-     .blob_schedule            = eth_mainnet_blob_schedule},
+     .blob_schedule            = eth_mainnet_blob_schedule,
+     .cl_blob_schedule         = eth_mainnet_cl_blob_schedule},
     {// Sepolia
      .chain_id                 = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 11155111),
      .fork_epochs              = eth_sepolia_fork_epochs,
@@ -131,7 +148,8 @@ static const chain_spec_t chain_data[] = {
      .epochs_per_period_bits   = 8,
      .weak_subjectivity_epochs = 3682,
      .fork_version_func        = sepolia_fork_version,
-     .blob_schedule            = eth_sepolia_blob_schedule},
+     .blob_schedule            = eth_sepolia_blob_schedule,
+     .cl_blob_schedule         = eth_sepolia_cl_blob_schedule},
     {// Plataberget
      .chain_id                 = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 7091047534),
      .fork_epochs              = eth_plataberget_fork_epochs,
@@ -150,8 +168,9 @@ static const chain_spec_t chain_data[] = {
      .epochs_per_period_bits   = 9,
      .weak_subjectivity_epochs = 1500,
      .fork_version_func        = gnosis_fork_version,
-     .blob_schedule            = eth_gnosis_blob_schedule,
-     .min_blob_base_fee        = 1000000000ULL},
+     .blob_schedule               = eth_gnosis_blob_schedule,
+     .min_blob_base_fee           = 1000000000ULL,
+     .electra_max_blobs_per_block = 2},
     {// Gnosis chiado
      .chain_id                 = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 10200ULL),
      .fork_epochs              = eth_chiado_fork_epochs,
@@ -160,8 +179,9 @@ static const chain_spec_t chain_data[] = {
      .epochs_per_period_bits   = 9,
      .weak_subjectivity_epochs = 1500,
      .fork_version_func        = gnosis_fork_version,
-     .blob_schedule            = eth_chiado_blob_schedule,
-     .min_blob_base_fee        = 1000000000ULL},
+     .blob_schedule               = eth_chiado_blob_schedule,
+     .min_blob_base_fee           = 1000000000ULL,
+     .electra_max_blobs_per_block = 2},
 };
 
 const chain_spec_t* c4_eth_get_chain_spec(chain_id_t id) {
@@ -225,6 +245,22 @@ bool c4_chain_schedules_fork(chain_id_t chain_id, fork_id_t fork) {
     n++;
   }
   return false;
+}
+
+uint64_t c4_chain_fork_epoch(chain_id_t chain_id, fork_id_t fork) {
+  const chain_spec_t* spec = c4_eth_get_chain_spec(chain_id);
+  if (!spec || !spec->fork_epochs) return UINT64_MAX;
+  if (fork <= C4_FORK_PHASE0) return 0;
+  unsigned want = (unsigned) fork - 1;
+  unsigned n    = 0;
+  while (spec->fork_epochs[n] != FORKS_END) {
+    if (n == want) {
+      uint64_t epoch = spec->fork_epochs[n];
+      return epoch < FORKS_END ? epoch : UINT64_MAX;
+    }
+    n++;
+  }
+  return UINT64_MAX;
 }
 
 // Generalized indices for the fork-specific `BeaconState` layout used by the

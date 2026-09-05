@@ -133,20 +133,20 @@ bool c4_gloas_lcu_assemble(bytes_t  attested_header,
 }
 
 bytes_t c4_gloas_lcu_wrap_beacon_response(bytes_t lcu_ssz,
-                                          uint8_t fork_version[4]) {
-  if (!lcu_ssz.data || lcu_ssz.len != C4_GLOAS_LCU_SSZ_SIZE || !fork_version)
+                                          uint8_t context[4]) {
+  if (!lcu_ssz.data || lcu_ssz.len != C4_GLOAS_LCU_SSZ_SIZE || !context)
     return NULL_BYTES;
 
   // Beacon-API `light_client/updates` wire format for one entry:
   //   [0 .. 8)  length = 4 + lcu_ssz.len (uint64 LE, big enough for both
   //                     current updates layout and future 2^64-1 extensions)
-  //   [8 .. 12) fork_version (raw bytes)
+  //   [8 .. 12) context (raw bytes; per spec this is the ForkDigest)
   //   [12 ..)   payload
   const uint64_t length = 4u + (uint64_t) lcu_ssz.len;
   uint8_t*       buf    = (uint8_t*) safe_malloc(C4_GLOAS_LCU_WIRE_PREFIX_SIZE + lcu_ssz.len);
 
   uint64_to_le(buf, length);
-  memcpy(buf + 8, fork_version, 4);
+  memcpy(buf + 8, context, 4);
   memcpy(buf + C4_GLOAS_LCU_WIRE_PREFIX_SIZE, lcu_ssz.data, lcu_ssz.len);
 
   return bytes(buf, C4_GLOAS_LCU_WIRE_PREFIX_SIZE + lcu_ssz.len);

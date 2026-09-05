@@ -70,8 +70,8 @@ static void build_dummy_lc_header(uint8_t out[C4_GLOAS_LCU_HEADER_SIZE],
 // SyncAggregate: BitVector[512] (64 B) + ByteVector[96] = 160 B fixed.
 static void build_dummy_sync_aggregate(uint8_t out[C4_GLOAS_LCU_SYNC_AGGREGATE_SIZE]) {
   memset(out, 0, C4_GLOAS_LCU_SYNC_AGGREGATE_SIZE);
-  for (uint32_t i = 0; i < 64; i++) out[i] = (uint8_t) (0xa0 + i);       // bits
-  for (uint32_t i = 0; i < 96; i++) out[64 + i] = (uint8_t) (0xb0 + i);  // signature
+  for (uint32_t i = 0; i < 64; i++) out[i] = (uint8_t) (0xa0 + i);      // bits
+  for (uint32_t i = 0; i < 96; i++) out[64 + i] = (uint8_t) (0xb0 + i); // signature
 }
 
 // -----------------------------------------------------------------------------
@@ -168,12 +168,12 @@ void test_gloas_lcu_assemble_layout_and_validity(void) {
 }
 
 void test_gloas_lcu_assemble_size_mismatches_rejected(void) {
-  uint8_t attested_ok[C4_GLOAS_LCU_HEADER_SIZE]           = {0};
-  uint8_t finalized_ok[C4_GLOAS_LCU_HEADER_SIZE]          = {0};
-  uint8_t nsc_ok[C4_GLOAS_LCU_SYNC_COMMITTEE_SIZE]        = {0};
-  uint8_t sc_branch_ok[C4_GLOAS_LCU_NEXT_SC_BRANCH_SIZE]  = {0};
+  uint8_t attested_ok[C4_GLOAS_LCU_HEADER_SIZE]            = {0};
+  uint8_t finalized_ok[C4_GLOAS_LCU_HEADER_SIZE]           = {0};
+  uint8_t nsc_ok[C4_GLOAS_LCU_SYNC_COMMITTEE_SIZE]         = {0};
+  uint8_t sc_branch_ok[C4_GLOAS_LCU_NEXT_SC_BRANCH_SIZE]   = {0};
   uint8_t fin_branch_ok[C4_GLOAS_LCU_FINALITY_BRANCH_SIZE] = {0};
-  uint8_t sync_agg_ok[C4_GLOAS_LCU_SYNC_AGGREGATE_SIZE]   = {0};
+  uint8_t sync_agg_ok[C4_GLOAS_LCU_SYNC_AGGREGATE_SIZE]    = {0};
 
   bytes_t out = NULL_BYTES;
 
@@ -307,12 +307,12 @@ void test_gloas_lcu_wrap_beacon_response_prefix(void) {
   for (uint32_t i = 0; i < C4_GLOAS_LCU_SSZ_SIZE; i++)
     lcu_bytes[i] = (uint8_t) (i & 0xff);
 
-  // Arbitrary 4-byte fork_version. The wrapper copies these bytes verbatim
-  // and never inspects them; the concrete Gloas value depends on the chain
-  // (`mainnet_fork_version` -> 0x07000000, plataberget -> 0x80733183, ...).
-  uint8_t fork_version[4] = {0xde, 0xad, 0xbe, 0xef};
-  bytes_t wire            = c4_gloas_lcu_wrap_beacon_response(
-      bytes(lcu_bytes, sizeof(lcu_bytes)), fork_version);
+  // Arbitrary 4-byte context. The wrapper copies these bytes verbatim and
+  // never inspects them; per Beacon-API spec production callers pass a
+  // `ForkDigest` computed via `c4_eth_compute_fork_digest`.
+  uint8_t context[4] = {0xde, 0xad, 0xbe, 0xef};
+  bytes_t wire       = c4_gloas_lcu_wrap_beacon_response(
+      bytes(lcu_bytes, sizeof(lcu_bytes)), context);
   TEST_ASSERT_NOT_NULL_MESSAGE(wire.data, "wrap must produce a buffer");
   TEST_ASSERT_EQUAL_MESSAGE(C4_GLOAS_LCU_WIRE_SIZE, wire.len,
                             "wire response = 12 + LCU_SSZ_SIZE bytes");
@@ -324,9 +324,9 @@ void test_gloas_lcu_wrap_beacon_response_prefix(void) {
     TEST_ASSERT_EQUAL_UINT8_MESSAGE(expected, wire.data[i],
                                     "length prefix LE byte mismatch");
   }
-  // fork_version at offset 8..12.
-  TEST_ASSERT_EQUAL_UINT8_ARRAY_MESSAGE(fork_version, wire.data + 8, 4,
-                                        "fork_version at offset 8");
+  // context (ForkDigest) at offset 8..12.
+  TEST_ASSERT_EQUAL_UINT8_ARRAY_MESSAGE(context, wire.data + 8, 4,
+                                        "context at offset 8");
   // Payload starts at offset 12.
   TEST_ASSERT_EQUAL_UINT8_ARRAY_MESSAGE(
       lcu_bytes, wire.data + C4_GLOAS_LCU_WIRE_PREFIX_SIZE,
@@ -337,17 +337,17 @@ void test_gloas_lcu_wrap_beacon_response_prefix(void) {
 
 void test_gloas_lcu_wrap_beacon_response_rejects_invalid(void) {
   uint8_t lcu_bytes[C4_GLOAS_LCU_SSZ_SIZE] = {0};
-  uint8_t fork_version[4]                  = {0xde, 0xad, 0xbe, 0xef};
+  uint8_t context[4]                       = {0xde, 0xad, 0xbe, 0xef};
 
   // NULL data pointer.
   bytes_t null_input = {.data = NULL, .len = C4_GLOAS_LCU_SSZ_SIZE};
-  bytes_t r          = c4_gloas_lcu_wrap_beacon_response(null_input, fork_version);
+  bytes_t r          = c4_gloas_lcu_wrap_beacon_response(null_input, context);
   TEST_ASSERT_NULL_MESSAGE(r.data, "NULL data pointer must be rejected");
   TEST_ASSERT_EQUAL_UINT32_MESSAGE(0, r.len, "returned bytes_t must be zero on failure");
 
   // Wrong LCU length -> NULL_BYTES.
   bytes_t short_lcu = {.data = lcu_bytes, .len = C4_GLOAS_LCU_SSZ_SIZE - 1};
-  r                 = c4_gloas_lcu_wrap_beacon_response(short_lcu, fork_version);
+  r                 = c4_gloas_lcu_wrap_beacon_response(short_lcu, context);
   TEST_ASSERT_NULL_MESSAGE(r.data, "wrong LCU length must be rejected");
 }
 

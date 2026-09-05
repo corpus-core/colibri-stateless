@@ -254,7 +254,7 @@ void test_gloas_update_union_layout(void) {
   TEST_ASSERT_EQUAL_PTR_MESSAGE(d + 2, g, "Gloas update must be at update-union index 2");
 
   // The container names embedded in the union are the on-wire discriminators
-  // used by the `ssz_dump` output and by `c4_eth_get_fork_for_lcu` callers.
+  // used by the `ssz_dump` output and by `eth_get_light_client_update` callers.
   TEST_ASSERT_EQUAL_STRING("DenepLightClientUpdate", d->name);
   TEST_ASSERT_EQUAL_STRING("ElectraLightClientUpdate", e->name);
   TEST_ASSERT_EQUAL_STRING("GloasLightClientUpdate", g->name);

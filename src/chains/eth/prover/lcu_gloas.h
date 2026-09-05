@@ -53,7 +53,11 @@ extern "C" {
 
 // Beacon-API `light_client/updates` wire-format prefix per update:
 //   [0 .. 8)  length (uint64 LE) = 4 + update_size
-//   [8 .. 12) fork_version (4 bytes)
+//   [8 .. 12) context (4 bytes) -- per Beacon API spec this is the
+//             `ForkDigest = hash_tree_root(ForkData{version, gvr})[:4]`.
+//             The wrapper copies whatever the caller supplies verbatim;
+//             production callers should pass the digest computed via
+//             `c4_eth_compute_fork_digest`.
 // followed by the raw LCU-SSZ payload.
 #define C4_GLOAS_LCU_WIRE_PREFIX_SIZE 12u
 #define C4_GLOAS_LCU_WIRE_SIZE        (C4_GLOAS_LCU_WIRE_PREFIX_SIZE + C4_GLOAS_LCU_SSZ_SIZE)
@@ -136,7 +140,7 @@ bool c4_gloas_lcu_assemble(bytes_t  attested_header,
  *
  * ```text
  * [8 bytes LE]  length = 4 + lcu_ssz.len
- * [4 bytes  ]   fork_version (as passed by caller)
+ * [4 bytes  ]   context (as passed by caller; per spec `ForkDigest`)
  * [lcu_ssz  ]   payload
  * ```
  *
@@ -144,12 +148,12 @@ bool c4_gloas_lcu_assemble(bytes_t  attested_header,
  * or `lcu_ssz.data == NULL`.
  *
  * @param lcu_ssz the raw LCU-SSZ payload (borrowed, not consumed).
- * @param fork_version the 4-byte fork version identifier written as-is.
+ * @param context the 4-byte context (typically a `ForkDigest`) written as-is.
  * @return heap-allocated `bytes_t` of length `12 + lcu_ssz.len` on success;
  *         `NULL_BYTES` on invalid input. Caller must `safe_free(.data)`.
  */
 bytes_t c4_gloas_lcu_wrap_beacon_response(bytes_t lcu_ssz,
-                                          uint8_t fork_version[4]);
+                                          uint8_t context[4]);
 
 #ifdef __cplusplus
 }

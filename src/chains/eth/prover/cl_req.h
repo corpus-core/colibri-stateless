@@ -154,9 +154,11 @@ c4_status_t cl_get_state_proof(prover_ctx_t* ctx,
 /**
  * Beacon SSZ GET without a validating wrapper.
  *
- * Prefer a `cl_*` helper. This remains public for light-client update lists
- * (`def == NULL`, no list-level SSZ type yet; see #356). When `def` is set,
- * `ssz_is_valid` runs once and `validated` is set.
+ * Prefer a `cl_*` helper. This is used for light-client update lists
+ * (`def == NULL`, no single SSZ type covers the list). Callers must run
+ * `c4_eth_walk_lcu_list` on the response (see [lcu_wire.h](../verifier/lcu_wire.h))
+ * to mark the request `validated`. When `def` is set, `ssz_is_valid` runs
+ * once here and `validated` is set.
  *
  * @param ctx prover context
  * @param path beacon API path
