@@ -28,16 +28,6 @@
 #include <stddef.h>
 #include <string.h>
 
-// SSZ type of the response returned by Lodestar's
-// `/eth/v0/beacon/proof/state/{state_id}` endpoint. Kept local so it does not
-// leak into fork-agnostic beacon type dispatchers. Limits mirror Lodestar
-// (`CompactMultiProofType` in packages/api/src/beacon/routes/proof.ts).
-static const ssz_def_t COMPACT_MULTI_PROOF_FIELDS[] = {
-    SSZ_LIST("leaves", ssz_bytes32, 10000),
-    SSZ_BYTES("descriptor", 2048)};
-static const ssz_def_t COMPACT_MULTI_PROOF_CONTAINER =
-    SSZ_CONTAINER("CompactMultiProof", COMPACT_MULTI_PROOF_FIELDS);
-
 // :: Internal helpers
 
 typedef struct {
@@ -531,48 +521,6 @@ bool c4_ssz_compact_to_branch(bytes_t   leaves,
 
 // :: Public API
 
-c4_status_t c4_state_proofs_beacon_fetch(prover_ctx_t* ctx,
-                                         bytes32_t     state_root,
-                                         bytes_t       descriptor,
-                                         ssz_ob_t*     leaves_out,
-                                         ssz_ob_t*     descriptor_out) {
-  if (!ctx || !leaves_out || !descriptor_out) return C4_ERROR;
-  if (descriptor.len == 0 || descriptor.data == NULL)
-    THROW_ERROR("c4_state_proofs_beacon_fetch: empty descriptor");
-  // Bound the outbound descriptor to the same size limit we enforce on the
-  // response side. Prevents runaway `bprintf` growth if a future caller passes
-  // an unvalidated descriptor (defense-in-depth against DoS / memory bomb).
-  if (descriptor.len > MAX_DESCRIPTOR_BYTES)
-    THROW_ERROR("c4_state_proofs_beacon_fetch: descriptor exceeds max size");
-
-  char     path[128] = {0};
-  buffer_t query     = {0};
-  sbprintf(path, "eth/v0/beacon/proof/state/0x%x", bytes(state_root, 32));
-  bprintf(&query, "format=0x%x", descriptor);
-
-  ssz_ob_t    response = {0};
-  c4_status_t status   = c4_send_beacon_ssz_with_client_type(
-      ctx, path, (char*) query.data.data,
-      &COMPACT_MULTI_PROOF_CONTAINER, DEFAULT_TTL, &response,
-      BEACON_CLIENT_LODESTAR, NULL);
-  buffer_free(&query);
-  if (status != C4_SUCCESS) return status;
-
-  ssz_ob_t leaves_ob     = ssz_get(&response, "leaves");
-  ssz_ob_t descriptor_ob = ssz_get(&response, "descriptor");
-
-  // Defense-in-depth: the response descriptor must exactly match what we
-  // asked for. The root check downstream is still the primary anchor of trust,
-  // but bailing out early on a descriptor mismatch gives a clearer error path.
-  if (descriptor_ob.bytes.len != descriptor.len ||
-      memcmp(descriptor_ob.bytes.data, descriptor.data, descriptor.len) != 0)
-    THROW_ERROR("c4_state_proofs_beacon_fetch: response descriptor does not match request");
-
-  *leaves_out     = leaves_ob;
-  *descriptor_out = descriptor_ob;
-  return C4_SUCCESS;
-}
-
 c4_status_t c4_create_state_proof(prover_ctx_t* ctx,
                                   bytes32_t     state_root,
                                   gindex_t      gindex,
@@ -588,8 +536,8 @@ c4_status_t c4_create_state_proof(prover_ctx_t* ctx,
   ssz_ob_t leaves_ob     = {0};
   ssz_ob_t descriptor_ob = {0};
 
-  c4_status_t status = c4_state_proofs_beacon_fetch(ctx, state_root, descriptor,
-                                                    &leaves_ob, &descriptor_ob);
+  c4_status_t status = cl_get_state_proof(ctx, state_root, descriptor,
+                                          &leaves_ob, &descriptor_ob);
   safe_free(descriptor.data);
   if (status != C4_SUCCESS) return status;
 

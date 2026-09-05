@@ -26,32 +26,15 @@
 
 #include "../util/json.h"
 #include "../util/ssz.h"
+#include "cl_req.h"
 #include "header_cache.h"
 #include "prover.h"
-
-// Bitmask-based beacon client types for feature detection
-#define BEACON_CLIENT_UNKNOWN    0x00000000 // No specific client requirement
-#define BEACON_CLIENT_NIMBUS     0x00000001 // (1 << 0)
-#define BEACON_CLIENT_LODESTAR   0x00000002 // (1 << 1)
-#define BEACON_CLIENT_PRYSM      0x00000004 // (1 << 2)
-#define BEACON_CLIENT_LIGHTHOUSE 0x00000008 // (1 << 3)
-#define BEACON_CLIENT_TEKU       0x00000010 // (1 << 4)
-#define BEACON_CLIENT_GRANDINE   0x00000020 // (1 << 5)
-// Add more clients as needed...
-
-// Feature-based client combinations
-#define BEACON_SUPPORTS_LIGHTCLIENT_UPDATE   (BEACON_CLIENT_NIMBUS | BEACON_CLIENT_LODESTAR)
-#define BEACON_SUPPORTS_HISTORICAL_SUMMARIES (BEACON_CLIENT_NIMBUS | BEACON_CLIENT_LODESTAR)
-#define BEACON_SUPPORTS_DEBUG_ENDPOINTS      (BEACON_CLIENT_NIMBUS | BEACON_CLIENT_LIGHTHOUSE)
-#define BEACON_SUPPORTS_PARENT_ROOT_HEADERS  (BEACON_CLIENT_LODESTAR) // Nimbus: status-im/nimbus-eth2#7305
-#define BEACON_SUPPORTS_STATE_PROOF          (BEACON_CLIENT_LODESTAR) // /eth/v0/beacon/proof/state/{state_id}
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 #define FINALITY_KEY "FinalityRoots"
-#define DEFAULT_TTL  (3600 * 24) // 1 day
 // beacon block including the relevant parts for the proof
 
 typedef struct {
@@ -184,58 +167,6 @@ c4_status_t c4_hybrid_test_resolve_block_hash(prover_ctx_t* ctx, const uint8_t* 
 // creates a new header with the body_root passed and returns the ssz_builder_t, which must be freed
 ssz_builder_t c4_proof_add_header(ssz_ob_t header, bytes32_t body_root);
 
-#define JSON_BEACON_HEADER_MESSAGE     "{slot:suint,proposer_index:suint,parent_root:bytes32,state_root:bytes32,body_root:bytes32}"
-#define JSON_BEACON_HEADER_ENTRY       "{root:bytes32,canonical?:bool,header:{message:" JSON_BEACON_HEADER_MESSAGE "}}"
-#define JSON_BEACON_HEADER_OBJECT      "{data:" JSON_BEACON_HEADER_ENTRY "}"
-#define JSON_BEACON_HEADER_LIST        "{data:[" JSON_BEACON_HEADER_ENTRY "]}"
-#define JSON_BEACON_FINALITY           "{data:{current_justified:{epoch:suint,root:bytes32},finalized:{epoch:suint,root:bytes32}}}"
-#define JSON_BEACON_HISTORICAL_SUMMARIES "{data:{historical_summaries:[{block_summary_root:bytes32,state_summary_root:bytes32}],proof:[bytes32]}}"
-
-c4_status_t c4_send_beacon_json(prover_ctx_t* ctx, char* path, char* query, uint32_t ttl, json_t* result, data_request_t** req);
-c4_status_t c4_send_beacon_ssz(prover_ctx_t* ctx, char* path, char* query, const ssz_def_t* def, uint32_t ttl, ssz_ob_t* result, data_request_t** req);
-c4_status_t c4_send_beacon_json_with_client_type(prover_ctx_t* ctx, char* path, char* query, uint32_t ttl, json_t* result, uint32_t client_type, data_request_t** req);
-c4_status_t c4_send_beacon_ssz_with_client_type(prover_ctx_t* ctx, char* path, char* query, const ssz_def_t* def, uint32_t ttl, ssz_ob_t* result, uint32_t client_type, data_request_t** req);
-c4_status_t c4_send_internal_request(prover_ctx_t* ctx, char* path, char* query, uint32_t ttl, bytes_t* result);
-
-/**
- * Non-throwing variant of `c4_send_beacon_json`. Enqueues the request (or
- * reuses an existing one) and returns the underlying `data_request_t*`
- * without touching `ctx->state.error`. This lets callers handle transport
- * errors locally -- e.g. clearing them, falling back to another endpoint,
- * or mapping "404 / not found" to a domain-level empty result.
- *
- * @param ctx     prover context
- * @param path    beacon API path (e.g. `"eth/v1/beacon/headers?slot=..."`)
- * @param query   optional query string (appended after `?`); may be NULL
- * @param ttl     cache TTL in seconds (0 = default)
- * @param out_req receives the underlying `data_request_t*`; never NULL on
- *                any of the three returned statuses
- *
- * @return
- *   - `C4_PENDING`: request was enqueued or is still awaiting a response.
- *   - `C4_SUCCESS`: response is available. Read `(*out_req)->response`.
- *     The caller is responsible for JSON-parsing / validating the body.
- *   - `C4_ERROR`: request completed with an error. Read `(*out_req)->error`.
- *     `ctx->state.error` is NOT set; the caller decides whether to propagate
- *     via `THROW_ERROR(...)` or to recover.
- */
-c4_status_t c4_send_beacon_json_no_throw(prover_ctx_t* ctx, char* path, char* query, uint32_t ttl, data_request_t** out_req);
-
-/**
- * Non-throwing variant of `c4_send_beacon_ssz`. See
- * `c4_send_beacon_json_no_throw` for the general contract. On `C4_SUCCESS`
- * the caller receives raw response bytes via `(*out_req)->response`; no
- * SSZ definition is attached and no SSZ validation is performed.
- */
-c4_status_t c4_send_beacon_ssz_no_throw(prover_ctx_t* ctx, char* path, char* query, uint32_t ttl, data_request_t** out_req);
-
-/**
- * Non-throwing variant of `c4_send_internal_request`. See
- * `c4_send_beacon_json_no_throw` for the general contract. Used to talk to
- * in-process server handlers (`c4_handle_*`) via the same `data_request_t`
- * pipeline as external endpoints, but with local error handling.
- */
-c4_status_t c4_send_internal_request_no_throw(prover_ctx_t* ctx, char* path, char* query, uint32_t ttl, data_request_t** out_req);
 #ifdef PROVER_CACHE
 c4_status_t c4_set_latest_block(prover_ctx_t* ctx, uint64_t latest_block_number);
 c4_status_t c4_eth_update_finality(prover_ctx_t* ctx, bytes32_t checkpoint, uint64_t* slot);

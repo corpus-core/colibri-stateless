@@ -6,7 +6,6 @@
  * and `validated` is set so the same payload is not re-checked on re-entry.
  */
 
-#include "unity.h"
 #include "beacon.h"
 #include "bytes.h"
 #include "chains.h"
@@ -14,6 +13,7 @@
 #include "json.h"
 #include "prover.h"
 #include "state.h"
+#include "unity.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -113,14 +113,120 @@ void test_send_beacon_ssz_null_def_does_not_validate(void) {
   c4_prover_free(ctx);
 }
 
+void test_eth_debug_get_raw_block_decodes_to_bytes(void) {
+  prover_ctx_t* ctx      = c4_prover_create("eth_getBlockByNumber", "[\"0x1\",false]", C4_CHAIN_MAINNET, 0);
+  uint8_t       hash[32] = {0};
+  bytes_t       result   = {0};
+
+  TEST_ASSERT_EQUAL_INT(C4_PENDING, eth_debug_get_raw_block(ctx, hash, &result));
+  data_request_t* req = c4_state_get_pending_request(&ctx->state);
+  TEST_ASSERT_NOT_NULL(req);
+
+  const char* body = "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":\"0xdeadbeef\"}";
+  req->response    = bytes((uint8_t*) strdup(body), (uint32_t) strlen(body));
+
+  TEST_ASSERT_EQUAL_INT(C4_SUCCESS, eth_debug_get_raw_block(ctx, hash, &result));
+  TEST_ASSERT_TRUE(req->validated);
+  TEST_ASSERT_EQUAL_UINT32(4, result.len);
+  TEST_ASSERT_EQUAL_UINT8(0xde, result.data[0]);
+  TEST_ASSERT_EQUAL_UINT8(0xad, result.data[1]);
+  TEST_ASSERT_EQUAL_UINT8(0xbe, result.data[2]);
+  TEST_ASSERT_EQUAL_UINT8(0xef, result.data[3]);
+  TEST_ASSERT_EQUAL_PTR(req->response.data, result.data);
+
+  bytes_t again = {0};
+  TEST_ASSERT_EQUAL_INT(C4_SUCCESS, eth_debug_get_raw_block(ctx, hash, &again));
+  TEST_ASSERT_EQUAL_PTR(result.data, again.data);
+  TEST_ASSERT_EQUAL_UINT32(4, again.len);
+  TEST_ASSERT_TRUE(req->validated);
+
+  c4_prover_free(ctx);
+}
+
+void test_eth_debug_get_raw_block_rejects_invalid_json(void) {
+  prover_ctx_t* ctx      = c4_prover_create("eth_getBlockByNumber", "[\"0x1\",false]", C4_CHAIN_MAINNET, 0);
+  uint8_t       hash[32] = {0};
+  bytes_t       result   = {0};
+
+  TEST_ASSERT_EQUAL_INT(C4_PENDING, eth_debug_get_raw_block(ctx, hash, &result));
+  data_request_t* req = c4_state_get_pending_request(&ctx->state);
+  TEST_ASSERT_NOT_NULL(req);
+
+  const char* body      = "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}";
+  uint8_t*    json_body = (uint8_t*) strdup(body);
+  uint32_t    json_len  = (uint32_t) strlen(body);
+  req->response         = bytes(json_body, json_len);
+
+  TEST_ASSERT_EQUAL_INT(C4_ERROR, eth_debug_get_raw_block(ctx, hash, &result));
+  TEST_ASSERT_FALSE(req->validated);
+  TEST_ASSERT_NOT_NULL(ctx->state.error);
+  TEST_ASSERT_EQUAL_PTR(json_body, req->response.data);
+  TEST_ASSERT_EQUAL_UINT32(json_len, req->response.len);
+  TEST_ASSERT_EQUAL_MEMORY(body, req->response.data, json_len);
+
+  c4_prover_free(ctx);
+}
+
+void test_eth_debug_get_raw_block_rejects_empty_hex(void) {
+  prover_ctx_t* ctx      = c4_prover_create("eth_getBlockByNumber", "[\"0x1\",false]", C4_CHAIN_MAINNET, 0);
+  uint8_t       hash[32] = {0};
+  bytes_t       result   = {0};
+
+  TEST_ASSERT_EQUAL_INT(C4_PENDING, eth_debug_get_raw_block(ctx, hash, &result));
+  data_request_t* req = c4_state_get_pending_request(&ctx->state);
+  TEST_ASSERT_NOT_NULL(req);
+
+  const char* body      = "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":\"0x\"}";
+  uint8_t*    json_body = (uint8_t*) strdup(body);
+  uint32_t    json_len  = (uint32_t) strlen(body);
+  req->response         = bytes(json_body, json_len);
+
+  TEST_ASSERT_EQUAL_INT(C4_ERROR, eth_debug_get_raw_block(ctx, hash, &result));
+  TEST_ASSERT_FALSE(req->validated);
+  TEST_ASSERT_NOT_NULL(ctx->state.error);
+  TEST_ASSERT_NOT_NULL(strstr(ctx->state.error, "empty"));
+  TEST_ASSERT_EQUAL_PTR(json_body, req->response.data);
+  TEST_ASSERT_EQUAL_UINT32(json_len, req->response.len);
+  TEST_ASSERT_EQUAL_MEMORY(body, req->response.data, json_len);
+
+  c4_prover_free(ctx);
+}
+
+void test_eth_debug_get_raw_block_decodes_long_hex(void) {
+  prover_ctx_t* ctx      = c4_prover_create("eth_getBlockByNumber", "[\"0x1\",false]", C4_CHAIN_MAINNET, 0);
+  uint8_t       hash[32] = {0};
+  bytes_t       result   = {0};
+
+  TEST_ASSERT_EQUAL_INT(C4_PENDING, eth_debug_get_raw_block(ctx, hash, &result));
+  data_request_t* req = c4_state_get_pending_request(&ctx->state);
+  TEST_ASSERT_NOT_NULL(req);
+
+  const char* body =
+      "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":\"0x"
+      "000102030405060708090a0b0c0d0e0f"
+      "101112131415161718191a1b1c1d1e1f"
+      "202122232425262728292a2b2c2d2e2f"
+      "303132333435363738393a3b3c3d3e3f\"}";
+  req->response = bytes((uint8_t*) strdup(body), (uint32_t) strlen(body));
+
+  TEST_ASSERT_EQUAL_INT(C4_SUCCESS, eth_debug_get_raw_block(ctx, hash, &result));
+  TEST_ASSERT_TRUE(req->validated);
+  TEST_ASSERT_EQUAL_UINT32(64, result.len);
+  TEST_ASSERT_EQUAL_PTR(req->response.data, result.data);
+  for (uint32_t i = 0; i < 64; i++)
+    TEST_ASSERT_EQUAL_UINT8((uint8_t) i, result.data[i]);
+
+  c4_prover_free(ctx);
+}
+
 #ifdef EVMONE
 void test_eth_get_storage_at_rejects_invalid_result(void) {
-  verify_ctx_t      vctx = {0};
-  evmone_context_t  ectx = {0};
-  address_t         addr = {0};
-  bytes32_t         key  = {0};
-  bytes32_t         out  = {0};
-  ectx.ctx               = &vctx;
+  verify_ctx_t     vctx = {0};
+  evmone_context_t ectx = {0};
+  address_t        addr = {0};
+  bytes32_t        key  = {0};
+  bytes32_t        out  = {0};
+  ectx.ctx              = &vctx;
 
   call_account_lazy_fetch_storage(&ectx, addr, key, out);
   data_request_t* req = c4_state_get_pending_request(&vctx.state);
@@ -147,6 +253,10 @@ int main(void) {
   RUN_TEST(test_eth_get_block_rejects_incomplete_json);
   RUN_TEST(test_eth_get_block_validates_once);
   RUN_TEST(test_send_beacon_ssz_null_def_does_not_validate);
+  RUN_TEST(test_eth_debug_get_raw_block_decodes_to_bytes);
+  RUN_TEST(test_eth_debug_get_raw_block_rejects_invalid_json);
+  RUN_TEST(test_eth_debug_get_raw_block_rejects_empty_hex);
+  RUN_TEST(test_eth_debug_get_raw_block_decodes_long_hex);
 #ifdef EVMONE
   RUN_TEST(test_eth_get_storage_at_rejects_invalid_result);
 #endif

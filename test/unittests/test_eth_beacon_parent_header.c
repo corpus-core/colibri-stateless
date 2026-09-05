@@ -276,7 +276,7 @@ void test_parent_lookup_parent_header_not_found(void) {
   // `{"data":[]}` is the list-endpoint empty shape; the by-root endpoint
   // expects `{data:{...}}`, so Phase-1 schema validation rejects it first.
   TEST_ASSERT_TRUE_MESSAGE(strstr(ctx->state.error, "Parent beacon header not found") ||
-                               strstr(ctx->state.error, "Invalid parent beacon header"),
+                               strstr(ctx->state.error, "Invalid beacon header"),
                            ctx->state.error);
   c4_prover_free(ctx);
 }

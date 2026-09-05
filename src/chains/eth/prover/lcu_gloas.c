@@ -303,7 +303,7 @@ c4_status_t c4_create_gloas_lcu(prover_ctx_t* ctx,
 
   ssz_ob_t    sc_leaves_ob     = {0};
   ssz_ob_t    sc_descriptor_ob = {0};
-  c4_status_t status           = c4_state_proofs_beacon_fetch(
+  c4_status_t status           = cl_get_state_proof(
       ctx, attested_state_root, sc_descriptor,
       &sc_leaves_ob, &sc_descriptor_ob);
   safe_free(sc_descriptor.data);
@@ -439,7 +439,7 @@ c4_status_t c4_create_gloas_lcu(prover_ctx_t* ctx,
     THROW_ERROR("c4_create_gloas_lcu: SSZ assembly failed");
 
   // Account for the reconstruction cost. Per-request CU was already charged
-  // by c4_state_proofs_beacon_fetch -> c4_send_beacon_ssz_*.
+  // by cl_get_state_proof -> c4_send_beacon_ssz_*.
   eth_cu_add_proof(ctx);
 
   *out_lcu_ssz = lcu;

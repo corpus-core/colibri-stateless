@@ -64,8 +64,9 @@ Each prover module generates proofs for a category of RPC methods. The main disp
 | `proof_witness.c` | Witness data generation (for L2) |
 | `historic_proof.c` | Historical block proof (older than 8192 slots) |
 | `historic_proof_zk.c` | ZK-based historical proofs |
-| `beacon.c/h` | Beacon API integration (bootstrap, updates, block roots) |
-| `eth_req.c/h` | Request parsing and validation |
+| `beacon.c/h` | Beacon block resolution (parent scan, Gloas hop, EL/CL fill) |
+| `cl_req.c/h` | Consensus-layer request wrappers (Beacon API + validation) |
+| `eth_req.c/h` | Execution-layer RPC wrappers and validation |
 | `eth_tools.c/h` | Ethereum utility functions |
 
 ## SSZ Type Definitions (`ssz/`)

@@ -22,7 +22,6 @@
  */
 
 #include "eth_req.h"
-#include "beacon.h"
 #include "beacon_types.h"
 #include "eth_compute_units.h"
 #include "eth_verify.h"
@@ -43,6 +42,14 @@
 
 static bool is_nullable_method(char* method) {
   return method && (strcmp(method, "eth_getTransactionByHash") == 0 || strcmp(method, "eth_getTransactionByBlockHashAndIndex") == 0 || strcmp(method, "eth_getTransactionByBlockNumberAndIndex") == 0 || strcmp(method, "eth_getTransactionReceipt") == 0);
+}
+
+/** Builds the JSON-RPC POST body and its request id. Caller owns `payload`. */
+static buffer_t eth_rpc_payload(char* method, char* params, bytes32_t id) {
+  buffer_t buffer = {0};
+  bprintf(&buffer, "{\"jsonrpc\":\"2.0\",\"method\":\"%s\",\"params\":%s,\"id\":1}", method, params);
+  sha256(buffer.data, id);
+  return buffer;
 }
 
 c4_status_t get_eth_tx(prover_ctx_t* ctx, json_t txhash, json_t* tx_data) {
@@ -94,6 +101,56 @@ c4_status_t eth_get_block(prover_ctx_t* ctx, json_t block, bool full_tx, json_t*
       CHECK_JSON(*result, JSON_BLOCK_HEADER_FIELDS, "Invalid results for Block: ");
     req->validated = true;
   }
+  return C4_SUCCESS;
+}
+
+c4_status_t eth_block_number(prover_ctx_t* ctx, uint64_t* number_out) {
+  data_request_t* req    = NULL;
+  json_t          result = {0};
+  c4_status_t     status = c4_send_eth_rpc(ctx, "eth_blockNumber", "[]", 0, &result, &req);
+  if (status != C4_SUCCESS) return status;
+  if (req && !req->validated) {
+    CHECK_JSON(result, "hexuint", "Invalid results for eth_blockNumber: ");
+    req->validated = true;
+  }
+  *number_out = json_as_uint64(result);
+  return C4_SUCCESS;
+}
+
+c4_status_t eth_debug_get_raw_block(prover_ctx_t* ctx, const uint8_t* block_hash, bytes_t* result) {
+  char            tmp[100] = {0};
+  data_request_t* req      = NULL;
+  json_t          json     = {0};
+  bytes32_t       id       = {0};
+  buffer_t        payload  = {0};
+
+  if (!block_hash) THROW_ERROR("debug_getRawBlock: missing block hash");
+  sbprintf(tmp, "[\"0x%x\"]", bytes((uint8_t*) block_hash, 32));
+  payload = eth_rpc_payload("debug_getRawBlock", tmp, id);
+  buffer_free(&payload);
+  req = c4_state_get_data_request_by_id(&ctx->state, id);
+  // After the first successful conversion `response` is raw RLP, not a JSON-RPC envelope.
+  if (req && req->validated) {
+    *result = req->response;
+    return C4_SUCCESS;
+  }
+
+  TRY_ASYNC(c4_send_eth_rpc(ctx, "debug_getRawBlock", tmp, DEFAULT_TTL, &json, &req));
+  if (req && !req->validated) {
+    CHECK_JSON(json, "bytes", "Invalid results for debug_getRawBlock: ");
+    uint32_t cap  = json.len / 2 + 1;
+    uint8_t* data = safe_malloc(cap);
+    uint32_t len  = json_to_bytes(json, bytes(data, cap));
+    if (!len) {
+      safe_free(data);
+      THROW_ERROR("Invalid results for debug_getRawBlock: empty block");
+    }
+    safe_free(req->response.data);
+    req->response  = bytes(data, len);
+    req->validated = true;
+  }
+  if (!req || !req->response.data) THROW_ERROR("debug_getRawBlock: missing response");
+  *result = req->response;
   return C4_SUCCESS;
 }
 
@@ -251,10 +308,8 @@ c4_status_t c4_send_eth_rpc(prover_ctx_t* ctx, char* method, char* params, uint3
   // the value reported by `eth_prover_execute` reflects the work the server had
   // to coordinate for this request, regardless of caching state.
   eth_cu_add(ctx, cu_for_eth_rpc_method(method));
-  bytes32_t id     = {0};
-  buffer_t  buffer = {0};
-  bprintf(&buffer, "{\"jsonrpc\":\"2.0\",\"method\":\"%s\",\"params\":%s,\"id\":1}", method, params);
-  sha256(buffer.data, id);
+  bytes32_t       id           = {0};
+  buffer_t        buffer       = eth_rpc_payload(method, params, id);
   data_request_t* data_request = c4_state_get_data_request_by_id(&ctx->state, id);
   if (data_request) {
     if (req) *req = data_request;

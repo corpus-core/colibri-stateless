@@ -194,6 +194,7 @@ add_prover(
     prover/proof_logs_completeness.c
     prover/proof_call.c
     prover/beacon.c
+    prover/cl_req.c
     prover/beacon_header.c
     prover/proof_receipt.c
     prover/proof_block_receipts.c
