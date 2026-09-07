@@ -331,7 +331,7 @@ typedef struct {
 
 static void ps_build_lcu_write_done_cb(void* user_data, file_data_t* files, int num_files) {
   (void) num_files;
-  ps_build_lcu_ctx_t* wctx = (ps_build_lcu_ctx_t*) user_data;
+  ps_build_lcu_ctx_t* wctx   = (ps_build_lcu_ctx_t*) user_data;
   uint64_t            period = wctx ? wctx->period : 0;
   if (files && files[0].error) {
     log_warn("period_store: writing self-built " C4_PS_LCU_SSZ " for period %l failed: %s", period, files[0].error);

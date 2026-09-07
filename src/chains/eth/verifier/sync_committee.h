@@ -190,6 +190,15 @@ void c4_eth_set_trusted_checkpoint(chain_id_t chain_id, bytes32_t checkpoint);
  */
 fork_id_t c4_eth_get_fork_for_lcu(chain_id_t chain_id, bytes_t data);
 
+/**
+ * Detect the fork for a light client bootstrap based on the size of the data.
+ *
+ * @param chain_id Chain identifier
+ * @param data SSZ-encoded light client bootstrap data
+ * @return Fork identifier corresponding to the slot in the update payload
+ */
+fork_id_t c4_eth_get_fork_for_lcb(chain_id_t chain_id, bytes_t data);
+
 // `c4_current_sync_committee_gindex`, `c4_next_sync_committee_gindex` and
 // `c4_finalized_root_gindex` are declared in `beacon_types.h` (which is
 // already included via `#include "beacon_types.h"` above).

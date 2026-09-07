@@ -38,6 +38,10 @@
 #include "zk_verifier.h"
 #endif
 
+#define C4_ETH_DENEB_BOOTSTRAP_FIXED_SIZE   24788u
+#define C4_ETH_ELECTRA_BOOTSTRAP_FIXED_SIZE 24820u
+#define C4_ETH_GLOAS_BOOTSTRAP_SIZE         25472u // must equal `C4_GLOAS_BOOTSTRAP_SIZE` in bootstrap_gloas.h
+
 // Fork-specific BeaconState gindices have moved to `beacon_types.c` so all
 // fork-aware selections live in one place. See:
 //   `c4_current_sync_committee_gindex`, `c4_next_sync_committee_gindex`,
@@ -486,6 +490,18 @@ INTERNAL c4_status_t c4_update_from_sync_data(verify_ctx_t* ctx) {
     return update_from_zk_sync_data(ctx);
   else
     RETURN_VERIFY_ERROR_STATUS(ctx, "unknown sync_data type!");
+}
+
+fork_id_t c4_eth_get_fork_for_lcb(chain_id_t chain_id, bytes_t data) {
+  if (!chain_id) return C4_FORK_INVALID;
+  if (data.len == C4_ETH_GLOAS_BOOTSTRAP_SIZE) return C4_FORK_GLOAS;
+  if (data.len < C4_ETH_DENEB_BOOTSTRAP_FIXED_SIZE) return C4_FORK_INVALID;
+  uint32_t hdr_offset = uint32_from_le(data.data);
+  // The header offset must lie strictly inside the buffer.
+  if (hdr_offset >= data.len) return C4_FORK_INVALID;
+  if (hdr_offset == C4_ETH_DENEB_BOOTSTRAP_FIXED_SIZE) return C4_FORK_DENEB;
+  if (hdr_offset == C4_ETH_ELECTRA_BOOTSTRAP_FIXED_SIZE) return C4_FORK_ELECTRA;
+  return C4_FORK_INVALID;
 }
 
 fork_id_t c4_eth_get_fork_for_lcu(chain_id_t chain_id, bytes_t data) {

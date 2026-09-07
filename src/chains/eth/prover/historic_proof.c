@@ -260,7 +260,7 @@ void c4_free_block_proof(blockroot_proof_t* block_proof) {
 // (self-built) paths so the two share exactly the same validation.
 static c4_status_t decode_bootstrap_bytes(prover_ctx_t* ctx, bytes_t raw, ssz_ob_t* out_bootstrap, data_request_t* req) {
   ssz_ob_t  result = {.bytes = raw, .def = NULL};
-  fork_id_t fork   = c4_eth_get_fork_for_lcu(ctx->chain_id, result.bytes);
+  fork_id_t fork   = c4_eth_get_fork_for_lcb(ctx->chain_id, result.bytes);
   if (fork == 0) THROW_ERROR("Invalid bootstrap data: cannot determine fork!");
   // Single source of truth for fork -> bootstrap container mapping.
   result.def = eth_get_light_client_bootstrap(fork);
