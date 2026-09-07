@@ -38,8 +38,15 @@ static void  alloc_buffer(uv_handle_t* handle, size_t suggested_size, uv_buf_t* 
 static void  on_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf);
 static char* status_text(int status);
 
-// Forward declaration
-static void on_close(uv_handle_t* handle);
+static void free_write_payload(client_t* client) {
+  if (!client) return;
+  safe_free(client->write_header.data);
+  safe_free(client->write_extra.data);
+  safe_free(client->write_body.data);
+  client->write_header = NULL_BYTES;
+  client->write_extra  = NULL_BYTES;
+  client->write_body   = NULL_BYTES;
+}
 
 // Centralized function to close a client connection safely
 static void close_client_connection(client_t* client) {
@@ -116,6 +123,7 @@ static void on_close(uv_handle_t* handle) {
   safe_free(client->b3_trace_id);
   safe_free(client->b3_span_id);
   safe_free(client->b3_parent_span_id);
+  free_write_payload(client);
   // Clear handle->data BEFORE freeing client to avoid use-after-free
   // (handle is part of the client structure, so accessing it after free is invalid)
   handle->data  = NULL;
@@ -586,26 +594,52 @@ void c4_http_respond_ex(client_t* client, int status, char* content_type, bytes_
     return;
   }
 
-  char     tmp[500];
-  uv_buf_t uvbuf[4]; // [0]=status+fixed headers, [1]=extra headers, [2]=header block terminator, [3]=body
+  // A second respond() while uv_write still owns the previous snapshot would
+  // either UAF (if we free) or reuse the embedded write_req (UB). Drop it.
+  if (client->write_header.data) {
+    log_error("Attempted to respond while a write is still in flight for client 0x%lx",
+              (uint64_t) (uintptr_t) client);
+    return;
+  }
 
+  uv_buf_t    uvbuf[4]; // [0]=status+fixed headers, [1]=extra headers, [2]=header block terminator, [3]=body
   const char* conn_header_val = llhttp_should_keep_alive(&client->parser) ? "keep-alive" : "close";
+  const char* header_fmt      = "HTTP/1.1 %d %s\r\nContent-Type: %s\r\nContent-Length: %d\r\nConnection: %s\r\n";
 
-  // Status line plus fixed headers, ending with the CRLF that terminates the "Connection:" header line.
-  uvbuf[0].base = tmp;
-  uvbuf[0].len  = snprintf(tmp, sizeof(tmp), "HTTP/1.1 %d %s\r\nContent-Type: %s\r\nContent-Length: %d\r\nConnection: %s\r\n",
-                           status, status_text(status), content_type, body.len, conn_header_val);
+  int header_n = snprintf(NULL, 0, header_fmt, status, status_text(status), content_type, body.len, conn_header_val);
+  if (header_n < 0) {
+    log_error("Failed to format HTTP response headers for client 0x%lx", (uint64_t) (uintptr_t) client);
+    close_client_connection(client);
+    return;
+  }
+  client->write_header      = bytes((uint8_t*) safe_malloc((size_t) header_n + 1), (uint32_t) header_n);
+  snprintf((char*) client->write_header.data, (size_t) header_n + 1, header_fmt,
+           status, status_text(status), content_type, body.len, conn_header_val);
+  uvbuf[0].base             = (char*) client->write_header.data;
+  uvbuf[0].len              = client->write_header.len;
 
-  // Caller-provided headers are emitted verbatim. Each line must already be CRLF-terminated.
-  uvbuf[1].base = (char*) (extra_headers.data ? extra_headers.data : (uint8_t*) "");
-  uvbuf[1].len  = extra_headers.len;
+  if (extra_headers.len && extra_headers.data) {
+    client->write_extra = bytes_dup(extra_headers);
+    uvbuf[1].base       = (char*) client->write_extra.data;
+    uvbuf[1].len        = client->write_extra.len;
+  }
+  else {
+    uvbuf[1].base = (char*) "";
+    uvbuf[1].len  = 0;
+  }
 
-  // Empty line that ends the HTTP header block.
   uvbuf[2].base = "\r\n";
   uvbuf[2].len  = 2;
 
-  uvbuf[3].base = (char*) body.data;
-  uvbuf[3].len  = body.len;
+  if (body.len && body.data) {
+    client->write_body = bytes_dup(body);
+    uvbuf[3].base      = (char*) client->write_body.data;
+    uvbuf[3].len       = client->write_body.len;
+  }
+  else {
+    uvbuf[3].base = NULL;
+    uvbuf[3].len  = 0;
+  }
 
   // Set client->being_closed based on the connection header *before* the write attempt.
   // This informs on_write_complete whether to close or reset for keep-alive.
@@ -624,6 +658,7 @@ void c4_http_respond_ex(client_t* client, int status, char* content_type, bytes_
   if (result < 0) {
     log_error("Failed to write HTTP response for client 0x%lx: %s",
               (uint64_t) (uintptr_t) client, uv_strerror(result));
+    free_write_payload(client);
     close_client_connection(client);
     // on_write_complete will not be called, so we must close here.
   }
@@ -636,12 +671,13 @@ static void on_write_complete(uv_write_t* req, int status) {
 
   if (!client) {
     log_error("client_t is NULL in on_write_complete");
-    // Cannot do much here other than try to close the handle if req->handle is valid
     if (req->handle) {
-      uv_close((uv_handle_t*) req->handle, NULL); // No specific on_close context
+      uv_close((uv_handle_t*) req->handle, NULL);
     }
     return;
   }
+
+  free_write_payload(client);
 
   if (status < 0) {
     log_error("Write completed with error for client 0x%lx: %s",

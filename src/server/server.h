@@ -243,6 +243,11 @@ typedef struct {
   llhttp_settings_t settings;
   http_request_t    request;
   uv_write_t        write_req;
+  // Heap snapshots for the in-flight uv_write. libuv does not copy buffer
+  // contents; these stay valid until on_write_complete / on_close.
+  bytes_t           write_header;
+  bytes_t           write_extra;
+  bytes_t           write_body;
   char              current_header[128];
   bool              being_closed;             // Flag to track if this client is being closed
   bool              message_complete_reached; // True if on_message_complete was called for the current request
@@ -342,8 +347,8 @@ void c4_http_respond(client_t* client, int status, char* content_type, bytes_t b
  * @param client       the client to respond to
  * @param status       HTTP status code
  * @param content_type Content-Type header value
- * @param body         response body
- * @param extra_headers additional CRLF-terminated header lines, or `NULL_BYTES` for none
+ * @param body         response body (copied; caller may free immediately)
+ * @param extra_headers additional CRLF-terminated header lines, or `NULL_BYTES` for none (copied)
  */
 void c4_http_respond_ex(client_t* client, int status, char* content_type, bytes_t body, bytes_t extra_headers);
 void c4_write_error_response(client_t* client, int status, const char* error);

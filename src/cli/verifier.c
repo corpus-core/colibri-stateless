@@ -42,6 +42,47 @@
 
 #ifdef USE_CURL
 #include "../../libs/curl/http.h"
+#ifdef TEST
+#include "../chains/eth/prover/cl_req.h"
+#include "historic_proof.h"
+#include "sync_committee.h"
+void init_state(chain_id_t chain_id, uint32_t period_init) {
+  storage_plugin_t storage              = {0};
+  json_t           finality_checkpoints = {0};
+  chain_spec_t*    chain_spec           = c4_eth_get_chain_spec(chain_id);
+  prover_ctx_t     ctx                  = {.chain_id = chain_id};
+  c4_chain_state_t state                = c4_get_chain_state(chain_id);
+  while (cl_get_finality_checkpoints(&ctx, &finality_checkpoints) == C4_PENDING)
+    curl_fetch_all(&ctx.state);
+  if (ctx.state.error) {
+    fprintf(stderr, "Error fetching the period: %s\n", ctx.state.error);
+    exit(EXIT_FAILURE);
+  }
+
+  finality_checkpoints            = json_get(finality_checkpoints, "finalized");
+  uint64_t  epoch                 = json_get_uint64(finality_checkpoints, "epoch");
+  uint64_t  period                = (epoch >> chain_spec->epochs_per_period_bits) - period_init;
+  bytes_t   updates               = {0};
+  bytes32_t previous_pubkeys_hash = {0};
+  while (c4_fetch_client_updates(&ctx, period - 1, 1, &updates) == C4_PENDING)
+    curl_fetch_all(&ctx.state);
+
+  if (ctx.state.error || updates.len < 25000) {
+    fprintf(stderr, "Error loading light client updates: %s\n", ctx.state.error ? ctx.state.error : "updates too short");
+    exit(EXIT_FAILURE);
+  }
+
+  ssz_ob_t update = {.bytes = bytes(updates.data + 12, updates.len - 12), .def = NULL};
+  update.def      = eth_get_light_client_update(c4_eth_get_fork_for_lcu(chain_id, update.bytes));
+  if (!ssz_is_valid(update, true, &ctx.state)) {
+    fprintf(stderr, "invalid light client updates: %s\n", ctx.state.error ? ctx.state.error : "updates too short");
+    exit(EXIT_FAILURE);
+  }
+  ssz_ob_t next_sync_committee = ssz_get(&update, "nextSyncCommittee");
+  c4_set_sync_period(period, ssz_get(&next_sync_committee, "pubkeys").bytes, chain_id, previous_pubkeys_hash);
+  c4_state_free(&ctx.state);
+}
+#endif
 #endif
 
 // : Bindings
@@ -115,6 +156,7 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, "  -i <proof_file> proof file to read\n");
     fprintf(stderr, "  -s <cache_dir> cache directory\n");
     fprintf(stderr, "  -o <proof_file> proof file to write\n");
+    fprintf(stderr, "  -I <period_init> period to initialize the sync data state (default 0) 2 means 2 periods ago\n");
     fprintf(stderr, "  -p url of the prover\n");
     fprintf(stderr, "  -m <mode> prover mode: local, remote, hybrid\n");
     fprintf(stderr, "  -L local proof (shorthand for -m local)\n");
@@ -138,6 +180,7 @@ int main(int argc, char* argv[]) {
   char     tmp[1000] = {0};
   buffer_t buf       = stack_buffer(tmp);
 #endif
+  uint32_t         period_init            = 0;
   char*            method                 = NULL;
   chain_id_t       chain_id               = C4_CHAIN_MAINNET;
   buffer_t         args                   = {0};
@@ -289,6 +332,9 @@ int main(int argc, char* argv[]) {
             break;
 #ifdef TEST
 #ifdef USE_CURL
+          case 'I':
+            period_init = atoi(argv[++i]);
+            break;
           case 'o':
             output = argv[++i];
             break;
@@ -336,6 +382,9 @@ int main(int argc, char* argv[]) {
   if (curl_has_oblivious_nodes()) verify_flags |= VERIFY_FLAG_OBLIVIOUS | VERIFY_FLAG_PAP;
 #endif
   if (c4_chain_type(chain_id) == C4_CHAIN_TYPE_OP) has_checkpoint = true;
+#ifdef TEST
+  if (period_init) init_state(chain_id, period_init);
+#endif
 
   if (has_checkpoint)
     c4_eth_set_trusted_checkpoint(chain_id, trusted_checkpoint);
