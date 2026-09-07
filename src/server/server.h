@@ -245,15 +245,15 @@ typedef struct {
   uv_write_t        write_req;
   // Heap snapshots for the in-flight uv_write. libuv does not copy buffer
   // contents; these stay valid until on_write_complete / on_close.
-  bytes_t           write_header;
-  bytes_t           write_extra;
-  bytes_t           write_body;
-  char              current_header[128];
-  bool              being_closed;             // Flag to track if this client is being closed
-  bool              message_complete_reached; // True if on_message_complete was called for the current request
-  bool              keep_alive_idle;          // True if the connection is idle in keep-alive mode, awaiting next request
-  size_t            headers_size_received;    // Total size of headers received (for DoS protection)
-  size_t            body_size_received;       // Actual body bytes received (for request smuggling protection)
+  bytes_t write_header;
+  bytes_t write_extra;
+  bytes_t write_body;
+  char    current_header[128];
+  bool    being_closed;             // Flag to track if this client is being closed
+  bool    message_complete_reached; // True if on_message_complete was called for the current request
+  bool    keep_alive_idle;          // True if the connection is idle in keep-alive mode, awaiting next request
+  size_t  headers_size_received;    // Total size of headers received (for DoS protection)
+  size_t  body_size_received;       // Actual body bytes received (for request smuggling protection)
   // Incoming b3 context (optional)
   char* b3_trace_id;
   char* b3_span_id;
@@ -351,6 +351,21 @@ void c4_http_respond(client_t* client, int status, char* content_type, bytes_t b
  * @param extra_headers additional CRLF-terminated header lines, or `NULL_BYTES` for none (copied)
  */
 void c4_http_respond_ex(client_t* client, int status, char* content_type, bytes_t body, bytes_t extra_headers);
+/**
+ * Like `c4_http_respond_ex`, but takes ownership of `body` instead of copying it.
+ *
+ * Use this for large heap buffers (SSZ proofs) so the peak memory stays at one
+ * copy. `body` must be heap-allocated or `NULL_BYTES`. It is freed when the
+ * write completes, or immediately if the response cannot be queued.
+ * Extra headers are still copied.
+ *
+ * @param client       the client to respond to
+ * @param status       HTTP status code
+ * @param content_type Content-Type header value
+ * @param body         heap-owned response body (transferred)
+ * @param extra_headers additional CRLF-terminated header lines, or `NULL_BYTES` for none (copied)
+ */
+void c4_http_respond_take(client_t* client, int status, char* content_type, bytes_t body, bytes_t extra_headers);
 void c4_write_error_response(client_t* client, int status, const char* error);
 void c4_http_server_on_close_callback(uv_handle_t* handle); // Cleanup callback for closing client connections
 void c4_register_http_handler(http_handler handler);

@@ -566,7 +566,7 @@ void c4_http_respond(client_t* client, int status, char* content_type, bytes_t b
   c4_http_respond_ex(client, status, content_type, body, NULL_BYTES);
 }
 
-void c4_http_respond_ex(client_t* client, int status, char* content_type, bytes_t body, bytes_t extra_headers) {
+static void http_respond_ex(client_t* client, int status, char* content_type, bytes_t body, bytes_t extra_headers, bool own_body) {
   // Only decrement if on_message_complete was reached for this request cycle
   if (client && client->message_complete_reached) {
     http_server.stats.open_requests--;
@@ -579,17 +579,20 @@ void c4_http_respond_ex(client_t* client, int status, char* content_type, bytes_
 
   if (!client) {
     log_error("Attempted to respond to NULL client");
+    if (own_body) safe_free(body.data);
     return;
   }
 
   if (client->being_closed) {
     log_error("Attempted to respond to a client that is already being closed");
+    if (own_body) safe_free(body.data);
     return;
   }
 
   if (!uv_is_active((uv_handle_t*) &client->handle)) {
     log_error("Attempted to write to inactive client handle for client 0x%lx. Closing connection.",
               (uint64_t) (uintptr_t) client);
+    if (own_body) safe_free(body.data);
     close_client_connection(client);
     return;
   }
@@ -599,6 +602,7 @@ void c4_http_respond_ex(client_t* client, int status, char* content_type, bytes_
   if (client->write_header.data) {
     log_error("Attempted to respond while a write is still in flight for client 0x%lx",
               (uint64_t) (uintptr_t) client);
+    if (own_body) safe_free(body.data);
     return;
   }
 
@@ -609,14 +613,15 @@ void c4_http_respond_ex(client_t* client, int status, char* content_type, bytes_
   int header_n = snprintf(NULL, 0, header_fmt, status, status_text(status), content_type, body.len, conn_header_val);
   if (header_n < 0) {
     log_error("Failed to format HTTP response headers for client 0x%lx", (uint64_t) (uintptr_t) client);
+    if (own_body) safe_free(body.data);
     close_client_connection(client);
     return;
   }
-  client->write_header      = bytes((uint8_t*) safe_malloc((size_t) header_n + 1), (uint32_t) header_n);
+  client->write_header = bytes((uint8_t*) safe_malloc((size_t) header_n + 1), (uint32_t) header_n);
   snprintf((char*) client->write_header.data, (size_t) header_n + 1, header_fmt,
            status, status_text(status), content_type, body.len, conn_header_val);
-  uvbuf[0].base             = (char*) client->write_header.data;
-  uvbuf[0].len              = client->write_header.len;
+  uvbuf[0].base = (char*) client->write_header.data;
+  uvbuf[0].len  = client->write_header.len;
 
   if (extra_headers.len && extra_headers.data) {
     client->write_extra = bytes_dup(extra_headers);
@@ -631,15 +636,14 @@ void c4_http_respond_ex(client_t* client, int status, char* content_type, bytes_
   uvbuf[2].base = "\r\n";
   uvbuf[2].len  = 2;
 
-  if (body.len && body.data) {
+  if (own_body) {
+    client->write_body = body;
+  }
+  else if (body.len && body.data) {
     client->write_body = bytes_dup(body);
-    uvbuf[3].base      = (char*) client->write_body.data;
-    uvbuf[3].len       = client->write_body.len;
   }
-  else {
-    uvbuf[3].base = NULL;
-    uvbuf[3].len  = 0;
-  }
+  uvbuf[3].base = (char*) client->write_body.data;
+  uvbuf[3].len  = client->write_body.len;
 
   // Set client->being_closed based on the connection header *before* the write attempt.
   // This informs on_write_complete whether to close or reset for keep-alive.
@@ -663,6 +667,14 @@ void c4_http_respond_ex(client_t* client, int status, char* content_type, bytes_
     // on_write_complete will not be called, so we must close here.
   }
   // If write succeeds, on_write_complete will handle either closing or resetting for keep-alive.
+}
+
+void c4_http_respond_ex(client_t* client, int status, char* content_type, bytes_t body, bytes_t extra_headers) {
+  http_respond_ex(client, status, content_type, body, extra_headers, false);
+}
+
+void c4_http_respond_take(client_t* client, int status, char* content_type, bytes_t body, bytes_t extra_headers) {
+  http_respond_ex(client, status, content_type, body, extra_headers, true);
 }
 
 // Callback for when a write completes - close the handle safely or reset for keep-alive

@@ -222,17 +222,19 @@ static void c4_tracing_flush_prover_spans(trace_span_t* parent, prover_ctx_t* ct
  * @param status HTTP status code
  * @param content_type Content-Type for direct HTTP response
  * @param compute_units accumulated compute units for billing; emitted as `Compute-Units` header in DIRECT mode
+ * @param own_result if true, `result` is a heap buffer whose ownership is transferred
  */
-static void respond(request_t* req, bytes_t result, int status, char* content_type, uint64_t compute_units) {
+static void respond(request_t* req, bytes_t result, int status, char* content_type, uint64_t compute_units, bool own_result) {
   if (req->parent_cb && req->parent_ctx) {
     // CALLBACK MODE: Call parent_cb instead of responding directly
     data_request_t* data = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
     if (status == 200)
-      data->response = bytes_dup(result);
+      data->response = own_result ? result : bytes_dup(result);
     else {
       data->error = safe_malloc(result.len + 1);
       memcpy(data->error, result.data, result.len);
       data->error[result.len] = '\0';
+      if (own_result) safe_free(result.data);
     }
     req->parent_cb(req->client, req->parent_ctx, data);
   }
@@ -245,7 +247,10 @@ static void respond(request_t* req, bytes_t result, int status, char* content_ty
       bprintf(&hdr, "Cache-Control: %s\r\n", req->cache_control);
     else if (status != 200)
       bprintf(&hdr, "Cache-Control: no-store\r\n");
-    c4_http_respond_ex(req->client, status, content_type, result, hdr.data);
+    if (own_result)
+      c4_http_respond_take(req->client, status, content_type, result, hdr.data);
+    else
+      c4_http_respond_ex(req->client, status, content_type, result, hdr.data);
     buffer_free(&hdr);
   }
 }
@@ -275,10 +280,10 @@ static void c4_prover_execute_after(uv_work_t* req, int status) {
   safe_free(req);
 }
 
-static void prover_request_free(request_t* req) {
+static void prover_request_free(request_t* req, uint32_t result_len) {
   prover_ctx_t* ctx = (prover_ctx_t*) req->ctx;
   if (req->start_time)
-    c4_metrics_add_request(C4_DATA_TYPE_INTERN, ctx->method, ctx->state.error ? strlen(ctx->state.error) : ctx->proof.len, current_ms() - req->start_time, ctx->state.error == NULL, false);
+    c4_metrics_add_request(C4_DATA_TYPE_INTERN, ctx->method, ctx->state.error ? strlen(ctx->state.error) : result_len, current_ms() - req->start_time, ctx->state.error == NULL, false);
   c4_prover_free((prover_ctx_t*) req->ctx);
   // NOTE: We do NOT free req->requests here - that's handled elsewhere
   if (req->proxy_rpc_servers) {
@@ -423,13 +428,16 @@ void c4_prover_handle_request(request_t* req) {
   // measure and trace c4_prover_execute invocation on main thread
 
   switch (prover_execute(req, ctx)) {
-    case C4_SUCCESS:
+    case C4_SUCCESS: {
       log_info(MAGENTA("::[ OK ]") "%s " GRAY(" (%d bytes in %l ms) :: #%lx"),
                c4_req_info(C4_DATA_TYPE_INTERN, req_path, req_payload),
                ctx->proof.len, (uint64_t) (current_ms() - req->start_time), client_ptr);
-      respond(req, ctx->proof, 200, "application/octet-stream", ctx->compute_units);
-      prover_request_free(req);
+      bytes_t proof = ctx->proof;
+      ctx->proof    = NULL_BYTES;
+      respond(req, proof, 200, "application/octet-stream", ctx->compute_units, true);
+      prover_request_free(req, proof.len);
       return;
+    }
 
     case C4_ERROR: {
       log_info(RED("::[ERR ]") "%s " YELLOW("%s") GRAY(" :: #%lx"),
@@ -439,9 +447,9 @@ void c4_prover_handle_request(request_t* req) {
 
       buffer_t buf = {0};
       bprintf(&buf, "{\"error\":\"%s\"}", ctx->state.error);
-      respond(req, buf.data, 500, "application/json", ctx->compute_units);
+      respond(req, buf.data, 500, "application/json", ctx->compute_units, false);
       buffer_free(&buf);
-      prover_request_free(req);
+      prover_request_free(req, 0);
       return;
     }
 
@@ -453,14 +461,14 @@ void c4_prover_handle_request(request_t* req) {
       else {
         // stop here, we don't have anything to do
         char* error = "{\"error\":\"Internal prover error: no prover available\"}";
-        respond(req, bytes((uint8_t*) error, strlen(error)), 500, "application/json", ctx->compute_units);
+        respond(req, bytes((uint8_t*) error, strlen(error)), 500, "application/json", ctx->compute_units, false);
         if (req->trace_root) {
           tracing_span_tag_str(req->trace_root, "status", "error");
           tracing_span_tag_str(req->trace_root, "error", "Internal prover error: no prover available");
           tracing_finish(req->trace_root);
           req->trace_root = NULL;
         }
-        prover_request_free(req);
+        prover_request_free(req, 0);
       }
   }
 }
