@@ -81,8 +81,8 @@ typedef struct {
  *
  * - light_client_bootstrap, because the client is only having the checkpoint.asm
  * - light_client_updates, because the client's last period is older than the required period
- * - historic_proof, because the client's oldest period is still newer than the required period
- * - header_proof, because the sync_committee did not reach the 2/3 majority and we need to add headers in between.
+ * - historic_proof (C field / `historic` variant), because the client's oldest period is still newer than the required period
+ * - headerChain, because the sync_committee did not reach the 2/3 majority and we need to add headers in between.
  *
  * This function only fetches the data and sets it in the blockroot_proof_t if needed.
  *

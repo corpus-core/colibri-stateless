@@ -723,7 +723,7 @@ INTERNAL c4_status_t c4_verify_checkpointz_root(verify_ctx_t* ctx, uint64_t slot
     //        - LC sync:       `finalizedHeader.beacon.slot`, can be many periods old
     //                         after long offline gaps.
     //        - ZK sync:       `checkpoint.header.slot` from `ZKSyncData.checkpoint`
-    //                         (header_proof variant). The prover sets this in
+    //                         (headerChain variant). The prover sets this in
     //                         `period_store_zk_ssz.c` to the next epoch boundary
     //                         after the attested slot, which can be ~1-2 days old.
     //        - `c4_check_weak_subjectivity`: last verified `finalizedHeader` slot.

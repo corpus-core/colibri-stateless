@@ -116,7 +116,7 @@ void eth_add_block_proof(prover_ctx_t* ctx, ssz_builder_t* builder, eth_block_t*
     // union variant 0 (blockHash): selector byte + 32-byte hash
     uint8_t block_hash_union[33] = {0};
     memcpy(block_hash_union + 1, block_data->el_block_hash, 32);
-    ssz_add_bytes(builder, "block", bytes(block_hash_union, sizeof(block_hash_union)));
+    ssz_add_bytes(builder, "elProof", bytes(block_hash_union, sizeof(block_hash_union)));
     return;
   }
 
@@ -133,11 +133,11 @@ void eth_add_block_proof(prover_ctx_t* ctx, ssz_builder_t* builder, eth_block_t*
     return;
   }
 
-  ssz_builder_t block_proof = ssz_builder_for_type(ETH_SSZ_CL_BLOCK_PROOF);
+  ssz_builder_t block_proof = ssz_builder_for_type(ETH_SSZ_CL_HEADER_PROOF);
   ssz_add_bytes(&block_proof, "elHeader", block_data->el_header);
   ssz_add_ob(&block_proof, "clHeader", block_data->beacon.cl_header);
   ssz_add_bytes(&block_proof, "blockhashBranch", block_data->beacon.block_hash_branch);
   ssz_add_uint64(&block_proof, block_data->beacon.block_hash_branch_gindex);
   ssz_add_header_proof(&block_proof, block_data, *historic_block_proof);
-  ssz_add_builders(builder, "block", block_proof);
+  ssz_add_builders(builder, "elProof", block_proof);
 }

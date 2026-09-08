@@ -58,7 +58,7 @@ static const ssz_def_t PROOF_HEADER[4];
 //
 // Execution-layer data is proven against a verified **execution block hash**, not against
 // individual fields of the Beacon `ExecutionPayload`. The shared container for this is
-// `EthClBlockProof`:
+// `EthClHeaderProof`:
 //
 // 1. **EL Header:** The proof carries the RLP-encoded execution-layer header (`elHeader`).
 //    `keccak256(elHeader)` is the execution `blockHash`. All header fields used by higher-level
@@ -75,11 +75,11 @@ static const ssz_def_t PROOF_HEADER[4];
 //    See the [Gloas Light Client Sync Protocol](https://ethereum.github.io/consensus-specs/specs/gloas/light-client/sync-protocol/).
 // 3. **Beacon Header:** `clHeader` is the BeaconBlockHeader whose `bodyRoot` is the Merkle root
 //    of the proof in step 2.
-// 4. **Header Authentication:** `headerProof` authenticates `clHeader` via the sync committee
+// 4. **Header Authentication:** `clHeaderProof` authenticates `clHeader` via the sync committee
 //    (direct signature, historic summaries, or a short header chain).
 //
 // If the verifier has already cached this execution header, the proof may use the `blockHash`
-// variant of `ETH_BLOCK_PROOF_UNION` instead of a full `EthClBlockProof`.
+// variant of `ETH_EL_PROOF_UNION` instead of a full `EthClHeaderProof`.
 // A fourth variant, `witnessProof`, attests `keccak256(elHeader)` with a list of
 // secp256k1 signatures (verification against configured witness keys is not
 // implemented yet).
@@ -101,7 +101,7 @@ static const ssz_def_t PROOF_HEADER[4];
 //         s[stateRoot]
 //         bodyRoot
 //     end
-//     subgraph "headerProof"
+//     subgraph "clHeaderProof"
 //         sig["Sync Committee BLS"]
 //     end
 //     BeaconBlockHeader --> sig
@@ -112,12 +112,12 @@ static const ssz_def_t PROOF_HEADER[4];
 // Proof that an RLP execution-layer header belongs to a signed BeaconBlock.
 // `keccak256(elHeader)` is proven against `clHeader.bodyRoot` at `gindex`
 // (`EXECUTION_BLOCK_HASH_GINDEX_DENEB` = 812, or `EXECUTION_BLOCK_HASH_GINDEX_GLOAS` = 2856 after Glamsterdam).
-static const ssz_def_t ETH_CL_BLOCK_PROOF[] = {
+static const ssz_def_t ETH_CL_HEADER_PROOF[] = {
     SSZ_PROG_BYTES("elHeader"),                       // RLP-serialized execution-layer header
     SSZ_CONTAINER("clHeader", BEACON_BLOCK_HEADER),   // BeaconBlockHeader whose bodyRoot is the Merkle root of blockhashBranch
     SSZ_PROG_LIST("blockhashBranch", ssz_bytes32),    // SSZ Merkle branch from the execution block hash to bodyRoot
     SSZ_UINT64("gindex"),                             // 812 (Deneb/Electra/Fulu: execution_payload.block_hash) or 2856 (Gloas: signed_execution_payload_bid.message.parent_block_hash)
-    SSZ_UNION("headerProof", ETH_HEADER_PROOFS_UNION) // authenticates clHeader
+    SSZ_UNION("clHeaderProof", ETH_HEADER_PROOFS_UNION) // authenticates clHeader
 };
 
 // Sequencer-signed execution payload (OP-Stack and other L2s). The payload bytes
@@ -125,7 +125,7 @@ static const ssz_def_t ETH_CL_BLOCK_PROOF[] = {
 //   Deneb:   [parentBeaconRoot(32) | payload]
 //   Electra: [parentBeaconRoot(32) | requestsHash(32) | payload]
 //   Gloas:   [parentBeaconRoot(32) | requestsHash(32) | slot(8 LE) | payload]
-// Index 2 of `ETH_BLOCK_PROOF_UNION` is frozen; verification is registered by the
+// Index 2 of `ETH_EL_PROOF_UNION` is frozen; verification is registered by the
 // chain module (no-op / error when no handler is registered).
 static const ssz_def_t ETH_SEQUENCER_PAYLOAD_UNION[] = {
     SSZ_BYTES("compressed_zstd", 1073741824), // ZSTD-compressed prefixed execution payload
@@ -148,7 +148,7 @@ static const ssz_def_t ETH_BLOCKHASH_WITNESS_CONTAINER = SSZ_CONTAINER("Blockhas
 // Witness-signed EL header. `keccak256(elHeader)` is the blockHash that each
 // witness signed. The header is otherwise unauthenticated until those signatures
 // are checked against configured witness keys (not implemented yet).
-static const ssz_def_t ETH_WITNESS_BLOCK_PROOF[] = {
+static const ssz_def_t ETH_WITNESS_HEADER_PROOF[] = {
     SSZ_PROG_BYTES("elHeader"),                                 // RLP-serialized execution-layer header
     SSZ_LIST("witnesses", ETH_BLOCKHASH_WITNESS_CONTAINER, 16), // signatures over keccak256(elHeader)
 };
@@ -158,15 +158,15 @@ static const ssz_def_t ETH_WITNESS_BLOCK_PROOF[] = {
 // execution payload (L2), or a reserved witness-signed EL header.
 // `ssz_is_valid` only checks the wire shape; `c4_verify_block` authenticates
 // variants 0–2. Variant 3 (`witnessProof`) is rejected until ecrecover + allow-list.
-static const ssz_def_t ETH_BLOCK_PROOF_UNION[] = {
-    SSZ_BYTES32("blockHash"),                               // 0: cached: verifier already holds this verified EL header
-    SSZ_CONTAINER("clProof", ETH_CL_BLOCK_PROOF),           // 1: full consensus-layer proof of the EL header
-    SSZ_CONTAINER("sequencerProof", ETH_SEQUENCER_PROOF),   // 2: sequencer-signed execution payload (OP-Stack)
-    SSZ_CONTAINER("witnessProof", ETH_WITNESS_BLOCK_PROOF), // 3: reserved; c4_verify_block rejects until ecrecover+allow-list exist
+static const ssz_def_t ETH_EL_PROOF_UNION[] = {
+    SSZ_BYTES32("blockHash"),                                // 0: cached: verifier already holds this verified EL header
+    SSZ_CONTAINER("clProof", ETH_CL_HEADER_PROOF),           // 1: full consensus-layer proof of the EL header
+    SSZ_CONTAINER("sequencerProof", ETH_SEQUENCER_PROOF),    // 2: sequencer-signed execution payload (OP-Stack)
+    SSZ_CONTAINER("witnessProof", ETH_WITNESS_HEADER_PROOF), // 3: reserved; c4_verify_block rejects until ecrecover+allow-list exist
 };
 
 // A Signature Proof simply contains the BLS signature of the sync committee for the header to verify.
-static const ssz_def_t ETH_SIGNATURE_BLOCK_PROOF[] = {
+static const ssz_def_t ETH_SIGNATURE_HEADER_PROOF[] = {
     SSZ_BIT_VECTOR("sync_committee_bits", 512),     // the bits of the validators that signed the header close to head
     SSZ_BYTE_VECTOR("sync_committee_signature", 96) // the signature of the sync committee
 };
@@ -200,7 +200,7 @@ static const ssz_def_t ETH_SIGNATURE_BLOCK_PROOF[] = {
 // so fetching them all and caching all blockroots allows to build them fast and efficient. Those blockroots are then stored in the chain_store under `data/{chain_id}/{period}/blocks.ssz`. When starting the prover with the -d option, it will use the fetched data.
 
 // a proof using the historic summaries
-static const ssz_def_t ETH_HISTORIC_BLOCK_PROOF[] = {
+static const ssz_def_t ETH_HISTORIC_HEADER_PROOF[] = {
     SSZ_LIST("proof", ssz_bytes32, 128),            // merkle proof from the blockroot over the historic_summaries to the state
     SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),   // the header of the beacon block containing historic_summaries (usually close to head)
     SSZ_UINT64("gindex"),                           // the combined gindex of the proof
@@ -212,8 +212,8 @@ static const ssz_def_t PROOF_HEADER_CONTAINER = SSZ_CONTAINER("ProofHeader", PRO
 
 // If the header we want to prove is slightly older than the sync period for which the user has the keys, the easiest way to prove it
 // is by providing a chain of headers from the header for the data up to a header where the user has the keys of the sync committee.
-// Header proof is a proof using a list of subsequent headers to verify a block in the past with a later header holding a signature.
-static const ssz_def_t ETH_HEADERS_BLOCK_PROOF[] = {
+// headerChain is a proof using a list of subsequent headers to verify a block in the past with a later header holding a signature.
+static const ssz_def_t ETH_HEADER_CHAIN_PROOF[] = {
     SSZ_LIST("headers", PROOF_HEADER_CONTAINER, 128), // list of headers
     SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),     // the header of the beacon block containing the signature
     SSZ_BIT_VECTOR("sync_committee_bits", 512),       // the bits of the validators that signed the header close to head
@@ -249,10 +249,10 @@ static const ssz_def_t ETH_CHECKPOINT_PROOF[] = {
 };
 
 static const ssz_def_t ETH_HEADER_PROOFS_UNION[] = {
-    SSZ_CONTAINER("signature_proof", ETH_SIGNATURE_BLOCK_PROOF), // proof by providing the signature of the sync committee
-    SSZ_CONTAINER("historic_proof", ETH_HISTORIC_BLOCK_PROOF),   // proof for a historic block using the state_root of a current block
-    SSZ_CONTAINER("headerProof", ETH_HEADERS_BLOCK_PROOF),       // proof block giving a chain of headers up to a verifiable header
-    SSZ_CONTAINER("CheckpointProof", ETH_CHECKPOINT_PROOF)       // WSP anchor via LightClientBootstrap (currentSyncCommittee branch)
+    SSZ_CONTAINER("signature", ETH_SIGNATURE_HEADER_PROOF),    // proof by providing the signature of the sync committee
+    SSZ_CONTAINER("historic", ETH_HISTORIC_HEADER_PROOF),      // proof for a historic block using the state_root of a current block
+    SSZ_CONTAINER("headerChain", ETH_HEADER_CHAIN_PROOF),      // chain of headers up to a verifiable header
+    SSZ_CONTAINER("checkpoint", ETH_CHECKPOINT_PROOF)          // WSP anchor via LightClientBootstrap (currentSyncCommittee branch)
 };
 
 // :: Logs Proof
@@ -260,7 +260,7 @@ static const ssz_def_t ETH_HEADER_PROOFS_UNION[] = {
 // A **Logs Proof** verifies that specific log entries, returned by `eth_getLogs`, are correctly
 // included within transaction receipts of a verified execution block.
 //
-// 1. **Execution Block:** The execution block is verified via `ETH_BLOCK_PROOF_UNION`
+// 1. **Execution Block:** The execution block is verified via `ETH_EL_PROOF_UNION`
 //    (`c4_verify_block`). This yields a verified RLP EL header and its keccak `blockHash`.
 // 2. **Receipt Inclusion:** For each transaction that produced a matching log, a Patricia Merkle
 //    proof against the header's `receiptsRoot` delivers the raw receipt (the leaf).
@@ -287,7 +287,7 @@ static const ssz_def_t ETH_LOGS_BLOCK[] = {
     SSZ_PROG_LIST("transactionProof", ssz_bytes_list), // the Patricia Merkle Proof of the transaction, the leaf contains the raw transaction.
     SSZ_PROG_LIST("receiptProof", ssz_bytes_1024),     // the Multi Patricia Merkle Proof of the receipt, the leaf contains the raw receipt.
     SSZ_PROG_LIST("txs", ETH_LOGS_TX_CONTAINER),       // the transactions used by the resulting events
-    SSZ_UNION("block", ETH_BLOCK_PROOF_UNION)          // the proof for the execution block containing the transaction
+    SSZ_UNION("elProof", ETH_EL_PROOF_UNION)          // the proof for the execution block containing the transaction
 };
 
 static const ssz_def_t ETH_LOGS_BLOCK_CONTAINER = SSZ_CONTAINER("LogsBlock", ETH_LOGS_BLOCK);
@@ -298,7 +298,7 @@ static const ssz_def_t ETH_LOGS_BLOCK_CONTAINER = SSZ_CONTAINER("LogsBlock", ETH
 // proof additionally guarantees completeness.
 //
 // **Continuity.** The newest block (`toBlock`) is proven via the shared
-// `ETH_BLOCK_PROOF_UNION` (`c4_verify_block`), which yields a verified RLP execution
+// `ETH_EL_PROOF_UNION` (`c4_verify_block`), which yields a verified RLP execution
 // header and its keccak `blockHash`. Every older block in the range is a raw RLP
 // header chained by `parentHash`: `keccak(headers[i]) == parentHash(headers[i+1])`
 // (and `keccak(headers[last]) == parentHash(anchor)`), together with a gap-free
@@ -339,7 +339,7 @@ static const ssz_def_t ETH_COMPLETENESS_BLOCK = SSZ_UNION("block", ETH_COMPLETEN
 
 // The main proof data for a logs completeness proof over a contiguous block range.
 static const ssz_def_t ETH_LOGS_COMPLETENESS_PROOF[] = {
-    SSZ_UNION("block", ETH_BLOCK_PROOF_UNION),       // proof for the newest execution block (toBlock / anchor)
+    SSZ_UNION("elProof", ETH_EL_PROOF_UNION),       // proof for the newest execution block (toBlock / anchor)
     SSZ_PROG_LIST("headers", ssz_bytes_list),        // RLP EL headers ascending fromBlock .. toBlock-1 (parentHash chain)
     SSZ_PROG_LIST("blocks", ETH_COMPLETENESS_BLOCK), // per-block payload ascending fromBlock..toBlock (NONE or FullReceipts)
 };
@@ -349,7 +349,7 @@ static const ssz_def_t ETH_LOGS_COMPLETENESS_PROOF_CONTAINER = SSZ_CONTAINER("Lo
 //
 // A Transaction Proof verifies that a specific transaction is included in a verified execution block.
 //
-// 1. **Execution Block:** The execution block is verified via `ETH_BLOCK_PROOF_UNION`
+// 1. **Execution Block:** The execution block is verified via `ETH_EL_PROOF_UNION`
 //    (`c4_verify_block`). This yields a verified RLP EL header and its keccak `blockHash`.
 // 2. **Transaction Inclusion:** A Patricia Merkle proof against the header's `transactionsRoot`
 //    delivers the raw transaction as the leaf.
@@ -384,14 +384,14 @@ static const ssz_def_t ETH_LOGS_COMPLETENESS_PROOF_CONTAINER = SSZ_CONTAINER("Lo
 static const ssz_def_t ETH_TRANSACTION_PROOF[] = {
     SSZ_UINT32("transactionIndex"),                    // the index of the transaction in the block
     SSZ_PROG_LIST("transactionProof", ssz_bytes_list), // the Patricia Merkle Proof of the transaction, the leaf contains the raw transaction.
-    SSZ_UNION("block", ETH_BLOCK_PROOF_UNION),         // the proof for the execution block containing the transaction
+    SSZ_UNION("elProof", ETH_EL_PROOF_UNION),         // the proof for the execution block containing the transaction
 };
 
 // :: Receipt Proof
 //
 // A **Receipt Proof** verifies a transaction receipt and its inclusion in a verified execution block.
 //
-// 1. **Execution Block:** The execution block is verified via `ETH_BLOCK_PROOF_UNION`
+// 1. **Execution Block:** The execution block is verified via `ETH_EL_PROOF_UNION`
 //    (`c4_verify_block`). This yields a verified RLP EL header and its keccak `blockHash`.
 // 2. **Receipt Inclusion:** A Patricia Merkle proof against the header's `receiptsRoot`
 //    delivers the raw receipt as the leaf.
@@ -427,14 +427,14 @@ static const ssz_def_t ETH_RECEIPT_PROOF[] = {
     SSZ_UINT32("transactionIndex"),                    // the index of the transaction in the block
     SSZ_PROG_LIST("transactionProof", ssz_bytes_list), // the Patricia Merkle Proof of the transaction, the leaf contains the raw transaction.
     SSZ_LIST("receiptProof", ssz_bytes_1024, 64),      // the Patricia Merkle Proof of the receipt, the leaf contains the raw receipt.
-    SSZ_UNION("block", ETH_BLOCK_PROOF_UNION),         // the proof for the execution block containing the transaction
+    SSZ_UNION("elProof", ETH_EL_PROOF_UNION),         // the proof for the execution block containing the transaction
 };
 
 // :: Account Proof
 //
 // An Account Proof represents the account and storage values, including the Merkle proof, of the specified account.
 //
-// 1. **Execution Block:** The execution block is verified via `ETH_BLOCK_PROOF_UNION`
+// 1. **Execution Block:** The execution block is verified via `ETH_EL_PROOF_UNION`
 //    (`c4_verify_block`). This yields a verified RLP EL header and its keccak `blockHash`.
 // 2. **Account Inclusion:** A Patricia Merkle proof against the header's `stateRoot` delivers
 //    the account object (`nonce`, `balance`, `storageRoot`, `codeHash`). Equivalent to the
@@ -487,7 +487,7 @@ static const ssz_def_t ETH_ACCOUNT_PROOF[] = {
     SSZ_LIST("accountProof", ssz_bytes_1024, 256),              // Patricia merkle proof
     SSZ_ADDRESS("address"),                                     // the address of the account
     SSZ_LIST("storageProof", ETH_STORAGE_PROOF_CONTAINER, 256), // the storage proofs of the selected
-    SSZ_UNION("block", ETH_BLOCK_PROOF_UNION)};                 // the block proof of the account
+    SSZ_UNION("elProof", ETH_EL_PROOF_UNION)};                 // EL header proof of the account
 
 static const ssz_def_t ETH_CODE_UNION[] = {
     SSZ_BOOLEAN("code_used"),   // no code delivered
@@ -500,7 +500,7 @@ static const ssz_def_t ETH_CODE_UNION[] = {
 // To verify that this result is correct, every referenced account, contract code, and storage value must be validated
 // against the canonical chain state.
 //
-// 1. **Execution Block:** The execution block is verified via `ETH_BLOCK_PROOF_UNION`
+// 1. **Execution Block:** The execution block is verified via `ETH_EL_PROOF_UNION`
 //    (`c4_verify_block`). This yields a verified RLP EL header. EVM block context
 //    (`blockNumber`, `timestamp`, `coinbase`, `prevRandao`, `baseFeePerGas`, `blockHash`,
 //    `gasLimit`, `excessBlobGas`) is read from that header.
@@ -554,7 +554,7 @@ static const ssz_def_t ETH_CALL_ACCOUNT_CONTAINER = SSZ_CONTAINER("EthCallAccoun
 // The main proof data for a call.
 static const ssz_def_t ETH_CALL_PROOF[] = {
     SSZ_LIST("accounts", ETH_CALL_ACCOUNT_CONTAINER, 256), // used accounts
-    SSZ_UNION("block", ETH_BLOCK_PROOF_UNION)};            // the block proof of the accounts
+    SSZ_UNION("elProof", ETH_EL_PROOF_UNION)};            // EL header proof of the accounts
 
 // :: Sync Proof
 //
@@ -717,7 +717,7 @@ static const ssz_def_t ETH_SYNC_PROOF[] = {
 // The **Block Proof** verifies that a specific execution-layer block is valid
 // and correctly referenced by the consensus layer (Beacon Chain).
 //
-// 1. **Execution Block:** The execution block is verified via `ETH_BLOCK_PROOF_UNION`
+// 1. **Execution Block:** The execution block is verified via `ETH_EL_PROOF_UNION`
 //    (`c4_verify_block`). This yields a verified RLP EL header and its keccak `blockHash`.
 //    Header-only RPC methods (`eth_getBlockHeader`, `eth_blockNumber`, `eth_blobBaseFee`,
 //    `eth_maxPriorityFeePerGas`) use the `NONE` body variant and reconstruct the result
@@ -761,10 +761,10 @@ static const ssz_def_t ETH_BLOCK_BODY_UNION[] = {
     SSZ_NONE,                                          // no body, just header
     SSZ_CONTAINER("content", ETH_BLOCK_BODY_CONTENT)}; // the Block Body Content
 
-// The Block Proof: a verified EL header (via ETH_BLOCK_PROOF_UNION) plus an optional body.
+// The Block Proof: a verified EL header (via ETH_EL_PROOF_UNION) plus an optional body.
 static const ssz_def_t ETH_BLOCK_PROOF[] = {
     SSZ_UNION("body", ETH_BLOCK_BODY_UNION),
-    SSZ_UNION("block", ETH_BLOCK_PROOF_UNION)}; // the proof for the execution block
+    SSZ_UNION("elProof", ETH_EL_PROOF_UNION)}; // the proof for the execution block
 
 // :: Block Receipts Proof
 //
@@ -772,7 +772,7 @@ static const ssz_def_t ETH_BLOCK_PROOF[] = {
 // Instead of proving a single receipt via Patricia Merkle Proof, the proof includes
 // **all** raw serialized receipts and the full transactions list.
 //
-// 1. **Execution Block:** The execution block is verified via `ETH_BLOCK_PROOF_UNION`
+// 1. **Execution Block:** The execution block is verified via `ETH_EL_PROOF_UNION`
 //    (`c4_verify_block`). This yields a verified RLP EL header and its keccak `blockHash`.
 // 2. **Receipt Trie Verification:** The verifier builds the complete Patricia Merkle Trie
 //    from all serialized receipts and compares the root to the header's `receiptsRoot`.
@@ -784,4 +784,4 @@ static const ssz_def_t ETH_BLOCK_PROOF[] = {
 static const ssz_def_t ETH_BLOCK_RECEIPTS_PROOF[] = {
     SSZ_PROG_LIST("transactions", ssz_transactions_bytes), // all raw transactions of the block
     SSZ_PROG_LIST("receipts", ssz_bytes_list),             // all RLP-serialized receipts of the block
-    SSZ_UNION("block", ETH_BLOCK_PROOF_UNION)};            // the proof for the execution block containing the transaction
+    SSZ_UNION("elProof", ETH_EL_PROOF_UNION)};            // the proof for the execution block containing the transaction

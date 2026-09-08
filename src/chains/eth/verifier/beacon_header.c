@@ -147,18 +147,23 @@ static c4_status_t c4_verify_historic_proof(verify_ctx_t* ctx, ssz_ob_t header, 
 }
 
 c4_status_t c4_verify_header(verify_ctx_t* ctx, ssz_ob_t header, ssz_ob_t block_proof) {
-  ssz_ob_t header_proof             = ssz_get(&block_proof, "headerProof");
-  ssz_ob_t sync_committee_bits      = ssz_get(&header_proof, "sync_committee_bits");
-  ssz_ob_t sync_committee_signature = ssz_get(&header_proof, "sync_committee_signature");
+  ssz_ob_t cl_header_proof = ssz_get(&block_proof, "clHeaderProof");
+  if (!cl_header_proof.def)
+    THROW_ERROR("missing clHeaderProof!");
 
-  if (strcmp(header_proof.def->name, "signature_proof") == 0) // direct proof - the signature matches the current header
+  ssz_ob_t sync_committee_bits      = ssz_get(&cl_header_proof, "sync_committee_bits");
+  ssz_ob_t sync_committee_signature = ssz_get(&cl_header_proof, "sync_committee_signature");
+
+  if (strcmp(cl_header_proof.def->name, "signature") == 0) // direct proof - the signature matches the current header
     return c4_verify_blockroot_signature(ctx, &header, &sync_committee_bits, &sync_committee_signature, 0, NULL);
 
-  if (strcmp(header_proof.def->name, "headerProof") == 0) // header proof - the signature matches the signed header in the header_proof
-    return c4_verify_headers_proof(ctx, header, sync_committee_bits, sync_committee_signature, header_proof);
+  if (strcmp(cl_header_proof.def->name, "headerChain") == 0) // header chain - the signature matches the signed header in the chain
+    return c4_verify_headers_proof(ctx, header, sync_committee_bits, sync_committee_signature, cl_header_proof);
 
-  // historic proof
-  return c4_verify_historic_proof(ctx, header, sync_committee_bits, sync_committee_signature, header_proof);
+  if (strcmp(cl_header_proof.def->name, "historic") == 0)
+    return c4_verify_historic_proof(ctx, header, sync_committee_bits, sync_committee_signature, cl_header_proof);
+
+  THROW_ERROR("unsupported clHeaderProof variant!");
 }
 
 c4_status_t c4_verify_blockroot_signature(verify_ctx_t* ctx, ssz_ob_t* header, ssz_ob_t* sync_committee_bits, ssz_ob_t* sync_committee_signature, uint64_t slot, bytes32_t pubkey_hash) {
@@ -284,7 +289,7 @@ static c4_status_t verify_block_by_blockproof(verify_ctx_t* ctx, ssz_ob_t block,
 
 #ifdef EL_HEADER_CACHE
   // the header is now fully verified: cache it so follow-up proofs can reference
-  // this block by hash only (blockHash variant of ETH_BLOCK_PROOF_UNION).
+  // this block by hash only (blockHash variant of ETH_EL_PROOF_UNION).
   // A block number of 0 indicates an unparsable header field, do not key the cache on it.
   uint64_t block_number = eth_el_header_get_uint64(raw_header, EL_BLOCK_NUMBER);
   if (block_number) c4_header_cache_put(ctx->chain_id, block_number, block_hash, raw_header, NULL);

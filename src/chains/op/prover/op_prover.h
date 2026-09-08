@@ -45,10 +45,10 @@ extern "C" {
 c4_status_t op_get_el_block(prover_ctx_t* ctx, json_t block, eth_block_t* out, bool with_body);
 
 /**
- * Appends the `sequencerProof` variant of `ETH_BLOCK_PROOF_UNION`.
+ * Appends the `sequencerProof` variant of `ETH_EL_PROOF_UNION`.
  *
  * @param ctx prover context
- * @param builder parent proof builder (`block` union field)
+ * @param builder parent proof builder (`elProof` union field)
  * @param block_data block produced by `op_get_el_block`
  * @param historic unused (no CL proof)
  * @return true if the variant was written

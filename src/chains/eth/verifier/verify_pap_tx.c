@@ -135,7 +135,7 @@ static bool extract_tx_from_block_proof(verify_ctx_t* ctx, ssz_ob_t proof_req,
   RETURN_VERIFY_ERROR(ctx, "PAP: block proof verification requires ETH_BLOCK");
 #endif
 
-  if (c4_verify_block(ctx, ssz_get(&block_proof, "block"), &el_header, el_block_hash) != C4_SUCCESS) return false;
+  if (c4_verify_block(ctx, ssz_get(&block_proof, "elProof"), &el_header, el_block_hash) != C4_SUCCESS) return false;
   ssz_ob_t body    = ssz_get(&block_proof, "body");
   ssz_ob_t txs     = ssz_get(&body, "transactions");
   uint32_t num_txs = ssz_len(txs);

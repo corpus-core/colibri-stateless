@@ -47,7 +47,7 @@ static c4_status_t dummy_accept_block(verify_ctx_t* ctx, ssz_ob_t block, bytes_t
 }
 
 static ssz_ob_t build_witness_block_proof(bytes_t el_header, uint32_t n, const uint8_t (*addrs)[20], const uint8_t (*sigs)[65]) {
-  ssz_builder_t    proof    = ssz_builder_for_type(ETH_SSZ_WITNESS_BLOCK_PROOF);
+  ssz_builder_t    proof    = ssz_builder_for_type(ETH_SSZ_WITNESS_HEADER_PROOF);
   const ssz_def_t* list_def = ssz_get_def(proof.def, "witnesses");
   TEST_ASSERT_NOT_NULL(list_def);
 
@@ -90,9 +90,9 @@ void test_request_proofs_union_order(void) {
       "BlockReceiptsProof",
       "SyncProof",
   };
-  const ssz_def_t* request = eth_ssz_verification_type(ETH_SSZ_VERIFY_REQUEST);
-  const ssz_def_t* proofs  = ssz_get_def(request, "proof");
-  const ssz_def_t* logs    = eth_ssz_verification_type(ETH_SSZ_VERIFY_LOGS_PROOF);
+  const ssz_def_t* request      = eth_ssz_verification_type(ETH_SSZ_VERIFY_REQUEST);
+  const ssz_def_t* proofs       = ssz_get_def(request, "proof");
+  const ssz_def_t* logs         = eth_ssz_verification_type(ETH_SSZ_VERIFY_LOGS_PROOF);
   const ssz_def_t* completeness = eth_ssz_verification_type(ETH_SSZ_VERIFY_LOGS_COMPLETENESS_PROOF);
   const ssz_def_t* call         = eth_ssz_verification_type(ETH_SSZ_VERIFY_CALL_PROOF);
   const ssz_def_t* block        = eth_ssz_verification_type(ETH_SSZ_VERIFY_BLOCK_PROOF);
@@ -118,9 +118,9 @@ void test_request_proofs_union_order(void) {
 }
 
 void test_witness_block_proof_type(void) {
-  const ssz_def_t* cl      = eth_ssz_verification_type(ETH_SSZ_CL_BLOCK_PROOF);
+  const ssz_def_t* cl      = eth_ssz_verification_type(ETH_SSZ_CL_HEADER_PROOF);
   const ssz_def_t* seq     = eth_ssz_verification_type(ETH_SSZ_SEQUENCER_PROOF);
-  const ssz_def_t* witness = eth_ssz_verification_type(ETH_SSZ_WITNESS_BLOCK_PROOF);
+  const ssz_def_t* witness = eth_ssz_verification_type(ETH_SSZ_WITNESS_HEADER_PROOF);
 
   TEST_ASSERT_NOT_NULL(cl);
   TEST_ASSERT_NOT_NULL(seq);
@@ -128,8 +128,8 @@ void test_witness_block_proof_type(void) {
   TEST_ASSERT_EQUAL_STRING("clProof", cl->name);
   TEST_ASSERT_EQUAL_STRING("sequencerProof", seq->name);
   TEST_ASSERT_EQUAL_STRING("witnessProof", witness->name);
-  TEST_ASSERT_EQUAL_PTR_MESSAGE(cl + 1, seq, "sequencerProof must stay at ETH_BLOCK_PROOF_UNION index 2");
-  TEST_ASSERT_EQUAL_PTR_MESSAGE(seq + 1, witness, "witnessProof must be ETH_BLOCK_PROOF_UNION index 3");
+  TEST_ASSERT_EQUAL_PTR_MESSAGE(cl + 1, seq, "sequencerProof must stay at ETH_EL_PROOF_UNION index 2");
+  TEST_ASSERT_EQUAL_PTR_MESSAGE(seq + 1, witness, "witnessProof must be ETH_EL_PROOF_UNION index 3");
   TEST_ASSERT_NOT_NULL(ssz_get_def(witness, "elHeader"));
 
   const ssz_def_t* witnesses = ssz_get_def(witness, "witnesses");
@@ -149,11 +149,67 @@ void test_witness_block_proof_type(void) {
   TEST_ASSERT_EQUAL_UINT32(65, signature->def.vector.len);
 }
 
+static const ssz_def_t* proof_container(eth_ssz_type_t type) {
+  const ssz_def_t* def = eth_ssz_verification_type(type);
+  TEST_ASSERT_NOT_NULL(def);
+  if (def->type == SSZ_TYPE_LIST || def->type == SSZ_TYPE_PROG_LIST)
+    def = def->def.vector.type;
+  TEST_ASSERT_NOT_NULL(def);
+  return def;
+}
+
+static void assert_el_proof_field(eth_ssz_type_t type) {
+  const ssz_def_t* def = proof_container(type);
+  TEST_ASSERT_NOT_NULL_MESSAGE(ssz_get_def(def, "elProof"), def->name);
+  TEST_ASSERT_NULL_MESSAGE(ssz_get_def(def, "block"), def->name);
+}
+
+void test_el_proof_and_header_proof_names(void) {
+  assert_el_proof_field(ETH_SSZ_VERIFY_ACCOUNT_PROOF);
+  assert_el_proof_field(ETH_SSZ_VERIFY_TRANSACTION_PROOF);
+  assert_el_proof_field(ETH_SSZ_VERIFY_RECEIPT_PROOF);
+  assert_el_proof_field(ETH_SSZ_VERIFY_LOGS_PROOF);
+  assert_el_proof_field(ETH_SSZ_VERIFY_LOGS_COMPLETENESS_PROOF);
+  assert_el_proof_field(ETH_SSZ_VERIFY_CALL_PROOF);
+  assert_el_proof_field(ETH_SSZ_VERIFY_BLOCK_PROOF);
+  assert_el_proof_field(ETH_SSZ_VERIFY_BLOCK_RECEIPTS_PROOF);
+
+  const ssz_def_t* completeness = eth_ssz_verification_type(ETH_SSZ_VERIFY_LOGS_COMPLETENESS_PROOF);
+  const ssz_def_t* blocks       = ssz_get_def(completeness, "blocks");
+  TEST_ASSERT_NOT_NULL(blocks);
+  TEST_ASSERT_NOT_NULL(blocks->def.vector.type);
+  TEST_ASSERT_EQUAL_STRING_MESSAGE("block", blocks->def.vector.type->name,
+                                   "completeness inner union must stay block, not elProof");
+
+  const ssz_def_t* cl = eth_ssz_verification_type(ETH_SSZ_CL_HEADER_PROOF);
+  TEST_ASSERT_NOT_NULL(ssz_get_def(cl, "clHeaderProof"));
+  TEST_ASSERT_NULL_MESSAGE(ssz_get_def(cl, "headerProof"), "CL field must be clHeaderProof, not headerProof");
+  TEST_ASSERT_EQUAL_STRING("blockHash", (cl - 1)->name);
+
+  const ssz_def_t* cl_header_proof = ssz_get_def(cl, "clHeaderProof");
+  TEST_ASSERT_EQUAL_INT(SSZ_TYPE_UNION, cl_header_proof->type);
+  TEST_ASSERT_EQUAL_INT(4, cl_header_proof->def.container.len);
+  TEST_ASSERT_EQUAL_STRING("signature", cl_header_proof->def.container.elements[0].name);
+  TEST_ASSERT_EQUAL_STRING("historic", cl_header_proof->def.container.elements[1].name);
+  TEST_ASSERT_EQUAL_STRING("headerChain", cl_header_proof->def.container.elements[2].name);
+  TEST_ASSERT_EQUAL_STRING("checkpoint", cl_header_proof->def.container.elements[3].name);
+
+  const ssz_def_t* checkpoint = eth_ssz_verification_type(ETH_SSZ_VERIFY_CHECKPOINT_PROOF);
+  TEST_ASSERT_NOT_NULL(checkpoint);
+  TEST_ASSERT_EQUAL_STRING("checkpoint", checkpoint->name);
+  TEST_ASSERT_EQUAL_PTR(cl_header_proof->def.container.elements + 3, checkpoint);
+
+  const ssz_def_t* bootstrap_deneb = eth_get_light_client_bootstrap(C4_FORK_DENEB);
+  TEST_ASSERT_NOT_NULL(bootstrap_deneb);
+  TEST_ASSERT_EQUAL_STRING_MESSAGE("CheckpointProof", (bootstrap_deneb + 2)->name,
+                                   "bootstrap union index 3 must stay CheckpointProof");
+}
+
 void test_witness_block_proof_not_implemented(void) {
-  ssz_ob_t      block      = {.def = eth_ssz_verification_type(ETH_SSZ_WITNESS_BLOCK_PROOF), .bytes = NULL_BYTES};
-  verify_ctx_t  ctx        = {0};
-  bytes_t       el_header  = {0};
-  bytes32_t     block_hash = {0};
+  ssz_ob_t     block      = {.def = eth_ssz_verification_type(ETH_SSZ_WITNESS_HEADER_PROOF), .bytes = NULL_BYTES};
+  verify_ctx_t ctx        = {0};
+  bytes_t      el_header  = {0};
+  bytes32_t    block_hash = {0};
 
   TEST_ASSERT_EQUAL_INT(C4_ERROR, c4_verify_block(&ctx, block, &el_header, block_hash));
   TEST_ASSERT_NOT_NULL(ctx.state.error);
@@ -162,7 +218,7 @@ void test_witness_block_proof_not_implemented(void) {
 }
 
 void test_witness_block_proof_encode_roundtrip(void) {
-  uint8_t header[]  = {0xc0, 0x01, 0x02};
+  uint8_t header[] = {0xc0, 0x01, 0x02};
   uint8_t addrs[1][20];
   uint8_t sigs[1][65];
   memset(addrs, 0x11, sizeof(addrs));
@@ -187,10 +243,10 @@ void test_witness_block_proof_encode_roundtrip(void) {
   ssz_builder_t parent = ssz_builder_for_type(ETH_SSZ_VERIFY_BLOCK_PROOF);
   uint8_t       none   = 0;
   ssz_add_bytes(&parent, "body", bytes(&none, 1));
-  ssz_add_ob(&parent, "block", proof);
+  ssz_add_ob(&parent, "elProof", proof);
   ssz_ob_t block_proof = ssz_builder_to_bytes(&parent);
   TEST_ASSERT_TRUE(ssz_is_valid(block_proof, true, NULL));
-  ssz_ob_t block = ssz_get(&block_proof, "block");
+  ssz_ob_t block = ssz_get(&block_proof, "elProof");
   TEST_ASSERT_EQUAL_STRING("witnessProof", block.def->name);
 
   safe_free(block_proof.bytes.data);
@@ -242,10 +298,10 @@ void test_witness_block_proof_rejects_after_hook(void) {
 
   c4_register_block_proof_verify(C4_CHAIN_TYPE_ETHEREUM, dummy_accept_block);
 
-  verify_ctx_t ctx        = {0};
-  ctx.chain_id            = C4_CHAIN_MAINNET;
-  bytes_t   el_header     = {0};
-  bytes32_t block_hash    = {0};
+  verify_ctx_t ctx     = {0};
+  ctx.chain_id         = C4_CHAIN_MAINNET;
+  bytes_t   el_header  = {0};
+  bytes32_t block_hash = {0};
   TEST_ASSERT_EQUAL_INT(C4_ERROR, c4_verify_block(&ctx, proof, &el_header, block_hash));
   TEST_ASSERT_EQUAL_STRING_MESSAGE("witnessProof is not implemented yet", ctx.state.error,
                                    "witnessProof must be rejected before chain hooks");
@@ -260,6 +316,7 @@ int main(void) {
   RUN_TEST(test_ssz);
   RUN_TEST(test_request_proofs_union_order);
   RUN_TEST(test_witness_block_proof_type);
+  RUN_TEST(test_el_proof_and_header_proof_names);
   RUN_TEST(test_witness_block_proof_not_implemented);
   RUN_TEST(test_witness_block_proof_encode_roundtrip);
   RUN_TEST(test_witness_block_proof_empty_list);

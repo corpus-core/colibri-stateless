@@ -60,7 +60,7 @@ static bool verify_mpt_root(verify_ctx_t* ctx, ssz_ob_t values, bytes32_t expect
 bool verify_block_receipts_proof_for(verify_ctx_t* ctx, ssz_ob_t receipts_proof, bytes_t* el_header, bytes32_t block_hash) {
 
   // verify the execution block
-  if (c4_verify_block(ctx, ssz_get(&receipts_proof, "block"), el_header, block_hash) != C4_SUCCESS) return false;
+  if (c4_verify_block(ctx, ssz_get(&receipts_proof, "elProof"), el_header, block_hash) != C4_SUCCESS) return false;
   if (!verify_mpt_root(ctx, ssz_get(&receipts_proof, "transactions"), eth_el_header_get(*el_header, EL_TRANSACTIONS_ROOT).data)) return false;
   if (!verify_mpt_root(ctx, ssz_get(&receipts_proof, "receipts"), eth_el_header_get(*el_header, EL_RECEIPTS_ROOT).data)) return false;
 

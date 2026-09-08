@@ -78,7 +78,7 @@ const ssz_def_t C4_ETH_REQUEST_DATA_UNION[12] = {
 // A List of possible types of proofs matching the Data.
 // Existing indices 1..4 stay frozen (Account/Tx/Receipt/Logs). LogsCompleteness
 // sits next to Logs; SyncProof is last. The former top-level WitnessProof was
-// removed — witness attestations live as `ETH_BLOCK_PROOF_UNION` index 3.
+// removed — witness attestations live as `ETH_EL_PROOF_UNION` index 3.
 static const ssz_def_t C4_REQUEST_PROOFS_UNION[] = {
     SSZ_NONE,
     SSZ_CONTAINER("AccountProof", ETH_ACCOUNT_PROOF),                    //  1: Account (eth_getBalance, eth_getStorageAt, ...)
@@ -286,14 +286,14 @@ const ssz_def_t* eth_ssz_verification_type(eth_ssz_type_t type) {
       return C4_ETH_REQUEST_SYNCDATA_UNION + 1;
     case ETH_SSZ_VERIFY_ZK_SYNCDATA_V6:
       return C4_ETH_REQUEST_SYNCDATA_UNION + 2;
-    case ETH_SSZ_CL_BLOCK_PROOF:
-      return ARRAY_TYPE(ETH_BLOCK_PROOF_UNION, ETH_CL_BLOCK_PROOF);
+    case ETH_SSZ_CL_HEADER_PROOF:
+      return ARRAY_TYPE(ETH_EL_PROOF_UNION, ETH_CL_HEADER_PROOF);
     case ETH_SSZ_EL_BLOCK_CONTENT:
       return ARRAY_TYPE(ETH_BLOCK_BODY_UNION, ETH_BLOCK_BODY_CONTENT);
     case ETH_SSZ_SEQUENCER_PROOF:
-      return ARRAY_TYPE(ETH_BLOCK_PROOF_UNION, ETH_SEQUENCER_PROOF);
-    case ETH_SSZ_WITNESS_BLOCK_PROOF:
-      return ARRAY_TYPE(ETH_BLOCK_PROOF_UNION, ETH_WITNESS_BLOCK_PROOF);
+      return ARRAY_TYPE(ETH_EL_PROOF_UNION, ETH_SEQUENCER_PROOF);
+    case ETH_SSZ_WITNESS_HEADER_PROOF:
+      return ARRAY_TYPE(ETH_EL_PROOF_UNION, ETH_WITNESS_HEADER_PROOF);
     default: return NULL;
   }
 }

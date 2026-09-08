@@ -54,7 +54,7 @@ uint32_t c4_eth_get_logs_completeness_max_blocks(void);
 /**
  * Generates an `eth_getLogs` completeness proof over the requested block range.
  *
- * Resolves `[fromBlock, toBlock]`, proves the newest block via `ETH_BLOCK_PROOF_UNION`
+ * Resolves `[fromBlock, toBlock]`, proves the newest block via `ETH_EL_PROOF_UNION`
  * and the older blocks via an RLP `parentHash` chain, and serializes for every block
  * either a bloom-negative marker or the full set of receipts plus Patricia proofs of
  * matching transactions. The result is stored in `ctx->proof`.

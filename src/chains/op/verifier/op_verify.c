@@ -33,7 +33,7 @@
 // : OP-Stack
 //
 // OP-Stack proofs use the same `C4Request` / proof unions as Ethereum. The only
-// OP-specific wire difference is `ETH_BLOCK_PROOF_UNION` index 2 (`sequencerProof`).
+// OP-specific wire difference is `ETH_EL_PROOF_UNION` index 2 (`sequencerProof`).
 
 static const char* proofable_methods[] = {
     RPC_METHOD("eth_call", Bytes, EthCallProof),

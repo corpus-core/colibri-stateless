@@ -87,7 +87,7 @@ bool verify_tx_proof(verify_ctx_t* ctx) {
   bytes32_t block_hash = {0};
 
   // verify the blockheader (el_header stays valid for the lifetime of the ctx)
-  if (c4_verify_block(ctx, ssz_get(&ctx->proof, "block"), &el_header, block_hash) != C4_SUCCESS) return false;
+  if (c4_verify_block(ctx, ssz_get(&ctx->proof, "elProof"), &el_header, block_hash) != C4_SUCCESS) return false;
   if (!c4_verify_mpt_proof(ctx, ssz_get(&ctx->proof, "transactionProof"), idx,
                            eth_el_header_get(el_header, EL_TRANSACTIONS_ROOT).data, &raw_tx)) return false;
 

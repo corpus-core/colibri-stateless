@@ -2,7 +2,7 @@
 
 OP-Stack (Optimism, Base, etc.) chain module. Proofs reuse the Ethereum SSZ types
 and ETH verify/prover implementations. The only OP-specific wire difference is
-`ETH_BLOCK_PROOF_UNION` index 2 (`sequencerProof`).
+`ETH_EL_PROOF_UNION` index 2 (`sequencerProof`).
 
 ## Directory Structure
 

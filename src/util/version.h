@@ -26,7 +26,7 @@
 
 // Definition of the request container version
 #define VERSION_MAJOR 1 // POST Clamsterdam Types
-#define VERSION_MINOR 1 // proof-union reorder: LogsCompleteness next to Logs, Sync last; witnessProof on ETH_BLOCK_PROOF_UNION
+#define VERSION_MINOR 1 // proof-union reorder: LogsCompleteness next to Logs, Sync last; witnessProof on ETH_EL_PROOF_UNION
 #define VERSION_PATCH 0
 #define CHAIN_TYPE    1 // ETH=1
 

@@ -94,7 +94,7 @@ bool eth_is_oblivious_unavailable(json_t response) {
 //
 // The following table shows the supported RPC-Methods for Ethereum.
 // Execution-layer values are proven against a verified RLP EL header whose
-// `keccak256` hash is bound to the beacon `bodyRoot` (`ETH_BLOCK_PROOF_UNION`).
+// `keccak256` hash is bound to the beacon `bodyRoot` (`ETH_EL_PROOF_UNION`).
 //
 
 static const char* proofable_methods[] = {

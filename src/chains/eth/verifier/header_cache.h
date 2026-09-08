@@ -38,7 +38,7 @@ extern "C" {
 // verifier. Entries are only written after the corresponding data has been cryptographically
 // verified, so a cache hit is a trust anchor:
 //
-// - The verifier uses it to resolve the `blockHash` variant of `ETH_BLOCK_PROOF_UNION`
+// - The verifier uses it to resolve the `blockHash` variant of `ETH_EL_PROOF_UNION`
 //   (a proof that only references a block hash because the header was already verified).
 // - The (hybrid) prover uses it to cache verified `header_data` / execution payloads
 //   fetched from a remote prover and to decide when a proof can reference a block by

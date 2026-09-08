@@ -2,7 +2,7 @@
  * Copyright (c) 2026 corpus.core
  * SPDX-License-Identifier: MIT
  *
- * Tests for ETH_BLOCK_PROOF_UNION index 2 (sequencerProof) and the OP verify hook.
+ * Tests for ETH_EL_PROOF_UNION index 2 (sequencerProof) and the OP verify hook.
  */
 
 #include "unity.h"
@@ -308,7 +308,7 @@ static ssz_ob_t build_block_hash_proof(const uint8_t block_hash[32]) {
   ssz_add_bytes(&proof, "body", bytes(&none, 1));
   uint8_t block_union[33] = {0};
   memcpy(block_union + 1, block_hash, 32);
-  ssz_add_bytes(&proof, "block", bytes(block_union, sizeof(block_union)));
+  ssz_add_bytes(&proof, "elProof", bytes(block_union, sizeof(block_union)));
   return ssz_builder_to_bytes(&proof);
 }
 
@@ -332,7 +332,7 @@ void test_sequencer_proof_union_index(void) {
 void test_block_proof_union_index_2_is_sequencer(void) {
   const ssz_def_t* proof = eth_ssz_verification_type(ETH_SSZ_VERIFY_BLOCK_PROOF);
   TEST_ASSERT_NOT_NULL(proof);
-  const ssz_def_t* block = ssz_get_def(proof, "block");
+  const ssz_def_t* block = ssz_get_def(proof, "elProof");
   TEST_ASSERT_NOT_NULL(block);
   TEST_ASSERT_EQUAL_INT(SSZ_TYPE_UNION, block->type);
   TEST_ASSERT_EQUAL_INT(4, block->def.container.len);
@@ -352,7 +352,7 @@ void test_verify_block_without_hook_rejects_unknown_variant(void) {
 }
 
 void test_witness_proof_rejected_with_op_hook_registered(void) {
-  ssz_ob_t  block      = {.def = eth_ssz_verification_type(ETH_SSZ_WITNESS_BLOCK_PROOF), .bytes = NULL_BYTES};
+  ssz_ob_t  block      = {.def = eth_ssz_verification_type(ETH_SSZ_WITNESS_HEADER_PROOF), .bytes = NULL_BYTES};
   bytes_t   el_header  = NULL_BYTES;
   bytes32_t block_hash = {0};
   TEST_ASSERT_EQUAL_INT(C4_ERROR, c4_verify_block(&g_ctx, block, &el_header, block_hash));
@@ -909,7 +909,7 @@ void test_op_add_sequencer_proof_writes_union_index_2(void) {
   ssz_add_bytes(&parent, "body", bytes(&none, 1));
   TEST_ASSERT_TRUE(op_add_sequencer_proof(&pctx, &parent, &block, &historic));
   ssz_ob_t proof  = ssz_builder_to_bytes(&parent);
-  ssz_ob_t ublock = ssz_get(&proof, "block");
+  ssz_ob_t ublock = ssz_get(&proof, "elProof");
   TEST_ASSERT_NOT_NULL(ublock.def);
   TEST_ASSERT_EQUAL_STRING("sequencerProof", ublock.def->name);
   safe_free(proof.bytes.data);

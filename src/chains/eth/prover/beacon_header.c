@@ -226,9 +226,9 @@ typedef struct {
   ssz_ob_t  el_body;
 } local_cache_entry_t;
 
-// Resolves the `ETH_BLOCK_PROOF_UNION` variant of a hybrid response into the RLP EL header.
+// Resolves the `ETH_EL_PROOF_UNION` variant of a hybrid response into the RLP EL header.
 //
-// - `clProof` variant: the union carries the full block proof and `elHeader` is inlined in
+// - `clProof` variant: the union carries the full `ETH_CL_HEADER_PROOF` and `elHeader` is inlined in
 //   the PROVER response. We return a pointer into that response (borrow), same as before.
 // - `blockHash` variant: the remote prover already knew that this client's `header_cache`
 //   holds the verified header, so it omitted the block proof. We recover the RLP header
@@ -309,7 +309,7 @@ static c4_status_t hybrid_fetch_and_verify(prover_ctx_t* ctx, json_t block, hybr
     if (data_request->validated) {
       ssz_ob_t response = {.def = c4_get_request_type(c4_chain_type(ctx->chain_id)), .bytes = data_request->response};
       ssz_ob_t proof    = ssz_get(&response, "proof");
-      ssz_ob_t block    = ssz_get(&proof, "block");
+      ssz_ob_t block    = ssz_get(&proof, "elProof");
       ssz_ob_t body     = ssz_get(&proof, "body");
 
       if (body.def && body.def->type == SSZ_TYPE_CONTAINER && el_body)
@@ -345,7 +345,7 @@ static c4_status_t hybrid_fetch_and_verify(prover_ctx_t* ctx, json_t block, hybr
     switch (status) {
       case C4_SUCCESS: {
         data_request->validated = true;
-        ssz_ob_t block          = ssz_get(&verify_ctx.proof, "block");
+        ssz_ob_t block          = ssz_get(&verify_ctx.proof, "elProof");
         ssz_ob_t body           = ssz_get(&verify_ctx.proof, "body");
 
         if (body.def && body.def->type == SSZ_TYPE_CONTAINER && el_body)

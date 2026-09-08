@@ -260,7 +260,7 @@ const ssz_def_t SYNC_COMMITTEE[2] = {
     SSZ_BYTE_VECTOR("aggregatePubkey", 48)};   // the aggregate pubkey (48 bytes) of the sync committee
 
 // ExecutionPayloadHeader as embedded in LightClientHeader (light-client protocol).
-// Independent of Colibri's RLP block-hash proofs (`ETH_CL_BLOCK_PROOF`).
+// Independent of Colibri's RLP block-hash proofs (`ETH_CL_HEADER_PROOF`).
 static const ssz_def_t EXECUTION_PAYLOAD_HEADER[] = {
     SSZ_BYTES32("parentHash"),         // the hash of the parent block
     SSZ_ADDRESS("feeRecipient"),       // the address of the fee recipient

@@ -200,7 +200,7 @@ bool verify_block_proof(verify_ctx_t* ctx) {
   if (!ctx->method || (!is_full_block && !is_block_header_method(ctx->method))) RETURN_VERIFY_ERROR(ctx, "method mismatch for block proof");
   // full block methods take [block, includeTx], header-only methods at most [block]
   if (json_len(ctx->args) > (is_full_block ? 2 : 1)) RETURN_VERIFY_ERROR(ctx, "invalid arguments for block proof");
-  if (c4_verify_block(ctx, ssz_get(&ctx->proof, "block"), &el_header, block_hash) != C4_SUCCESS) return false;
+  if (c4_verify_block(ctx, ssz_get(&ctx->proof, "elProof"), &el_header, block_hash) != C4_SUCCESS) return false;
 
   ssz_ob_t body          = ssz_get(&ctx->proof, "body");
   bool     has_body      = body.def && strcmp(body.def->name, "content") == 0;

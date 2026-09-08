@@ -81,15 +81,15 @@ typedef enum {
   ETH_SSZ_VERIFY_LC_SYNCDATA    = 28, // `LCSyncData`   (union index 1)
   ETH_SSZ_VERIFY_ZK_SYNCDATA_V6 = 29, // `ZKSyncDataV6` (union index 2)
 
-  // Resolves to the `CheckpointProof` variant of `ETH_HEADER_PROOFS_UNION`
+  // Resolves to the `checkpoint` variant of `ETH_HEADER_PROOFS_UNION`
   // (structurally identical to the bootstrap union's CheckpointProof).
   ETH_SSZ_VERIFY_CHECKPOINT_PROOF = 30,
 
-  // ETH_BLOCK_PROOF_UNION / ETH_BLOCK_BODY_UNION
-  ETH_SSZ_CL_BLOCK_PROOF      = 31, // ETH_BLOCK_PROOF_UNION index 1
-  ETH_SSZ_SEQUENCER_PROOF     = 32, // ETH_BLOCK_PROOF_UNION index 2
-  ETH_SSZ_WITNESS_BLOCK_PROOF = 33, // ETH_BLOCK_PROOF_UNION index 3
-  ETH_SSZ_EL_BLOCK_CONTENT    = 34, // ETH_BLOCK_BODY_UNION content variant
+  // ETH_EL_PROOF_UNION / ETH_BLOCK_BODY_UNION
+  ETH_SSZ_CL_HEADER_PROOF      = 31, // ETH_EL_PROOF_UNION index 1
+  ETH_SSZ_SEQUENCER_PROOF      = 32, // ETH_EL_PROOF_UNION index 2
+  ETH_SSZ_WITNESS_HEADER_PROOF = 33, // ETH_EL_PROOF_UNION index 3
+  ETH_SSZ_EL_BLOCK_CONTENT     = 34, // ETH_BLOCK_BODY_UNION content variant
 
 } eth_ssz_type_t;
 
@@ -253,7 +253,7 @@ gindex_t c4_historical_summaries_gindex(chain_id_t chain_id, uint64_t slot);
 
 /**
  * Returns the generalized index within `BeaconBlockBody` of the leaf that the
- * CL block-hash proof (`ETH_CL_BLOCK_PROOF`) anchors against for the fork active
+ * CL block-hash proof (`ETH_CL_HEADER_PROOF`) anchors against for the fork active
  * at `slot`. Both the prover (when building the branch) and the verifier (when
  * checking it) resolve the gindex through this helper, so the leaf position is
  * bound and cannot be swapped out by a crafted proof.

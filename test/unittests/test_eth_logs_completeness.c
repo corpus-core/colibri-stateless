@@ -136,7 +136,7 @@ static const ssz_def_t* completeness_proof_def(void) {
 }
 
 // LogsCompletenessProof:
-//   block   — ETH_BLOCK_PROOF_UNION; tests use the blockHash variant
+//   elProof — ETH_EL_PROOF_UNION; tests use the blockHash variant
 //   headers — raw RLP EL headers for fromBlock .. toBlock-1 (parentHash chain)
 //   blocks  — per-block payload, selector 0 = NONE, 1 = FullReceipts
 static ssz_ob_t build_proof(const uint8_t* anchor_hash, bytes_t* headers, uint32_t header_count,
@@ -146,7 +146,7 @@ static ssz_ob_t build_proof(const uint8_t* anchor_hash, bytes_t* headers, uint32
 
   uint8_t block_union[33] = {0}; // selector 0 = blockHash
   memcpy(block_union + 1, anchor_hash, 32);
-  ssz_add_bytes(&b, "block", bytes(block_union, sizeof(block_union)));
+  ssz_add_bytes(&b, "elProof", bytes(block_union, sizeof(block_union)));
 
   if (header_count == 0)
     ssz_add_bytes(&b, "headers", NULL_BYTES);
