@@ -214,8 +214,8 @@ function parse_ssz_file(file) {
     for (let line of lines) {
         line_number++
         if (is_markdown) line = '// ' + line
-        if (line.trim().startsWith('#define ')) continue
         if (add_section(line, sections)) continue
+        if (sections.length == 0) continue
         if (line.trim().startsWith('/**')) doc_comment = {
             open: true,
             params: {},
