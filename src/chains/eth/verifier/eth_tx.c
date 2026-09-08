@@ -997,9 +997,9 @@ bool c4_write_receipt_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer, by
   // the created contract address is keccak256(rlp([sender, nonce]))[12:32].
   // CREATE2-style deployments produce their own address inside the EVM and are
   // NOT set on the outer receipt.  Deposit txs never create contracts here.
-  bytes32_t contract_hash_buf   = {0};
-  bytes_t   contract_address    = NULL_BYTES;
-  bool      has_contract_addr   = false;
+  bytes32_t contract_hash_buf = {0};
+  bytes_t   contract_address  = NULL_BYTES;
+  bool      has_contract_addr = false;
   if (type != TX_TYPE_DEPOSITED && status_u64 == 1 && to_field.len == 0) {
     uint8_t  rlp_tmp[64] = {0};
     buffer_t rlp_buf     = {.data = {.data = rlp_tmp, .len = 0}, .allocated = -(int32_t) sizeof(rlp_tmp)};
