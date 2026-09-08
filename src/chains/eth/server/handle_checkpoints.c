@@ -62,7 +62,7 @@ static bool append_signable_period(uint64_t period, uint64_t* periods, file_data
 // `ZKSyncDataV6` proof (`C4_PS_ZK_PROOF_SSZ`, 356-byte Groth16).
 static bool get_checkpoint_from_proof(bytes_t proof_data, bytes32_t checkpoint, uint64_t* slot) {
   if (proof_data.len < 25000) return false; //  make sure we have a min len
-  ssz_ob_t proof = {.bytes = proof_data, .def = eth_ssz_verification_type(ETH_SSZ_VERIFY_ZK_SYNCDATA_V6)};
+  ssz_ob_t proof = {.bytes = proof_data, .def = eth_ssz_verification_type(ETH_SSZ_VERIFY_ZK_SYNCDATA)};
   ssz_ob_t cp    = ssz_get(&proof, "checkpoint");
   // `checkpoint` is a union: a corrupt/partial file (or a wrong-variant def) yields a
   // zero-initialised `cp` (cp.def == NULL) or a non-container variant. Bail out instead

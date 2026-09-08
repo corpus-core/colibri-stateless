@@ -487,7 +487,7 @@ INTERNAL c4_status_t c4_update_from_sync_data(verify_ctx_t* ctx) {
   log_debug("c4_update_from_sync_data: %s", (char*) ctx->sync_data.def->name);
   if (strcmp(ctx->sync_data.def->name, "LCSyncData") == 0)
     return update_from_lc_sync_data(ctx);
-  else if (strcmp(ctx->sync_data.def->name, "ZKSyncDataV6") == 0)
+  else if (strcmp(ctx->sync_data.def->name, "ZKSyncData") == 0)
     return update_from_zk_sync_data(ctx);
   else
     RETURN_VERIFY_ERROR_STATUS(ctx, "unknown sync_data type!");

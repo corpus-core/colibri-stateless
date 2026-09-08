@@ -96,7 +96,7 @@ static void files_read_cb(void* user_data, file_data_t* files, int num_files) {
     buffer_append(&headers_list, bytes_slice(h, 48, 64)); // stateRoot and bodyRoot
   }
 
-  ssz_builder_t builder            = ssz_builder_for_type(ETH_SSZ_VERIFY_ZK_SYNCDATA_V6);
+  ssz_builder_t builder            = ssz_builder_for_type(ETH_SSZ_VERIFY_ZK_SYNCDATA);
   ssz_builder_t checkpoint_builder = ssz_builder_for_def(ssz_get_def(builder.def, "checkpoint")->def.container.elements + 2);
   ssz_add_bytes(&checkpoint_builder, "headers", headers_list.data);
   ssz_add_bytes(&checkpoint_builder, "header", checkpoint_header);

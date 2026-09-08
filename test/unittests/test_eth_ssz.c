@@ -134,7 +134,7 @@ void test_verify_list_kinds(void) {
   TEST_ASSERT_EQUAL_INT_MESSAGE(SSZ_TYPE_LIST, witnesses->type, "witnesses stay a capped SSZ list");
   TEST_ASSERT_EQUAL_UINT32(16, witnesses->def.vector.len);
 
-  const ssz_def_t* signatures = ssz_get_def(eth_ssz_verification_type(ETH_SSZ_VERIFY_ZK_SYNCDATA_V6), "signatures");
+  const ssz_def_t* signatures = ssz_get_def(eth_ssz_verification_type(ETH_SSZ_VERIFY_ZK_SYNCDATA), "signatures");
   TEST_ASSERT_NOT_NULL(signatures);
   TEST_ASSERT_EQUAL_INT_MESSAGE(SSZ_TYPE_LIST, signatures->type, "ZK signatures stay a capped SSZ list");
   TEST_ASSERT_EQUAL_UINT32(16, signatures->def.vector.len);

@@ -30,9 +30,9 @@
 #include <stdlib.h>
 // Helper type definition for byte arrays with large maximum size (1GB)
 static const ssz_def_t ssz_bytes_1024 = SSZ_BYTES("Bytes", 1073741824);
-// Forward declaration for C4_ETH_LC_SYNCDATA (defined later after includes)
-static const ssz_def_t C4_ETH_LC_SYNCDATA[2];
-static const ssz_def_t C4_ETH_ZK_SYNCDATA_V6[6];
+// Forward declaration for ETH_LC_SYNCDATA (defined later after includes)
+static const ssz_def_t ETH_LC_SYNCDATA[2];
+static const ssz_def_t ETH_ZK_SYNCDATA[6];
 #include "verify_data_types.h"
 #include "verify_proof_types.h"
 
@@ -113,8 +113,8 @@ static const ssz_def_t C4_ETH_SYNCDATA_UPDATE_UNION[] = {
 // A Union of possible types of sync data used to update the sync state by verifying the transition from the last period to the required.
 const ssz_def_t C4_ETH_REQUEST_SYNCDATA_UNION[] = {
     SSZ_NONE,
-    SSZ_CONTAINER("LCSyncData", C4_ETH_LC_SYNCDATA),      // Light Client Sync Data
-    SSZ_CONTAINER("ZKSyncDataV6", C4_ETH_ZK_SYNCDATA_V6), // ZK Proof Sync Data (356-byte Groth16)
+    SSZ_CONTAINER("LCSyncData", ETH_LC_SYNCDATA), // Light Client Sync Data
+    SSZ_CONTAINER("ZKSyncData", ETH_ZK_SYNCDATA), // ZK Proof Sync Data (356-byte Groth16)
 };
 
 // the main container defining the incoming data processed by the verifier
@@ -140,13 +140,13 @@ static const ssz_def_t C4_ETH_SYNCDATA_UPDATE = SSZ_UNION("updates", C4_ETH_SYNC
 //
 
 // LC SyncData contains all the proofs needed to bootstrap and update to the  current period.
-static const ssz_def_t C4_ETH_LC_SYNCDATA[2] = {
+static const ssz_def_t ETH_LC_SYNCDATA[2] = {
     SSZ_UNION("bootstrap", C4_ETH_SYNCDATA_BOOTSTRAP_UNION), // optional bootstrap data for the sync committee, which is only accepted by the verifier, if it matches the checkpoint set.
     SSZ_PROG_LIST("update", C4_ETH_SYNCDATA_UPDATE)          // optional update data for the sync committee
 };
 
 // Recursive ZK proof of a sync-committee update (356-byte Groth16).
-static const ssz_def_t C4_ETH_ZK_SYNCDATA_V6[6] = {
+static const ssz_def_t ETH_ZK_SYNCDATA[6] = {
     SSZ_BYTES32("vk_hash"),        // the hash of the vk used to generate the proof
     SSZ_BYTE_VECTOR("proof", 356), // Groth16 proof of the sync-committee update
     SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),
@@ -284,7 +284,7 @@ const ssz_def_t* eth_ssz_verification_type(eth_ssz_type_t type) {
       return ARRAY_TYPE(ETH_HEADER_PROOFS_UNION, ETH_CHECKPOINT_PROOF);
     case ETH_SSZ_VERIFY_LC_SYNCDATA:
       return C4_ETH_REQUEST_SYNCDATA_UNION + 1;
-    case ETH_SSZ_VERIFY_ZK_SYNCDATA_V6:
+    case ETH_SSZ_VERIFY_ZK_SYNCDATA:
       return C4_ETH_REQUEST_SYNCDATA_UNION + 2;
     case ETH_SSZ_CL_HEADER_PROOF:
       return ARRAY_TYPE(ETH_EL_PROOF_UNION, ETH_CL_HEADER_PROOF);

@@ -78,8 +78,8 @@ typedef enum {
   ETH_SSZ_DATA_BLOCK_RECEIPTS = 27,
 
   // C4_ETH_REQUEST_SYNCDATA_UNION
-  ETH_SSZ_VERIFY_LC_SYNCDATA    = 28, // `LCSyncData`   (union index 1)
-  ETH_SSZ_VERIFY_ZK_SYNCDATA_V6 = 29, // `ZKSyncDataV6` (union index 2)
+  ETH_SSZ_VERIFY_LC_SYNCDATA = 28, // `LCSyncData`   (union index 1)
+  ETH_SSZ_VERIFY_ZK_SYNCDATA = 29, // `ZKSyncDataV6` (union index 2)
 
   // Resolves to the `checkpoint` variant of `ETH_HEADER_PROOFS_UNION`
   // (structurally identical to the bootstrap union's CheckpointProof).
