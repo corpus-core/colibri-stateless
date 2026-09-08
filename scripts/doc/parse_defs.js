@@ -258,7 +258,7 @@ function parse_ssz_file(file) {
             types[type_name] = def
             const section = sections.at(-1)
             if (section) {
-                section.types.push(def)
+                section.types.splice(0, 0, def)
             }
             comment = ''
         }
