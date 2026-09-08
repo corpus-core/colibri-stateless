@@ -34,15 +34,6 @@ extern "C" {
 #include "ssz.h"
 #include "sync_committee.h"
 
-/**
- * SSZ type of the packed ZK sync-data file (`zk_proof.ssz`).
- *
- * @return `ETH_SSZ_VERIFY_ZK_SYNCDATA` (union index 2, 356-byte Groth16).
- */
-static inline eth_ssz_type_t c4_zk_syncdata_type(void) {
-  return ETH_SSZ_VERIFY_ZK_SYNCDATA;
-}
-
 typedef enum {
   HISTORIC_PROOF_NONE   = 0,
   HISTORIC_PROOF_DIRECT = 1,

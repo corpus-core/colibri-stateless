@@ -496,7 +496,7 @@ c4_status_t c4_get_syncdata_proof(prover_ctx_t* ctx, syncdata_state_t* sync_data
     // (union index 2, 356-byte Groth16). The builder layout AND the union selector
     // are derived from this def, so it must match the read def used in
     // `c4_fetch_zk_proof_data`.
-    builder->def             = eth_ssz_verification_type(c4_zk_syncdata_type());
+    builder->def             = eth_ssz_verification_type(ETH_SSZ_VERIFY_ZK_SYNCDATA);
     zk_proof_data_t zk_proof = {0};
     eth_cu_add(ctx, CU_ZK_PROOF_INCLUDE); // ZK proof attached to the sync section
 

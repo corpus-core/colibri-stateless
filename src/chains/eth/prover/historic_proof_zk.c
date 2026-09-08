@@ -22,6 +22,7 @@
  */
 
 #include "../server/period_store_files.h"
+#include "beacon_types.h"
 #include "historic_proof.h"
 #include "prover.h"
 #include <stdlib.h>
@@ -37,7 +38,7 @@ c4_status_t c4_fetch_zk_proof_data(prover_ctx_t* ctx, zk_proof_data_t* zk_proof,
   buffer_t    buf                                           = stack_buffer(buffer);
 
   // Fetch packed ZK sync-data as `ZKSyncDataV6`.
-  zk_proof->sync_proof.def = eth_ssz_verification_type(c4_zk_syncdata_type());
+  zk_proof->sync_proof.def = eth_ssz_verification_type(ETH_SSZ_VERIFY_ZK_SYNCDATA);
 
   c4_status_t proof_status = c4_send_internal_request(ctx, bprintf(&buf, C4_PS_INTERNAL_PREFIX "%l/" C4_PS_ZK_PROOF_SSZ, period), NULL, 0, &zk_proof->sync_proof.bytes);
   if (proof_status == C4_ERROR)
