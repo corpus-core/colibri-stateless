@@ -36,6 +36,28 @@ static const ssz_def_t ETH_ZK_SYNCDATA[6];
 #include "verify_data_types.h"
 #include "verify_proof_types.h"
 
+/**
+ * Finds the index of a target definition within an array of SSZ definitions.
+ * Searches for a container type whose elements pointer matches the target.
+ *
+ * @param array Array of SSZ definitions to search
+ * @param len Length of the array
+ * @param target Target definition to find (compares elements pointer)
+ * @return Index of the matching definition, or 0 if not found
+ */
+static inline size_t array_idx(const ssz_def_t* array, size_t len, const ssz_def_t* target) {
+  for (size_t i = 0; i < len; i++) {
+    // >= SSZ_TYPE_CONTAINER matches any def whose first union member is a child-def
+    // pointer (container, vector, list, union and the progressive variants)
+    if (array[i].type >= SSZ_TYPE_CONTAINER && array[i].def.container.elements == target) return i;
+  }
+  return 0;
+}
+// Macro to get the index of a target definition in an array
+#define ARRAY_IDX(a, target) array_idx(a, sizeof(a) / sizeof(ssz_def_t), target)
+// Macro to get a pointer to the definition at the index of the target in an array
+#define ARRAY_TYPE(a, target) a + array_idx(a, sizeof(a) / sizeof(ssz_def_t), target)
+
 // : Ethereum
 
 // :: Ethereum Main Proof Request
@@ -129,53 +151,6 @@ static const ssz_def_t C4_REQUEST_CONTAINER = SSZ_CONTAINER("C4Request", C4_REQU
 
 // Union type for a single LightClient Update, which can be either Deneb or Electra format
 static const ssz_def_t C4_ETH_SYNCDATA_UPDATE = SSZ_UNION("updates", C4_ETH_SYNCDATA_UPDATE_UNION);
-
-// :: SyncCommittee Proof
-//
-// The Verifier always needs the pubkeys of the sync committee for a given period in order to verify the BLS signature of a Beacon BlockHeader.
-//
-// If a verifier requests a proof from a remote prover, the verifier may use the c4-property of the RPC-Request to describe its state of the known periods or checkpoint.
-// If the verifier only reports a checkpoint, a bootstrap is added proving the current_sync_committee for the given checkpoint.
-// If the requested header has a higher period than the bootstrap or the latest known period, all required lightClientUpdates will be proved.
-//
-
-// LC SyncData contains all the proofs needed to bootstrap and update to the  current period.
-static const ssz_def_t ETH_LC_SYNCDATA[2] = {
-    SSZ_UNION("bootstrap", C4_ETH_SYNCDATA_BOOTSTRAP_UNION), // optional bootstrap data for the sync committee, which is only accepted by the verifier, if it matches the checkpoint set.
-    SSZ_PROG_LIST("update", C4_ETH_SYNCDATA_UPDATE)          // optional update data for the sync committee
-};
-
-// Recursive ZK proof of a sync-committee update (356-byte Groth16).
-static const ssz_def_t ETH_ZK_SYNCDATA[6] = {
-    SSZ_BYTES32("vk_hash"),        // the hash of the vk used to generate the proof
-    SSZ_BYTE_VECTOR("proof", 356), // Groth16 proof of the sync-committee update
-    SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),
-    SSZ_VECTOR("pubkeys", ssz_bls_pubky, 512),          // the pubkeys of the sync committee
-    SSZ_UNION("checkpoint", ETH_HEADER_PROOFS_UNION),   // the proof from the checkpoint to the header
-    SSZ_LIST("signatures", ssz_secp256k1_signature, 16) // cap 16 is the witness-key allow-list size, not an encoding limit
-};
-
-/**
- * Finds the index of a target definition within an array of SSZ definitions.
- * Searches for a container type whose elements pointer matches the target.
- *
- * @param array Array of SSZ definitions to search
- * @param len Length of the array
- * @param target Target definition to find (compares elements pointer)
- * @return Index of the matching definition, or 0 if not found
- */
-static inline size_t array_idx(const ssz_def_t* array, size_t len, const ssz_def_t* target) {
-  for (size_t i = 0; i < len; i++) {
-    // >= SSZ_TYPE_CONTAINER matches any def whose first union member is a child-def
-    // pointer (container, vector, list, union and the progressive variants)
-    if (array[i].type >= SSZ_TYPE_CONTAINER && array[i].def.container.elements == target) return i;
-  }
-  return 0;
-}
-// Macro to get the index of a target definition in an array
-#define ARRAY_IDX(a, target) array_idx(a, sizeof(a) / sizeof(ssz_def_t), target)
-// Macro to get a pointer to the definition at the index of the target in an array
-#define ARRAY_TYPE(a, target) a + array_idx(a, sizeof(a) / sizeof(ssz_def_t), target)
 
 /**
  * Returns the SSZ definition for a LightClient Update based on the fork ID.
@@ -297,3 +272,37 @@ const ssz_def_t* eth_ssz_verification_type(eth_ssz_type_t type) {
     default: return NULL;
   }
 }
+
+// :: SyncCommittee Proof
+//
+// The Verifier always needs the pubkeys of the sync committee for a given period in order to verify the BLS signature of a Beacon BlockHeader. These keys can be fetched as part of the proof for example from a remote prover. While it allows colibri to verify even without any previous state if the pubkeys are part of the proof-response, instead of adding those 25kB for the pubkeys, they easily be cached.
+//
+// If a verifier requests a proof from a remote prover, the verifier may use the c4-property of the RPC-Request to describe its state of the known periods or checkpoint.
+// If the verifier only reports a checkpoint, a bootstrap is added proving the current_sync_committee for the given checkpoint.
+// If the requested header has a higher period than the bootstrap or the latest known period, all required lightClientUpdates will be proven.
+//
+// For the sync-data-section in the proof (C4-Request) there currently 2 ways to verifiy the pubkeys of the sync_committee:
+
+// LC SyncData contains all the proofs needed to bootstrap and update to the  current period.
+//
+// There are 3 different szenarios what kind og syncdata could be provided.
+// 1. cold start - no pubkeys are known. In this case the verifier will use either the configured checkpoint or fetch one from the checkpointz. This checkpoint will be sent to the prover (as c4-property). The prover will then fetch the bootstrap-data and pack it to the syncdata section. If the requested Block is within a newer period, lightclient updates will be provded to reach the target period..
+// 2. old pubkeys in the cache. If the verifier already has verified pubkeys for a sync period, but the the target period is newer, only the light client updates will be added to the proof. If the the range of the updates is larger than the weak subjectivity period,the verifier will fetch the checkpoint from the checkpointz and verify the last update against it.
+// 3. since the verifier is always sending the last verified sync period, in most cases the prover will simply confirm that this macthes the requested period and leave the syncdata empty.
+
+static const ssz_def_t ETH_LC_SYNCDATA[2] = {
+    SSZ_UNION("bootstrap", C4_ETH_SYNCDATA_BOOTSTRAP_UNION), // optional bootstrap data for the sync committee, which is only accepted by the verifier, if it matches the checkpoint set.
+    SSZ_PROG_LIST("update", C4_ETH_SYNCDATA_UPDATE)          // optional update data for the sync committee
+};
+
+// A Recursive ZK proof of a sync-committee update (356-byte Groth16).
+// This proof allows to sync from a fixed trustanchir (hardcoded in the verifier). This also solves the problem of a verifier with a very old pubkeys in the cache to speed up the process.
+// It alos adds security, because it uses 2 independend factors to verify. the cryptographic zk proof on the one hand and the checkpointz verification on the other hand.
+static const ssz_def_t ETH_ZK_SYNCDATA[6] = {
+    SSZ_BYTES32("vk_hash"),        // the hash of the vk used to generate the proof
+    SSZ_BYTE_VECTOR("proof", 356), // Groth16 proof of the sync-committee update
+    SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),
+    SSZ_VECTOR("pubkeys", ssz_bls_pubky, 512),          // the pubkeys of the sync committee
+    SSZ_UNION("checkpoint", ETH_HEADER_PROOFS_UNION),   // the proof from the checkpoint to the header
+    SSZ_LIST("signatures", ssz_secp256k1_signature, 16) // cap 16 is the witness-key allow-list size, not an encoding limit
+};
