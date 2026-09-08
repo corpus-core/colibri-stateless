@@ -335,10 +335,11 @@ void test_block_proof_union_index_2_is_sequencer(void) {
   const ssz_def_t* block = ssz_get_def(proof, "block");
   TEST_ASSERT_NOT_NULL(block);
   TEST_ASSERT_EQUAL_INT(SSZ_TYPE_UNION, block->type);
-  TEST_ASSERT_EQUAL_INT(3, block->def.container.len);
+  TEST_ASSERT_EQUAL_INT(4, block->def.container.len);
   TEST_ASSERT_EQUAL_STRING("blockHash", block->def.container.elements[0].name);
   TEST_ASSERT_EQUAL_STRING("clProof", block->def.container.elements[1].name);
   TEST_ASSERT_EQUAL_STRING("sequencerProof", block->def.container.elements[2].name);
+  TEST_ASSERT_EQUAL_STRING("witnessProof", block->def.container.elements[3].name);
 }
 
 void test_verify_block_without_hook_rejects_unknown_variant(void) {
@@ -348,6 +349,15 @@ void test_verify_block_without_hook_rejects_unknown_variant(void) {
   bytes32_t block_hash = {0};
   TEST_ASSERT_EQUAL_INT(C4_ERROR, c4_verify_block(&g_ctx, block, &el_header, block_hash));
   TEST_ASSERT_NOT_NULL(g_ctx.state.error);
+}
+
+void test_witness_proof_rejected_with_op_hook_registered(void) {
+  ssz_ob_t  block      = {.def = eth_ssz_verification_type(ETH_SSZ_WITNESS_BLOCK_PROOF), .bytes = NULL_BYTES};
+  bytes_t   el_header  = NULL_BYTES;
+  bytes32_t block_hash = {0};
+  TEST_ASSERT_EQUAL_INT(C4_ERROR, c4_verify_block(&g_ctx, block, &el_header, block_hash));
+  TEST_ASSERT_NOT_NULL(g_ctx.state.error);
+  TEST_ASSERT_EQUAL_STRING("witnessProof is not implemented yet", g_ctx.state.error);
 }
 
 void test_unsupported_chain(void) {
@@ -921,6 +931,7 @@ int main(void) {
   RUN_TEST(test_sequencer_proof_union_index);
   RUN_TEST(test_block_proof_union_index_2_is_sequencer);
   RUN_TEST(test_verify_block_without_hook_rejects_unknown_variant);
+  RUN_TEST(test_witness_proof_rejected_with_op_hook_registered);
   RUN_TEST(test_unsupported_chain);
   RUN_TEST(test_invalid_zstd);
   RUN_TEST(test_invalid_signature);

@@ -61,7 +61,6 @@ Each prover module generates proofs for a category of RPC methods. The main disp
 | `proof_call.c` | Contract call proof (collects access lists + state) |
 | `proof_block.c` | Block proof generation |
 | `proof_sync.c` | Sync committee proof generation (light client updates) |
-| `proof_witness.c` | Witness data generation (for L2) |
 | `historic_proof.c` | Historical block proof (older than 8192 slots) |
 | `historic_proof_zk.c` | ZK-based historical proofs |
 | `beacon.c/h` | Beacon block resolution (parent scan, Gloas hop, EL/CL fill) |

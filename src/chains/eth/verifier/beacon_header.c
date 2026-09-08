@@ -311,6 +311,9 @@ c4_status_t c4_verify_block(verify_ctx_t* ctx, ssz_ob_t block, bytes_t* el_heade
   if (strcmp(block.def->name, "clProof") == 0)
     return verify_block_by_blockproof(ctx, block, el_header, block_hash);
 
+  if (strcmp(block.def->name, "witnessProof") == 0)
+    THROW_ERROR("witnessProof is not implemented yet");
+
   unsigned type = (unsigned) c4_chain_type(ctx->chain_id);
   if (type < C4_BLOCK_PROOF_HOOKS && verify_block_hooks[type])
     return verify_block_hooks[type](ctx, block, el_header, block_hash);

@@ -80,6 +80,9 @@ static const ssz_def_t PROOF_HEADER[4];
 //
 // If the verifier has already cached this execution header, the proof may use the `blockHash`
 // variant of `ETH_BLOCK_PROOF_UNION` instead of a full `EthClBlockProof`.
+// A fourth variant, `witnessProof`, attests `keccak256(elHeader)` with a list of
+// secp256k1 signatures (verification against configured witness keys is not
+// implemented yet).
 //
 // ```mermaid
 // flowchart TB
@@ -133,13 +136,33 @@ static const ssz_def_t ETH_SEQUENCER_PROOF[] = {
     SSZ_BYTE_VECTOR("signature", 65),                  // sequencer secp256k1 signature (r, s, v)
 };
 
+// One witness attestation of `keccak256(elHeader)`.
+// `address` is the claimed signer; `signature` is secp256k1 (r, s, v).
+// Verification (ecrecover + allow-list) is reserved for a later release.
+static const ssz_def_t ETH_BLOCKHASH_WITNESS[] = {
+    SSZ_ADDRESS("address"),           // claimed signer (must match ecrecover of signature)
+    SSZ_BYTE_VECTOR("signature", 65), // secp256k1 signature over keccak256(elHeader)
+};
+static const ssz_def_t ETH_BLOCKHASH_WITNESS_CONTAINER = SSZ_CONTAINER("BlockhashWitness", ETH_BLOCKHASH_WITNESS);
+
+// Witness-signed EL header. `keccak256(elHeader)` is the blockHash that each
+// witness signed. The header is otherwise unauthenticated until those signatures
+// are checked against configured witness keys (not implemented yet).
+static const ssz_def_t ETH_WITNESS_BLOCK_PROOF[] = {
+    SSZ_PROG_BYTES("elHeader"),                                 // RLP-serialized execution-layer header
+    SSZ_LIST("witnesses", ETH_BLOCKHASH_WITNESS_CONTAINER, 16), // signatures over keccak256(elHeader)
+};
+
 // Shared block proof used by account, tx, receipt, logs, call and block proofs.
-// Either a full consensus-layer proof, a hash if the verifier already cached that header,
-// or a sequencer-signed execution payload (L2).
+// Either a cached hash, a full consensus-layer proof, a sequencer-signed
+// execution payload (L2), or a reserved witness-signed EL header.
+// `ssz_is_valid` only checks the wire shape; `c4_verify_block` authenticates
+// variants 0–2. Variant 3 (`witnessProof`) is rejected until ecrecover + allow-list.
 static const ssz_def_t ETH_BLOCK_PROOF_UNION[] = {
-    SSZ_BYTES32("blockHash"),                           // 0: cached: verifier already holds this verified EL header
-    SSZ_CONTAINER("clProof", ETH_CL_BLOCK_PROOF),       // 1: full consensus-layer proof of the EL header
-    SSZ_CONTAINER("sequencerProof", ETH_SEQUENCER_PROOF), // 2: sequencer-signed execution payload (OP-Stack)
+    SSZ_BYTES32("blockHash"),                               // 0: cached: verifier already holds this verified EL header
+    SSZ_CONTAINER("clProof", ETH_CL_BLOCK_PROOF),           // 1: full consensus-layer proof of the EL header
+    SSZ_CONTAINER("sequencerProof", ETH_SEQUENCER_PROOF),   // 2: sequencer-signed execution payload (OP-Stack)
+    SSZ_CONTAINER("witnessProof", ETH_WITNESS_BLOCK_PROOF), // 3: reserved; c4_verify_block rejects until ecrecover+allow-list exist
 };
 
 // A Signature Proof simply contains the BLS signature of the sync committee for the header to verify.

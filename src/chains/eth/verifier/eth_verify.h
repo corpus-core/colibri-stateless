@@ -58,9 +58,10 @@ c4_status_t c4_verify_block(verify_ctx_t* ctx, ssz_ob_t block, bytes_t* el_heade
 
 /**
  * Extra handler for `ETH_BLOCK_PROOF_UNION` variants that ETH itself does not
- * implement (`sequencerProof`, future L1 proofs, ...). One handler per
- * `chain_type_t`; there is no fallback to another variant. Return `C4_SUCCESS`
- * or `C4_ERROR` / `C4_PENDING` like `c4_verify_block`.
+ * implement (`sequencerProof`, ...). `witnessProof` is reserved and currently
+ * rejected by `c4_verify_block`. One handler per `chain_type_t`; there is no
+ * fallback to another variant. Return `C4_SUCCESS` or `C4_ERROR` / `C4_PENDING`
+ * like `c4_verify_block`.
  */
 typedef c4_status_t (*c4_verify_block_extra_fn)(verify_ctx_t* ctx, ssz_ob_t block, bytes_t* el_header, bytes32_t block_hash);
 

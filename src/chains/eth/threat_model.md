@@ -131,7 +131,7 @@ is mediated by a single SSZ container, `ETH_CHECKPOINT_PROOF` (see
 ETH_CHECKPOINT_PROOF {
   header:           BeaconBlockHeader,   // anchor header; state_root binds the merkle proof, slot+root anchor against checkpointz
   aggregate_pubkey: bytes[48],           // SyncCommittee.aggregate_pubkey for sync_committee_root reconstruction
-  proof:            List[bytes32, 16]    // currentSyncCommitteeBranch (depth 5 in Deneb, 6 in Electra)
+  proof:            List[bytes32, 16]    // currentSyncCommitteeBranch (depth 5 in Deneb, 6 in Electra/Fulu, 11 in Gloas)
 }
 ```
 
@@ -141,7 +141,7 @@ The container is added as a fourth variant to both `ETH_HEADER_PROOFS_UNION` (th
 `c4_verify_checkpoint_proof` performs the entire cross-check in four steps:
 
 1. Reconstruct `sync_committee_root = SHA256(pubkeys_root || hash_tree_root(aggregate_pubkey))` where `pubkeys_root` is supplied by the caller (= chain-of-trust source: ZK proof public output, or LCU chain tail).
-2. Walk `proof` up to a computed `state_root` using the fork-specific `currentSyncCommittee` gindex (Deneb 54, Electra 86).
+2. Walk `proof` up to a computed `state_root` using the fork-specific `currentSyncCommittee` gindex (Deneb 54, Electra/Fulu 86, Gloas 2945).
 3. Compare against `header.stateRoot`.
 4. Anchor `header` against `checkpointz` via `c4_verify_checkpointz_root`.
 
@@ -152,7 +152,7 @@ clears the local sync state and forces a fresh bootstrap on the next round.
 `aggregate_pubkey` is included so the verifier can compute the SyncCommittee container
 root without re-aggregating the 512 pubkeys (which would be an expensive BLS operation
 in the verifier path). The `proof` list (rather than a fixed-depth vector) keeps the
-container valid across Deneb (depth 5) and Electra (depth 6).
+container valid across Deneb (depth 5), Electra/Fulu (depth 6), and Gloas (depth 11).
 
 #### When the check is skipped
 
@@ -222,7 +222,7 @@ Reorganizations (reorgs) occur when the canonical chain switches to an alternati
 
 ### How Colibri uses SyncAggregate
 
-For latest queries, **Colibri** obtains the head block, extracts its `SyncAggregate`, then proves the parent block by computing the parent’s `execution_payload` `hash_tree_root` and verifying via the Merkle branch up to the parent header. The verifier checks the BLS aggregate against the `SigningRoot` and confirms a ≥2/3 sync committee majority.
+For latest queries, **Colibri** obtains the head block, extracts its `SyncAggregate`, then proves the parent execution block by hashing the RLP EL header (`keccak256(elHeader)`) and verifying that hash against `clHeader.bodyRoot` via `blockhashBranch` (gindex 812 on Deneb/Electra/Fulu, 2856 on Gloas). The verifier checks the BLS aggregate against the `SigningRoot` and confirms a ≥2/3 sync committee majority.
 
 ### When can a valid aggregate point to a non-canonical block?
 
@@ -284,9 +284,9 @@ sequenceDiagram
     BeaconB-->>Prover: head_b (block + body + SyncAggregate)
     Prover->>Prover: Quorum(head_a == head_b)? else degrade/retry
     Prover->>Prover: Extract SyncAggregate from canonical head body
-    Prover->>Prover: Build proof for parent block (execution_payload + Merkle branch)
-    Prover-->>Verifier: {execution_payload, merkle_proof, SyncAggregate}
-    Verifier->>Verifier: Check HTR(payload) -> header -> SigningRoot
+    Prover->>Prover: Build proof for parent block (RLP elHeader + blockhashBranch)
+    Prover-->>Verifier: {elHeader, blockhashBranch, clHeader, SyncAggregate}
+    Verifier->>Verifier: Check keccak(elHeader) against clHeader.bodyRoot
     Verifier->>Verifier: Verify BLS aggregate (≥2/3 committee)
     Note over Verifier,Prover: Off-chain signature sets are ignored (must be embedded in canonical block body)
 ```

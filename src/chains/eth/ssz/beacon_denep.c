@@ -58,7 +58,8 @@ static const ssz_def_t WITHDRAWAL[] = {
 
 const ssz_def_t DENEP_WITHDRAWAL_CONTAINER = SSZ_CONTAINER("withdrawal", WITHDRAWAL);
 
-// the block header of the execution layer proved within the beacon block
+// Beacon-chain ExecutionPayload (Deneb). Used when parsing beacon blocks.
+// Colibri proofs do not embed this payload; they prove keccak(elHeader) against bodyRoot.
 const ssz_def_t DENEP_EXECUTION_PAYLOAD[] = {
     SSZ_BYTES32("parentHash"),                                                      // the hash of the parent block
     SSZ_ADDRESS("feeRecipient"),                                                    // the address of the fee recipient
@@ -78,7 +79,7 @@ const ssz_def_t DENEP_EXECUTION_PAYLOAD[] = {
     SSZ_UINT64("blobGasUsed"),                                                      // the gas used for the blob transactions
     SSZ_UINT64("excessBlobGas")};                                                   // the excess blob gas of the block
 
-// the block header of the execution layer proved within the beacon block
+// Beacon-chain ExecutionPayload (Deneb, Gnosis withdrawal limit). Same role as DENEP_EXECUTION_PAYLOAD.
 const ssz_def_t GNOSIS_EXECUTION_PAYLOAD[] = {
     SSZ_BYTES32("parentHash"),                                                     // the hash of the parent block
     SSZ_ADDRESS("feeRecipient"),                                                   // the address of the fee recipient
@@ -258,7 +259,8 @@ const ssz_def_t SYNC_COMMITTEE[2] = {
     SSZ_VECTOR("pubkeys", ssz_bls_pubky, 512), // the 512 pubkeys (each 48 bytes) of the validators in the sync committee
     SSZ_BYTE_VECTOR("aggregatePubkey", 48)};   // the aggregate pubkey (48 bytes) of the sync committee
 
-// the block header of the execution layer proved within the beacon block
+// ExecutionPayloadHeader as embedded in LightClientHeader (light-client protocol).
+// Independent of Colibri's RLP block-hash proofs (`ETH_CL_BLOCK_PROOF`).
 static const ssz_def_t EXECUTION_PAYLOAD_HEADER[] = {
     SSZ_BYTES32("parentHash"),         // the hash of the parent block
     SSZ_ADDRESS("feeRecipient"),       // the address of the fee recipient
@@ -281,8 +283,8 @@ static const ssz_def_t EXECUTION_PAYLOAD_HEADER[] = {
 // the header of the light client update
 const ssz_def_t LIGHT_CLIENT_HEADER[] = {
     SSZ_CONTAINER("beacon", BEACON_BLOCK_HEADER),         // the header of the beacon block
-    SSZ_CONTAINER("execution", EXECUTION_PAYLOAD_HEADER), // the header of the execution layer proved within the beacon block
-    SSZ_VECTOR("executionBranch", ssz_bytes32, 4)};       // the merkle proof of the execution layer proved within the beacon block
+    SSZ_CONTAINER("execution", EXECUTION_PAYLOAD_HEADER), // ExecutionPayloadHeader committed in the light-client header
+    SSZ_VECTOR("executionBranch", ssz_bytes32, 4)};       // Merkle proof of that header against the beacon body root
 
 // the light client bootstrap is used for initial sync from a trusted checkpoint
 const ssz_def_t DENEP_LIGHT_CLIENT_BOOTSTRAP[3] = {

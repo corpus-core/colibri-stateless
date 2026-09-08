@@ -38,7 +38,6 @@ c4_status_t c4_proof_call(prover_ctx_t* ctx);
 c4_status_t c4_proof_sync(prover_ctx_t* ctx);
 c4_status_t c4_proof_block(prover_ctx_t* ctx); // creates a block proof (body union NONE for header-only methods)
 c4_status_t c4_proof_block_receipts(prover_ctx_t* ctx);
-c4_status_t c4_proof_witness(prover_ctx_t* ctx);
 
 /**
  * Clears ETH in-process prover caches (header tags, tx-index cache).

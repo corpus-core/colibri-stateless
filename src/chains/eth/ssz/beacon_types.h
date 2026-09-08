@@ -57,7 +57,8 @@ typedef enum {
   ETH_SSZ_VERIFY_CALL_PROOF        = 13,
   ETH_SSZ_VERIFY_SYNC_PROOF        = 14,
   ETH_SSZ_VERIFY_BLOCK_PROOF       = 15,
-  ETH_SSZ_VERIFY_WITNESS_PROOF     = 17,
+  // 17 was ETH_SSZ_VERIFY_WITNESS_PROOF (top-level C4Request proof).
+  // Witness attestations now live as ETH_BLOCK_PROOF_UNION index 3.
 
   // data types
   ETH_SSZ_DATA_NONE       = 18,
@@ -97,13 +98,14 @@ typedef enum {
   ETH_SSZ_VERIFY_LC_SYNCDATA    = 45, // `LCSyncData`   (union index 1): LightClient sync data
   ETH_SSZ_VERIFY_ZK_SYNCDATA_V6 = 46, // `ZKSyncDataV6` (union index 2): 356-byte Groth16 ZK sync data
 
-  ETH_SSZ_VERIFY_LOGS_COMPLETENESS_PROOF = 48, // `LogsCompletenessProof` (proof union index 20): completeness proof for eth_getLogs
+  ETH_SSZ_VERIFY_LOGS_COMPLETENESS_PROOF = 48, // `LogsCompletenessProof` (proof union index 5)
 
   ETH_SSZ_CL_BLOCK_PROOF   = 49, // ETH_CL_BLOCK_PROOF
   ETH_SSZ_EL_BLOCK_CONTENT = 50, // ETH_EL_BLOCK_CONTENT
 
   ETH_SSZ_SIGNED_EXECUTION_PAYLOAD_ENVELOPE_CONTAINER = 51, // ETH_SSZ_SIGNED_EXECUTION_PAYLOAD_ENVELOPE_CONTAINER
   ETH_SSZ_SEQUENCER_PROOF                             = 52, // ETH_SEQUENCER_PROOF (ETH_BLOCK_PROOF_UNION index 2)
+  ETH_SSZ_WITNESS_BLOCK_PROOF                         = 53, // ETH_WITNESS_BLOCK_PROOF (ETH_BLOCK_PROOF_UNION index 3)
 
 } eth_ssz_type_t;
 
