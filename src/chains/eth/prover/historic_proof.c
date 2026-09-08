@@ -224,7 +224,7 @@ static c4_status_t check_historic_proof_direct(prover_ctx_t* ctx, blockroot_proo
 }
 
 void ssz_add_header_proof(ssz_builder_t* builder, eth_block_t* block_data, blockroot_proof_t block_proof) {
-  ssz_builder_t bp             = ssz_builder_for_def(ssz_get_def(builder->def, "headerProof")->def.container.elements + block_proof.type);
+  ssz_builder_t bp             = ssz_builder_for_def(ssz_get_def(builder->def, "clHeaderProof")->def.container.elements + block_proof.type);
   ssz_ob_t      sync_aggregate = block_proof.sync_aggregate;
 
   switch (block_proof.type) {
@@ -246,7 +246,7 @@ void ssz_add_header_proof(ssz_builder_t* builder, eth_block_t* block_data, block
   ssz_add_bytes(&bp, "sync_committee_bits", ssz_get(&sync_aggregate, "syncCommitteeBits").bytes);
   ssz_add_bytes(&bp, "sync_committee_signature", ssz_get(&sync_aggregate, "syncCommitteeSignature").bytes);
 
-  ssz_add_builders(builder, "headerProof", bp);
+  ssz_add_builders(builder, "clHeaderProof", bp);
 }
 
 void c4_free_block_proof(blockroot_proof_t* block_proof) {
@@ -500,7 +500,7 @@ c4_status_t c4_get_syncdata_proof(prover_ctx_t* ctx, syncdata_state_t* sync_data
     zk_proof_data_t zk_proof = {0};
     eth_cu_add(ctx, CU_ZK_PROOF_INCLUDE); // ZK proof attached to the sync section
 
-    // The witness-key path keeps the original header_proof checkpoint embedded in
+    // The witness-key path keeps the original headerChain checkpoint embedded in
     // `zk_proof.ssz` because the witness BLS signatures vouch for the signed header
     // directly. Without witness keys we anchor the sync committee instead against an
     // independently checkpointz-confirmed LightClientBootstrap (double-trust model):

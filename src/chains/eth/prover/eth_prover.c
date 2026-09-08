@@ -68,8 +68,6 @@ bool eth_prover_execute(prover_ctx_t* ctx) {
     c4_proof_block(ctx);
   else if (strcmp(ctx->method, "eth_proof_sync") == 0)
     c4_proof_sync(ctx);
-  else if (strcmp(ctx->method, "c4_witness") == 0)
-    c4_proof_witness(ctx);
   else
     ctx->state.error = strdup("Unsupported method");
 

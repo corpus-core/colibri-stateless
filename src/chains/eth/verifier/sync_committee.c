@@ -56,8 +56,8 @@ void c4_eth_eip191_digest_32(const bytes32_t message, bytes32_t out_digest) {
   keccak(bytes(buf, sizeof(buf)), out_digest);
 }
 
-// True if `ob` is the `checkpoint_proof` variant of either ETH_HEADER_PROOFS_UNION
-// (ZKSyncData.checkpoint) or C4_ETH_SYNCDATA_BOOTSTRAP_UNION (LCSyncData.bootstrap).
+// True if `ob` is the checkpoint variant of either ETH_HEADER_PROOFS_UNION
+// (`checkpoint`) or C4_ETH_SYNCDATA_BOOTSTRAP_UNION (`CheckpointProof`).
 // Single source of truth for the union-variant discrimination so a future rename of
 // the SSZ field cannot silently bypass the cross-check at one of the call sites.
 //
@@ -67,7 +67,8 @@ void c4_eth_eip191_digest_32(const bytes32_t message, bytes32_t out_digest) {
 static inline bool is_checkpoint_proof_variant(ssz_ob_t ob) {
   return ob.def &&
          ob.def->type == SSZ_TYPE_CONTAINER &&
-         strcmp(ob.def->name, "CheckpointProof") == 0;
+         (strcmp(ob.def->name, "CheckpointProof") == 0 ||
+          strcmp(ob.def->name, "checkpoint") == 0);
 }
 
 #ifdef USE_CHECKPOINTZ
@@ -208,8 +209,8 @@ static bool update_light_client_update(verify_ctx_t* ctx, ssz_ob_t* update) {
   return c4_set_sync_period(period, ssz_get(&sync_committee, "pubkeys").bytes, ctx->chain_id, previous_pubkeys_hash);
 }
 static bool verify_signatures(verify_ctx_t* ctx, ssz_ob_t checkpoint_ob, ssz_ob_t attested_header, ssz_ob_t signatures) {
-  if (!checkpoint_ob.def || strcmp(checkpoint_ob.def->name, "headerProof"))
-    RETURN_VERIFY_ERROR(ctx, "invalid checkpoint, must be a header_proof!");
+  if (!checkpoint_ob.def || strcmp(checkpoint_ob.def->name, "headerChain"))
+    RETURN_VERIFY_ERROR(ctx, "invalid checkpoint, must be a headerChain!");
   ssz_ob_t  signed_header = ssz_get(&checkpoint_ob, "header");
   bytes32_t checkpoint    = {0};
   if (memcmp(attested_header.bytes.data, signed_header.bytes.data, 112)) {
@@ -434,17 +435,17 @@ static c4_status_t update_from_zk_sync_data(verify_ctx_t* ctx) {
         TRY_ASYNC(c4_verify_checkpoint_proof(ctx, checkpoint, zk_pubkeys_root));
       }
       else {
-        // Legacy header_proof / signature_proof / historic_proof variants: anchor only
+        // Legacy headerChain / signature / historic variants: anchor only
         // the checkpoint header itself against checkpointz (no committee cross-check).
         // Anchor against the checkpoint header (epoch boundary by construction in
         // `period_store_zk_ssz.c`), NOT the attested header (typically mid-epoch);
-        // checkpointz only serves epoch-boundary blocks. `historic_proof` carries the
-        // same `header` field as `header_proof`, so both share the anchor logic.
-        bool      have_header_field = checkpoint.def && (strcmp(checkpoint.def->name, "headerProof") == 0 ||
-                                                    strcmp(checkpoint.def->name, "historic_proof") == 0);
+        // checkpointz only serves epoch-boundary blocks. `historic` carries the
+        // same `header` field as `headerChain`, so both share the anchor logic.
+        bool      have_header_field = checkpoint.def && (strcmp(checkpoint.def->name, "headerChain") == 0 ||
+                                                    strcmp(checkpoint.def->name, "historic") == 0);
         ssz_ob_t  anchor_header     = have_header_field
                                           ? ssz_get(&checkpoint, "header")
-                                          : header; // signature_proof has no embedded anchor header; falls back to attested
+                                          : header; // signature has no embedded anchor header; falls back to attested
         uint64_t  anchor_slot       = ssz_get_uint64(&anchor_header, "slot");
         bytes32_t anchor_root       = {0};
         ssz_hash_tree_root(anchor_header, anchor_root);

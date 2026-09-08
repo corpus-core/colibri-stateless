@@ -198,9 +198,9 @@ describe('Integration Tests', { skip: !RUN_INTEGRATION, timeout: TIMEOUT, concur
       // witness keys are configured here, the verifier additionally anchors the
       // checkpoint header by looking up `eth/v1/beacon/blocks/{slot}/root`. Depending
       // on which snapshot variant the server delivers, the anchor slot is either:
-      //   * legacy `header_proof`: epoch boundary RIGHT AFTER the period (often older
+      //   * `headerChain`: epoch boundary RIGHT AFTER the period (often older
       //     than the ~6h checkpointz cache window) -- routed as `beacon_api`.
-      //   * new `historic_proof`: a RECENT finalized epoch boundary (within the
+      //   * `historic`: a RECENT finalized epoch boundary (within the
       //     checkpointz cache window) -- routed as `checkpointz` (or `beacon_api`
       //     as fallback). The accompanying merkle proof over `historical_summaries`
       //     is verified locally (no extra request).

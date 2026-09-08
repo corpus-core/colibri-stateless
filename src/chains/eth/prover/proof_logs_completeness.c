@@ -167,7 +167,7 @@ static c4_status_t serialize_completeness_proof(prover_ctx_t* ctx, compl_block_t
   // get the sync_proof if needed
   TRY_ASYNC(c4_get_syncdata_proof(ctx, &anchor_proof.sync, &sync_proof));
 
-  // newest block via the shared ETH_BLOCK_PROOF_UNION (same as logs / tx / receipt)
+  // newest block via the shared ETH_EL_PROOF_UNION (same as logs / tx / receipt)
   eth_add_block_proof(ctx, &proof, &anchor->beacon, &anchor_proof);
 
   // parentHash chain: raw RLP headers for fromBlock .. toBlock-1 (ascending)

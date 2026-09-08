@@ -271,7 +271,7 @@ Call (and simulation/estimateGas/createAccessList) is the hardest and most criti
 |-------|-------------|--------------------------|
 | **Outside cache window** | Transactions older than the cached range (e.g. >100 blocks) require a fallback. A direct `eth_getTransactionByHash` or “which block is this tx in?” would reveal the hash. | Accept leakage for the long tail. In practice a large share of lookups (e.g. ~98%) are for recent blocks (pending confirmation, history in wallet). Optimize for the common case; document that old tx lookups may leak. |
 | **Data volume** | Fetching a full block (and all receipts) is larger than a single tx/receipt. Typical block: tens to a few hundred transactions; size is manageable. | Accept as trade-off. Optionally cache recently fetched blocks in the Verifier so multiple lookups in the same block do not trigger repeated block fetches. |
-| **Receipts verification** | `eth_getBlockReceipts` is not yet implemented in colibri. Verification is straightforward: the Prover sends all serialized receipts for the block; the Verifier builds the Merkle trie from them and compares the root to `receipts_root` in the execution payload (same approach as for single receipt proofs). | Implement `eth_getBlockReceipts` support and verification; see [GitHub issue #179](https://github.com/corpus-core/colibri-stateless/issues/179). |
+| **Receipts verification** | `eth_getBlockReceipts` is implemented as **BlockReceiptsProof**: the Prover sends all raw receipts and transactions; the Verifier rebuilds both Patricia tries and compares the roots to `receiptsRoot` / `transactionsRoot` of the verified RLP EL header. | Use `eth_getBlockReceipts` for PAP receipt lookups inside the cache window. |
 
 **Effort to de-anonymize**: For requests inside the cache window, an observer only sees block (and block-receipt) requests. Linking a specific tx to the user would require correlating timing with block content and other side channels—much harder than seeing the explicit `eth_getTransactionByHash(txHash)` call. For requests outside the window, current design accepts that the hash may be visible (e.g. one direct request); effort to exploit remains low for that minority case.
 
@@ -287,15 +287,16 @@ Call (and simulation/estimateGas/createAccessList) is the hardest and most criti
 
 **Why uncritical**: Block data is public and shared. Requesting a block by hash or number does not reveal who the user is or what they intend to do. Every client needs `eth_blockNumber` and `eth_getBlockByNumber("latest", ...)`; the parameters are generic. Querying a specific historical block is at most a weak signal (e.g. block containing a tx), not user-specific. For PAP we can treat this category as low priority: no special mitigation needed beyond normal transport choices.
 
-**Implementation**: Read block metadata or full block data. Colibri uses **EthBlockProof** (block header + body) or **EthBlockNumberProof** (latest block number only). Block-level methods share the same execution payload / block structure.
+**Implementation**: Read block metadata or full block data. All block-level methods use **EthBlockProof**: `c4_verify_block` authenticates an RLP EL header (`keccak(elHeader)` against the beacon `bodyRoot`). Header-only methods (`eth_blockNumber`, `eth_getBlockHeader`) use the `NONE` body variant; `eth_getBlockBy*` may include raw transactions and withdrawals so the verifier can rebuild `transactionsRoot` / `withdrawalsRoot`.
 
 | Method | Proof type | Parameters |
 |--------|------------|------------|
-| `eth_blockNumber` | EthBlockNumberProof | — |
+| `eth_blockNumber` | EthBlockProof | — |
+| `eth_getBlockHeader` | EthBlockProof | `blockNumber` / `blockHash` |
 | `eth_getBlockByHash` | EthBlockProof | `blockHash`, `includeTransactions` |
 | `eth_getBlockByNumber` | EthBlockProof | `blockNumber`, `includeTransactions` |
+| `eth_getBlockReceipts` | BlockReceiptsProof | `blockNumber` |
 | `eth_getBlockTransactionCountByHash` / `eth_getBlockTransactionCountByNumber` *(not yet verifiable)* | — | `blockHash` / `blockNumber` |
-| `eth_getBlockReceipts` *(not yet verifiable)* | — | `blockNumber` |
 
 ---
 
@@ -364,14 +365,14 @@ If the filter must be registered remotely (e.g. because the provider does not su
 
 **Why uncritical**: Fee data is generic chain state. All clients need it for UI or before sending a transaction; there are no user-specific parameters. The only marginal signal is that someone calling `eth_gasPrice` or `eth_feeHistory` might be about to send a transaction—but this is a very weak, universal signal and not actionable for profiling. PAP does not need to prioritize these methods.
 
-**Implementation**: Read chain fee state; no account or execution proof. Not yet verifiable in colibri; when added, likely block-header or dedicated fee proof.
+**Implementation**: Fee values that can be derived from a verified RLP EL header (`baseFeePerGas`, `excessBlobGas`) use **EthBlockProof** (header-only). Generic fee oracles that need extra mempool/history data are still unverifiable.
 
 | Method | Proof type | Parameters |
 |--------|------------|------------|
 | `eth_gasPrice` *(not yet verifiable)* | — | — |
-| `eth_maxPriorityFeePerGas` *(not yet verifiable)* | — | — |
+| `eth_maxPriorityFeePerGas` | EthBlockProof | — |
 | `eth_feeHistory` *(not yet verifiable)* | — | `blockCount`, `newestBlock`, `rewardPercentiles` |
-| `eth_blobBaseFee` *(not yet verifiable)* | EthBlockHeaderProof | — |
+| `eth_blobBaseFee` | EthBlockProof | — |
 
 ---
 

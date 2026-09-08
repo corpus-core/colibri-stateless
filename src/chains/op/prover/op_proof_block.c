@@ -178,7 +178,7 @@ bool op_add_sequencer_proof(prover_ctx_t* ctx, ssz_builder_t* builder, eth_block
   buffer_append(&payload_builder.fixed, block_data->sequencer.payload);
   ssz_add_builders(&seq, "payload", payload_builder);
   ssz_add_bytes(&seq, "signature", block_data->sequencer.signature);
-  ssz_add_builders(builder, "block", seq);
+  ssz_add_builders(builder, "elProof", seq);
   return true;
 }
 

@@ -5,15 +5,11 @@
 # This file is used by both local coverage script (run_coverage.sh) and CI workflow.
 # Format: One pattern per line, supports glob patterns for gcovr
 
-# Prover components in development (sync & witness proofs for snarks)
+# Prover components in development (sync proofs for snarks)
 src/chains/eth/prover/proof_sync.c
-src/chains/eth/prover/proof_witness.c
 
 # EC precompiles (not fully implemented, has bugs)
 src/chains/eth/precompiles/precompiles_ec.c
-
-# Witness utilities (in development)
-src/util/witness.c
 
 # Just the entry-point - not testable
 src/server/main.c

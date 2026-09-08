@@ -92,7 +92,9 @@ bool eth_is_oblivious_unavailable(json_t response) {
 
 // :: Supported RPC-Methods
 //
-// The following table shows the supported RPC-Methods for the Ethereum Execution Proofs.
+// The following table shows the supported RPC-Methods for Ethereum.
+// Execution-layer values are proven against a verified RLP EL header whose
+// `keccak256` hash is bound to the beacon `bodyRoot` (`ETH_EL_PROOF_UNION`).
 //
 
 static const char* proofable_methods[] = {
@@ -113,10 +115,10 @@ static const char* proofable_methods[] = {
     RPC_METHOD("eth_getTransactionByHash", EthTxData, EthTransactionProof),
     RPC_METHOD("eth_getTransactionByBlockHashAndIndex", EthTxData, EthTransactionProof),
     RPC_METHOD("eth_getTransactionByBlockNumberAndIndex", EthTxData, EthTransactionProof),
-    RPC_METHOD("eth_blockNumber", Uint256, EthBlockNumberProof),
-    RPC_METHOD("eth_getBlockHeader", EthBlockHeaderData, EthBlockHeaderProof),
-    RPC_METHOD("eth_blobBaseFee", Uint256, EthBlockHeaderProof),
-    RPC_METHOD("eth_maxPriorityFeePerGas", Uint256, EthBlockHeaderProof),
+    RPC_METHOD("eth_blockNumber", Uint256, EthBlockProof),
+    RPC_METHOD("eth_getBlockHeader", EthBlockHeaderData, EthBlockProof),
+    RPC_METHOD("eth_blobBaseFee", Uint256, EthBlockProof),
+    RPC_METHOD("eth_maxPriorityFeePerGas", Uint256, EthBlockProof),
     RPC_METHOD("eth_newPendingTransactionFilter", Void, Void),
     RPC_METHOD("eth_newFilter", Void, Void),
     RPC_METHOD("eth_newBlockFilter", Void, Void),

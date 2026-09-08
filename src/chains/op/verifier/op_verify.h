@@ -32,7 +32,7 @@ extern "C" {
 #endif
 
 /**
- * Verifies the `sequencerProof` variant of `ETH_BLOCK_PROOF_UNION`.
+ * Verifies the `sequencerProof` variant of `ETH_EL_PROOF_UNION`.
  * Registered via `c4_register_block_proof_verify` for `C4_CHAIN_TYPE_OP`.
  *
  * @param ctx verification context

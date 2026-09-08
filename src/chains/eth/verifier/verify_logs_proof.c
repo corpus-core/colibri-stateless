@@ -72,7 +72,7 @@ static c4_status_t verify_block(verify_ctx_t* ctx, ssz_ob_t block) {
 
   mpt_proof_t receipt_proof;
   mpt_proof_t tx_proof;
-  ssz_ob_t    block_proof  = ssz_get(&block, "block");
+  ssz_ob_t    block_proof  = ssz_get(&block, "elProof");
   ssz_ob_t    txs          = ssz_get(&block, "txs");
   uint64_t    block_number = 0;
   uint32_t    tx_count     = ssz_len(txs);

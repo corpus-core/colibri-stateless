@@ -66,7 +66,7 @@ void        eth_add_block_proof(prover_ctx_t* ctx, ssz_builder_t* builder, eth_b
 bool eth_verifier_has_block_header(prover_ctx_t* ctx, eth_block_t* block_data);
 
 /**
- * Extra handler that appends a chain-specific `ETH_BLOCK_PROOF_UNION` variant
+ * Extra handler that appends a chain-specific `ETH_EL_PROOF_UNION` variant
  * (e.g. `sequencerProof`). Return true if the variant was written.
  */
 typedef bool (*c4_add_block_proof_extra_fn)(prover_ctx_t* ctx, ssz_builder_t* builder, eth_block_t* block_data, blockroot_proof_t* historic);

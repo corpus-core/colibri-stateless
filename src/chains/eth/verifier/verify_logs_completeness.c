@@ -291,7 +291,7 @@ bool verify_logs_completeness(verify_ctx_t* ctx) {
 
   bytes_t   anchor_hdr  = {0};
   bytes32_t anchor_hash = {0};
-  ssz_ob_t  block_proof = ssz_get(&proof, "block");
+  ssz_ob_t  block_proof = ssz_get(&proof, "elProof");
   if (!block_proof.def) RETURN_VERIFY_ERROR(ctx, "missing block proof in completeness proof!");
   if (c4_verify_block(ctx, block_proof, &anchor_hdr, anchor_hash) != C4_SUCCESS)
     return false;

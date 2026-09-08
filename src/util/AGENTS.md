@@ -33,7 +33,6 @@ Core utility library used by all other modules. Contains SSZ encoding, byte hand
 |------|---------|
 | `plugin.h` / `plugin.c` | Plugin system: `storage_plugin_t` interface for sync state persistence (file-based default if `FILE_STORAGE`). Parallel-for hooks. |
 | `logger.h` / `logger.c` | Logging with color support. Log levels, request info formatting. |
-| `witness.h` / `witness.c` | Witness proofs for L2 verification before L1 commitment. BlockHash witness SSZ types. |
 | `chains.h` / `chains.c` | Chain ID constants (Mainnet=1, Sepolia=11155111, OP=10, Base=8453, ...) and chain type enum (`C4_CHAIN_TYPE_ETHEREUM`, `C4_CHAIN_TYPE_OPTIMISM`). |
 | `version.h` / `version.c` | Version constants and `c4_print_version()`. |
 | `common.h` | Visibility attributes, unused markers, compiler macros. |

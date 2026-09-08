@@ -168,7 +168,7 @@ typedef struct eth_call_block_context {
  * Extracts the block context from a call/estimate/simulate proof.
  *
  * Handles both a previously verified `el_header` on the call context and a
- * `block` field of `ETH_BLOCK_PROOF_UNION` (verified via `c4_verify_block`).
+ * `elProof` field of `ETH_EL_PROOF_UNION` (verified via `c4_verify_block`).
  * Returns `false` when no block context is available (e.g. PAP-only proof),
  * in which case `out` is left untouched.
  *

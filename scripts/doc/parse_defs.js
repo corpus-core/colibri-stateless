@@ -215,6 +215,7 @@ function parse_ssz_file(file) {
         line_number++
         if (is_markdown) line = '// ' + line
         if (add_section(line, sections)) continue
+        if (sections.length == 0) continue
         if (line.trim().startsWith('/**')) doc_comment = {
             open: true,
             params: {},
@@ -243,9 +244,9 @@ function parse_ssz_file(file) {
             let type_name = match[1]
             let union = type_name.endsWith('_UNION')
             type_name = toCamelCase(type_name)
-            // ETH_BLOCK_PROOF and ETH_BLOCK_PROOF_UNION would otherwise both
-            // become EthBlockProof after stripping `_UNION`, which makes union
-            // inlining recurse infinitely.
+            // ETH_FOO and ETH_FOO_UNION would otherwise both become EthFoo
+            // after stripping `_UNION`, which makes union inlining recurse
+            // infinitely. ETH_EL_PROOF_UNION becomes EthElProofUnion.
             if (union && !type_name.endsWith('Union')) type_name += 'Union'
             def = {
                 file,
@@ -258,7 +259,7 @@ function parse_ssz_file(file) {
             types[type_name] = def
             const section = sections.at(-1)
             if (section) {
-                section.types.push(def)
+                section.types.splice(0, 0, def)
             }
             comment = ''
         }

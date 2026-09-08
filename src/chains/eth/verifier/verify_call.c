@@ -526,7 +526,7 @@ static bool pap_verify_proof_response(verify_ctx_t* ctx, call_account_t* call_ac
   if (sd_status == C4_PENDING) goto cleanup;
   if (sd_status != C4_SUCCESS) goto cleanup;
 
-  c4_status_t block_status = c4_verify_block(ctx, ssz_get(&proof_ctx.proof, "block"), &evm->el_header, evm->el_block_hash);
+  c4_status_t block_status = c4_verify_block(ctx, ssz_get(&proof_ctx.proof, "elProof"), &evm->el_header, evm->el_block_hash);
   if (block_status == C4_PENDING) goto cleanup;
   if (block_status != C4_SUCCESS) {
     if (!ctx->state.error)
@@ -732,7 +732,7 @@ bool verify_call_proof(verify_ctx_t* ctx) {
   if (!evm->accounts && has_proof) {
     ssz_ob_t accounts = ssz_get(&ctx->proof, "accounts");
     if (!c4_eth_verify_accounts(ctx, accounts, evm->state_root)) return false;
-    if (c4_verify_block(ctx, ssz_get(&ctx->proof, "block"), &evm->el_header, evm->el_block_hash) != C4_SUCCESS) return false;
+    if (c4_verify_block(ctx, ssz_get(&ctx->proof, "elProof"), &evm->el_header, evm->el_block_hash) != C4_SUCCESS) return false;
     evm->accounts = call_accounts_from_ssz(accounts);
   }
   if (!prepare_evm_call(ctx, evm, has_overrides)) return false;

@@ -59,7 +59,7 @@ bool eth_get_call_block_context_from_proof(verify_ctx_t* ctx, eth_call_block_con
   if (!call_ctx) return false;
   if (!call_ctx->el_header.data) {
     if (ctx->proof.def && ctx->proof.def->type != SSZ_TYPE_NONE) {
-      if (c4_verify_block(ctx, ssz_get(&ctx->proof, "block"), &call_ctx->el_header, &call_ctx->el_block_hash) != C4_SUCCESS) return false;
+      if (c4_verify_block(ctx, ssz_get(&ctx->proof, "elProof"), &call_ctx->el_header, &call_ctx->el_block_hash) != C4_SUCCESS) return false;
     }
     else
       return false;
@@ -487,7 +487,7 @@ void init_evmone_context(evmone_context_t* out, verify_ctx_t* ctx, evm_call_ctx_
   out->capture_events  = capture_events;
   out->pap_mode        = evm->pap_mode;
 
-  // extract EVM block context from the verified RLP EL header (via ETH_BLOCK_PROOF_UNION)
+  // extract EVM block context from the verified RLP EL header (via ETH_EL_PROOF_UNION)
   eth_call_block_context_t bctx = {0};
   if (eth_get_call_block_context_from_proof(ctx, &bctx)) {
     out->block_number    = bctx.block_number;

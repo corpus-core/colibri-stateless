@@ -203,7 +203,6 @@ add_prover(
     prover/eth_tools.c
     prover/proof_sync.c
     prover/proof_block.c
-    prover/proof_witness.c
     prover/historic_proof.c
     prover/historic_proof_zk.c
     prover/state_proofs.c

@@ -47,7 +47,7 @@ bool verify_receipt_proof(verify_ctx_t* ctx) {
   bytes32_t block_hash    = {0};
   bytes_t   raw_tx        = {0};
 
-  if (c4_verify_block(ctx, ssz_get(&ctx->proof, "block"), &el_header, block_hash) != C4_SUCCESS) return false;
+  if (c4_verify_block(ctx, ssz_get(&ctx->proof, "elProof"), &el_header, block_hash) != C4_SUCCESS) return false;
   if (!c4_verify_mpt_proof(ctx,
                            tx_proof, tx_index,
                            eth_el_header_get(el_header, EL_TRANSACTIONS_ROOT).data, &raw_tx)) return false;
