@@ -42,70 +42,54 @@ typedef enum {
 } fork_id_t;
 
 typedef enum {
-  // beacon
-  ETH_SSZ_SIGNED_BEACON_BLOCK_CONTAINER = 1,
-  ETH_SSZ_BEACON_BLOCK_BODY_CONTAINER   = 2,
-  ETH_SSZ_BEACON_BLOCK_HEADER           = 3,
+  // beacon (fork-resolved via eth_ssz_type_for_fork)
+  ETH_SSZ_SIGNED_BEACON_BLOCK_CONTAINER               = 1,
+  ETH_SSZ_BEACON_BLOCK_BODY_CONTAINER                 = 2,
+  ETH_SSZ_BEACON_BLOCK_HEADER                         = 3,
+  ETH_SSZ_EXECUTION_PAYLOAD_CONTAINER                 = 4,
+  ETH_SSZ_SIGNED_EXECUTION_PAYLOAD_ENVELOPE_CONTAINER = 5,
 
-  // verify
-  ETH_SSZ_VERIFY_REQUEST           = 4,
-  ETH_SSZ_VERIFY_BLOCK_HASH_PROOF  = 5,
-  ETH_SSZ_VERIFY_ACCOUNT_PROOF     = 6,
-  ETH_SSZ_VERIFY_TRANSACTION_PROOF = 7,
-  ETH_SSZ_VERIFY_RECEIPT_PROOF     = 8,
-  ETH_SSZ_VERIFY_LOGS_PROOF        = 9,
-  ETH_SSZ_VERIFY_CALL_PROOF        = 13,
-  ETH_SSZ_VERIFY_SYNC_PROOF        = 14,
-  ETH_SSZ_VERIFY_BLOCK_PROOF       = 15,
-  // 17 was ETH_SSZ_VERIFY_WITNESS_PROOF (top-level C4Request proof).
-  // Witness attestations now live as ETH_BLOCK_PROOF_UNION index 3.
+  // C4Request
+  ETH_SSZ_VERIFY_REQUEST = 6,
 
-  // data types
-  ETH_SSZ_DATA_NONE       = 18,
-  ETH_SSZ_DATA_HASH32     = 19,
-  ETH_SSZ_DATA_BYTES      = 20,
-  ETH_SSZ_DATA_UINT256    = 21,
-  ETH_SSZ_DATA_TX         = 22,
-  ETH_SSZ_DATA_RECEIPT    = 23,
-  ETH_SSZ_DATA_LOGS       = 24,
-  ETH_SSZ_DATA_BLOCK      = 25,
-  ETH_SSZ_DATA_PROOF      = 26,
-  ETH_SSZ_DATA_SIMULATION = 27,
+  // C4_REQUEST_PROOFS_UNION (indices 1..9)
+  ETH_SSZ_VERIFY_ACCOUNT_PROOF           = 7,  // union 1
+  ETH_SSZ_VERIFY_TRANSACTION_PROOF       = 8,  // union 2
+  ETH_SSZ_VERIFY_RECEIPT_PROOF           = 9,  // union 3
+  ETH_SSZ_VERIFY_LOGS_PROOF              = 10, // union 4
+  ETH_SSZ_VERIFY_LOGS_COMPLETENESS_PROOF = 11, // union 5
+  ETH_SSZ_VERIFY_CALL_PROOF              = 12, // union 6
+  ETH_SSZ_VERIFY_BLOCK_PROOF             = 13, // union 7
+  ETH_SSZ_VERIFY_BLOCK_RECEIPTS_PROOF    = 14, // union 8
+  ETH_SSZ_VERIFY_SYNC_PROOF              = 15, // union 9
 
-  // (28 was ETH_SSZ_VERIFY_BLOCK_HEADER_PROOF: header-only proofs now use
-  //  ETH_SSZ_VERIFY_BLOCK_PROOF with the NONE variant of ETH_BLOCK_BODY_UNION)
-  ETH_SSZ_DATA_BLOCK_HEADER = 29,
-  // 30 was ETH_SSZ_DATA_CALL_BLOCK_CONTEXT (compact EVM header via SSZ multi-proof;
-  // eth_call now reads block context from the verified RLP EL header)
+  // C4_ETH_REQUEST_DATA_UNION
+  ETH_SSZ_DATA_NONE           = 16,
+  ETH_SSZ_DATA_HASH32         = 17,
+  ETH_SSZ_DATA_BYTES          = 18,
+  ETH_SSZ_DATA_UINT256        = 19,
+  ETH_SSZ_DATA_TX             = 20,
+  ETH_SSZ_DATA_RECEIPT        = 21,
+  ETH_SSZ_DATA_LOGS           = 22,
+  ETH_SSZ_DATA_BLOCK          = 23,
+  ETH_SSZ_DATA_PROOF          = 24,
+  ETH_SSZ_DATA_SIMULATION     = 25,
+  ETH_SSZ_DATA_BLOCK_HEADER   = 26,
+  ETH_SSZ_DATA_BLOCK_RECEIPTS = 27,
 
-  ETH_SSZ_VERIFY_BLOCK_RECEIPTS_PROOF = 31,
-  ETH_SSZ_DATA_BLOCK_RECEIPTS         = 32,
+  // C4_ETH_REQUEST_SYNCDATA_UNION
+  ETH_SSZ_VERIFY_LC_SYNCDATA    = 28, // `LCSyncData`   (union index 1)
+  ETH_SSZ_VERIFY_ZK_SYNCDATA_V6 = 29, // `ZKSyncDataV6` (union index 2)
 
-  // beacon container types (chain- and fork-aware, resolved via eth_ssz_type_for_fork)
-  ETH_SSZ_EXECUTION_PAYLOAD_CONTAINER = 42,
+  // Resolves to the `CheckpointProof` variant of `ETH_HEADER_PROOFS_UNION`
+  // (structurally identical to the bootstrap union's CheckpointProof).
+  ETH_SSZ_VERIFY_CHECKPOINT_PROOF = 30,
 
-  // Resolves to the `CheckpointProof` variant of `ETH_HEADER_PROOFS_UNION` (which is
-  // structurally identical to the `CheckpointProof` variant of
-  // `C4_ETH_SYNCDATA_BOOTSTRAP_UNION`). Single source of truth so the prover can build
-  // a CheckpointProof SSZ blob using the same definition the verifier reads.
-  ETH_SSZ_VERIFY_CHECKPOINT_PROOF = 43,
-
-  // 44 was ETH_SSZ_DATA_STATE_BLOCK_TIMESTAMP (timestamp-only variant of the
-  // removed ETH_STATE_BLOCK_UNION; freshness now reads timestamp from the RLP EL header)
-
-  // `C4_ETH_REQUEST_SYNCDATA_UNION` variants (named to avoid raw pointer arithmetic
-  // on the union array at the call sites).
-  ETH_SSZ_VERIFY_LC_SYNCDATA    = 45, // `LCSyncData`   (union index 1): LightClient sync data
-  ETH_SSZ_VERIFY_ZK_SYNCDATA_V6 = 46, // `ZKSyncDataV6` (union index 2): 356-byte Groth16 ZK sync data
-
-  ETH_SSZ_VERIFY_LOGS_COMPLETENESS_PROOF = 48, // `LogsCompletenessProof` (proof union index 5)
-
-  ETH_SSZ_CL_BLOCK_PROOF   = 49, // ETH_CL_BLOCK_PROOF
-  ETH_SSZ_EL_BLOCK_CONTENT = 50, // ETH_EL_BLOCK_CONTENT
-
-  ETH_SSZ_SIGNED_EXECUTION_PAYLOAD_ENVELOPE_CONTAINER = 51, // ETH_SSZ_SIGNED_EXECUTION_PAYLOAD_ENVELOPE_CONTAINER
-  ETH_SSZ_SEQUENCER_PROOF                             = 52, // ETH_SEQUENCER_PROOF (ETH_BLOCK_PROOF_UNION index 2)
-  ETH_SSZ_WITNESS_BLOCK_PROOF                         = 53, // ETH_WITNESS_BLOCK_PROOF (ETH_BLOCK_PROOF_UNION index 3)
+  // ETH_BLOCK_PROOF_UNION / ETH_BLOCK_BODY_UNION
+  ETH_SSZ_CL_BLOCK_PROOF      = 31, // ETH_BLOCK_PROOF_UNION index 1
+  ETH_SSZ_SEQUENCER_PROOF     = 32, // ETH_BLOCK_PROOF_UNION index 2
+  ETH_SSZ_WITNESS_BLOCK_PROOF = 33, // ETH_BLOCK_PROOF_UNION index 3
+  ETH_SSZ_EL_BLOCK_CONTENT    = 34, // ETH_BLOCK_BODY_UNION content variant
 
 } eth_ssz_type_t;
 
@@ -131,8 +115,8 @@ typedef struct {
   const int                  epochs_per_period_bits;   // 8 = 256 epochs per period
   const uint64_t             weak_subjectivity_epochs; // max epochs before checkpoint validation required
   fork_version_func_t        fork_version_func;
-  const eth_blob_schedule_t* blob_schedule;            // EIP-7892 blob schedule, DESCENDING by timestamp, {0,0}-terminated; NULL uses Cancun default
-  uint64_t                   min_blob_base_fee;        // MIN_BLOB_BASE_FEE (`minBlobGasPrice`); 0 uses Ethereum's default (1 wei). Gnosis / Chiado use 1e9.
+  const eth_blob_schedule_t* blob_schedule;     // EIP-7892 blob schedule, DESCENDING by timestamp, {0,0}-terminated; NULL uses Cancun default
+  uint64_t                   min_blob_base_fee; // MIN_BLOB_BASE_FEE (`minBlobGasPrice`); 0 uses Ethereum's default (1 wei). Gnosis / Chiado use 1e9.
 } chain_spec_t;
 
 bool      c4_chain_genesis_validators_root(chain_id_t chain_id, bytes32_t genesis_validators_root);
