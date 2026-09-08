@@ -156,7 +156,7 @@ static const ssz_def_t ETH_SIGNATURE_HEADER_PROOF[] = {
 
 // a proof using the historic summaries
 static const ssz_def_t ETH_HISTORIC_HEADER_PROOF[] = {
-    SSZ_LIST("proof", ssz_bytes32, 128),            // merkle proof from the blockroot over the historic_summaries to the state
+    SSZ_PROG_LIST("proof", ssz_bytes32),            // merkle proof from the blockroot over the historic_summaries to the state
     SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),   // the header of the beacon block containing historic_summaries (usually close to head)
     SSZ_UINT64("gindex"),                           // the combined gindex of the proof
     SSZ_BIT_VECTOR("sync_committee_bits", 512),     // the bits of the validators that signed the header containing the historic_summaries
@@ -169,7 +169,7 @@ static const ssz_def_t PROOF_HEADER_CONTAINER = SSZ_CONTAINER("ProofHeader", PRO
 // is by providing a chain of headers from the header for the data up to a header where the user has the keys of the sync committee.
 // headerChain is a proof using a list of subsequent headers to verify a block in the past with a later header holding a signature.
 static const ssz_def_t ETH_HEADER_CHAIN_PROOF[] = {
-    SSZ_LIST("headers", PROOF_HEADER_CONTAINER, 128), // list of headers
+    SSZ_LIST("headers", PROOF_HEADER_CONTAINER, 128), // fixed 80-byte headers; cap is a DoS bound (ssz_is_valid + hash_tree_root walk)
     SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),     // the header of the beacon block containing the signature
     SSZ_BIT_VECTOR("sync_committee_bits", 512),       // the bits of the validators that signed the header close to head
     SSZ_BYTE_VECTOR("sync_committee_signature", 96)   // the signature of the sync committee
@@ -191,7 +191,7 @@ static const ssz_def_t PROOF_HEADER[4] = {
 // `aggregate_pubkey` packed here, walks `proof` up to the `header.stateRoot`,
 // and then anchors `header` itself against checkpointz.
 //
-// `proof` is a list rather than a vector because the currentSyncCommittee
+// `proof` is a progressive list rather than a vector because the currentSyncCommittee
 // branch depth differs between forks (Deneb = 5, Electra/Fulu = 6, Gloas = 11).
 //
 // `aggregate_pubkey` is included so the verifier can compute the
@@ -200,7 +200,7 @@ static const ssz_def_t PROOF_HEADER[4] = {
 static const ssz_def_t ETH_CHECKPOINT_PROOF[] = {
     SSZ_CONTAINER("header", BEACON_BLOCK_HEADER), // anchor header (state_root binds the merkle proof, slot+root anchor against checkpointz)
     SSZ_BYTE_VECTOR("aggregate_pubkey", 48),      // SyncCommittee.aggregate_pubkey for sync_committee_root reconstruction
-    SSZ_LIST("proof", ssz_bytes32, 16)            // currentSyncCommitteeBranch (depth 5 in Deneb, 6 in Electra/Fulu, 11 in Gloas)
+    SSZ_PROG_LIST("proof", ssz_bytes32)           // currentSyncCommitteeBranch (depth 5 in Deneb, 6 in Electra/Fulu, 11 in Gloas)
 };
 
 static const ssz_def_t ETH_HEADER_PROOFS_UNION[] = {
@@ -254,7 +254,7 @@ static const ssz_def_t ETH_BLOCKHASH_WITNESS_CONTAINER = SSZ_CONTAINER("Blockhas
 // are checked against configured witness keys (not implemented yet).
 static const ssz_def_t ETH_WITNESS_HEADER_PROOF[] = {
     SSZ_PROG_BYTES("elHeader"),                                 // RLP-serialized execution-layer header
-    SSZ_LIST("witnesses", ETH_BLOCKHASH_WITNESS_CONTAINER, 16), // signatures over keccak256(elHeader)
+    SSZ_LIST("witnesses", ETH_BLOCKHASH_WITNESS_CONTAINER, 16), // cap 16 is the product allow-list size, not an encoding limit
 };
 
 // Shared block proof used by account, tx, receipt, logs, call and block proofs.
@@ -439,7 +439,7 @@ static const ssz_def_t ETH_TRANSACTION_PROOF[] = {
 static const ssz_def_t ETH_RECEIPT_PROOF[] = {
     SSZ_UINT32("transactionIndex"),                    // the index of the transaction in the block
     SSZ_PROG_LIST("transactionProof", ssz_bytes_list), // the Patricia Merkle Proof of the transaction, the leaf contains the raw transaction.
-    SSZ_LIST("receiptProof", ssz_bytes_1024, 64),      // the Patricia Merkle Proof of the receipt, the leaf contains the raw receipt.
+    SSZ_PROG_LIST("receiptProof", ssz_bytes_1024),     // the Patricia Merkle Proof of the receipt, the leaf contains the raw receipt.
     SSZ_UNION("elProof", ETH_EL_PROOF_UNION),          // the proof for the execution block containing the transaction
 };
 
@@ -489,17 +489,17 @@ static const ssz_def_t ETH_RECEIPT_PROOF[] = {
 
 // Represents the storage proof of a key. The value can be taken from the last entry, which is the leaf of the proof.
 static const ssz_def_t ETH_STORAGE_PROOF[] = {
-    SSZ_BYTES32("key"),                      // the key to be proven
-    SSZ_LIST("proof", ssz_bytes_1024, 1024), // Patricia merkle proof
+    SSZ_BYTES32("key"),                     // the key to be proven
+    SSZ_PROG_LIST("proof", ssz_bytes_1024), // Patricia merkle proof
 };
 
 static const ssz_def_t ETH_STORAGE_PROOF_CONTAINER = SSZ_CONTAINER("StorageProof", ETH_STORAGE_PROOF);
 
 // The main proof data for an account.
 static const ssz_def_t ETH_ACCOUNT_PROOF[] = {
-    SSZ_LIST("accountProof", ssz_bytes_1024, 256),              // Patricia merkle proof
+    SSZ_PROG_LIST("accountProof", ssz_bytes_1024),              // Patricia merkle proof
     SSZ_ADDRESS("address"),                                     // the address of the account
-    SSZ_LIST("storageProof", ETH_STORAGE_PROOF_CONTAINER, 256), // the storage proofs of the selected
+    SSZ_PROG_LIST("storageProof", ETH_STORAGE_PROOF_CONTAINER), // the storage proofs of the selected
     SSZ_UNION("elProof", ETH_EL_PROOF_UNION)};                  // EL header proof of the account
 
 static const ssz_def_t ETH_CODE_UNION[] = {
@@ -557,16 +557,16 @@ static const ssz_def_t ETH_CODE_UNION[] = {
 
 // A proof for a single account.
 static const ssz_def_t ETH_CALL_ACCOUNT[] = {
-    SSZ_LIST("accountProof", ssz_bytes_1024, 256),               // Patricia merkle proof
-    SSZ_ADDRESS("address"),                                      // the address of the account
-    SSZ_UNION("code", ETH_CODE_UNION),                           // the code of the contract
-    SSZ_LIST("storageProof", ETH_STORAGE_PROOF_CONTAINER, 4096), // the storage proofs of the selected
+    SSZ_PROG_LIST("accountProof", ssz_bytes_1024),              // Patricia merkle proof
+    SSZ_ADDRESS("address"),                                     // the address of the account
+    SSZ_UNION("code", ETH_CODE_UNION),                          // the code of the contract
+    SSZ_PROG_LIST("storageProof", ETH_STORAGE_PROOF_CONTAINER), // the storage proofs of the selected
 };
 static const ssz_def_t ETH_CALL_ACCOUNT_CONTAINER = SSZ_CONTAINER("EthCallAccount", ETH_CALL_ACCOUNT);
 
 // The main proof data for a call.
 static const ssz_def_t ETH_CALL_PROOF[] = {
-    SSZ_LIST("accounts", ETH_CALL_ACCOUNT_CONTAINER, 256), // used accounts
+    SSZ_PROG_LIST("accounts", ETH_CALL_ACCOUNT_CONTAINER), // used accounts
     SSZ_UNION("elProof", ETH_EL_PROOF_UNION)};             // EL header proof of the accounts
 
 // :: Sync Proof
@@ -722,7 +722,7 @@ static const ssz_def_t ETH_SYNC_PROOF[] = {
     SSZ_UINT64("gidx"),                            // the general index from the signing root to the pubkeys of the next_synccommittee
     SSZ_UINT64("slot"),                            // the slot of the block
     SSZ_UINT64("proposerIndex"),
-    SSZ_LIST("proof", ssz_bytes32, 256) // the merkle proof from the signing root to the pubkeys of the next sync committee
+    SSZ_PROG_LIST("proof", ssz_bytes32) // the merkle proof from the signing root to the pubkeys of the next sync committee
 };
 
 // :: Block Proof

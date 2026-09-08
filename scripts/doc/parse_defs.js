@@ -68,9 +68,9 @@ function get_typename(type, args) {
         case "Vector":
             return 'Vector [' + toCamelCase(args[0]) + ', ' + args[1] + ']'
         case "ProgList":
-            return 'ProgressiveList [' + toCamelCase(args[0]) + ']'
+            return 'ProgList [' + toCamelCase(args[0]) + ']'
         case "ProgBytes":
-            return 'ProgressiveByteList'
+            return 'ProgBytes'
         case "ByteVector":
             return 'ByteVector [' + args[0] + ']'
         case "BitList":
@@ -375,6 +375,7 @@ function create_rpc_table(section, sections, rpc_docs) {
 function find_section_for_type(sections, type) {
     if (!type) return null
     if (type.startsWith('List')) type = type.substring(4)
+    if (type.startsWith('ProgList')) type = type.substring(8)
     for (let section of sections) {
         if (section.types.find(t => t.type == type)) return section
         const found = find_section_for_type(section.children, type)
@@ -409,6 +410,15 @@ function add_members(content, members, types, level = '    ', is_union = false) 
         else if (is_union)
             content.push(level + member.type_name + (i < members.length - 1 ? ',' : ']') + ' # ' + (member.comment || member.name))
         else {
+            if (member.type.endsWith('List') && member.type_name.indexOf('[') >= 0) {
+                let subtype = member.type_name.split('[')[1].split(']')[0] + 'Union';
+                if (types[subtype]) {
+                    content.push(level + member.name + ' : List [ Union [ ' + (member.comment ? ' # ' + member.comment : ''))
+                    add_members(content, types[subtype].members, types, level + '    ', true)
+                    content[content.length - 1] = content[content.length - 1].replace(']', '] ]');
+                    return;
+                }
+            }
             content.push(level + member.name + ' : ' + member.type_name + (member.comment ? ' # ' + member.comment : ''))
         }
     })
@@ -418,7 +428,7 @@ function add_references(content, members, types) {
     for (let member of members) {
         if (member.type == 'Union')
             add_references(content, types[member.type_name].members, types)
-        else if (member.type == 'List' || member.type == 'Vector')
+        else if (member.type == 'List' || member.type == 'Vector' || member.type == 'ProgressiveList' || member.type == 'ProgList')
             content.push(toCamelCase(member.args[0]))
         else if (member.type == 'Container')
             content.push(member.type_name)

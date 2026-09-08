@@ -78,7 +78,7 @@
 // Entry in the access list of a transaction or call.
 static const ssz_def_t ETH_ACCESS_LIST_DATA[] = {
     SSZ_ADDRESS("address"),                    // the address in the access list
-    SSZ_LIST("storageKeys", ssz_bytes32, 256), // the storage keys accessed at this address
+    SSZ_PROG_LIST("storageKeys", ssz_bytes32), // the storage keys accessed at this address
 };
 // Container type for access list entries
 static const ssz_def_t ETH_ACCESS_LIST_DATA_CONTAINER = SSZ_CONTAINER("AccessListData", ETH_ACCESS_LIST_DATA);
@@ -117,9 +117,9 @@ static const ssz_def_t ETH_TX_DATA[] = {
     SSZ_UINT64("gasPrice"),                                                    // the gas price of the transaction
     SSZ_UINT64("maxFeePerGas"),                                                // the maxFeePerGas of the transaction
     SSZ_UINT64("maxPriorityFeePerGas"),                                        // the maxPriorityFeePerGas of the transaction
-    SSZ_LIST("accessList", ETH_ACCESS_LIST_DATA_CONTAINER, 256),               // the access list of the transaction
-    SSZ_LIST("authorizationList", ETH_AUTHORIZATION_LIST_DATA_CONTAINER, 256), // the authorization list of the transaction (EIP-7702)
-    SSZ_LIST("blobVersionedHashes", ssz_bytes32, 16),                          // the blobVersionedHashes of the transaction
+    SSZ_PROG_LIST("accessList", ETH_ACCESS_LIST_DATA_CONTAINER),               // the access list of the transaction
+    SSZ_PROG_LIST("authorizationList", ETH_AUTHORIZATION_LIST_DATA_CONTAINER), // the authorization list of the transaction (EIP-7702)
+    SSZ_PROG_LIST("blobVersionedHashes", ssz_bytes32),                         // the blobVersionedHashes of the transaction
     SSZ_UINT8("yParity"),                                                      // the yParity of the transaction
     SSZ_BYTES32("sourceHash"),                                                 // unique identifier for deposit origin (OP Stack only)
     SSZ_UINT256("mint"),                                                       // ETH value to mint on L2 (OP Stack only) - rendered as uint
@@ -133,15 +133,15 @@ static const ssz_def_t ETH_TX_DATA[] = {
 
 // A log entry in the receipt.
 static const ssz_def_t ETH_RECEIPT_DATA_LOG[] = {
-    SSZ_BYTES32("blockHash"),           // the blockHash of the execution block containing the transaction
-    SSZ_UINT64("blockNumber"),          // the number of the execution block containing the transaction
-    SSZ_BYTES32("transactionHash"),     // the hash of the transaction
-    SSZ_UINT32("transactionIndex"),     // the index of the transaction in the block
-    SSZ_ADDRESS("address"),             // the address of the log
-    SSZ_UINT32("logIndex"),             // the index of the log in the transaction
-    SSZ_BOOLEAN("removed"),             // whether the log was removed
-    SSZ_LIST("topics", ssz_bytes32, 8), // the topics of the log
-    SSZ_BYTES("data", 1073741824),      // the data of the log
+    SSZ_BYTES32("blockHash"),             // the blockHash of the execution block containing the transaction
+    SSZ_UINT64("blockNumber"),            // the number of the execution block containing the transaction
+    SSZ_BYTES32("transactionHash"),       // the hash of the transaction
+    SSZ_UINT32("transactionIndex"),       // the index of the transaction in the block
+    SSZ_ADDRESS("address"),               // the address of the log
+    SSZ_UINT32("logIndex"),               // the index of the log in the transaction
+    SSZ_BOOLEAN("removed"),               // whether the log was removed
+    SSZ_PROG_LIST("topics", ssz_bytes32), // the topics of the log
+    SSZ_BYTES("data", 1073741824),        // the data of the log
 };
 // Container type for log entries in transaction receipts
 static const ssz_def_t ETH_RECEIPT_DATA_LOG_CONTAINER = SSZ_CONTAINER("Log", ETH_RECEIPT_DATA_LOG);
@@ -160,7 +160,7 @@ static const ssz_def_t ETH_RECEIPT_DATA[] = {
     SSZ_NULLABLE_BYTES("to", 20),                          // the target of the transaction
     SSZ_UINT64("cumulativeGasUsed"),                       // the cumulative gas used in the block up to and including this transaction
     SSZ_UINT64("gasUsed"),                                 // the gas used by this transaction alone
-    SSZ_LIST("logs", ETH_RECEIPT_DATA_LOG_CONTAINER, 256), // the logs of the transaction
+    SSZ_PROG_LIST("logs", ETH_RECEIPT_DATA_LOG_CONTAINER), // the logs of the transaction
     SSZ_BYTE_VECTOR("logsBloom", 256),                     // the bloom filter of the logs
     SSZ_UINT8("status"),                                   // the status of the transaction
     SSZ_UINT64("effectiveGasPrice"),                       // the effective gas price of the transaction
@@ -177,8 +177,8 @@ static const ssz_def_t ETH_RECEIPT_DATA_CONTAINER = SSZ_CONTAINER("EthTransactio
 static const ssz_def_t ETH_TX_DATA_CONTAINER = SSZ_CONTAINER("EthTransactionData", ETH_TX_DATA);
 // Union type for block transactions: either as hashes or as full transaction data
 static const ssz_def_t ETH_BLOCK_DATA_TRANSACTION_UNION[] = {
-    SSZ_LIST("as_hashes", ssz_bytes32, 4096),         // the transactions hashes
-    SSZ_LIST("as_data", ETH_TX_DATA_CONTAINER, 4096), // the transactions data
+    SSZ_PROG_LIST("as_hashes", ssz_bytes32),         // the transactions hashes
+    SSZ_PROG_LIST("as_data", ETH_TX_DATA_CONTAINER), // the transactions data
 };
 
 // :: Block Proof
@@ -197,7 +197,7 @@ static const ssz_def_t ETH_BLOCK_DATA[] = {
     SSZ_UINT256("baseFeePerGas"),                                // the baseFeePerGas
     SSZ_BYTE_VECTOR("nonce", 8),                                 // the nonce
     SSZ_ADDRESS("miner"),                                        // the miner
-    SSZ_LIST("withdrawals", DENEP_WITHDRAWAL_CONTAINER, 4096),   // the withdrawals
+    SSZ_PROG_LIST("withdrawals", DENEP_WITHDRAWAL_CONTAINER),    // the withdrawals
     SSZ_UINT64("excessBlobGas"),                                 // the excessBlobGas
     SSZ_UINT64("difficulty"),                                    // the difficulty
     SSZ_UINT64("gasLimit"),                                      // the gasLimit
@@ -205,7 +205,7 @@ static const ssz_def_t ETH_BLOCK_DATA[] = {
     SSZ_UINT64("timestamp"),                                     // the timestamp
     SSZ_BYTES32("mixHash"),                                      // the mixHash
     SSZ_BYTES32("parentHash"),                                   // the parentHash
-    SSZ_LIST("uncles", ssz_bytes32, 4096),                       // the uncles (ommer block hashes)
+    SSZ_PROG_LIST("uncles", ssz_bytes32),                        // the uncles (ommer block hashes)
     SSZ_BYTES32("parentBeaconBlockRoot"),                        // the parentBeaconBlockRoot
     SSZ_BYTES32("sha3Uncles"),                                   // the sha3Uncles of the uncles
     SSZ_BYTES32("transactionsRoot"),                             // the transactionsRoot
@@ -243,9 +243,9 @@ static const ssz_def_t ETH_BLOCK_HEADER_DATA[] = {
 
 // Represents the storage proof of a key. The value can be taken from the last entry, which is the leaf of the proof.
 static const ssz_def_t ETH_STORAGE_PROOF_DATA[] = {
-    SSZ_BYTES32("key"),                      // the key
-    SSZ_UINT256("value"),                    // the value (QUANTITY per RPC spec)
-    SSZ_LIST("proof", ssz_bytes_list, 1024), // Patricia merkle proof (simplified)
+    SSZ_BYTES32("key"),                     // the key
+    SSZ_UINT256("value"),                   // the value (QUANTITY per RPC spec)
+    SSZ_PROG_LIST("proof", ssz_bytes_list), // Patricia merkle proof (simplified)
 };
 
 // Container type for storage proof data
@@ -259,8 +259,8 @@ static const ssz_def_t ETH_PROOF_DATA[] = {
     SSZ_BYTES32("codeHash"),                                         // the hash of the contract code (empty for EOA)
     SSZ_UINT256("nonce"),                                            // the account nonce
     SSZ_BYTES32("storageHash"),                                      // the root hash of the storage trie
-    SSZ_LIST("accountProof", ssz_bytes_list, 256),                   // Patricia Merkle proof for the account (from state root to account)
-    SSZ_LIST("storageProof", ETH_STORAGE_PROOF_DATA_CONTAINER, 256), // the storage proofs for requested storage keys
+    SSZ_PROG_LIST("accountProof", ssz_bytes_list),                   // Patricia Merkle proof for the account (from state root to account)
+    SSZ_PROG_LIST("storageProof", ETH_STORAGE_PROOF_DATA_CONTAINER), // the storage proofs for requested storage keys
 };
 
 // :: Colibri RPC-Methods
@@ -278,9 +278,9 @@ static const ssz_def_t ETH_SIMULATION_INPUT_PARAM_CONTAINER = SSZ_CONTAINER("Inp
 
 // Raw log data (same structure as ETH_RECEIPT_DATA_LOG)
 static const ssz_def_t ETH_SIMULATION_LOG_RAW[] = {
-    SSZ_ADDRESS("address"),             // contract address that emitted the log
-    SSZ_BYTES("data", 1073741824),      // event data
-    SSZ_LIST("topics", ssz_bytes32, 8), // event topics
+    SSZ_ADDRESS("address"),               // contract address that emitted the log
+    SSZ_BYTES("data", 1073741824),        // event data
+    SSZ_PROG_LIST("topics", ssz_bytes32), // event topics
 };
 // Container type for raw log data (without ABI decoding)
 static const ssz_def_t ETH_SIMULATION_LOG_RAW_CONTAINER = SSZ_CONTAINER("LogRaw", ETH_SIMULATION_LOG_RAW);
@@ -289,7 +289,7 @@ static const ssz_def_t ETH_SIMULATION_LOG_RAW_CONTAINER = SSZ_CONTAINER("LogRaw"
 static const ssz_def_t ETH_SIMULATION_LOG[] = {
     SSZ_OPT_MASK("_optmask", 2),                                   // optional fields mask for future extensions
     SSZ_BOOLEAN("anonymous"),                                      // whether the event is anonymous (ABI decoding)
-    SSZ_LIST("inputs", ETH_SIMULATION_INPUT_PARAM_CONTAINER, 256), // decoded event inputs (ABI decoding)
+    SSZ_PROG_LIST("inputs", ETH_SIMULATION_INPUT_PARAM_CONTAINER), // decoded event inputs (ABI decoding)
     SSZ_STRING("name", 256),                                       // event name (ABI decoding)
     SSZ_CONTAINER("raw", ETH_SIMULATION_LOG_RAW),                  // raw log data
 };
@@ -299,8 +299,8 @@ static const ssz_def_t ETH_SIMULATION_LOG_CONTAINER = SSZ_CONTAINER("SimulationL
 // Trace entry for simulation result (Tenderly format).
 static const ssz_def_t ETH_SIMULATION_TRACE[] = {
     SSZ_OPT_MASK("_optmask", 4),                                          // optional fields mask
-    SSZ_LIST("decodedInput", ETH_SIMULATION_INPUT_PARAM_CONTAINER, 256),  // decoded input parameters (ABI decoding)
-    SSZ_LIST("decodedOutput", ETH_SIMULATION_INPUT_PARAM_CONTAINER, 256), // decoded output parameters (ABI decoding)
+    SSZ_PROG_LIST("decodedInput", ETH_SIMULATION_INPUT_PARAM_CONTAINER),  // decoded input parameters (ABI decoding)
+    SSZ_PROG_LIST("decodedOutput", ETH_SIMULATION_INPUT_PARAM_CONTAINER), // decoded output parameters (ABI decoding)
     SSZ_ADDRESS("from"),                                                  // caller address
     SSZ_UINT64("gas"),                                                    // gas limit (will be rendered as hex)
     SSZ_UINT64("gasUsed"),                                                // gas used (will be rendered as hex)
@@ -309,7 +309,7 @@ static const ssz_def_t ETH_SIMULATION_TRACE[] = {
     SSZ_BYTES("output", 1073741824),                                      // call output data
     SSZ_UINT32("subtraces"),                                              // number of subtraces
     SSZ_ADDRESS("to"),                                                    // target address
-    SSZ_LIST("traceAddress", ssz_uint32_def, 256),                        // trace address path (e.g. [0])
+    SSZ_PROG_LIST("traceAddress", ssz_uint32_def),                        // trace address path (e.g. [0])
     SSZ_STRING("type", 32),                                               // trace type ("CALL", "CREATE", etc.)
     SSZ_UINT256("value"),                                                 // ETH value (will be rendered as hex)
 };
@@ -340,11 +340,11 @@ static const ssz_def_t ETH_SIMULATION_VALUE_CHANGE_CONTAINER = SSZ_CONTAINER("Va
 
 // Per-account state diff in a simulation result.
 static const ssz_def_t ETH_SIMULATION_ACCOUNT_CHANGE[] = {
-    SSZ_OPT_MASK("_optmask", 1),                                         // controls visibility of storage, nonce, balance
-    SSZ_ADDRESS("address"),                                              // account address
-    SSZ_LIST("storage", ETH_SIMULATION_STORAGE_CHANGE_CONTAINER, 65536), // changed storage slots
-    SSZ_CONTAINER("nonce", ETH_SIMULATION_VALUE_CHANGE),                 // nonce change (if modified)
-    SSZ_CONTAINER("balance", ETH_SIMULATION_VALUE_CHANGE),               // balance change (if modified)
+    SSZ_OPT_MASK("_optmask", 1),                                       // controls visibility of storage, nonce, balance
+    SSZ_ADDRESS("address"),                                            // account address
+    SSZ_PROG_LIST("storage", ETH_SIMULATION_STORAGE_CHANGE_CONTAINER), // changed storage slots
+    SSZ_CONTAINER("nonce", ETH_SIMULATION_VALUE_CHANGE),               // nonce change (if modified)
+    SSZ_CONTAINER("balance", ETH_SIMULATION_VALUE_CHANGE),             // balance change (if modified)
 };
 // Container type for a per-account state change
 static const ssz_def_t ETH_SIMULATION_ACCOUNT_CHANGE_CONTAINER = SSZ_CONTAINER("AccountChange", ETH_SIMULATION_ACCOUNT_CHANGE);
@@ -356,17 +356,17 @@ static const ssz_def_t ETH_SIMULATION_ACCOUNT_CHANGE_CONTAINER = SSZ_CONTAINER("
 
 // Main simulation result structure (based on Tenderly format).
 static const ssz_def_t ETH_SIMULATION_RESULT[] = {
-    SSZ_OPT_MASK("_optmask", 4),                                             // optional fields mask
-    SSZ_UINT64("blockNumber"),                                               // block number where simulation was executed
-    SSZ_UINT64("cumulativeGasUsed"),                                         // cumulative gas used (for simulation: same as gasUsed)
-    SSZ_UINT64("gasUsed"),                                                   // gas used by the transaction
-    SSZ_LIST("logs", ETH_SIMULATION_LOG_CONTAINER, 1024),                    // emitted logs
-    SSZ_BYTE_VECTOR("logsBloom", 256),                                       // logs bloom filter (future extension)
-    SSZ_UINT8("status"),                                                     // transaction status (0x1 = success, 0x0 = revert) - Tenderly format
-    SSZ_LIST("trace", ETH_SIMULATION_TRACE_CONTAINER, 4096),                 // execution trace (future extension)
-    SSZ_UINT8("type"),                                                       // transaction type
-    SSZ_BYTES("returnValue", 1073741824),                                    // return value of the call
-    SSZ_LIST("stateChanges", ETH_SIMULATION_ACCOUNT_CHANGE_CONTAINER, 1024), // per-account state diffs (Tenderly format)
+    SSZ_OPT_MASK("_optmask", 4),                                            // optional fields mask
+    SSZ_UINT64("blockNumber"),                                              // block number where simulation was executed
+    SSZ_UINT64("cumulativeGasUsed"),                                        // cumulative gas used (for simulation: same as gasUsed)
+    SSZ_UINT64("gasUsed"),                                                  // gas used by the transaction
+    SSZ_PROG_LIST("logs", ETH_SIMULATION_LOG_CONTAINER),                    // emitted logs
+    SSZ_BYTE_VECTOR("logsBloom", 256),                                      // logs bloom filter (future extension)
+    SSZ_UINT8("status"),                                                    // transaction status (0x1 = success, 0x0 = revert) - Tenderly format
+    SSZ_PROG_LIST("trace", ETH_SIMULATION_TRACE_CONTAINER),                 // execution trace (future extension)
+    SSZ_UINT8("type"),                                                      // transaction type
+    SSZ_PROG_BYTES("returnValue"),                                          // return value of the call
+    SSZ_PROG_LIST("stateChanges", ETH_SIMULATION_ACCOUNT_CHANGE_CONTAINER), // per-account state diffs (Tenderly format)
 };
 // Container type for the complete simulation result
 static const ssz_def_t ETH_SIMULATION_RESULT_CONTAINER = SSZ_CONTAINER("SimulationResult", ETH_SIMULATION_RESULT);

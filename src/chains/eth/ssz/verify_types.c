@@ -62,17 +62,17 @@ static const ssz_def_t C4_ETH_ZK_SYNCDATA_V6[6];
 // A List of possible types of data matching the Proofs
 const ssz_def_t C4_ETH_REQUEST_DATA_UNION[12] = {
     SSZ_NONE,
-    SSZ_BYTES32("hash"),                                            // the blockhash  which is used for blockhash proof
-    SSZ_BYTES("bytes", 1073741824),                                 // the bytes of the data
-    SSZ_UINT256("value"),                                           // the balance of an account
-    SSZ_CONTAINER("EthTransactionData", ETH_TX_DATA),               // the transaction data
-    SSZ_CONTAINER("EthReceiptData", ETH_RECEIPT_DATA),              // the transaction receipt
-    SSZ_LIST("EthLogs", ETH_RECEIPT_DATA_LOG_CONTAINER, 1024),      // result of eth_getLogs
-    SSZ_CONTAINER("EthBlockData", ETH_BLOCK_DATA),                  // the block data
-    SSZ_CONTAINER("EthProofData", ETH_PROOF_DATA),                  // the result of an eth_getProof
-    SSZ_CONTAINER("SimulationResult", ETH_SIMULATION_RESULT),       // the result of an colibri_simulateTransaction
-    SSZ_CONTAINER("EthBlockHeaderData", ETH_BLOCK_HEADER_DATA),     // compact block header data
-    SSZ_LIST("EthBlockReceipts", ETH_RECEIPT_DATA_CONTAINER, 2048), // all receipts of a block
+    SSZ_BYTES32("hash"),                                           // the blockhash  which is used for blockhash proof
+    SSZ_PROG_BYTES("bytes"),                                       // the bytes of the data
+    SSZ_UINT256("value"),                                          // the balance of an account
+    SSZ_CONTAINER("EthTransactionData", ETH_TX_DATA),              // the transaction data
+    SSZ_CONTAINER("EthReceiptData", ETH_RECEIPT_DATA),             // the transaction receipt
+    SSZ_PROG_LIST("EthLogs", ETH_RECEIPT_DATA_LOG_CONTAINER),      // result of eth_getLogs
+    SSZ_CONTAINER("EthBlockData", ETH_BLOCK_DATA),                 // the block data
+    SSZ_CONTAINER("EthProofData", ETH_PROOF_DATA),                 // the result of an eth_getProof
+    SSZ_CONTAINER("SimulationResult", ETH_SIMULATION_RESULT),      // the result of an colibri_simulateTransaction
+    SSZ_CONTAINER("EthBlockHeaderData", ETH_BLOCK_HEADER_DATA),    // compact block header data
+    SSZ_PROG_LIST("EthBlockReceipts", ETH_RECEIPT_DATA_CONTAINER), // all receipts of a block
 };
 
 // A List of possible types of proofs matching the Data.
@@ -84,7 +84,7 @@ static const ssz_def_t C4_REQUEST_PROOFS_UNION[] = {
     SSZ_CONTAINER("AccountProof", ETH_ACCOUNT_PROOF),                    //  1: Account (eth_getBalance, eth_getStorageAt, ...)
     SSZ_CONTAINER("TransactionProof", ETH_TRANSACTION_PROOF),            //  2: Transaction (eth_getTransactionByHash, ...)
     SSZ_CONTAINER("ReceiptProof", ETH_RECEIPT_PROOF),                    //  3: TransactionReceipt
-    SSZ_LIST("LogsProof", ETH_LOGS_BLOCK_CONTAINER, 256),                //  4: Logs inclusion (eth_getLogs / eth_verifyLogs)
+    SSZ_PROG_LIST("LogsProof", ETH_LOGS_BLOCK_CONTAINER),                //  4: Logs inclusion (eth_getLogs / eth_verifyLogs)
     SSZ_CONTAINER("LogsCompletenessProof", ETH_LOGS_COMPLETENESS_PROOF), //  5: Logs completeness over a contiguous block range
     SSZ_CONTAINER("CallProof", ETH_CALL_PROOF),                          //  6: Call (eth_call)
     SSZ_CONTAINER("BlockProof", ETH_BLOCK_PROOF),                        //  7: BlockData (body union: NONE = header-only proof)
@@ -142,7 +142,7 @@ static const ssz_def_t C4_ETH_SYNCDATA_UPDATE = SSZ_UNION("updates", C4_ETH_SYNC
 // LC SyncData contains all the proofs needed to bootstrap and update to the  current period.
 static const ssz_def_t C4_ETH_LC_SYNCDATA[2] = {
     SSZ_UNION("bootstrap", C4_ETH_SYNCDATA_BOOTSTRAP_UNION), // optional bootstrap data for the sync committee, which is only accepted by the verifier, if it matches the checkpoint set.
-    SSZ_LIST("update", C4_ETH_SYNCDATA_UPDATE, 1024)         // optional update data for the sync committee
+    SSZ_PROG_LIST("update", C4_ETH_SYNCDATA_UPDATE)          // optional update data for the sync committee
 };
 
 // Recursive ZK proof of a sync-committee update (356-byte Groth16).
@@ -152,7 +152,7 @@ static const ssz_def_t C4_ETH_ZK_SYNCDATA_V6[6] = {
     SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),
     SSZ_VECTOR("pubkeys", ssz_bls_pubky, 512),          // the pubkeys of the sync committee
     SSZ_UNION("checkpoint", ETH_HEADER_PROOFS_UNION),   // the proof from the checkpoint to the header
-    SSZ_LIST("signatures", ssz_secp256k1_signature, 16) // the signatures for the checkpoint
+    SSZ_LIST("signatures", ssz_secp256k1_signature, 16) // cap 16 is the witness-key allow-list size, not an encoding limit
 };
 
 /**

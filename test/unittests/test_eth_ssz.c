@@ -117,6 +117,40 @@ void test_request_proofs_union_order(void) {
   TEST_ASSERT_EQUAL_PTR_MESSAGE(receipts + 1, sync, "SyncProof must be the last request-proof variant");
 }
 
+void test_verify_list_kinds(void) {
+  const ssz_def_t* logs_proof = eth_ssz_verification_type(ETH_SSZ_VERIFY_LOGS_PROOF);
+  const ssz_def_t* eth_logs   = eth_ssz_verification_type(ETH_SSZ_DATA_LOGS);
+  TEST_ASSERT_NOT_NULL(logs_proof);
+  TEST_ASSERT_NOT_NULL(eth_logs);
+  TEST_ASSERT_EQUAL_STRING("LogsProof", logs_proof->name);
+  TEST_ASSERT_EQUAL_STRING("EthLogs", eth_logs->name);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(SSZ_TYPE_PROG_LIST, logs_proof->type,
+                                "LogsProof must be a progressive list (no encoding cap)");
+  TEST_ASSERT_EQUAL_INT_MESSAGE(SSZ_TYPE_PROG_LIST, eth_logs->type,
+                                "EthLogs must be a progressive list (no encoding cap)");
+
+  const ssz_def_t* witnesses = ssz_get_def(eth_ssz_verification_type(ETH_SSZ_WITNESS_HEADER_PROOF), "witnesses");
+  TEST_ASSERT_NOT_NULL(witnesses);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(SSZ_TYPE_LIST, witnesses->type, "witnesses stay a capped SSZ list");
+  TEST_ASSERT_EQUAL_UINT32(16, witnesses->def.vector.len);
+
+  const ssz_def_t* signatures = ssz_get_def(eth_ssz_verification_type(ETH_SSZ_VERIFY_ZK_SYNCDATA_V6), "signatures");
+  TEST_ASSERT_NOT_NULL(signatures);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(SSZ_TYPE_LIST, signatures->type, "ZK signatures stay a capped SSZ list");
+  TEST_ASSERT_EQUAL_UINT32(16, signatures->def.vector.len);
+
+  const ssz_def_t* cl_header_proof = ssz_get_def(eth_ssz_verification_type(ETH_SSZ_CL_HEADER_PROOF), "clHeaderProof");
+  TEST_ASSERT_NOT_NULL(cl_header_proof);
+  TEST_ASSERT_EQUAL_INT(SSZ_TYPE_UNION, cl_header_proof->type);
+  TEST_ASSERT_TRUE(cl_header_proof->def.container.len > 2);
+  const ssz_def_t* header_chain = cl_header_proof->def.container.elements + 2;
+  TEST_ASSERT_EQUAL_STRING("headerChain", header_chain->name);
+  const ssz_def_t* headers = ssz_get_def(header_chain, "headers");
+  TEST_ASSERT_NOT_NULL(headers);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(SSZ_TYPE_LIST, headers->type, "headerChain.headers stay a capped SSZ list");
+  TEST_ASSERT_EQUAL_UINT32(128, headers->def.vector.len);
+}
+
 void test_witness_block_proof_type(void) {
   const ssz_def_t* cl      = eth_ssz_verification_type(ETH_SSZ_CL_HEADER_PROOF);
   const ssz_def_t* seq     = eth_ssz_verification_type(ETH_SSZ_SEQUENCER_PROOF);
@@ -315,6 +349,7 @@ int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_ssz);
   RUN_TEST(test_request_proofs_union_order);
+  RUN_TEST(test_verify_list_kinds);
   RUN_TEST(test_witness_block_proof_type);
   RUN_TEST(test_el_proof_and_header_proof_names);
   RUN_TEST(test_witness_block_proof_not_implemented);
