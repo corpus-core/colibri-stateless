@@ -598,7 +598,7 @@ static ssz_builder_t build_authorization_list_ssz(verify_ctx_t* ctx, bytes_t rlp
         ssz_builder_free(&authorization_list_builder);
         return (ssz_builder_t) {0};
       }
-      ssz_add_uint32(&auth_entry_builder, (uint32_t) bytes_as_be(rlp_item_chain_id));
+      ssz_add_uint64(&auth_entry_builder, bytes_as_be(rlp_item_chain_id));
 
       // Field 2 in SSZ: nonce (from RLP index 2)
       if (rlp_decode(&auth_tuple_rlp, 2, &rlp_item_nonce) != RLP_ITEM) {
@@ -698,7 +698,7 @@ INTERNAL bool c4_write_tx_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer
   bytes_t  rlp_v_field                      = {0};
   uint8_t  tx_sig_y_parity                  = 0;
   uint64_t v_for_ssz                        = 0;
-  uint32_t chain_id                         = 0;
+  uint64_t chain_id                         = 0;
   uint64_t gas_price_rlp_val                = 0;
   uint64_t max_priority_fee_per_gas_rlp_val = 0;
   uint64_t max_fee_per_gas_rlp_val          = 0;
@@ -708,7 +708,7 @@ INTERNAL bool c4_write_tx_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer
     rlp_tx_sig_y_parity = get_rlp_field(ctx, rlp_list_payload, defs_ptr, "yParity", RLP_ITEM);
     rlp_v_field         = get_rlp_field(ctx, rlp_list_payload, defs_ptr, "v", RLP_ITEM);
     tx_sig_y_parity     = rlp_tx_sig_y_parity.len ? rlp_tx_sig_y_parity.data[0] : 0;
-    chain_id            = (uint32_t) bytes_as_be(get_rlp_field(ctx, rlp_list_payload, defs_ptr, "chainId", RLP_ITEM));
+    chain_id            = bytes_as_be(get_rlp_field(ctx, rlp_list_payload, defs_ptr, "chainId", RLP_ITEM));
     gas_price_rlp_val   = bytes_as_be(get_rlp_field(ctx, rlp_list_payload, defs_ptr, "gasPrice", RLP_ITEM));
   }
 
@@ -826,7 +826,7 @@ INTERNAL bool c4_write_tx_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer
     ssz_add_uint256(buffer, get_rlp_field(ctx, rlp_list_payload, defs_ptr, "s", RLP_ITEM));
   }
 
-  ssz_add_uint32(buffer, chain_id);
+  ssz_add_uint64(buffer, chain_id);
   ssz_add_uint64(buffer, v_for_ssz);
   ssz_add_uint64(buffer, bytes_as_be(get_rlp_field(ctx, rlp_list_payload, defs_ptr, "gas", RLP_ITEM)));
   ssz_add_bytes(buffer, "from", bytes(from_address, 20));
@@ -997,9 +997,9 @@ bool c4_write_receipt_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer, by
   // the created contract address is keccak256(rlp([sender, nonce]))[12:32].
   // CREATE2-style deployments produce their own address inside the EVM and are
   // NOT set on the outer receipt.  Deposit txs never create contracts here.
-  bytes32_t contract_hash_buf   = {0};
-  bytes_t   contract_address    = NULL_BYTES;
-  bool      has_contract_addr   = false;
+  bytes32_t contract_hash_buf = {0};
+  bytes_t   contract_address  = NULL_BYTES;
+  bool      has_contract_addr = false;
   if (type != TX_TYPE_DEPOSITED && status_u64 == 1 && to_field.len == 0) {
     uint8_t  rlp_tmp[64] = {0};
     buffer_t rlp_buf     = {.data = {.data = rlp_tmp, .len = 0}, .allocated = -(int32_t) sizeof(rlp_tmp)};

@@ -86,7 +86,7 @@ static const ssz_def_t ETH_ACCESS_LIST_DATA_CONTAINER = SSZ_CONTAINER("AccessLis
 // Entry in the authorization list of a transaction or call.
 static const ssz_def_t ETH_AUTHORIZATION_LIST_DATA[] = {
     SSZ_ADDRESS("address"), // the codebase to be used for the authorization
-    SSZ_UINT32("chainId"),  // the chainId of the transaction
+    SSZ_UINT64("chainId"),  // the chainId of the authorization (EIP-7702)
     SSZ_UINT64("nonce"),    // nonce of the transaction
     SSZ_UINT256("r"),       // the r value of the transaction signature (QUANTITY per RPC spec)
     SSZ_UINT256("s"),       // the s value of the transaction signature (QUANTITY per RPC spec)
@@ -108,7 +108,7 @@ static const ssz_def_t ETH_TX_DATA[] = {
     SSZ_BYTES("input", 1073741824),                                            // the raw transaction payload
     SSZ_UINT256("r"),                                                          // the r value of the transaction signature (QUANTITY per RPC spec)
     SSZ_UINT256("s"),                                                          // the s value of the transaction signature (QUANTITY per RPC spec)
-    SSZ_UINT32("chainId"),                                                     // the chain ID of the transaction
+    SSZ_UINT64("chainId"),                                                     // the chain ID of the transaction
     SSZ_UINT64("v"),                                                           // the v value of the transaction signature
     SSZ_UINT64("gas"),                                                         // the gas limit
     SSZ_ADDRESS("from"),                                                       // the sender of the transaction

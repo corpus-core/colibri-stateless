@@ -25,8 +25,11 @@
 #include "beacon_types.h"
 #include "bytes.h"
 #include "c4_assert.h"
+#include "eth_tx.h"
+#include "rlp.h"
 #include "ssz.h"
 #include "unity.h"
+#include <string.h>
 void setUp(void) {
 }
 
@@ -186,6 +189,144 @@ void test_colibri_decodeTransaction() {
   c4_verify_free_data(&ctx);
 }
 
+// PlatAberg-sized chain id: 0x1a6a8cc6e does not fit in uint32 (truncated to 0xa6a8cc6e).
+#define TEST_LARGE_CHAIN_ID 0x1a6a8cc6eULL
+
+static void fill_test_sig(uint8_t r[32], uint8_t s[32]) {
+  hex_to_bytes("28ef61340bd939bc2195fe537567866003e1a15d3c71ff63e1590620aa636276", -1, bytes(r, 32));
+  hex_to_bytes("67cbe9d8997f761aecb703304b3800ccf555c9f3dc64214b297fb1966a3b6d83", -1, bytes(s, 32));
+}
+
+static void append_test_sig(buffer_t* payload) {
+  uint8_t r[32], s[32];
+  fill_test_sig(r, s);
+  rlp_add_item(payload, bytes(r, 32));
+  rlp_add_item(payload, bytes(s, 32));
+}
+
+static ssz_ob_t decode_raw_tx(bytes_t raw) {
+  verify_ctx_t  ctx     = {0};
+  ssz_builder_t builder = ssz_builder_for_type(ETH_SSZ_DATA_TX);
+  bytes32_t     zero    = {0};
+  bool          ok      = c4_write_tx_data_from_raw(&ctx, &builder, raw, zero, zero, 0, 0, 0, 0);
+  TEST_ASSERT_NULL_MESSAGE(ctx.state.error, ctx.state.error ? ctx.state.error : "decode error");
+  TEST_ASSERT_TRUE_MESSAGE(ok, "c4_write_tx_data_from_raw failed");
+  return ssz_builder_to_bytes(&builder);
+}
+
+// RPC JSON uses write_unit_as_hex; the PlatAberg bug was "0xa6a8cc6e" instead of "0x1a6a8cc6e".
+static void assert_large_chain_id_json(ssz_ob_t ob) {
+  char* json = ssz_dump_to_str(ob, false, true);
+  TEST_ASSERT_NOT_NULL(json);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(json, "\"chainId\":\"0x1a6a8cc6e\""), json);
+  TEST_ASSERT_NULL_MESSAGE(strstr(json, "\"chainId\":\"0xa6a8cc6e\""), json);
+  safe_free(json);
+}
+
+void test_tx_chainId_uint64() {
+  const ssz_def_t* tx_def       = eth_ssz_verification_type(ETH_SSZ_DATA_TX);
+  const ssz_def_t* chain_id_def = ssz_get_def(tx_def, "chainId");
+  TEST_ASSERT_NOT_NULL(chain_id_def);
+  TEST_ASSERT_EQUAL_UINT32(8, chain_id_def->def.uint.len);
+
+  buffer_t payload = {0};
+  uint8_t  to[20]  = {0};
+  rlp_add_uint64(&payload, TEST_LARGE_CHAIN_ID);
+  rlp_add_uint64(&payload, 0);     // nonce
+  rlp_add_uint64(&payload, 1);     // maxPriorityFeePerGas
+  rlp_add_uint64(&payload, 1);     // maxFeePerGas
+  rlp_add_uint64(&payload, 21000); // gas
+  rlp_add_item(&payload, bytes(to, 20));
+  rlp_add_uint64(&payload, 0);        // value
+  rlp_add_item(&payload, NULL_BYTES); // input
+  rlp_add_list(&payload, NULL_BYTES); // empty accessList
+  rlp_add_uint64(&payload, 0);        // yParity
+  append_test_sig(&payload);
+  rlp_to_list(&payload);
+  uint8_t type = 2;
+  buffer_splice(&payload, 0, 0, bytes(&type, 1));
+
+  ssz_ob_t tx = decode_raw_tx(payload.data);
+  TEST_ASSERT_EQUAL_UINT64(TEST_LARGE_CHAIN_ID, ssz_get_uint64(&tx, "chainId"));
+  assert_large_chain_id_json(tx);
+  safe_free(tx.bytes.data);
+  buffer_free(&payload);
+}
+
+void test_auth_list_chainId_uint64() {
+  const ssz_def_t* tx_def        = eth_ssz_verification_type(ETH_SSZ_DATA_TX);
+  const ssz_def_t* auth_list_def = ssz_get_def(tx_def, "authorizationList");
+  TEST_ASSERT_NOT_NULL(auth_list_def);
+  const ssz_def_t* auth_entry_def = auth_list_def->def.vector.type;
+  const ssz_def_t* auth_chain_def = ssz_get_def(auth_entry_def, "chainId");
+  TEST_ASSERT_NOT_NULL(auth_chain_def);
+  TEST_ASSERT_EQUAL_UINT32(8, auth_chain_def->def.uint.len);
+
+  uint8_t to[20] = {0};
+  uint8_t r[32], s[32];
+  fill_test_sig(r, s);
+
+  buffer_t auth = {0};
+  rlp_add_uint64(&auth, TEST_LARGE_CHAIN_ID);
+  rlp_add_item(&auth, bytes(to, 20));
+  rlp_add_uint64(&auth, 0); // nonce
+  rlp_add_uint64(&auth, 1); // yParity
+  rlp_add_item(&auth, bytes(r, 32));
+  rlp_add_item(&auth, bytes(s, 32));
+  rlp_to_list(&auth);
+
+  buffer_t payload = {0};
+  rlp_add_uint64(&payload, TEST_LARGE_CHAIN_ID);
+  rlp_add_uint64(&payload, 0);     // nonce
+  rlp_add_uint64(&payload, 1);     // maxPriorityFeePerGas
+  rlp_add_uint64(&payload, 1);     // maxFeePerGas
+  rlp_add_uint64(&payload, 21000); // gas
+  rlp_add_item(&payload, bytes(to, 20));
+  rlp_add_uint64(&payload, 0);        // value
+  rlp_add_item(&payload, NULL_BYTES); // input
+  rlp_add_list(&payload, NULL_BYTES); // empty accessList
+  rlp_add_list(&payload, auth.data);  // authorizationList with one entry
+  rlp_add_uint64(&payload, 0);        // yParity
+  append_test_sig(&payload);
+  rlp_to_list(&payload);
+  uint8_t type = 4;
+  buffer_splice(&payload, 0, 0, bytes(&type, 1));
+
+  ssz_ob_t tx        = decode_raw_tx(payload.data);
+  ssz_ob_t auth_list = ssz_get(&tx, "authorizationList");
+  TEST_ASSERT_EQUAL_UINT32(1, ssz_len(auth_list));
+  ssz_ob_t entry = ssz_at(auth_list, 0);
+  TEST_ASSERT_EQUAL_UINT64(TEST_LARGE_CHAIN_ID, ssz_get_uint64(&tx, "chainId"));
+  TEST_ASSERT_EQUAL_UINT64(TEST_LARGE_CHAIN_ID, ssz_get_uint64(&entry, "chainId"));
+  assert_large_chain_id_json(tx);
+  assert_large_chain_id_json(entry);
+  safe_free(tx.bytes.data);
+  buffer_free(&auth);
+  buffer_free(&payload);
+}
+
+void test_legacy_eip155_chainId_uint64() {
+  // EIP-155: v = chainId * 2 + 35 + yParity. The writer derives chainId from v,
+  // so a uint32 store would still truncate PlatAberg-sized ids on legacy txs.
+  buffer_t payload = {0};
+  uint8_t  to[20]  = {0};
+  rlp_add_uint64(&payload, 0);     // nonce
+  rlp_add_uint64(&payload, 1);     // gasPrice
+  rlp_add_uint64(&payload, 21000); // gas
+  rlp_add_item(&payload, bytes(to, 20));
+  rlp_add_uint64(&payload, 0);        // value
+  rlp_add_item(&payload, NULL_BYTES); // input
+  rlp_add_uint64(&payload, TEST_LARGE_CHAIN_ID * 2 + 35);
+  append_test_sig(&payload);
+  rlp_to_list(&payload);
+
+  ssz_ob_t tx = decode_raw_tx(payload.data);
+  TEST_ASSERT_EQUAL_UINT64(TEST_LARGE_CHAIN_ID, ssz_get_uint64(&tx, "chainId"));
+  assert_large_chain_id_json(tx);
+  safe_free(tx.bytes.data);
+  buffer_free(&payload);
+}
+
 // TODO: Fix decoder to properly handle invalid input without crashing
 // Currently crashes with invalid hex input
 /*
@@ -227,6 +368,9 @@ int main(void) {
 
   // Transaction Decoding
   RUN_TEST(test_colibri_decodeTransaction);
+  RUN_TEST(test_tx_chainId_uint64);
+  RUN_TEST(test_auth_list_chainId_uint64);
+  RUN_TEST(test_legacy_eip155_chainId_uint64);
   // RUN_TEST(test_colibri_decodeTransaction_invalid); // TODO: Decoder crashes with invalid input
 
   // Error handling
