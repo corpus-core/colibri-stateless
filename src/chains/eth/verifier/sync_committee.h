@@ -180,19 +180,19 @@ c4_chain_state_t c4_get_chain_state(chain_id_t chain_id);
 void c4_eth_set_trusted_checkpoint(chain_id_t chain_id, bytes32_t checkpoint);
 
 /**
- * Detect the fork for a light client update from the 4-byte Beacon-API
- * `ForkDigest` that precedes the SSZ payload.
+ * Fail-closed message for an unrecognized LCU fork digest. Use with
+ * `THROW_ERROR_WITH` when the caller has a `ctx` and returns `c4_status_t`.
  *
- * @param chain_id Chain identifier
- * @param fork_digest at least 4 bytes of fork digest (payload is not read)
- * @return matching fork, or `C4_FORK_INVALID` if the digest is unknown
+ * ```c
+ * THROW_ERROR_WITH(C4_ETH_UNKNOWN_LCU_FORK_FMT, fork_digest, c4_client_version);
+ * ```
  */
-fork_id_t c4_eth_get_fork_for_lcu(chain_id_t chain_id, bytes_t fork_digest);
+#define C4_ETH_UNKNOWN_LCU_FORK_FMT \
+  "unrecognized fork digest 0x%x; this Colibri version (%s) does not support the current chain fork - please update the app"
 
 /**
- * Records a fail-closed error for an unrecognized LCU fork digest and
- * asks the user to update the app. Callers that have a `c4_state_t`
- * should use this helper so the log line stays consistent.
+ * Records `C4_ETH_UNKNOWN_LCU_FORK_FMT` on `state` when the caller cannot
+ * use `THROW_ERROR_WITH` (non-`c4_status_t` return, or no `ctx`).
  *
  * @param state verification or prover state that receives the error
  * @param digest the 4-byte digest that did not match any known fork

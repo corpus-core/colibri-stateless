@@ -506,16 +506,10 @@ fork_id_t c4_eth_get_fork_for_lcb(chain_id_t chain_id, bytes_t data) {
   return C4_FORK_INVALID;
 }
 
-fork_id_t c4_eth_get_fork_for_lcu(chain_id_t chain_id, bytes_t fork_digest) {
-  if (!fork_digest.data || fork_digest.len < 4) return C4_FORK_INVALID;
-  return c4_eth_fork_from_digest(chain_id, fork_digest.data);
-}
-
 void c4_eth_unknown_lcu_fork_error(c4_state_t* state, const uint8_t digest[4]) {
   uint8_t        zero[4] = {0};
   const uint8_t* d       = digest ? digest : zero;
-  char*          msg     = bprintf(NULL,
-                                   "unrecognized fork digest 0x%x; this Colibri version (%s) does not support the current chain fork - please update the app",
+  char*          msg     = bprintf(NULL, C4_ETH_UNKNOWN_LCU_FORK_FMT,
                                    bytes((uint8_t*) d, 4), c4_client_version);
   c4_state_add_error(state, msg);
   safe_free(msg);
@@ -604,7 +598,7 @@ INTERNAL bool c4_process_light_client_updates(verify_ctx_t* ctx, bytes_t light_c
     bytes_t          fork_digest               = bytes(light_client_updates.data + pos + SSZ_LENGTH_SIZE, 4);
     fork_id_t        fork                      = lighthouse
                                                      ? fork_from_lcu_payload(ctx->chain_id, light_client_update_bytes)
-                                                     : c4_eth_get_fork_for_lcu(ctx->chain_id, fork_digest);
+                                                     : c4_eth_fork_from_digest(ctx->chain_id, fork_digest.data);
     const ssz_def_t* light_client_update_def   = eth_get_light_client_update(fork);
 
     if (!light_client_update_def) {

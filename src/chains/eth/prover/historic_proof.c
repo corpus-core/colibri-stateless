@@ -463,18 +463,15 @@ static c4_status_t fetch_updates_data(prover_ctx_t* ctx, syncdata_state_t* sync_
     if (length < data_length_offset ||
         pos + SSZ_LENGTH_SIZE + length > client_updates.len ||
         pos + SSZ_LENGTH_SIZE + length < pos) {
-      c4_state_add_error(&ctx->state, "invalid light client update length");
-      return C4_ERROR;
+      THROW_ERROR("invalid light client update length");
     }
 
     bytes_t   client_update_bytes = bytes(client_updates.data + data_offset, length - data_length_offset);
     bytes_t   fork_digest         = bytes(client_updates.data + pos + SSZ_LENGTH_SIZE, 4);
-    fork_id_t fork                = c4_eth_get_fork_for_lcu(ctx->chain_id, fork_digest);
+    fork_id_t fork                = c4_eth_fork_from_digest(ctx->chain_id, fork_digest.data);
     ssz_ob_t  update              = {.bytes = client_update_bytes, .def = eth_get_light_client_update(fork)};
-    if (!update.def) {
-      c4_eth_unknown_lcu_fork_error(&ctx->state, fork_digest.data);
-      return C4_ERROR;
-    }
+    if (!update.def)
+      THROW_ERROR_WITH(C4_ETH_UNKNOWN_LCU_FORK_FMT, fork_digest, c4_client_version);
 
     bytes_t prefixed = bytes(safe_malloc(update.bytes.len + 1), update.bytes.len + 1);
     memcpy(prefixed.data + 1, update.bytes.data, update.bytes.len);

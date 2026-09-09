@@ -290,7 +290,7 @@ static void fetch_lcb_cb(client_t* client, void* data, data_request_t* r) {
     THROW_PERIOD_ERROR(r, "period_store: LCU fetch for period %l failed: response too short", period);
   ssz_ob_t  update      = {.bytes = bytes(r->response.data + UPDATE_PREFIX_SIZE, length - SSZ_OFFSET_SIZE), .def = NULL};
   bytes_t   fork_digest = bytes(r->response.data + 8, 4);
-  fork_id_t fork        = c4_eth_get_fork_for_lcu(http_server.chain_id, fork_digest);
+  fork_id_t fork        = c4_eth_fork_from_digest(http_server.chain_id, fork_digest.data);
   update.def            = eth_get_light_client_update(fork);
   if (!update.def) THROW_PERIOD_ERROR(r, "period_store: LCU fetch for period %l failed: unrecognized fork digest 0x%x; this Colibri version does not support the current chain fork - please update the app", period, fork_digest);
   ssz_ob_t finalized         = ssz_get(&update, "finalizedHeader");

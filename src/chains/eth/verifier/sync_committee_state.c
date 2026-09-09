@@ -53,6 +53,7 @@
 #include "../util/logger.h"
 #include "../util/plugin.h"
 #include "./sync_committee.h"
+#include "version.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -924,7 +925,7 @@ static c4_status_t c4_check_weak_subjectivity(verify_ctx_t* ctx, c4_sync_validat
 
       bytes_t          client_update_bytes = bytes(client_updates.data + data_offset, length - data_length_offset);
       bytes_t          fork_digest         = bytes(client_updates.data + pos + SSZ_LENGTH_SIZE, 4);
-      fork_id_t        lcu_fork            = c4_eth_get_fork_for_lcu(ctx->chain_id, fork_digest);
+      fork_id_t        lcu_fork            = c4_eth_fork_from_digest(ctx->chain_id, fork_digest.data);
       const ssz_def_t* lcu_def             = eth_get_light_client_update(lcu_fork);
       if (!lcu_def) continue;
 
@@ -1037,12 +1038,10 @@ static c4_status_t c4_try_sync_from_next_period(verify_ctx_t* ctx, uint32_t peri
       THROW_ERROR("Invalid light client update format in edge case sync");
 
     bytes_t          fork_digest       = bytes(light_client_update.data + 8, 4);
-    fork_id_t        fork              = c4_eth_get_fork_for_lcu(ctx->chain_id, fork_digest);
+    fork_id_t        fork              = c4_eth_fork_from_digest(ctx->chain_id, fork_digest.data);
     const ssz_def_t* client_update_def = eth_get_light_client_update(fork);
-    if (!client_update_def) {
-      c4_eth_unknown_lcu_fork_error(&ctx->state, fork_digest.data);
-      return C4_ERROR;
-    }
+    if (!client_update_def)
+      THROW_ERROR_WITH(C4_ETH_UNKNOWN_LCU_FORK_FMT, fork_digest, c4_client_version);
 
     uint64_t length = uint64_from_le(light_client_update.data);
     if (length < SSZ_OFFSET_SIZE ||

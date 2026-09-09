@@ -265,8 +265,6 @@ static void assert_bpo_maps_to_fulu(chain_id_t chain_id, uint64_t bpo1_epoch, ui
   TEST_ASSERT_NOT_EQUAL_INT(0, memcmp(bpo1, bpo2, 4));
   TEST_ASSERT_EQUAL_INT(C4_FORK_FULU, c4_eth_fork_from_digest(chain_id, bpo1));
   TEST_ASSERT_EQUAL_INT(C4_FORK_FULU, c4_eth_fork_from_digest(chain_id, bpo2));
-  TEST_ASSERT_EQUAL_INT(C4_FORK_FULU, c4_eth_get_fork_for_lcu(chain_id, bytes(bpo1, 4)));
-  TEST_ASSERT_EQUAL_INT(C4_FORK_FULU, c4_eth_get_fork_for_lcu(chain_id, bytes(bpo2, 4)));
 }
 
 void test_fork_digest_bpo_maps_to_fulu(void) {
@@ -277,10 +275,9 @@ void test_fork_digest_bpo_maps_to_fulu(void) {
 void test_fork_digest_unknown_is_invalid_and_suggests_upgrade(void) {
   uint8_t unknown[4] = {0xde, 0xad, 0xbe, 0xef};
   TEST_ASSERT_EQUAL_INT(C4_FORK_INVALID, c4_eth_fork_from_digest(C4_CHAIN_MAINNET, unknown));
-  TEST_ASSERT_EQUAL_INT(C4_FORK_INVALID, c4_eth_get_fork_for_lcu(C4_CHAIN_MAINNET, bytes(unknown, 4)));
-  TEST_ASSERT_EQUAL_INT(C4_FORK_INVALID, c4_eth_get_fork_for_lcu(C4_CHAIN_MAINNET, NULL_BYTES));
+  TEST_ASSERT_EQUAL_INT(C4_FORK_INVALID, c4_eth_fork_from_digest(C4_CHAIN_MAINNET, NULL));
   TEST_ASSERT_NOT_EQUAL_INT(C4_FORK_MAX, c4_eth_fork_from_digest(C4_CHAIN_MAINNET, unknown));
-  TEST_ASSERT_NOT_EQUAL_INT(C4_FORK_GLOAS, c4_eth_get_fork_for_lcu(C4_CHAIN_MAINNET, bytes(unknown, 4)));
+  TEST_ASSERT_NOT_EQUAL_INT(C4_FORK_GLOAS, c4_eth_fork_from_digest(C4_CHAIN_MAINNET, unknown));
 
   c4_state_t state = {0};
   c4_eth_unknown_lcu_fork_error(&state, unknown);
@@ -292,15 +289,11 @@ void test_fork_digest_unknown_is_invalid_and_suggests_upgrade(void) {
 }
 
 void test_fork_digest_too_short_and_unknown_chain(void) {
-  uint8_t three[3] = {0x01, 0x02, 0x03};
-  uint8_t four[4]  = {0x01, 0x02, 0x03, 0x04};
+  uint8_t four[4]   = {0x01, 0x02, 0x03, 0x04};
   uint8_t unused[4] = {0};
 
-  TEST_ASSERT_EQUAL_INT(C4_FORK_INVALID, c4_eth_get_fork_for_lcu(C4_CHAIN_MAINNET, bytes(three, 3)));
-  TEST_ASSERT_EQUAL_INT(C4_FORK_INVALID, c4_eth_get_fork_for_lcu(C4_CHAIN_MAINNET, bytes(three, 0)));
   TEST_ASSERT_EQUAL_INT(C4_FORK_INVALID, c4_eth_fork_from_digest(C4_CHAIN_MAINNET, NULL));
   TEST_ASSERT_EQUAL_INT(C4_FORK_INVALID, c4_eth_fork_from_digest(CHAIN(999999), four));
-  TEST_ASSERT_EQUAL_INT(C4_FORK_INVALID, c4_eth_get_fork_for_lcu(CHAIN(999999), bytes(four, 4)));
   bytes32_t root = {0};
   TEST_ASSERT_FALSE(c4_eth_compute_fork_digest(CHAIN(999999), C4_FORK_ELECTRA, unused));
   TEST_ASSERT_FALSE(c4_eth_compute_fork_digest(C4_CHAIN_MAINNET, C4_FORK_ELECTRA, NULL));
@@ -357,7 +350,6 @@ void test_fork_digest_unscheduled_gloas_on_mainnet(void) {
   TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, gloas, 4);
 
   TEST_ASSERT_EQUAL_INT(C4_FORK_INVALID, c4_eth_fork_from_digest(C4_CHAIN_MAINNET, gloas));
-  TEST_ASSERT_EQUAL_INT(C4_FORK_INVALID, c4_eth_get_fork_for_lcu(C4_CHAIN_MAINNET, bytes(gloas, 4)));
   TEST_ASSERT_NOT_EQUAL_INT(C4_FORK_MAX, c4_eth_fork_from_digest(C4_CHAIN_MAINNET, gloas));
 }
 

@@ -79,7 +79,7 @@ void init_state(chain_id_t chain_id, uint32_t period_init) {
   }
   bytes_t  fork_digest = bytes(updates.data + 8, 4);
   ssz_ob_t update      = {.bytes = bytes(updates.data + 12, length - 4), .def = NULL};
-  update.def           = eth_get_light_client_update(c4_eth_get_fork_for_lcu(chain_id, fork_digest));
+  update.def           = eth_get_light_client_update(c4_eth_fork_from_digest(chain_id, fork_digest.data));
   if (!update.def) {
     c4_eth_unknown_lcu_fork_error(&ctx.state, fork_digest.data);
     fprintf(stderr, "Error loading light client updates: %s\n", ctx.state.error);
