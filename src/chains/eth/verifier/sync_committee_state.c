@@ -53,6 +53,7 @@
 #include "../util/logger.h"
 #include "../util/plugin.h"
 #include "./sync_committee.h"
+#include "version.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -917,12 +918,16 @@ static c4_status_t c4_check_weak_subjectivity(verify_ctx_t* ctx, c4_sync_validat
       uint32_t data_offset        = pos + SSZ_LENGTH_SIZE + SSZ_OFFSET_SIZE;
       uint32_t data_length_offset = SSZ_OFFSET_SIZE;
       length                      = uint64_from_le(client_updates.data + pos);
-      if (pos + SSZ_LENGTH_SIZE + length > client_updates.len && length > UPDATE_PREFIX_SIZE) break;
+      if (length < data_length_offset ||
+          pos + SSZ_LENGTH_SIZE + length > client_updates.len ||
+          pos + SSZ_LENGTH_SIZE + length < pos)
+        break;
 
       bytes_t          client_update_bytes = bytes(client_updates.data + data_offset, length - data_length_offset);
-      fork_id_t        lcu_fork            = c4_eth_get_fork_for_lcu(ctx->chain_id, client_update_bytes);
+      bytes_t          fork_digest         = bytes(client_updates.data + pos + SSZ_LENGTH_SIZE, 4);
+      fork_id_t        lcu_fork            = c4_eth_fork_from_digest(ctx->chain_id, fork_digest.data);
       const ssz_def_t* lcu_def             = eth_get_light_client_update(lcu_fork);
-      if (!lcu_def) break;
+      if (!lcu_def) continue;
 
       ssz_ob_t update          = {.bytes = client_update_bytes, .def = lcu_def};
       ssz_ob_t attested        = ssz_get(&update, "attestedHeader");
@@ -1029,19 +1034,21 @@ static c4_status_t c4_try_sync_from_next_period(verify_ctx_t* ctx, uint32_t peri
   bytes32_t computed_root       = {0};
   if (req_client_update(&ctx->state, period, 1, ctx->chain_id, &light_client_update)) {
     // Parse the SSZ-encoded update
-    fork_id_t        fork              = c4_eth_get_fork_for_lcu(ctx->chain_id, light_client_update);
-    const ssz_def_t* client_update_def = eth_get_light_client_update(fork);
-
-    if (!client_update_def || light_client_update.len < UPDATE_PREFIX_SIZE)
+    if (light_client_update.len < UPDATE_PREFIX_SIZE)
       THROW_ERROR("Invalid light client update format in edge case sync");
 
-    // Navigate to the first update in the list
-    uint32_t offset = uint32_from_le(light_client_update.data);
-    if (offset + UPDATE_PREFIX_SIZE > light_client_update.len)
-      THROW_ERROR("Invalid offset in light client update list");
+    bytes_t          fork_digest       = bytes(light_client_update.data + 8, 4);
+    fork_id_t        fork              = c4_eth_fork_from_digest(ctx->chain_id, fork_digest.data);
+    const ssz_def_t* client_update_def = eth_get_light_client_update(fork);
+    if (!client_update_def)
+      THROW_ERROR_WITH(C4_ETH_UNKNOWN_LCU_FORK_FMT, fork_digest, c4_client_version);
 
-    uint64_t length                    = uint64_from_le(light_client_update.data + offset);
-    bytes_t  light_client_update_bytes = bytes(light_client_update.data + offset + UPDATE_PREFIX_SIZE, length - SSZ_OFFSET_SIZE);
+    uint64_t length = uint64_from_le(light_client_update.data);
+    if (length < SSZ_OFFSET_SIZE ||
+        SSZ_LENGTH_SIZE + length > light_client_update.len ||
+        SSZ_LENGTH_SIZE + length < length)
+      THROW_ERROR("Invalid light client update format in edge case sync");
+    bytes_t  light_client_update_bytes = bytes(light_client_update.data + UPDATE_PREFIX_SIZE, length - SSZ_OFFSET_SIZE);
     ssz_ob_t update_ob                 = {.bytes = light_client_update_bytes, .def = client_update_def};
     // One item is not the enclosing list. Leave the list request unvalidated
     // until a list-level SSZ check exists.

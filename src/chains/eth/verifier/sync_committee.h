@@ -40,11 +40,9 @@ extern "C" {
 #define MAX_STATES_SIZE 41
 
 // Light client update format constants
-#define SSZ_OFFSET_SIZE        4
-#define SSZ_LENGTH_SIZE        8
-#define UPDATE_PREFIX_SIZE     (SSZ_OFFSET_SIZE + SSZ_LENGTH_SIZE)
-#define LIGHTHOUSE_HEADER_SIZE 4
-#define LIGHTHOUSE_OFFSET_SIZE 16
+#define SSZ_OFFSET_SIZE    4
+#define SSZ_LENGTH_SIZE    8
+#define UPDATE_PREFIX_SIZE (SSZ_OFFSET_SIZE + SSZ_LENGTH_SIZE)
 
 /**
  * Sync committee validators state for a specific period.
@@ -115,7 +113,7 @@ c4_status_t c4_update_from_sync_data(verify_ctx_t* ctx);
 
 /**
  * Handle and process raw light client updates from Beacon API.
- * Supports both standard SSZ format and Lighthouse variant.
+ * Expects the standard Beacon-API list encoding (length + ForkDigest + payload).
  * Validates and stores sync committees for each period found in the updates.
  *
  * @param ctx Verification context
@@ -126,8 +124,8 @@ bool c4_handle_client_updates(verify_ctx_t* ctx, bytes_t client_updates);
 
 /**
  * Generic iterator for processing light client updates with a callback.
- * Handles both standard SSZ and Lighthouse formats, validates structure,
- * and calls process_update for each individual update.
+ * Parses the Beacon-API list encoding, validates each payload, and calls
+ * process_update for every update.
  *
  * @param ctx Verification context
  * @param light_client_updates Raw SSZ-encoded updates
@@ -180,15 +178,24 @@ c4_chain_state_t c4_get_chain_state(chain_id_t chain_id);
 void c4_eth_set_trusted_checkpoint(chain_id_t chain_id, bytes32_t checkpoint);
 
 /**
- * Detect the fork for a light client update based on the slot embedded in the payload.
- * Reads the slot from the SSZ-encoded data and determines the fork (Deneb, Electra,
- * Fulu, or Gloas once scheduled).
+ * Fail-closed message for an unrecognized LCU fork digest. Use with
+ * `THROW_ERROR_WITH` when the caller has a `ctx` and returns `c4_status_t`.
  *
- * @param chain_id Chain identifier
- * @param data SSZ-encoded light client update data
- * @return Fork identifier corresponding to the slot in the update payload
+ * ```c
+ * THROW_ERROR_WITH(C4_ETH_UNKNOWN_LCU_FORK_FMT, fork_digest, c4_client_version);
+ * ```
  */
-fork_id_t c4_eth_get_fork_for_lcu(chain_id_t chain_id, bytes_t data);
+#define C4_ETH_UNKNOWN_LCU_FORK_FMT \
+  "unrecognized fork digest 0x%x; this Colibri version (%s) does not support the current chain fork - please update the app"
+
+/**
+ * Records `C4_ETH_UNKNOWN_LCU_FORK_FMT` on `state` when the caller cannot
+ * use `THROW_ERROR_WITH` (non-`c4_status_t` return, or no `ctx`).
+ *
+ * @param state verification or prover state that receives the error
+ * @param digest the 4-byte digest that did not match any known fork
+ */
+void c4_eth_unknown_lcu_fork_error(c4_state_t* state, const uint8_t digest[4]);
 
 /**
  * Detect the fork for a light client bootstrap based on the size of the data.

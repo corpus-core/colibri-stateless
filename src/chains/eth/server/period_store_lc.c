@@ -283,10 +283,16 @@ static void fetch_lcb_cb(client_t* client, void* data, data_request_t* r) {
   if (r->error) THROW_PERIOD_ERROR(r, "period_store: LCU fetch for period %l failed: %s", period, r->error);
   if (r->response.len < UPDATE_PREFIX_SIZE) THROW_PERIOD_ERROR(r, "period_store: LCU fetch for period %l failed: response too short", period);
 
-  ssz_ob_t update = {.bytes = bytes(r->response.data + UPDATE_PREFIX_SIZE, uint64_from_le(r->response.data) - SSZ_OFFSET_SIZE), .def = NULL};
-  if (update.bytes.data + update.bytes.len > r->response.data + r->response.len) THROW_PERIOD_ERROR(r, "period_store: LCU fetch for period %l failed: response too short", period);
-  update.def = eth_get_light_client_update(c4_eth_get_fork_for_lcu(http_server.chain_id, update.bytes));
-  if (!update.def) THROW_PERIOD_ERROR(r, "period_store: LCU fetch for period %l failed: invalid update data len=%l", period, update.bytes.len);
+  uint64_t length = uint64_from_le(r->response.data);
+  if (length < SSZ_OFFSET_SIZE ||
+      SSZ_LENGTH_SIZE + length > r->response.len ||
+      SSZ_LENGTH_SIZE + length < length)
+    THROW_PERIOD_ERROR(r, "period_store: LCU fetch for period %l failed: response too short", period);
+  ssz_ob_t  update      = {.bytes = bytes(r->response.data + UPDATE_PREFIX_SIZE, length - SSZ_OFFSET_SIZE), .def = NULL};
+  bytes_t   fork_digest = bytes(r->response.data + 8, 4);
+  fork_id_t fork        = c4_eth_fork_from_digest(http_server.chain_id, fork_digest.data);
+  update.def            = eth_get_light_client_update(fork);
+  if (!update.def) THROW_PERIOD_ERROR(r, "period_store: LCU fetch for period %l failed: unrecognized fork digest 0x%x; this Colibri version does not support the current chain fork - please update the app", period, fork_digest);
   ssz_ob_t finalized         = ssz_get(&update, "finalizedHeader");
   ssz_ob_t header            = ssz_get(&finalized, "beacon");
   uint64_t checkpoint_period = ssz_get_uint64(&header, "slot") >> 13;
@@ -364,19 +370,15 @@ static void ps_build_lcu_cb(request_t* req) {
     case C4_SUCCESS: {
       // Wrap into the Beacon-API `light_client/updates` wire format so the
       // existing consumers can parse it without any special-case.
-      const chain_spec_t* chain = c4_eth_get_chain_spec(ctx->chain_id);
-      if (!chain || !chain->fork_version_func) {
-        // Defense-in-depth: every registered chain sets `fork_version_func`,
-        // but a future entry might forget. Fail loudly instead of NULL-deref.
-        log_warn("period_store: LCU self-build for period %l: chain spec missing fork_version_func", period);
+      uint8_t fork_digest[4] = {0};
+      if (!c4_eth_compute_fork_digest(ctx->chain_id, C4_FORK_GLOAS, fork_digest)) {
+        log_warn("period_store: LCU self-build for period %l: cannot compute Gloas fork digest", period);
         safe_free(lcu_ssz.data);
         c4_prover_free(ctx);
         safe_free(req);
         return;
       }
-      uint8_t fork_version[4] = {0};
-      chain->fork_version_func(ctx->chain_id, C4_FORK_GLOAS, fork_version);
-      bytes_t wire = c4_gloas_lcu_wrap_beacon_response(lcu_ssz, fork_version);
+      bytes_t wire = c4_gloas_lcu_wrap_beacon_response(lcu_ssz, fork_digest);
       safe_free(lcu_ssz.data);
       if (!wire.data) {
         log_warn("period_store: LCU self-build wrapping failed for period %l", period);

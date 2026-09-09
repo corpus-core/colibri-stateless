@@ -37,6 +37,7 @@ typedef enum {
   C4_FORK_ELECTRA   = 5,
   C4_FORK_FULU      = 6,
   C4_FORK_GLOAS     = 7,
+  C4_FORK_MAX       = C4_FORK_GLOAS, // last regular fork; bump when adding the next
 
   C4_FORK_INVALID = -1
 } fork_id_t;
@@ -106,6 +107,15 @@ typedef struct {
   uint64_t update_fraction;
 } eth_blob_schedule_t;
 
+// Consensus-layer BLOB_SCHEDULE entry (Fulu `get_blob_parameters` / `compute_fork_digest`).
+// Distinct from `eth_blob_schedule_t`, which is the EL blob-base-fee table
+// (timestamp + update_fraction). Terminated by `max_blobs_per_block == 0`
+// because epoch 0 is a valid activation on genesis-at-Fulu devnets.
+typedef struct {
+  uint64_t epoch;
+  uint64_t max_blobs_per_block;
+} eth_blob_params_t;
+
 typedef struct {
   chain_id_t                 chain_id;
   const uint64_t*            fork_epochs;
@@ -117,6 +127,8 @@ typedef struct {
   fork_version_func_t        fork_version_func;
   const eth_blob_schedule_t* blob_schedule;     // EIP-7892 blob schedule, DESCENDING by timestamp, {0,0}-terminated; NULL uses Cancun default
   uint64_t                   min_blob_base_fee; // MIN_BLOB_BASE_FEE (`minBlobGasPrice`); 0 uses Ethereum's default (1 wei). Gnosis / Chiado use 1e9.
+  const eth_blob_params_t*   blob_params;                  // CL BLOB_SCHEDULE, DESCENDING by epoch, {*,0}-terminated; NULL = empty
+  uint64_t                   max_blobs_per_block_electra;  // MAX_BLOBS_PER_BLOCK_ELECTRA; 0 uses Ethereum's default (9). Gnosis / Chiado use 2.
 } chain_spec_t;
 
 bool      c4_chain_genesis_validators_root(chain_id_t chain_id, bytes32_t genesis_validators_root);
@@ -133,6 +145,41 @@ fork_id_t c4_chain_fork_id(chain_id_t chain_id, uint64_t epoch);
 bool                c4_chain_schedules_fork(chain_id_t chain_id, fork_id_t fork);
 const chain_spec_t* c4_eth_get_chain_spec(chain_id_t id);
 const ssz_def_t*    eth_ssz_type_for_fork(eth_ssz_type_t type, fork_id_t fork, chain_id_t chain_id);
+
+/**
+ * Computes `hash_tree_root(ForkData(fork_version, genesis_validators_root))`
+ * for `fork` on `chain_id`. Shared by domain calculation and `compute_fork_digest`.
+ *
+ * @param chain_id chain whose genesis validators root and fork-version function to use
+ * @param fork fork whose 4-byte version is mixed into `ForkData`
+ * @param out 32-byte fork-data root
+ * @return true on success, false if the chain is unknown or `fork` is out of range
+ */
+bool c4_eth_fork_data_root(chain_id_t chain_id, fork_id_t fork, bytes32_t out);
+
+/**
+ * Computes the 4-byte `ForkDigest` for `fork` at its activation epoch
+ * (`compute_fork_digest` from the Fulu consensus spec, including the
+ * blob-parameter XOR once `epoch >= FULU_FORK_EPOCH`).
+ *
+ * @param chain_id chain whose spec, genesis validators root and blob params to use
+ * @param fork fork whose version and activation epoch drive the digest
+ * @param out 4-byte fork digest
+ * @return true on success, false if the chain is unknown or `fork` is out of range
+ */
+bool c4_eth_compute_fork_digest(chain_id_t chain_id, fork_id_t fork, uint8_t out[4]);
+
+/**
+ * Resolves a 4-byte Beacon-API `ForkDigest` to the `fork_id_t` whose SSZ
+ * type should be used to decode the following LightClientUpdate. BPO
+ * digests map to the regular fork they sit on (Fulu / Gloas), not a
+ * separate enum value. Unknown digests return `C4_FORK_INVALID`.
+ *
+ * @param chain_id chain whose cached digest table to search
+ * @param digest 4-byte fork digest from the wire
+ * @return matching fork, or `C4_FORK_INVALID`
+ */
+fork_id_t c4_eth_fork_from_digest(chain_id_t chain_id, const uint8_t digest[4]);
 
 // forks
 const ssz_def_t* eth_ssz_type_for_denep(eth_ssz_type_t type, chain_id_t chain_id);
