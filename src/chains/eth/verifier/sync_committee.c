@@ -42,7 +42,7 @@
 #define C4_ETH_ELECTRA_BOOTSTRAP_FIXED_SIZE 24820u
 #define C4_ETH_GLOAS_BOOTSTRAP_SIZE         25472u // must equal `C4_GLOAS_BOOTSTRAP_SIZE` in bootstrap_gloas.h
 
-// Fork-specific BeaconState gindices have moved to `beacon_types.c` so all
+// Fork-specific BeaconState gindices have moved to `chain_spec.c` so all
 // fork-aware selections live in one place. See:
 //   `c4_current_sync_committee_gindex`, `c4_next_sync_committee_gindex`,
 //   `c4_finalized_root_gindex`.

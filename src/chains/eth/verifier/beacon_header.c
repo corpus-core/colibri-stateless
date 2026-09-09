@@ -264,7 +264,7 @@ static c4_status_t verify_block_by_blockproof(verify_ctx_t* ctx, ssz_ob_t block,
   // Pin the branch target to the fork-specific EL block-hash leaf inside
   // `BeaconBlockBody`. Without this cross-check a crafted proof could point at
   // any other bytes32 in the body (e.g. `graffiti`, `execution_payload.extra_data`)
-  // and pass off arbitrary 32 bytes as the block hash. See `beacon_types.h` for
+  // and pass off arbitrary 32 bytes as the block hash. See `chain_spec.h` for
   // the exact per-fork semantics (Deneb..Fulu: `execution_payload.block_hash`,
   // Gloas: `signed_execution_payload_bid.message.parent_block_hash`).
   gindex_t expected_gindex = c4_execution_block_hash_gindex(ctx->chain_id, ssz_get_uint64(&cl_header, "slot"));

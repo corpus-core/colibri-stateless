@@ -207,8 +207,8 @@ void c4_eth_unknown_lcu_fork_error(c4_state_t* state, const uint8_t digest[4]);
 fork_id_t c4_eth_get_fork_for_lcb(chain_id_t chain_id, bytes_t data);
 
 // `c4_current_sync_committee_gindex`, `c4_next_sync_committee_gindex` and
-// `c4_finalized_root_gindex` are declared in `beacon_types.h` (which is
-// already included via `#include "beacon_types.h"` above).
+// `c4_finalized_root_gindex` are declared in `chain_spec.h` (included via
+// `beacon_types.h` above).
 
 c4_chain_state_t c4_state_deserialize(bytes_t data);
 

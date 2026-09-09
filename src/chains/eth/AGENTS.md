@@ -77,7 +77,8 @@ Type definitions follow the SSZ encoding standard. Each type is a `ssz_def_t[]` 
 | `verify_proof_types.h` | Proof types: `C4RequestAccountProof`, `C4RequestTxProof`, `C4RequestBlockProof`, etc. |
 | `verify_data_types.h` | Data types: account data, transaction data, block data, etc. |
 | `verify_types.c` | Implementation of verification type arrays |
-| `beacon_types.h/c` | Beacon chain types: `BeaconBlockHeader`, `SyncCommittee`, etc. |
+| `beacon_types.h/c` | Beacon chain SSZ types and fork-aware type lookup |
+| `chain_spec.h/c` | Chain specs, fork epochs, blob params, fork digests, gindex helpers |
 | `beacon_denep.c` | Deneb fork types (blobs, KZG) |
 | `beacon_electra.c` | Electra fork types |
 

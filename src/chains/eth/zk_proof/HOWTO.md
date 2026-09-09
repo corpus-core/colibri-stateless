@@ -85,7 +85,7 @@ Cross-check against an *old* recursive `zk_pub.bin` if one is still around:
   `current_keys_root == oldKeys` HTR.
 
 Write the pubkeys-only root into `chain_spec_t.zk_sync_keys_root` in
-`src/chains/eth/ssz/beacon_types.c` and pin it in
+`src/chains/eth/ssz/chain_spec.c` and pin it in
 `test/unittests/test_eth_chain_spec.c` (`test_zk_sync_trust_anchors`).
 
 ## 5. Remove leftover artifacts on the first-proof period
@@ -138,7 +138,7 @@ The server packs `zk_proof_g16.bin` into `zk_proof.ssz` (`ZKSyncDataV6`).
   build/<chain>/<P>/zk_pub.bin
 ```
 
-`current_keys_root` in `zk_pub` must equal `zk_sync_keys_root` in `beacon_types.c`.
+`current_keys_root` in `zk_pub` must equal `zk_sync_keys_root` in `chain_spec.c`.
 The automatic prover (`c4_period_prover_on_checkpoint`) will then recurse `P+1`
 once `sync.ssz` for that period exists (needs the next LCU).
 
