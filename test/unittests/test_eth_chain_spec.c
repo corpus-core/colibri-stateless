@@ -252,8 +252,10 @@ void test_fork_digest_differs_across_forks(void) {
 // fail these lookups.
 static void assert_bpo_maps_to_fulu(chain_id_t chain_id, uint64_t bpo1_epoch, uint64_t bpo1_max,
                                     uint64_t bpo2_epoch, uint64_t bpo2_max) {
-  bytes32_t base = {0};
-  TEST_ASSERT_TRUE(c4_eth_fork_data_root(chain_id, C4_FORK_FULU, base));
+  bytes32_t           base = {0};
+  const chain_spec_t* spec = c4_eth_get_chain_spec(chain_id);
+  TEST_ASSERT_NOT_NULL(spec);
+  TEST_ASSERT_TRUE(c4_eth_fork_data_root(spec, C4_FORK_FULU, base));
 
   uint8_t bpo1[4] = {0}, bpo2[4] = {0}, fulu[4] = {0};
   xor_blob_mask(bpo1, base, bpo1_epoch, bpo1_max);
@@ -297,7 +299,7 @@ void test_fork_digest_too_short_and_unknown_chain(void) {
   bytes32_t root = {0};
   TEST_ASSERT_FALSE(c4_eth_compute_fork_digest(CHAIN(999999), C4_FORK_ELECTRA, unused));
   TEST_ASSERT_FALSE(c4_eth_compute_fork_digest(C4_CHAIN_MAINNET, C4_FORK_ELECTRA, NULL));
-  TEST_ASSERT_FALSE(c4_eth_fork_data_root(CHAIN(999999), C4_FORK_FULU, root));
+  TEST_ASSERT_FALSE(c4_eth_fork_data_root(NULL, C4_FORK_FULU, root));
 }
 
 void test_fork_digest_gnosis_empty_blob_schedule_uses_electra_max_2(void) {
@@ -310,8 +312,8 @@ void test_fork_digest_gnosis_empty_blob_schedule_uses_electra_max_2(void) {
   TEST_ASSERT_EQUAL_UINT64(1337856ULL, electra_epoch);
 
   bytes32_t fulu_base = {0}, electra_base = {0};
-  TEST_ASSERT_TRUE(c4_eth_fork_data_root(C4_CHAIN_GNOSIS, C4_FORK_FULU, fulu_base));
-  TEST_ASSERT_TRUE(c4_eth_fork_data_root(C4_CHAIN_GNOSIS, C4_FORK_ELECTRA, electra_base));
+  TEST_ASSERT_TRUE(c4_eth_fork_data_root(spec, C4_FORK_FULU, fulu_base));
+  TEST_ASSERT_TRUE(c4_eth_fork_data_root(spec, C4_FORK_ELECTRA, electra_base));
 
   uint8_t electra[4] = {0}, fulu[4] = {0}, fulu_xor2[4] = {0}, fulu_xor9[4] = {0};
   TEST_ASSERT_TRUE(c4_eth_compute_fork_digest(C4_CHAIN_GNOSIS, C4_FORK_ELECTRA, electra));
@@ -343,8 +345,10 @@ void test_fork_digest_unscheduled_gloas_on_mainnet(void) {
   TEST_ASSERT_NOT_EQUAL_INT(0, memcmp(gloas, electra, 4));
   TEST_ASSERT_NOT_EQUAL_INT(0, memcmp(gloas, fulu, 4));
 
-  bytes32_t base = {0};
-  TEST_ASSERT_TRUE(c4_eth_fork_data_root(C4_CHAIN_MAINNET, C4_FORK_GLOAS, base));
+  bytes32_t           base = {0};
+  const chain_spec_t* spec = c4_eth_get_chain_spec(C4_CHAIN_MAINNET);
+  TEST_ASSERT_NOT_NULL(spec);
+  TEST_ASSERT_TRUE(c4_eth_fork_data_root(spec, C4_FORK_GLOAS, base));
   uint8_t expected[4] = {0};
   xor_blob_mask(expected, base, 419072ULL, 21ULL);
   TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, gloas, 4);

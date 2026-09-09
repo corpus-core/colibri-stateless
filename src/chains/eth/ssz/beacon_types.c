@@ -43,19 +43,19 @@ static const uint64_t eth_plataberget_fork_epochs[] = {0ULL, 0ULL, 0ULL, 0ULL, 0
 // scheduling was switched from blocks to timestamps here").
 static const eth_blob_schedule_t eth_mainnet_blob_schedule[] = {
     {1767747671ULL, 11684671ULL}, // BPO2  (2026-01-07)
-    {1765290071ULL,  8346193ULL}, // BPO1  (2025-12-09)
-    {1764798551ULL,  5007716ULL}, // Fusaka/Osaka (2025-12-03), inherits Prague
-    {1746612311ULL,  5007716ULL}, // Prague/Pectra (2025-05-07)
-    {1710338135ULL,  3338477ULL}, // Cancun/Deneb  (2024-03-13)
+    {1765290071ULL, 8346193ULL},  // BPO1  (2025-12-09)
+    {1764798551ULL, 5007716ULL},  // Fusaka/Osaka (2025-12-03), inherits Prague
+    {1746612311ULL, 5007716ULL},  // Prague/Pectra (2025-05-07)
+    {1710338135ULL, 3338477ULL},  // Cancun/Deneb  (2024-03-13)
     {0ULL, 0ULL},
 };
 
 static const eth_blob_schedule_t eth_sepolia_blob_schedule[] = {
     {1761607008ULL, 11684671ULL}, // BPO2  (2025-10-27)
-    {1761017184ULL,  8346193ULL}, // BPO1  (2025-10-21)
-    {1760427360ULL,  5007716ULL}, // Fusaka/Osaka (2025-10-14)
-    {1741159776ULL,  5007716ULL}, // Prague/Pectra
-    {1706655072ULL,  3338477ULL}, // Cancun/Deneb  (2024-01-30)
+    {1761017184ULL, 8346193ULL},  // BPO1  (2025-10-21)
+    {1760427360ULL, 5007716ULL},  // Fusaka/Osaka (2025-10-14)
+    {1741159776ULL, 5007716ULL},  // Prague/Pectra
+    {1706655072ULL, 3338477ULL},  // Cancun/Deneb  (2024-01-30)
     {0ULL, 0ULL},
 };
 
@@ -137,63 +137,63 @@ static void plataberget_fork_version(chain_id_t chain_id, fork_id_t fork, uint8_
 
 static const chain_spec_t chain_data[] = {
     {// Mainnet
-     .chain_id                 = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 1ULL),
-     .fork_epochs              = eth_mainnet_fork_epochs,
-     .genesis_validators_root  = "\x4b\x36\x3d\xb9\x4e\x28\x61\x20\xd7\x6e\xb9\x05\x34\x0f\xdd\x4e\x54\xbf\xe9\xf0\x6b\xf3\x3f\xf6\xcf\x5a\xd2\x7f\x51\x1b\xfe\x95",
-     .zk_sync_keys_root        = "\xc6\x10\xd3\xcf\x3f\xf6\xf4\x02\x48\xad\xe8\x12\xe5\x70\x85\x7e\x74\x12\xaf\x35\x45\xcb\xee\x91\x75\xcf\x54\xcc\xcf\xa2\x21\x3c", // pubkeys-only HTR of period 1844 committee (= 1845 proof oldKeys / 1844 proof newKeys). Not the LCU SyncCommittee container root (that includes aggregatePubkey).
-     .slots_per_epoch_bits     = 5,
-     .epochs_per_period_bits   = 8,
-     .weak_subjectivity_epochs = 3682,
-     .fork_version_func             = mainnet_fork_version,
-     .blob_schedule                 = eth_mainnet_blob_schedule,
-     .blob_params                   = eth_mainnet_blob_params,
-     .max_blobs_per_block_electra   = 9ULL},
+     .chain_id                    = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 1ULL),
+     .fork_epochs                 = eth_mainnet_fork_epochs,
+     .genesis_validators_root     = "\x4b\x36\x3d\xb9\x4e\x28\x61\x20\xd7\x6e\xb9\x05\x34\x0f\xdd\x4e\x54\xbf\xe9\xf0\x6b\xf3\x3f\xf6\xcf\x5a\xd2\x7f\x51\x1b\xfe\x95",
+     .zk_sync_keys_root           = "\xc6\x10\xd3\xcf\x3f\xf6\xf4\x02\x48\xad\xe8\x12\xe5\x70\x85\x7e\x74\x12\xaf\x35\x45\xcb\xee\x91\x75\xcf\x54\xcc\xcf\xa2\x21\x3c", // pubkeys-only HTR of period 1844 committee (= 1845 proof oldKeys / 1844 proof newKeys). Not the LCU SyncCommittee container root (that includes aggregatePubkey).
+     .slots_per_epoch_bits        = 5,
+     .epochs_per_period_bits      = 8,
+     .weak_subjectivity_epochs    = 3682,
+     .fork_version_func           = mainnet_fork_version,
+     .blob_schedule               = eth_mainnet_blob_schedule,
+     .blob_params                 = eth_mainnet_blob_params,
+     .max_blobs_per_block_electra = 9ULL},
     {// Sepolia
-     .chain_id                 = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 11155111),
-     .fork_epochs              = eth_sepolia_fork_epochs,
-     .genesis_validators_root  = "\xd8\xea\x17\x1f\x3c\x94\xae\xa2\x1e\xbc\x42\xa1\xed\x61\x05\x2a\xcf\x3f\x92\x09\xc0\x0e\x4e\xfb\xaa\xdd\xac\x09\xed\x9b\x80\x78",
-     .zk_sync_keys_root        = "\xee\x5c\x88\x0d\x52\x41\x66\xb4\xb1\xd3\xed\xda\xba\xea\xcb\x3f\xdf\x1e\x40\xc9\x00\x8f\x25\x6e\x35\x7e\x72\x2d\x80\xba\x97\x25", // pubkeys-only HTR of period 1347 committee (= 1348 proof oldKeys). Not the LCU SyncCommittee container root.
-     .slots_per_epoch_bits     = 5,
-     .epochs_per_period_bits   = 8,
-     .weak_subjectivity_epochs = 3682,
-     .fork_version_func             = sepolia_fork_version,
-     .blob_schedule                 = eth_sepolia_blob_schedule,
-     .blob_params                   = eth_sepolia_blob_params,
-     .max_blobs_per_block_electra   = 9ULL},
+     .chain_id                    = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 11155111),
+     .fork_epochs                 = eth_sepolia_fork_epochs,
+     .genesis_validators_root     = "\xd8\xea\x17\x1f\x3c\x94\xae\xa2\x1e\xbc\x42\xa1\xed\x61\x05\x2a\xcf\x3f\x92\x09\xc0\x0e\x4e\xfb\xaa\xdd\xac\x09\xed\x9b\x80\x78",
+     .zk_sync_keys_root           = "\xee\x5c\x88\x0d\x52\x41\x66\xb4\xb1\xd3\xed\xda\xba\xea\xcb\x3f\xdf\x1e\x40\xc9\x00\x8f\x25\x6e\x35\x7e\x72\x2d\x80\xba\x97\x25", // pubkeys-only HTR of period 1347 committee (= 1348 proof oldKeys). Not the LCU SyncCommittee container root.
+     .slots_per_epoch_bits        = 5,
+     .epochs_per_period_bits      = 8,
+     .weak_subjectivity_epochs    = 3682,
+     .fork_version_func           = sepolia_fork_version,
+     .blob_schedule               = eth_sepolia_blob_schedule,
+     .blob_params                 = eth_sepolia_blob_params,
+     .max_blobs_per_block_electra = 9ULL},
     {// Plataberget
-     .chain_id                 = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 7091047534),
-     .fork_epochs              = eth_plataberget_fork_epochs,
-     .genesis_validators_root  = "\xbb\x4a\x1a\x9e\x3f\x7f\x4e\x10\xed\xcd\x73\x4e\x4a\xcc\x3b\x5f\xfd\x4f\x83\x0e\xfe\x0a\xf2\x74\x8f\xa4\x58\xcf\xee\x5d\x26\x58",
-     .zk_sync_keys_root        = "\x82\xb2\x41\xf5\x2b\x29\x0f\x82\x78\x81\x11\xbd\x79\x74\xee\x87\xd9\xbb\xac\xfb\xe5\xd0\x84\xa3\x70\x31\x7f\x34\xe7\xb7\xfa\x84", // TODO: replace Sepolia placeholder with Plataberget v6 anchor
-     .slots_per_epoch_bits     = 5,
-     .epochs_per_period_bits   = 8,
-     .weak_subjectivity_epochs      = 3682,
-     .fork_version_func             = plataberget_fork_version,
-     .blob_params                   = eth_plataberget_blob_params,
-     .max_blobs_per_block_electra   = 9ULL},
+     .chain_id                    = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 7091047534),
+     .fork_epochs                 = eth_plataberget_fork_epochs,
+     .genesis_validators_root     = "\xbb\x4a\x1a\x9e\x3f\x7f\x4e\x10\xed\xcd\x73\x4e\x4a\xcc\x3b\x5f\xfd\x4f\x83\x0e\xfe\x0a\xf2\x74\x8f\xa4\x58\xcf\xee\x5d\x26\x58",
+     .zk_sync_keys_root           = "\x82\xb2\x41\xf5\x2b\x29\x0f\x82\x78\x81\x11\xbd\x79\x74\xee\x87\xd9\xbb\xac\xfb\xe5\xd0\x84\xa3\x70\x31\x7f\x34\xe7\xb7\xfa\x84", // TODO: replace Sepolia placeholder with Plataberget v6 anchor
+     .slots_per_epoch_bits        = 5,
+     .epochs_per_period_bits      = 8,
+     .weak_subjectivity_epochs    = 3682,
+     .fork_version_func           = plataberget_fork_version,
+     .blob_params                 = eth_plataberget_blob_params,
+     .max_blobs_per_block_electra = 9ULL},
     {// Gnosis
-     .chain_id                 = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 100ULL),
-     .fork_epochs              = eth_gnosis_fork_epochs,
-     .genesis_validators_root  = "\xf5\xdc\xb5\x56\x4e\x82\x9a\xab\x27\x26\x4b\x9b\xec\xd5\xdf\xaa\x01\x70\x85\x61\x12\x24\xcb\x30\x36\xf5\x73\x36\x8d\xbb\x9d\x47",
-     .zk_sync_keys_root        = "\x19\x97\x24\x9f\x4d\xd2\xf3\x66\x53\x05\x2f\x43\x8c\xe4\x80\x9a\x2d\xb7\xfa\xb8\xa3\x3f\x49\xc2\x2f\x61\x32\xd2\xa1\x07\xb8\xe0", // pubkeys-only HTR of period 3642 committee (= 3643 proof oldKeys). Not the LCU SyncCommittee container root.
-     .slots_per_epoch_bits     = 4,
-     .epochs_per_period_bits   = 9,
-     .weak_subjectivity_epochs = 1500,
-     .fork_version_func             = gnosis_fork_version,
-     .blob_schedule                 = eth_gnosis_blob_schedule,
-     .min_blob_base_fee             = 1000000000ULL,
-     .max_blobs_per_block_electra   = 2ULL},
+     .chain_id                    = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 100ULL),
+     .fork_epochs                 = eth_gnosis_fork_epochs,
+     .genesis_validators_root     = "\xf5\xdc\xb5\x56\x4e\x82\x9a\xab\x27\x26\x4b\x9b\xec\xd5\xdf\xaa\x01\x70\x85\x61\x12\x24\xcb\x30\x36\xf5\x73\x36\x8d\xbb\x9d\x47",
+     .zk_sync_keys_root           = "\x19\x97\x24\x9f\x4d\xd2\xf3\x66\x53\x05\x2f\x43\x8c\xe4\x80\x9a\x2d\xb7\xfa\xb8\xa3\x3f\x49\xc2\x2f\x61\x32\xd2\xa1\x07\xb8\xe0", // pubkeys-only HTR of period 3642 committee (= 3643 proof oldKeys). Not the LCU SyncCommittee container root.
+     .slots_per_epoch_bits        = 4,
+     .epochs_per_period_bits      = 9,
+     .weak_subjectivity_epochs    = 1500,
+     .fork_version_func           = gnosis_fork_version,
+     .blob_schedule               = eth_gnosis_blob_schedule,
+     .min_blob_base_fee           = 1000000000ULL,
+     .max_blobs_per_block_electra = 2ULL},
     {// Gnosis chiado
-     .chain_id                 = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 10200ULL),
-     .fork_epochs              = eth_chiado_fork_epochs,
-     .genesis_validators_root  = "\x9d\x64\x2d\xac\x73\x05\x8f\xbf\x39\xc0\xae\x41\xab\x1e\x34\xe4\xd8\x89\x04\x3c\xb1\x99\x85\x1d\xed\x70\x95\xbc\x99\xeb\x4c\x1e",
-     .slots_per_epoch_bits     = 4,
-     .epochs_per_period_bits   = 9,
-     .weak_subjectivity_epochs = 1500,
-     .fork_version_func             = gnosis_fork_version,
-     .blob_schedule                 = eth_chiado_blob_schedule,
-     .min_blob_base_fee             = 1000000000ULL,
-     .max_blobs_per_block_electra   = 2ULL},
+     .chain_id                    = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 10200ULL),
+     .fork_epochs                 = eth_chiado_fork_epochs,
+     .genesis_validators_root     = "\x9d\x64\x2d\xac\x73\x05\x8f\xbf\x39\xc0\xae\x41\xab\x1e\x34\xe4\xd8\x89\x04\x3c\xb1\x99\x85\x1d\xed\x70\x95\xbc\x99\xeb\x4c\x1e",
+     .slots_per_epoch_bits        = 4,
+     .epochs_per_period_bits      = 9,
+     .weak_subjectivity_epochs    = 1500,
+     .fork_version_func           = gnosis_fork_version,
+     .blob_schedule               = eth_chiado_blob_schedule,
+     .min_blob_base_fee           = 1000000000ULL,
+     .max_blobs_per_block_electra = 2ULL},
 };
 
 const chain_spec_t* c4_eth_get_chain_spec(chain_id_t id) {
@@ -274,8 +274,8 @@ static fork_id_t fork_id_at_epoch(const chain_spec_t* spec, uint64_t epoch) {
   return c4_chain_fork_id(spec->chain_id, epoch);
 }
 
-static bool fork_data_root_for_spec(const chain_spec_t* spec, fork_id_t fork, bytes32_t out) {
-  if (!spec || !spec->fork_version_func || fork < C4_FORK_PHASE0 || fork > C4_FORK_MAX)
+bool c4_eth_fork_data_root(const chain_spec_t* spec, fork_id_t fork, bytes32_t out) {
+  if (!spec || !spec->fork_version_func || !out || fork < C4_FORK_PHASE0 || fork > C4_FORK_MAX)
     return false;
   uint8_t buffer[36] = {0};
   spec->fork_version_func(spec->chain_id, fork, buffer);
@@ -303,7 +303,7 @@ static void get_blob_parameters(const chain_spec_t* spec, uint64_t epoch,
 static bool compute_digest_at_epoch(const chain_spec_t* spec, uint64_t epoch, uint8_t out[4]) {
   fork_id_t fork = fork_id_at_epoch(spec, epoch);
   bytes32_t base = {0};
-  if (!fork_data_root_for_spec(spec, fork, base)) return false;
+  if (!c4_eth_fork_data_root(spec, fork, base)) return false;
 
   uint64_t fulu_epoch = fork_activation_epoch(spec, C4_FORK_FULU);
   if (fulu_epoch >= FORKS_END || epoch < fulu_epoch) {
@@ -321,10 +321,6 @@ static bool compute_digest_at_epoch(const chain_spec_t* spec, uint64_t epoch, ui
   for (int i = 0; i < 4; i++)
     out[i] = (uint8_t) (base[i] ^ mask[i]);
   return true;
-}
-
-bool c4_eth_fork_data_root(chain_id_t chain_id, fork_id_t fork, bytes32_t out) {
-  return fork_data_root_for_spec(c4_eth_get_chain_spec(chain_id), fork, out);
 }
 
 bool c4_eth_compute_fork_digest(chain_id_t chain_id, fork_id_t fork, uint8_t out[4]) {

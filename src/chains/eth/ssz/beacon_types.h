@@ -125,10 +125,10 @@ typedef struct {
   const int                  epochs_per_period_bits;   // 8 = 256 epochs per period
   const uint64_t             weak_subjectivity_epochs; // max epochs before checkpoint validation required
   fork_version_func_t        fork_version_func;
-  const eth_blob_schedule_t* blob_schedule;     // EIP-7892 blob schedule, DESCENDING by timestamp, {0,0}-terminated; NULL uses Cancun default
-  uint64_t                   min_blob_base_fee; // MIN_BLOB_BASE_FEE (`minBlobGasPrice`); 0 uses Ethereum's default (1 wei). Gnosis / Chiado use 1e9.
-  const eth_blob_params_t*   blob_params;                  // CL BLOB_SCHEDULE, DESCENDING by epoch, {*,0}-terminated; NULL = empty
-  uint64_t                   max_blobs_per_block_electra;  // MAX_BLOBS_PER_BLOCK_ELECTRA; 0 uses Ethereum's default (9). Gnosis / Chiado use 2.
+  const eth_blob_schedule_t* blob_schedule;               // EIP-7892 blob schedule, DESCENDING by timestamp, {0,0}-terminated; NULL uses Cancun default
+  uint64_t                   min_blob_base_fee;           // MIN_BLOB_BASE_FEE (`minBlobGasPrice`); 0 uses Ethereum's default (1 wei). Gnosis / Chiado use 1e9.
+  const eth_blob_params_t*   blob_params;                 // CL BLOB_SCHEDULE, DESCENDING by epoch, {*,0}-terminated; NULL = empty
+  uint64_t                   max_blobs_per_block_electra; // MAX_BLOBS_PER_BLOCK_ELECTRA; 0 uses Ethereum's default (9). Gnosis / Chiado use 2.
 } chain_spec_t;
 
 bool      c4_chain_genesis_validators_root(chain_id_t chain_id, bytes32_t genesis_validators_root);
@@ -148,14 +148,14 @@ const ssz_def_t*    eth_ssz_type_for_fork(eth_ssz_type_t type, fork_id_t fork, c
 
 /**
  * Computes `hash_tree_root(ForkData(fork_version, genesis_validators_root))`
- * for `fork` on `chain_id`. Shared by domain calculation and `compute_fork_digest`.
+ * for `fork` on `spec`. Shared by domain calculation and `compute_fork_digest`.
  *
- * @param chain_id chain whose genesis validators root and fork-version function to use
+ * @param spec chain spec (genesis validators root and fork-version function)
  * @param fork fork whose 4-byte version is mixed into `ForkData`
  * @param out 32-byte fork-data root
- * @return true on success, false if the chain is unknown or `fork` is out of range
+ * @return true on success, false if `spec` is NULL or `fork` is out of range
  */
-bool c4_eth_fork_data_root(chain_id_t chain_id, fork_id_t fork, bytes32_t out);
+bool c4_eth_fork_data_root(const chain_spec_t* spec, fork_id_t fork, bytes32_t out);
 
 /**
  * Computes the 4-byte `ForkDigest` for `fork` at its activation epoch
