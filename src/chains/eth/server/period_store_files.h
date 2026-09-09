@@ -26,7 +26,6 @@ extern "C" {
 
 /* Beacon / light-client artifacts */
 #define C4_PS_SYNC_SSZ             "sync.ssz"             /**< prover input for the period ZK proof */
-#define C4_PS_LCB_SSZ              "lcb.ssz"              /**< LightClientBootstrap */
 #define C4_PS_LCU_SSZ              "lcu.ssz"              /**< LightClientUpdate */
 #define C4_PS_HISTORICAL_ROOT_JSON "historical_root.json" /**< historical_summaries + proof (cached Beacon call) */
 #define C4_PS_HEADERS_SSZ          "headers.ssz"          /**< 8192 SSZ-serialized headers */

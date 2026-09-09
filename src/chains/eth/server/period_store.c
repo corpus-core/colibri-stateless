@@ -22,12 +22,11 @@ void c4_period_sync_on_head(uint64_t slot, const uint8_t block_root[32], const u
   c4_ps_set_block(&block, false);
 }
 
-void c4_period_sync_on_checkpoint(bytes32_t checkpoint, uint64_t slot) {
+void c4_period_sync_on_checkpoint(uint64_t slot) {
   uint64_t period = slot >> 13;
   if (!eth_config.period_store) return;
 
   if (!eth_config.period_master_url) {
-    if (!c4_ps_file_exists(period, C4_PS_LCB_SSZ)) c4_ps_fetch_lcb_for_checkpoint(checkpoint, period);
     if (!c4_ps_file_exists(period, C4_PS_LCU_SSZ)) c4_ps_schedule_fetch_lcu(period);
     if (!c4_ps_file_exists(period, C4_PS_HISTORICAL_ROOT_JSON)) c4_ps_schedule_fetch_historical_root(period);
     // Pack missing C4_PS_ZK_PROOF_SSZ files. Groth16 inputs of recent periods may

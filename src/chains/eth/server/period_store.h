@@ -37,8 +37,6 @@ bool     c4_ps_backfill_done();
 uint64_t c4_ps_backfill_start_slot();
 void     c4_ps_set_block(block_t* block, bool run_backfill);
 bool     c4_ps_file_exists(uint64_t period, const char* filename);
-void     c4_ps_schedule_fetch_lcb(uint64_t period);
-void     c4_ps_fetch_lcb_for_checkpoint(bytes32_t checkpoint, uint64_t period);
 void     c4_ps_schedule_fetch_lcu(uint64_t period);
 /**
  * Kicks off a self-build for `period` (Gloas fork only) and persists the
@@ -141,12 +139,11 @@ void c4_get_light_client_updates(void* user_data, uint64_t period, uint32_t coun
 bool c4_handle_period_store(single_request_t* r);
 
 /**
- * Syncs the period store on a checkpoint.
+ * Syncs the period store on a finalized checkpoint.
  *
- * @param checkpoint The checkpoint to sync.
  * @param slot The slot of the checkpoint.
  */
-void c4_period_sync_on_checkpoint(bytes32_t checkpoint, uint64_t slot);
+void c4_period_sync_on_checkpoint(uint64_t slot);
 
 #ifdef __cplusplus
 }
