@@ -40,11 +40,9 @@ extern "C" {
 #define MAX_STATES_SIZE 41
 
 // Light client update format constants
-#define SSZ_OFFSET_SIZE        4
-#define SSZ_LENGTH_SIZE        8
-#define UPDATE_PREFIX_SIZE     (SSZ_OFFSET_SIZE + SSZ_LENGTH_SIZE)
-#define LIGHTHOUSE_HEADER_SIZE 4
-#define LIGHTHOUSE_OFFSET_SIZE 16
+#define SSZ_OFFSET_SIZE    4
+#define SSZ_LENGTH_SIZE    8
+#define UPDATE_PREFIX_SIZE (SSZ_OFFSET_SIZE + SSZ_LENGTH_SIZE)
 
 /**
  * Sync committee validators state for a specific period.
@@ -115,7 +113,7 @@ c4_status_t c4_update_from_sync_data(verify_ctx_t* ctx);
 
 /**
  * Handle and process raw light client updates from Beacon API.
- * Supports both standard SSZ format and Lighthouse variant.
+ * Expects the standard Beacon-API list encoding (length + ForkDigest + payload).
  * Validates and stores sync committees for each period found in the updates.
  *
  * @param ctx Verification context
@@ -126,8 +124,8 @@ bool c4_handle_client_updates(verify_ctx_t* ctx, bytes_t client_updates);
 
 /**
  * Generic iterator for processing light client updates with a callback.
- * Handles both standard SSZ and Lighthouse formats, validates structure,
- * and calls process_update for each individual update.
+ * Parses the Beacon-API list encoding, validates each payload, and calls
+ * process_update for every update.
  *
  * @param ctx Verification context
  * @param light_client_updates Raw SSZ-encoded updates

@@ -31,7 +31,6 @@
 #include "c4_assert.h"
 #include "lcu_gloas.h"
 #include "ssz.h"
-#include "sync_committee.h"
 #include "unity.h"
 #include <string.h>
 
@@ -345,68 +344,6 @@ void test_gloas_lcu_wrap_roundtrip_fork_digest(void) {
   safe_free(wire.data);
 }
 
-static bytes_t assemble_dummy_gloas_lcu(void) {
-  uint8_t attested_header[C4_GLOAS_LCU_HEADER_SIZE]             = {0};
-  uint8_t finalized_header[C4_GLOAS_LCU_HEADER_SIZE]            = {0};
-  uint8_t next_sync_committee[C4_GLOAS_LCU_SYNC_COMMITTEE_SIZE] = {0};
-  uint8_t next_sc_branch[C4_GLOAS_LCU_NEXT_SC_BRANCH_SIZE]      = {0};
-  uint8_t finality_branch[C4_GLOAS_LCU_FINALITY_BRANCH_SIZE]    = {0};
-  uint8_t sync_aggregate[C4_GLOAS_LCU_SYNC_AGGREGATE_SIZE]      = {0};
-  build_dummy_lc_header(attested_header, 0x11);
-  build_dummy_lc_header(finalized_header, 0x22);
-  build_dummy_sync_aggregate(sync_aggregate);
-
-  bytes_t lcu = NULL_BYTES;
-  TEST_ASSERT_TRUE(c4_gloas_lcu_assemble(
-      bytes(attested_header, sizeof(attested_header)),
-      bytes(next_sync_committee, sizeof(next_sync_committee)),
-      bytes(next_sc_branch, sizeof(next_sc_branch)),
-      bytes(finalized_header, sizeof(finalized_header)),
-      bytes(finality_branch, sizeof(finality_branch)),
-      bytes(sync_aggregate, sizeof(sync_aggregate)),
-      0x100,
-      &lcu));
-  return lcu;
-}
-
-static const ssz_def_t* g_lighthouse_lcu_def;
-
-static bool capture_lighthouse_lcu_def(verify_ctx_t* ctx, ssz_ob_t* update) {
-  (void) ctx;
-  g_lighthouse_lcu_def = update->def;
-  TEST_ASSERT_EQUAL_UINT32(C4_GLOAS_LCU_SSZ_SIZE, update->bytes.len);
-  return true;
-}
-
-void test_lighthouse_payload_size_26424_is_gloas(void) {
-  bytes_t lcu = assemble_dummy_gloas_lcu();
-  TEST_ASSERT_EQUAL_UINT32(C4_GLOAS_LCU_SSZ_SIZE, lcu.len);
-
-  // Lighthouse list encoding has no ForkDigest: a 4-byte offset table followed
-  // by length+payload. `fork_from_lcu_payload` must key off the unique 26424
-  // Gloas size rather than a digest lookup.
-  const uint32_t offset   = 4;
-  const uint64_t length   = 4u + (uint64_t) C4_GLOAS_LCU_SSZ_SIZE;
-  const uint32_t data_off = offset + LIGHTHOUSE_OFFSET_SIZE + SSZ_OFFSET_SIZE;
-  const uint32_t total    = data_off + C4_GLOAS_LCU_SSZ_SIZE;
-  uint8_t*       wire     = (uint8_t*) safe_calloc(1, total);
-  uint32_to_le(wire, offset);
-  uint64_to_le(wire + offset, length);
-  memcpy(wire + data_off, lcu.data, lcu.len);
-
-  g_lighthouse_lcu_def = NULL;
-  verify_ctx_t ctx     = {0};
-  ctx.chain_id         = C4_CHAIN_PLATABERGET;
-  TEST_ASSERT_TRUE_MESSAGE(c4_process_light_client_updates(&ctx, bytes(wire, total), capture_lighthouse_lcu_def),
-                           ctx.state.error ? ctx.state.error : "lighthouse Gloas LCU must parse");
-  TEST_ASSERT_EQUAL_PTR(eth_get_light_client_update(C4_FORK_GLOAS), g_lighthouse_lcu_def);
-  TEST_ASSERT_EQUAL_STRING("GloasLightClientUpdate", g_lighthouse_lcu_def->name);
-
-  c4_state_free(&ctx.state);
-  safe_free(wire);
-  safe_free(lcu.data);
-}
-
 void test_gloas_lcu_wrap_beacon_response_rejects_invalid(void) {
   uint8_t lcu_bytes[C4_GLOAS_LCU_SSZ_SIZE] = {0};
   uint8_t fork_digest[4]                   = {0xde, 0xad, 0xbe, 0xef};
@@ -429,7 +366,6 @@ int main(void) {
   RUN_TEST(test_gloas_lcu_assemble_size_mismatches_rejected);
   RUN_TEST(test_gloas_lcu_wrap_beacon_response_prefix);
   RUN_TEST(test_gloas_lcu_wrap_roundtrip_fork_digest);
-  RUN_TEST(test_lighthouse_payload_size_26424_is_gloas);
   RUN_TEST(test_gloas_lcu_wrap_beacon_response_rejects_invalid);
   return UNITY_END();
 }

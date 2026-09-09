@@ -41,7 +41,6 @@
 #define C4_ETH_DENEB_BOOTSTRAP_FIXED_SIZE   24788u
 #define C4_ETH_ELECTRA_BOOTSTRAP_FIXED_SIZE 24820u
 #define C4_ETH_GLOAS_BOOTSTRAP_SIZE         25472u // must equal `C4_GLOAS_BOOTSTRAP_SIZE` in bootstrap_gloas.h
-#define C4_ETH_GLOAS_LCU_SSZ_SIZE           26424u // must equal `C4_GLOAS_LCU_SSZ_SIZE` in lcu_gloas.h
 
 // Fork-specific BeaconState gindices have moved to `beacon_types.c` so all
 // fork-aware selections live in one place. See:
@@ -516,38 +515,8 @@ void c4_eth_unknown_lcu_fork_error(c4_state_t* state, const uint8_t digest[4]) {
 }
 
 /**
- * Payload-only fallback for the Lighthouse SSZ-list encoding, which has no
- * ForkDigest on the wire. Gloas LCUs are a unique fixed size; older forks
- * still share the attested-header slot offset.
- */
-static fork_id_t fork_from_lcu_payload(chain_id_t chain_id, bytes_t data) {
-  if (data.len == C4_ETH_GLOAS_LCU_SSZ_SIZE) return C4_FORK_GLOAS;
-  if (data.len < 8) return C4_FORK_INVALID;
-  uint32_t            offset = uint32_from_le(data.data);
-  uint64_t            slot   = (offset > data.len || data.len - offset < 8)
-                                   ? uint64_from_le(data.data)
-                                   : uint64_from_le(data.data + offset);
-  const chain_spec_t* spec   = c4_eth_get_chain_spec(chain_id);
-  return c4_chain_fork_id(chain_id, epoch_for_slot(slot, spec));
-}
-
-/**
- * Detects the format of light client updates (Standard SSZ or Lighthouse variant).
- * Lighthouse format uses a different offset structure.
- *
- * @param data The raw bytes of light client updates
- * @return true if Lighthouse format, false for standard format
- */
-static bool detect_update_format(bytes_t data) {
-  // Lighthouse detection: check if length is sufficient, second offset is non-zero, and first value is reasonable
-  return data.len > UPDATE_PREFIX_SIZE &&
-         !bytes_all_zero(bytes_slice(data, SSZ_OFFSET_SIZE, SSZ_OFFSET_SIZE)) &&
-         uint32_from_le(data.data) < 1000;
-}
-
-/**
- * Process light client updates with a callback function for each update.
- * This handles both standard SSZ and Lighthouse formats.
+ * Process light client updates with a callback for each Beacon-API entry:
+ * `[uint64 LE length][ForkDigest 4][SSZ payload]`.
  *
  * @param ctx Verification context
  * @param light_client_updates Raw bytes containing one or more light client updates
@@ -555,38 +524,19 @@ static bool detect_update_format(bytes_t data) {
  * @return true if all updates were processed successfully, false otherwise
  */
 INTERNAL bool c4_process_light_client_updates(verify_ctx_t* ctx, bytes_t light_client_updates, bool (*process_update)(verify_ctx_t*, ssz_ob_t*)) {
-  uint64_t length     = 0;
-  bool     success    = true;
-  bool     lighthouse = detect_update_format(light_client_updates);
-  int      idx        = 0;
+  uint64_t length  = 0;
+  bool     success = true;
 
   // Per-update ssz_is_valid only. The enclosing list request stays
   // unvalidated until a list-level check exists.
-  for (uint32_t pos = 0; pos + UPDATE_PREFIX_SIZE < light_client_updates.len; pos += length + SSZ_LENGTH_SIZE, idx++) {
-    uint32_t data_offset        = pos + SSZ_LENGTH_SIZE + SSZ_OFFSET_SIZE;
-    uint32_t data_length_offset = SSZ_OFFSET_SIZE;
-
-    if (lighthouse) {
-      // Check bounds before reading offset
-      if (idx * SSZ_OFFSET_SIZE + SSZ_OFFSET_SIZE > light_client_updates.len) {
-        success = false;
-        c4_state_add_error(&ctx->state, "invalid lighthouse index exceeds data bounds!");
-        break;
-      }
-      pos = uint32_from_le(light_client_updates.data + (idx * SSZ_OFFSET_SIZE));
-      if (pos + UPDATE_PREFIX_SIZE > light_client_updates.len) {
-        success = false;
-        c4_state_add_error(&ctx->state, "invalid offset in lighthouse client update!");
-        break;
-      }
-      data_offset = pos + LIGHTHOUSE_OFFSET_SIZE + SSZ_OFFSET_SIZE;
-    }
+  for (uint32_t pos = 0; pos + UPDATE_PREFIX_SIZE < light_client_updates.len; pos += length + SSZ_LENGTH_SIZE) {
+    uint32_t data_offset = pos + SSZ_LENGTH_SIZE + SSZ_OFFSET_SIZE;
 
     length = uint64_from_le(light_client_updates.data + pos);
 
     // `length` is the digest+payload size. Values below 4 underflow
-    // `length - data_length_offset` into a huge `bytes_t.len`.
-    if (length < data_length_offset ||
+    // `length - SSZ_OFFSET_SIZE` into a huge `bytes_t.len`.
+    if (length < SSZ_OFFSET_SIZE ||
         pos + SSZ_LENGTH_SIZE + length > light_client_updates.len ||
         pos + SSZ_LENGTH_SIZE + length < pos) {
       success = false;
@@ -594,18 +544,13 @@ INTERNAL bool c4_process_light_client_updates(verify_ctx_t* ctx, bytes_t light_c
       break;
     }
 
-    bytes_t          light_client_update_bytes = bytes(light_client_updates.data + data_offset, length - data_length_offset);
+    bytes_t          light_client_update_bytes = bytes(light_client_updates.data + data_offset, length - SSZ_OFFSET_SIZE);
     bytes_t          fork_digest               = bytes(light_client_updates.data + pos + SSZ_LENGTH_SIZE, 4);
-    fork_id_t        fork                      = lighthouse
-                                                     ? fork_from_lcu_payload(ctx->chain_id, light_client_update_bytes)
-                                                     : c4_eth_fork_from_digest(ctx->chain_id, fork_digest.data);
+    fork_id_t        fork                      = c4_eth_fork_from_digest(ctx->chain_id, fork_digest.data);
     const ssz_def_t* light_client_update_def   = eth_get_light_client_update(fork);
 
     if (!light_client_update_def) {
-      if (!lighthouse && fork_digest.len == 4)
-        c4_eth_unknown_lcu_fork_error(&ctx->state, fork_digest.data);
-      else
-        c4_state_add_error(&ctx->state, "light client update: unknown/unsupported fork");
+      c4_eth_unknown_lcu_fork_error(&ctx->state, fork_digest.data);
       success = false;
       break;
     }
