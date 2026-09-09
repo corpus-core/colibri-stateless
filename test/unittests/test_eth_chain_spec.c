@@ -22,8 +22,12 @@
  */
 
 #include "beacon_types.h"
+#include "bytes.h"
 #include "chains.h"
+#include "crypto.h"
 #include "el_header.h"
+#include "state.h"
+#include "sync_committee.h"
 #include "unity.h"
 #include <string.h>
 
@@ -218,6 +222,156 @@ void test_min_blob_base_fee(void) {
   TEST_ASSERT_EQUAL_UINT64(1ULL, eth_min_blob_base_fee(CHAIN(999999)));
 }
 
+static void xor_blob_mask(uint8_t out[4], const uint8_t base[32], uint64_t epoch, uint64_t max_blobs) {
+  uint8_t   blob_in[16] = {0};
+  bytes32_t mask        = {0};
+  uint64_to_le(blob_in, epoch);
+  uint64_to_le(blob_in + 8, max_blobs);
+  sha256(bytes(blob_in, 16), mask);
+  for (int i = 0; i < 4; i++)
+    out[i] = (uint8_t) (base[i] ^ mask[i]);
+}
+
+void test_fork_digest_differs_across_forks(void) {
+  uint8_t electra[4] = {0}, fulu[4] = {0}, plat_fulu[4] = {0}, gloas[4] = {0};
+  TEST_ASSERT_TRUE(c4_eth_compute_fork_digest(C4_CHAIN_MAINNET, C4_FORK_ELECTRA, electra));
+  TEST_ASSERT_TRUE(c4_eth_compute_fork_digest(C4_CHAIN_MAINNET, C4_FORK_FULU, fulu));
+  TEST_ASSERT_TRUE(c4_eth_compute_fork_digest(C4_CHAIN_PLATABERGET, C4_FORK_FULU, plat_fulu));
+  TEST_ASSERT_TRUE(c4_eth_compute_fork_digest(C4_CHAIN_PLATABERGET, C4_FORK_GLOAS, gloas));
+
+  TEST_ASSERT_NOT_EQUAL_INT(0, memcmp(electra, fulu, 4));
+  TEST_ASSERT_NOT_EQUAL_INT(0, memcmp(plat_fulu, gloas, 4));
+
+  TEST_ASSERT_EQUAL_INT(C4_FORK_ELECTRA, c4_eth_fork_from_digest(C4_CHAIN_MAINNET, electra));
+  TEST_ASSERT_EQUAL_INT(C4_FORK_FULU, c4_eth_fork_from_digest(C4_CHAIN_MAINNET, fulu));
+  TEST_ASSERT_EQUAL_INT(C4_FORK_GLOAS, c4_eth_fork_from_digest(C4_CHAIN_PLATABERGET, gloas));
+}
+
+// BPO digests are built from `fork_data_root` + SHA256(epoch || max_blobs), not
+// by reading the lookup cache. A cache that stored only compute(FULU) would
+// fail these lookups.
+static void assert_bpo_maps_to_fulu(chain_id_t chain_id, uint64_t bpo1_epoch, uint64_t bpo1_max,
+                                    uint64_t bpo2_epoch, uint64_t bpo2_max) {
+  bytes32_t base = {0};
+  TEST_ASSERT_TRUE(c4_eth_fork_data_root(chain_id, C4_FORK_FULU, base));
+
+  uint8_t bpo1[4] = {0}, bpo2[4] = {0}, fulu[4] = {0};
+  xor_blob_mask(bpo1, base, bpo1_epoch, bpo1_max);
+  xor_blob_mask(bpo2, base, bpo2_epoch, bpo2_max);
+  TEST_ASSERT_TRUE(c4_eth_compute_fork_digest(chain_id, C4_FORK_FULU, fulu));
+
+  TEST_ASSERT_NOT_EQUAL_INT(0, memcmp(fulu, bpo1, 4));
+  TEST_ASSERT_NOT_EQUAL_INT(0, memcmp(fulu, bpo2, 4));
+  TEST_ASSERT_NOT_EQUAL_INT(0, memcmp(bpo1, bpo2, 4));
+  TEST_ASSERT_EQUAL_INT(C4_FORK_FULU, c4_eth_fork_from_digest(chain_id, bpo1));
+  TEST_ASSERT_EQUAL_INT(C4_FORK_FULU, c4_eth_fork_from_digest(chain_id, bpo2));
+  TEST_ASSERT_EQUAL_INT(C4_FORK_FULU, c4_eth_get_fork_for_lcu(chain_id, bytes(bpo1, 4)));
+  TEST_ASSERT_EQUAL_INT(C4_FORK_FULU, c4_eth_get_fork_for_lcu(chain_id, bytes(bpo2, 4)));
+}
+
+void test_fork_digest_bpo_maps_to_fulu(void) {
+  assert_bpo_maps_to_fulu(C4_CHAIN_MAINNET, 412672ULL, 15ULL, 419072ULL, 21ULL);
+  assert_bpo_maps_to_fulu(C4_CHAIN_SEPOLIA, 274176ULL, 15ULL, 275712ULL, 21ULL);
+}
+
+void test_fork_digest_unknown_is_invalid_and_suggests_upgrade(void) {
+  uint8_t unknown[4] = {0xde, 0xad, 0xbe, 0xef};
+  TEST_ASSERT_EQUAL_INT(C4_FORK_INVALID, c4_eth_fork_from_digest(C4_CHAIN_MAINNET, unknown));
+  TEST_ASSERT_EQUAL_INT(C4_FORK_INVALID, c4_eth_get_fork_for_lcu(C4_CHAIN_MAINNET, bytes(unknown, 4)));
+  TEST_ASSERT_EQUAL_INT(C4_FORK_INVALID, c4_eth_get_fork_for_lcu(C4_CHAIN_MAINNET, NULL_BYTES));
+  TEST_ASSERT_NOT_EQUAL_INT(C4_FORK_MAX, c4_eth_fork_from_digest(C4_CHAIN_MAINNET, unknown));
+  TEST_ASSERT_NOT_EQUAL_INT(C4_FORK_GLOAS, c4_eth_get_fork_for_lcu(C4_CHAIN_MAINNET, bytes(unknown, 4)));
+
+  c4_state_t state = {0};
+  c4_eth_unknown_lcu_fork_error(&state, unknown);
+  TEST_ASSERT_NOT_NULL(state.error);
+  TEST_ASSERT_NOT_NULL(strstr(state.error, "unrecognized fork digest"));
+  TEST_ASSERT_NOT_NULL(strstr(state.error, "please update the app"));
+  TEST_ASSERT_NOT_NULL(strstr(state.error, "deadbeef"));
+  safe_free(state.error);
+}
+
+void test_fork_digest_too_short_and_unknown_chain(void) {
+  uint8_t three[3] = {0x01, 0x02, 0x03};
+  uint8_t four[4]  = {0x01, 0x02, 0x03, 0x04};
+  uint8_t unused[4] = {0};
+
+  TEST_ASSERT_EQUAL_INT(C4_FORK_INVALID, c4_eth_get_fork_for_lcu(C4_CHAIN_MAINNET, bytes(three, 3)));
+  TEST_ASSERT_EQUAL_INT(C4_FORK_INVALID, c4_eth_get_fork_for_lcu(C4_CHAIN_MAINNET, bytes(three, 0)));
+  TEST_ASSERT_EQUAL_INT(C4_FORK_INVALID, c4_eth_fork_from_digest(C4_CHAIN_MAINNET, NULL));
+  TEST_ASSERT_EQUAL_INT(C4_FORK_INVALID, c4_eth_fork_from_digest(CHAIN(999999), four));
+  TEST_ASSERT_EQUAL_INT(C4_FORK_INVALID, c4_eth_get_fork_for_lcu(CHAIN(999999), bytes(four, 4)));
+  bytes32_t root = {0};
+  TEST_ASSERT_FALSE(c4_eth_compute_fork_digest(CHAIN(999999), C4_FORK_ELECTRA, unused));
+  TEST_ASSERT_FALSE(c4_eth_compute_fork_digest(C4_CHAIN_MAINNET, C4_FORK_ELECTRA, NULL));
+  TEST_ASSERT_FALSE(c4_eth_fork_data_root(CHAIN(999999), C4_FORK_FULU, root));
+}
+
+void test_fork_digest_gnosis_empty_blob_schedule_uses_electra_max_2(void) {
+  const chain_spec_t* spec = c4_eth_get_chain_spec(C4_CHAIN_GNOSIS);
+  TEST_ASSERT_NOT_NULL(spec);
+  TEST_ASSERT_NULL_MESSAGE(spec->blob_params, "Gnosis has an empty CL BLOB_SCHEDULE");
+  TEST_ASSERT_EQUAL_UINT64(2ULL, spec->max_blobs_per_block_electra);
+
+  uint64_t electra_epoch = spec->fork_epochs[C4_FORK_ELECTRA - 1];
+  TEST_ASSERT_EQUAL_UINT64(1337856ULL, electra_epoch);
+
+  bytes32_t fulu_base = {0}, electra_base = {0};
+  TEST_ASSERT_TRUE(c4_eth_fork_data_root(C4_CHAIN_GNOSIS, C4_FORK_FULU, fulu_base));
+  TEST_ASSERT_TRUE(c4_eth_fork_data_root(C4_CHAIN_GNOSIS, C4_FORK_ELECTRA, electra_base));
+
+  uint8_t electra[4] = {0}, fulu[4] = {0}, fulu_xor2[4] = {0}, fulu_xor9[4] = {0};
+  TEST_ASSERT_TRUE(c4_eth_compute_fork_digest(C4_CHAIN_GNOSIS, C4_FORK_ELECTRA, electra));
+  TEST_ASSERT_TRUE(c4_eth_compute_fork_digest(C4_CHAIN_GNOSIS, C4_FORK_FULU, fulu));
+  xor_blob_mask(fulu_xor2, fulu_base, electra_epoch, 2ULL);
+  xor_blob_mask(fulu_xor9, fulu_base, electra_epoch, 9ULL);
+
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(electra_base, electra, 4);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(fulu_xor2, fulu, 4);
+  TEST_ASSERT_NOT_EQUAL_INT(0, memcmp(electra, fulu, 4));
+  TEST_ASSERT_NOT_EQUAL_INT(0, memcmp(fulu_xor2, fulu_xor9, 4));
+  TEST_ASSERT_EQUAL_INT(C4_FORK_ELECTRA, c4_eth_fork_from_digest(C4_CHAIN_GNOSIS, electra));
+  TEST_ASSERT_EQUAL_INT(C4_FORK_FULU, c4_eth_fork_from_digest(C4_CHAIN_GNOSIS, fulu_xor2));
+  TEST_ASSERT_EQUAL_INT(C4_FORK_INVALID, c4_eth_fork_from_digest(C4_CHAIN_GNOSIS, fulu_xor9));
+
+  const chain_spec_t* chiado = c4_eth_get_chain_spec(C4_CHAIN_GNOSIS_CHIADO);
+  TEST_ASSERT_NOT_NULL(chiado);
+  TEST_ASSERT_NULL(chiado->blob_params);
+  TEST_ASSERT_EQUAL_UINT64(2ULL, chiado->max_blobs_per_block_electra);
+}
+
+void test_fork_digest_unscheduled_gloas_on_mainnet(void) {
+  TEST_ASSERT_FALSE(c4_chain_schedules_fork(C4_CHAIN_MAINNET, C4_FORK_GLOAS));
+
+  uint8_t gloas[4] = {0}, electra[4] = {0}, fulu[4] = {0};
+  TEST_ASSERT_TRUE(c4_eth_compute_fork_digest(C4_CHAIN_MAINNET, C4_FORK_GLOAS, gloas));
+  TEST_ASSERT_TRUE(c4_eth_compute_fork_digest(C4_CHAIN_MAINNET, C4_FORK_ELECTRA, electra));
+  TEST_ASSERT_TRUE(c4_eth_compute_fork_digest(C4_CHAIN_MAINNET, C4_FORK_FULU, fulu));
+  TEST_ASSERT_NOT_EQUAL_INT(0, memcmp(gloas, electra, 4));
+  TEST_ASSERT_NOT_EQUAL_INT(0, memcmp(gloas, fulu, 4));
+
+  bytes32_t base = {0};
+  TEST_ASSERT_TRUE(c4_eth_fork_data_root(C4_CHAIN_MAINNET, C4_FORK_GLOAS, base));
+  uint8_t expected[4] = {0};
+  xor_blob_mask(expected, base, 419072ULL, 21ULL);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, gloas, 4);
+
+  TEST_ASSERT_EQUAL_INT(C4_FORK_INVALID, c4_eth_fork_from_digest(C4_CHAIN_MAINNET, gloas));
+  TEST_ASSERT_EQUAL_INT(C4_FORK_INVALID, c4_eth_get_fork_for_lcu(C4_CHAIN_MAINNET, bytes(gloas, 4)));
+  TEST_ASSERT_NOT_EQUAL_INT(C4_FORK_MAX, c4_eth_fork_from_digest(C4_CHAIN_MAINNET, gloas));
+}
+
+void test_fork_max_bounds_lookup(void) {
+  uint8_t unused[4]  = {0};
+  uint8_t garbage[4] = {1, 2, 3, 4};
+  uint8_t at_max[4]  = {0};
+  TEST_ASSERT_EQUAL_INT(C4_FORK_GLOAS, C4_FORK_MAX);
+  TEST_ASSERT_FALSE(c4_eth_compute_fork_digest(C4_CHAIN_MAINNET, (fork_id_t) (C4_FORK_MAX + 1), unused));
+  TEST_ASSERT_TRUE(c4_eth_compute_fork_digest(C4_CHAIN_PLATABERGET, C4_FORK_MAX, at_max));
+  TEST_ASSERT_EQUAL_INT(C4_FORK_GLOAS, c4_eth_fork_from_digest(C4_CHAIN_PLATABERGET, at_max));
+  TEST_ASSERT_EQUAL_INT(C4_FORK_INVALID, c4_eth_fork_from_digest(CHAIN(999999), garbage));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_plataberget_genesis_validators_root);
@@ -232,5 +386,12 @@ int main(void) {
   RUN_TEST(test_chain_schedules_fork);
   RUN_TEST(test_blob_base_fee_update_fraction);
   RUN_TEST(test_min_blob_base_fee);
+  RUN_TEST(test_fork_digest_differs_across_forks);
+  RUN_TEST(test_fork_digest_bpo_maps_to_fulu);
+  RUN_TEST(test_fork_digest_unknown_is_invalid_and_suggests_upgrade);
+  RUN_TEST(test_fork_digest_too_short_and_unknown_chain);
+  RUN_TEST(test_fork_digest_gnosis_empty_blob_schedule_uses_electra_max_2);
+  RUN_TEST(test_fork_digest_unscheduled_gloas_on_mainnet);
+  RUN_TEST(test_fork_max_bounds_lookup);
   return UNITY_END();
 }

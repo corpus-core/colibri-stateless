@@ -180,15 +180,24 @@ c4_chain_state_t c4_get_chain_state(chain_id_t chain_id);
 void c4_eth_set_trusted_checkpoint(chain_id_t chain_id, bytes32_t checkpoint);
 
 /**
- * Detect the fork for a light client update based on the slot embedded in the payload.
- * Reads the slot from the SSZ-encoded data and determines the fork (Deneb, Electra,
- * Fulu, or Gloas once scheduled).
+ * Detect the fork for a light client update from the 4-byte Beacon-API
+ * `ForkDigest` that precedes the SSZ payload.
  *
  * @param chain_id Chain identifier
- * @param data SSZ-encoded light client update data
- * @return Fork identifier corresponding to the slot in the update payload
+ * @param fork_digest at least 4 bytes of fork digest (payload is not read)
+ * @return matching fork, or `C4_FORK_INVALID` if the digest is unknown
  */
-fork_id_t c4_eth_get_fork_for_lcu(chain_id_t chain_id, bytes_t data);
+fork_id_t c4_eth_get_fork_for_lcu(chain_id_t chain_id, bytes_t fork_digest);
+
+/**
+ * Records a fail-closed error for an unrecognized LCU fork digest and
+ * asks the user to update the app. Callers that have a `c4_state_t`
+ * should use this helper so the log line stays consistent.
+ *
+ * @param state verification or prover state that receives the error
+ * @param digest the 4-byte digest that did not match any known fork
+ */
+void c4_eth_unknown_lcu_fork_error(c4_state_t* state, const uint8_t digest[4]);
 
 /**
  * Detect the fork for a light client bootstrap based on the size of the data.

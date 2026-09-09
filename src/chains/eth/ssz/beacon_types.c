@@ -24,7 +24,9 @@
 #define FORKS_END        0xfffffffffffffffeULL // must stay < NOT_ASSIGNED_YET
 
 #include "beacon_types.h"
+#include "crypto.h"
 #include "ssz.h"
+#include <string.h>
 
 // fork_epochs[n] = activation epoch of fork (n+1) (Altair ..).
 // 0 = active at genesis. NOT_ASSIGNED_YET = not scheduled. Terminated by FORKS_END.
@@ -76,6 +78,28 @@ static const eth_blob_schedule_t eth_chiado_blob_schedule[] = {
     {0ULL, 0ULL},
 };
 
+// Consensus-layer BLOB_SCHEDULE for `compute_fork_digest` / `get_blob_parameters`.
+// DESCENDING by epoch so the first match wins. Terminated by max_blobs == 0.
+// Official sources: consensus-specs configs/mainnet.yaml, eth-clients/sepolia,
+// ethpandaops/glamsterdam-devnets (Platåberget / devnet-8). Gnosis has no BPO
+// entries (empty schedule → Electra fallback).
+static const eth_blob_params_t eth_mainnet_blob_params[] = {
+    {419072ULL, 21ULL}, // BPO2
+    {412672ULL, 15ULL}, // BPO1
+    {0ULL, 0ULL},
+};
+
+static const eth_blob_params_t eth_sepolia_blob_params[] = {
+    {275712ULL, 21ULL}, // BPO2
+    {274176ULL, 15ULL}, // BPO1
+    {0ULL, 0ULL},
+};
+
+static const eth_blob_params_t eth_plataberget_blob_params[] = {
+    {0ULL, 21ULL}, // genesis-at-Fulu: single BLOB_SCHEDULE entry
+    {0ULL, 0ULL},
+};
+
 static void mainnet_fork_version(chain_id_t chain_id, fork_id_t fork, uint8_t* version) {
   version[0] = (uint8_t) fork;
   version[1] = 0x00;
@@ -120,8 +144,10 @@ static const chain_spec_t chain_data[] = {
      .slots_per_epoch_bits     = 5,
      .epochs_per_period_bits   = 8,
      .weak_subjectivity_epochs = 3682,
-     .fork_version_func        = mainnet_fork_version,
-     .blob_schedule            = eth_mainnet_blob_schedule},
+     .fork_version_func             = mainnet_fork_version,
+     .blob_schedule                 = eth_mainnet_blob_schedule,
+     .blob_params                   = eth_mainnet_blob_params,
+     .max_blobs_per_block_electra   = 9ULL},
     {// Sepolia
      .chain_id                 = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 11155111),
      .fork_epochs              = eth_sepolia_fork_epochs,
@@ -130,8 +156,10 @@ static const chain_spec_t chain_data[] = {
      .slots_per_epoch_bits     = 5,
      .epochs_per_period_bits   = 8,
      .weak_subjectivity_epochs = 3682,
-     .fork_version_func        = sepolia_fork_version,
-     .blob_schedule            = eth_sepolia_blob_schedule},
+     .fork_version_func             = sepolia_fork_version,
+     .blob_schedule                 = eth_sepolia_blob_schedule,
+     .blob_params                   = eth_sepolia_blob_params,
+     .max_blobs_per_block_electra   = 9ULL},
     {// Plataberget
      .chain_id                 = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 7091047534),
      .fork_epochs              = eth_plataberget_fork_epochs,
@@ -139,8 +167,10 @@ static const chain_spec_t chain_data[] = {
      .zk_sync_keys_root        = "\x82\xb2\x41\xf5\x2b\x29\x0f\x82\x78\x81\x11\xbd\x79\x74\xee\x87\xd9\xbb\xac\xfb\xe5\xd0\x84\xa3\x70\x31\x7f\x34\xe7\xb7\xfa\x84", // TODO: replace Sepolia placeholder with Plataberget v6 anchor
      .slots_per_epoch_bits     = 5,
      .epochs_per_period_bits   = 8,
-     .weak_subjectivity_epochs = 3682,
-     .fork_version_func        = plataberget_fork_version},
+     .weak_subjectivity_epochs      = 3682,
+     .fork_version_func             = plataberget_fork_version,
+     .blob_params                   = eth_plataberget_blob_params,
+     .max_blobs_per_block_electra   = 9ULL},
     {// Gnosis
      .chain_id                 = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 100ULL),
      .fork_epochs              = eth_gnosis_fork_epochs,
@@ -149,9 +179,10 @@ static const chain_spec_t chain_data[] = {
      .slots_per_epoch_bits     = 4,
      .epochs_per_period_bits   = 9,
      .weak_subjectivity_epochs = 1500,
-     .fork_version_func        = gnosis_fork_version,
-     .blob_schedule            = eth_gnosis_blob_schedule,
-     .min_blob_base_fee        = 1000000000ULL},
+     .fork_version_func             = gnosis_fork_version,
+     .blob_schedule                 = eth_gnosis_blob_schedule,
+     .min_blob_base_fee             = 1000000000ULL,
+     .max_blobs_per_block_electra   = 2ULL},
     {// Gnosis chiado
      .chain_id                 = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 10200ULL),
      .fork_epochs              = eth_chiado_fork_epochs,
@@ -159,9 +190,10 @@ static const chain_spec_t chain_data[] = {
      .slots_per_epoch_bits     = 4,
      .epochs_per_period_bits   = 9,
      .weak_subjectivity_epochs = 1500,
-     .fork_version_func        = gnosis_fork_version,
-     .blob_schedule            = eth_chiado_blob_schedule,
-     .min_blob_base_fee        = 1000000000ULL},
+     .fork_version_func             = gnosis_fork_version,
+     .blob_schedule                 = eth_chiado_blob_schedule,
+     .min_blob_base_fee             = 1000000000ULL,
+     .max_blobs_per_block_electra   = 2ULL},
 };
 
 const chain_spec_t* c4_eth_get_chain_spec(chain_id_t id) {
@@ -225,6 +257,145 @@ bool c4_chain_schedules_fork(chain_id_t chain_id, fork_id_t fork) {
     n++;
   }
   return false;
+}
+
+// ForkData used by `compute_fork_data_root` / `compute_fork_digest`.
+static const ssz_def_t FORK_DATA[] = {
+    SSZ_BYTE_VECTOR("version", 4),
+    SSZ_BYTES32("state")};
+static const ssz_def_t FORK_DATA_CONTAINER = SSZ_CONTAINER("ForkData", FORK_DATA);
+
+static uint64_t fork_activation_epoch(const chain_spec_t* spec, fork_id_t fork) {
+  if (fork <= C4_FORK_PHASE0) return 0;
+  return spec->fork_epochs[(unsigned) fork - 1];
+}
+
+static fork_id_t fork_id_at_epoch(const chain_spec_t* spec, uint64_t epoch) {
+  return c4_chain_fork_id(spec->chain_id, epoch);
+}
+
+static bool fork_data_root_for_spec(const chain_spec_t* spec, fork_id_t fork, bytes32_t out) {
+  if (!spec || !spec->fork_version_func || fork < C4_FORK_PHASE0 || fork > C4_FORK_MAX)
+    return false;
+  uint8_t buffer[36] = {0};
+  spec->fork_version_func(spec->chain_id, fork, buffer);
+  memcpy(buffer + 4, spec->genesis_validators_root, 32);
+  ssz_hash_tree_root(ssz_ob(FORK_DATA_CONTAINER, bytes(buffer, 36)), out);
+  return true;
+}
+
+static void get_blob_parameters(const chain_spec_t* spec, uint64_t epoch,
+                                uint64_t* out_epoch, uint64_t* out_max_blobs) {
+  uint64_t electra_epoch = fork_activation_epoch(spec, C4_FORK_ELECTRA);
+  if (electra_epoch >= FORKS_END) electra_epoch = 0;
+  *out_epoch     = electra_epoch;
+  *out_max_blobs = spec->max_blobs_per_block_electra ? spec->max_blobs_per_block_electra : 9ULL;
+  if (!spec->blob_params) return;
+  for (const eth_blob_params_t* e = spec->blob_params; e->max_blobs_per_block != 0; e++) {
+    if (epoch >= e->epoch) {
+      *out_epoch     = e->epoch;
+      *out_max_blobs = e->max_blobs_per_block;
+      return;
+    }
+  }
+}
+
+static bool compute_digest_at_epoch(const chain_spec_t* spec, uint64_t epoch, uint8_t out[4]) {
+  fork_id_t fork = fork_id_at_epoch(spec, epoch);
+  bytes32_t base = {0};
+  if (!fork_data_root_for_spec(spec, fork, base)) return false;
+
+  uint64_t fulu_epoch = fork_activation_epoch(spec, C4_FORK_FULU);
+  if (fulu_epoch >= FORKS_END || epoch < fulu_epoch) {
+    memcpy(out, base, 4);
+    return true;
+  }
+
+  uint64_t bp_epoch = 0, max_blobs = 0;
+  get_blob_parameters(spec, epoch, &bp_epoch, &max_blobs);
+  uint8_t blob_in[16] = {0};
+  uint64_to_le(blob_in, bp_epoch);
+  uint64_to_le(blob_in + 8, max_blobs);
+  bytes32_t mask = {0};
+  sha256(bytes(blob_in, 16), mask);
+  for (int i = 0; i < 4; i++)
+    out[i] = (uint8_t) (base[i] ^ mask[i]);
+  return true;
+}
+
+bool c4_eth_fork_data_root(chain_id_t chain_id, fork_id_t fork, bytes32_t out) {
+  return fork_data_root_for_spec(c4_eth_get_chain_spec(chain_id), fork, out);
+}
+
+bool c4_eth_compute_fork_digest(chain_id_t chain_id, fork_id_t fork, uint8_t out[4]) {
+  const chain_spec_t* spec = c4_eth_get_chain_spec(chain_id);
+  if (!spec || !out || fork < C4_FORK_PHASE0 || fork > C4_FORK_MAX) return false;
+  return compute_digest_at_epoch(spec, fork_activation_epoch(spec, fork), out);
+}
+
+// One digest per regular fork plus room for future BPO rows. Overflow must
+// not mark the cache ready: a silent drop would fail-closed on a known fork.
+#define MAX_FORK_DIGEST_CANDIDATES ((unsigned) C4_FORK_MAX + 1 + 16)
+
+typedef struct {
+  bool    ready;
+  uint8_t count;
+  uint8_t digests[MAX_FORK_DIGEST_CANDIDATES][4];
+  int8_t  forks[MAX_FORK_DIGEST_CANDIDATES];
+} fork_digest_cache_t;
+
+static fork_digest_cache_t digest_caches[sizeof(chain_data) / sizeof(chain_data[0])];
+
+static bool cache_add(fork_digest_cache_t* cache, const uint8_t digest[4], fork_id_t fork) {
+  if (cache->count >= MAX_FORK_DIGEST_CANDIDATES) return false;
+  for (uint8_t i = 0; i < cache->count; i++) {
+    if (memcmp(cache->digests[i], digest, 4) == 0) return true;
+  }
+  memcpy(cache->digests[cache->count], digest, 4);
+  cache->forks[cache->count] = (int8_t) fork;
+  cache->count++;
+  return true;
+}
+
+static void cache_build(const chain_spec_t* spec, fork_digest_cache_t* cache) {
+  cache->count = 0;
+  cache->ready = false;
+  for (int f = 0; f <= (int) C4_FORK_MAX; f++) {
+    fork_id_t fork = (fork_id_t) f;
+    if (fork != C4_FORK_PHASE0 && !c4_chain_schedules_fork(spec->chain_id, fork))
+      continue;
+    uint8_t digest[4] = {0};
+    if (!compute_digest_at_epoch(spec, fork_activation_epoch(spec, fork), digest))
+      continue;
+    if (!cache_add(cache, digest, fork)) return;
+  }
+  if (spec->blob_params) {
+    for (const eth_blob_params_t* e = spec->blob_params; e->max_blobs_per_block != 0; e++) {
+      uint8_t   digest[4] = {0};
+      fork_id_t fork      = fork_id_at_epoch(spec, e->epoch);
+      if (fork > C4_FORK_MAX) continue;
+      if (fork != C4_FORK_PHASE0 && !c4_chain_schedules_fork(spec->chain_id, fork))
+        continue;
+      if (!compute_digest_at_epoch(spec, e->epoch, digest)) continue;
+      if (!cache_add(cache, digest, fork)) return;
+    }
+  }
+  cache->ready = true;
+}
+
+fork_id_t c4_eth_fork_from_digest(chain_id_t chain_id, const uint8_t digest[4]) {
+  const chain_spec_t* spec = c4_eth_get_chain_spec(chain_id);
+  if (!spec || !digest) return C4_FORK_INVALID;
+  int idx = (int) (spec - chain_data);
+  if (idx < 0 || idx >= (int) (sizeof(chain_data) / sizeof(chain_data[0])))
+    return C4_FORK_INVALID;
+  fork_digest_cache_t* cache = digest_caches + idx;
+  if (!cache->ready) cache_build(spec, cache);
+  for (uint8_t i = 0; i < cache->count; i++) {
+    if (memcmp(cache->digests[i], digest, 4) == 0)
+      return (fork_id_t) cache->forks[i];
+  }
+  return C4_FORK_INVALID;
 }
 
 // Generalized indices for the fork-specific `BeaconState` layout used by the

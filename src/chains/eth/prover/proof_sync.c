@@ -51,11 +51,16 @@ static ssz_ob_t unwrap_lcu_response(prover_ctx_t* ctx, bytes_t data) {
   ssz_ob_t result = {.bytes = NULL_BYTES, .def = NULL};
   if (data.len < 12) return result;
   uint64_t payload_len = uint64_from_le(data.data);
-  if (payload_len < 4 || 8 + payload_len > data.len) return result;
-  result.bytes          = bytes(data.data + 12, payload_len - 4);
-  fork_id_t        fork = c4_eth_get_fork_for_lcu(ctx->chain_id, result.bytes);
-  const ssz_def_t* def  = eth_get_light_client_update(fork);
-  result.def            = def;
+  if (payload_len < 4 || 8 + payload_len > data.len || 8 + payload_len < payload_len) return result;
+  result.bytes            = bytes(data.data + 12, payload_len - 4);
+  bytes_t          digest = bytes(data.data + 8, 4);
+  fork_id_t        fork   = c4_eth_get_fork_for_lcu(ctx->chain_id, digest);
+  const ssz_def_t* def    = eth_get_light_client_update(fork);
+  if (!def) {
+    c4_eth_unknown_lcu_fork_error(&ctx->state, digest.data);
+    return result;
+  }
+  result.def = def;
   return result;
 }
 
@@ -68,7 +73,7 @@ static c4_status_t extract_sync_data(prover_ctx_t* ctx, bytes_t old_data, bytes_
   ssz_ob_t new_update = unwrap_lcu_response(ctx, new_data);
   if (!new_update.def) THROW_ERROR("invalid new client_update");
 
-  fork_id_t fork = c4_eth_get_fork_for_lcu(ctx->chain_id, new_update.bytes);
+  fork_id_t fork = c4_eth_get_fork_for_lcu(ctx->chain_id, bytes(new_data.data + 8, 4));
 
   ssz_ob_t old_sync_keys  = ssz_get(&old_update, "nextSyncCommittee");
   ssz_ob_t new_sync_keys  = ssz_get(&new_update, "nextSyncCommittee");

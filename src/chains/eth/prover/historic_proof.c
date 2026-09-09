@@ -392,7 +392,7 @@ c4_status_t c4_fetch_client_updates(prover_ctx_t* ctx, uint64_t start_period, ui
   // Preferred path (server context): read the LCUs from the local period_store
   // via the internal `lcu_updates` handler. That handler concatenates the
   // per-period `lcu.ssz` files (already in Beacon-API wire format: 8-byte LE
-  // length + 4-byte fork_version + LCU SSZ) and transparently backfills
+  // length + 4-byte ForkDigest + LCU SSZ) and transparently backfills
   // missing periods from a beacon node. It's noticeably cheaper than a
   // dedicated beacon roundtrip when the cache is warm.
   //
@@ -460,12 +460,21 @@ static c4_status_t fetch_updates_data(prover_ctx_t* ctx, syncdata_state_t* sync_
     uint32_t data_length_offset = SSZ_OFFSET_SIZE;
     length                      = uint64_from_le(client_updates.data + pos);
 
-    if (pos + SSZ_LENGTH_SIZE + length > client_updates.len && length > UPDATE_PREFIX_SIZE) break;
+    if (length < data_length_offset ||
+        pos + SSZ_LENGTH_SIZE + length > client_updates.len ||
+        pos + SSZ_LENGTH_SIZE + length < pos) {
+      c4_state_add_error(&ctx->state, "invalid light client update length");
+      return C4_ERROR;
+    }
 
     bytes_t   client_update_bytes = bytes(client_updates.data + data_offset, length - data_length_offset);
-    fork_id_t fork                = c4_eth_get_fork_for_lcu(ctx->chain_id, client_update_bytes);
+    bytes_t   fork_digest         = bytes(client_updates.data + pos + SSZ_LENGTH_SIZE, 4);
+    fork_id_t fork                = c4_eth_get_fork_for_lcu(ctx->chain_id, fork_digest);
     ssz_ob_t  update              = {.bytes = client_update_bytes, .def = eth_get_light_client_update(fork)};
-    if (!update.def) THROW_ERROR("Invalid update data!");
+    if (!update.def) {
+      c4_eth_unknown_lcu_fork_error(&ctx->state, fork_digest.data);
+      return C4_ERROR;
+    }
 
     bytes_t prefixed = bytes(safe_malloc(update.bytes.len + 1), update.bytes.len + 1);
     memcpy(prefixed.data + 1, update.bytes.data, update.bytes.len);

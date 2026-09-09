@@ -41,6 +41,7 @@
 #define C4_ETH_DENEB_BOOTSTRAP_FIXED_SIZE   24788u
 #define C4_ETH_ELECTRA_BOOTSTRAP_FIXED_SIZE 24820u
 #define C4_ETH_GLOAS_BOOTSTRAP_SIZE         25472u // must equal `C4_GLOAS_BOOTSTRAP_SIZE` in bootstrap_gloas.h
+#define C4_ETH_GLOAS_LCU_SSZ_SIZE           26424u // must equal `C4_GLOAS_LCU_SSZ_SIZE` in lcu_gloas.h
 
 // Fork-specific BeaconState gindices have moved to `beacon_types.c` so all
 // fork-aware selections live in one place. See:
@@ -505,18 +506,34 @@ fork_id_t c4_eth_get_fork_for_lcb(chain_id_t chain_id, bytes_t data) {
   return C4_FORK_INVALID;
 }
 
-fork_id_t c4_eth_get_fork_for_lcu(chain_id_t chain_id, bytes_t data) {
-  if (data.len < 4) return 0;
-  uint64_t slot   = 0;
-  uint32_t offset = uint32_from_le(data.data);
-  if (offset + 8 > data.len)
-    // this is most likely a gloas bootstrap!
-    // TODO(gloas): this may break if the lower 4 bytes of the slot are smaller than the lcu length.
-    // so in 99% of the cases it will work, but we should find a better way to detect the fork.
-    slot = uint64_from_le(data.data);
-  else
-    slot = uint64_from_le(data.data + offset);
-  const chain_spec_t* spec = c4_eth_get_chain_spec(chain_id);
+fork_id_t c4_eth_get_fork_for_lcu(chain_id_t chain_id, bytes_t fork_digest) {
+  if (!fork_digest.data || fork_digest.len < 4) return C4_FORK_INVALID;
+  return c4_eth_fork_from_digest(chain_id, fork_digest.data);
+}
+
+void c4_eth_unknown_lcu_fork_error(c4_state_t* state, const uint8_t digest[4]) {
+  uint8_t        zero[4] = {0};
+  const uint8_t* d       = digest ? digest : zero;
+  char*          msg     = bprintf(NULL,
+                                   "unrecognized fork digest 0x%x; this Colibri version (%s) does not support the current chain fork - please update the app",
+                                   bytes((uint8_t*) d, 4), c4_client_version);
+  c4_state_add_error(state, msg);
+  safe_free(msg);
+}
+
+/**
+ * Payload-only fallback for the Lighthouse SSZ-list encoding, which has no
+ * ForkDigest on the wire. Gloas LCUs are a unique fixed size; older forks
+ * still share the attested-header slot offset.
+ */
+static fork_id_t fork_from_lcu_payload(chain_id_t chain_id, bytes_t data) {
+  if (data.len == C4_ETH_GLOAS_LCU_SSZ_SIZE) return C4_FORK_GLOAS;
+  if (data.len < 8) return C4_FORK_INVALID;
+  uint32_t            offset = uint32_from_le(data.data);
+  uint64_t            slot   = (offset > data.len || data.len - offset < 8)
+                                   ? uint64_from_le(data.data)
+                                   : uint64_from_le(data.data + offset);
+  const chain_spec_t* spec   = c4_eth_get_chain_spec(chain_id);
   return c4_chain_fork_id(chain_id, epoch_for_slot(slot, spec));
 }
 
@@ -573,19 +590,28 @@ INTERNAL bool c4_process_light_client_updates(verify_ctx_t* ctx, bytes_t light_c
 
     length = uint64_from_le(light_client_updates.data + pos);
 
-    // Check for integer overflow and bounds
-    if (length > UPDATE_PREFIX_SIZE && (pos + SSZ_LENGTH_SIZE + length > light_client_updates.len || pos + SSZ_LENGTH_SIZE + length < pos)) {
+    // `length` is the digest+payload size. Values below 4 underflow
+    // `length - data_length_offset` into a huge `bytes_t.len`.
+    if (length < data_length_offset ||
+        pos + SSZ_LENGTH_SIZE + length > light_client_updates.len ||
+        pos + SSZ_LENGTH_SIZE + length < pos) {
       success = false;
       c4_state_add_error(&ctx->state, "invalid length causes overflow or exceeds bounds!");
       break;
     }
 
     bytes_t          light_client_update_bytes = bytes(light_client_updates.data + data_offset, length - data_length_offset);
-    fork_id_t        fork                      = c4_eth_get_fork_for_lcu(ctx->chain_id, light_client_update_bytes);
+    bytes_t          fork_digest               = bytes(light_client_updates.data + pos + SSZ_LENGTH_SIZE, 4);
+    fork_id_t        fork                      = lighthouse
+                                                     ? fork_from_lcu_payload(ctx->chain_id, light_client_update_bytes)
+                                                     : c4_eth_get_fork_for_lcu(ctx->chain_id, fork_digest);
     const ssz_def_t* light_client_update_def   = eth_get_light_client_update(fork);
 
     if (!light_client_update_def) {
-      c4_state_add_error(&ctx->state, "light client update: unknown/unsupported fork");
+      if (!lighthouse && fork_digest.len == 4)
+        c4_eth_unknown_lcu_fork_error(&ctx->state, fork_digest.data);
+      else
+        c4_state_add_error(&ctx->state, "light client update: unknown/unsupported fork");
       success = false;
       break;
     }
