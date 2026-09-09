@@ -32,7 +32,7 @@
 #include <stdlib.h>
 
 // The `next_sync_committee` gindex is fork-dependent; the resolver lives in
-// `beacon_types.c` (`c4_next_sync_committee_gindex`) so all fork-aware selections
+// `chain_spec.c` (`c4_next_sync_committee_gindex`) so all fork-aware selections
 // share one source of truth.
 
 typedef struct {

@@ -39,7 +39,7 @@
 #include "unity.h"
 #include <string.h>
 
-// `NOT_ASSIGNED_YET` is defined internally in beacon_types.c and represents
+// `NOT_ASSIGNED_YET` is defined internally in chain_spec.c and represents
 // an unscheduled fork epoch. Duplicated here so the canary test that guards
 // against premature Gloas activation stays self-contained.
 #define GLOAS_TEST_NOT_ASSIGNED_YET 0xffffffffffffffffULL
@@ -275,7 +275,7 @@ void test_gloas_gindex_helpers_pre_gloas_branches(void) {
   const chain_spec_t* spec = c4_eth_get_chain_spec(C4_CHAIN_MAINNET);
   TEST_ASSERT_NOT_NULL(spec);
 
-  // Mainnet fork epochs (beacon_types.c): 74240,144896,194048,269568,364032,411392,NOT_ASSIGNED_YET
+  // Mainnet fork epochs (chain_spec.c): 74240,144896,194048,269568,364032,411392,NOT_ASSIGNED_YET
   //  index 3 = Deneb (269568), index 4 = Electra (364032), index 5 = Fulu (411392).
   // Pick epochs safely inside each fork window.
   uint64_t deneb_slot   = slot_for_epoch(300000ULL, spec); // Deneb (>= 269568, < 364032)
@@ -486,7 +486,7 @@ void test_historic_block_gindex_rejects_bad_inputs(void) {
 //
 // Several code paths carry `TODO(gloas)` markers that must be revisited before
 // Gloas is scheduled on a production chain (see `eth_tx.h`, `eth_account.h`,
-// `beacon_types.c::c4_block_header_gindexes`).
+// `chain_spec.c` gindex helpers).
 // This test fails as soon as mainnet/Sepolia/Gnosis assign a real Gloas epoch.
 // Platåberget already activates Gloas at epoch 1536; that schedule is covered
 // in `test_eth_chain_spec.c`.
@@ -506,7 +506,7 @@ void test_gloas_activation_epoch_still_reserved(void) {
         GLOAS_TEST_NOT_ASSIGNED_YET,
         spec->fork_epochs[C4_FORK_GLOAS - 1],
         "A chain has scheduled Gloas: revisit TODO(gloas) markers in eth_tx.h, "
-        "eth_account.h and beacon_types.c (c4_block_header_gindexes) before "
+        "eth_account.h and chain_spec.c gindex helpers before "
         "activation.");
   }
 }

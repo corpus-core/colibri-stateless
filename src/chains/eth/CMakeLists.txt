@@ -103,6 +103,7 @@ set(VERIFIER_SOURCES
   verifier/header_cache.c
   ssz/verify_types.c
   ssz/beacon_types.c
+  ssz/chain_spec.c
   ssz/beacon_denep.c
   ssz/beacon_electra.c
   ssz/beacon_gloas.c

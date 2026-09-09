@@ -321,7 +321,7 @@ uint64_t eth_fake_exponential(uint64_t factor, uint64_t numerator, uint64_t deno
 uint64_t eth_blob_base_fee_update_fraction(chain_id_t chain_id, uint64_t block_timestamp) {
   // EIP-7892 (Blob Parameter Only) schedule: each entry maps a fork activation
   // timestamp to its `BLOB_BASE_FEE_UPDATE_FRACTION`. The table is populated
-  // per chain in `beacon_types.c` (mainnet, sepolia, gnosis, chiado today; other
+  // per chain in `chain_spec.c` (mainnet, sepolia, gnosis, chiado today; other
   // chains fall through to the Cancun default). Post-Merge forks are timestamp-
   // driven per go-ethereum's `params/config.go`; using block numbers would
   // misfire on PoS chains where missed slots break a strict block<->fork mapping.
