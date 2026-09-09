@@ -43,7 +43,7 @@ To generate a proof for a specific period (e.g., 1600):
 
 **Output:**
 Artifacts are saved to `build/default/.period_store/<PERIOD>/`:
-*   `blocks.ssz`, `headers.ssz`, `lcb.ssz`, `lcu.ssz`, `sync.ssz`: cached light-client inputs (fetched once and re-used by Slave nodes).
+*   `blocks.ssz`, `headers.ssz`, `lcu.ssz`, `sync.ssz`: cached light-client inputs (fetched once and re-used by Slave nodes).
 *   `zk_proof.bin`: Compressed SP1 proof (used for recursion).
 *   `zk_vk_raw.bin`: Verification Key for the compressed proof (also fed into recursion).
 *   `zk_proof_g16.bin`: Raw Groth16 proof bytes (356-byte SP1 v6 proof, used by C/Solidity verifiers).

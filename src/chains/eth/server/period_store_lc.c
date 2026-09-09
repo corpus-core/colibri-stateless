@@ -1,4 +1,3 @@
-#include "beacon.h"
 #include "beacon_types.h"
 #include "eth_conf.h"
 #include "lcu_gloas.h"
@@ -6,16 +5,9 @@
 #include "period_store.h"
 #include "prover.h"
 #include "server.h"
-#include "ssz.h"
 #include "sync_committee.h"
 #include "uv_util.h"
 
-#define THROW_PERIOD_ERROR(r, fmt, ...) \
-  {                                     \
-    log_warn(fmt, ##__VA_ARGS__);       \
-    c4_request_free(r);                 \
-    return;                             \
-  }
 // ---- Assemble multiple LCU from cache (fetch missing) ----
 typedef struct {
   void*           user_data;
@@ -61,29 +53,25 @@ static void lcu_write_done_cb(void* user_data, file_data_t* files, int num_files
 
 static void fetch_lcu_cb(client_t* client, void* data, data_request_t* r) {
   (void) client;
-  uint64_t period            = data ? *((uint64_t*) data) : 0;
-  bool     is_bootstrap_path = r->url && strstr(r->url, "bootstrap") != NULL;
+  uint64_t period = data ? *((uint64_t*) data) : 0;
   safe_free(data);
   if (!r->response.data && !r->error) r->error = strdup("unknown error!");
   if (r->error) {
     log_warn("period_store: LCU fetch for period %l failed: %s", period, r->error);
     c4_request_free(r);
-    // Only the light_client/updates path can be self-built; bootstrap has a
-    // separate precompute path via head_update.c and is served from cache.
-    if (!is_bootstrap_path) c4_ps_build_lcu(period);
+    c4_ps_build_lcu(period);
     return;
   }
   // Beacon-node returned a body that is too short to contain even the wire
-  // prefix -> treat as missing and trigger the self-build fallback for LCUs.
-  if (!is_bootstrap_path && r->response.len < UPDATE_PREFIX_SIZE) {
+  // prefix -> treat as missing and trigger the self-build fallback.
+  if (r->response.len < UPDATE_PREFIX_SIZE) {
     log_warn("period_store: LCU fetch for period %l returned short response (%d bytes)", period, r->response.len);
     c4_request_free(r);
     c4_ps_build_lcu(period);
     return;
   }
-  // prepare async write of lcb.ssz or lcu.ssz
   char* dir  = c4_ps_ensure_period_dir(period);
-  char* path = bprintf(NULL, strstr(r->url, "bootstrap") ? "%s/" C4_PS_LCB_SSZ : "%s/" C4_PS_LCU_SSZ, dir);
+  char* path = bprintf(NULL, "%s/" C4_PS_LCU_SSZ, dir);
   safe_free(dir);
   file_data_t files[1] = {0};
   files[0].path        = path;
@@ -258,69 +246,6 @@ void c4_get_light_client_updates(void* user_data, uint64_t period, uint32_t coun
     // IMPORTANT: do NOT free files[i].path here; ownership stays with the copy and will be freed in the callback
     safe_free(files);
   }
-}
-
-void c4_ps_fetch_lcb_for_checkpoint(bytes32_t checkpoint, uint64_t period) {
-
-  // now fetch the light client bootstrap
-  static client_t lcu_client = {0};
-  data_request_t* req        = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
-  req->url                   = bprintf(NULL, "eth/v1/beacon/light_client/bootstrap/0x%x", bytes(checkpoint, 32));
-  req->method                = C4_DATA_METHOD_GET;
-  req->chain_id              = http_server.chain_id;
-  req->type                  = C4_DATA_TYPE_BEACON_API;
-  req->encoding              = C4_DATA_ENCODING_SSZ;
-  uint64_t* pdata            = (uint64_t*) safe_calloc(1, sizeof(uint64_t));
-  *pdata                     = period;
-  c4_add_request(&lcu_client, req, pdata, fetch_lcu_cb);
-}
-static void fetch_lcb_cb(client_t* client, void* data, data_request_t* r) {
-  (void) client;
-  uint64_t period = data ? *((uint64_t*) data) : 0;
-  safe_free(data);
-
-  if (!r->response.data && !r->error) r->error = strdup("unknown error!");
-  if (r->error) THROW_PERIOD_ERROR(r, "period_store: LCU fetch for period %l failed: %s", period, r->error);
-  if (r->response.len < UPDATE_PREFIX_SIZE) THROW_PERIOD_ERROR(r, "period_store: LCU fetch for period %l failed: response too short", period);
-
-  uint64_t length = uint64_from_le(r->response.data);
-  if (length < SSZ_OFFSET_SIZE ||
-      SSZ_LENGTH_SIZE + length > r->response.len ||
-      SSZ_LENGTH_SIZE + length < length)
-    THROW_PERIOD_ERROR(r, "period_store: LCU fetch for period %l failed: response too short", period);
-  ssz_ob_t  update      = {.bytes = bytes(r->response.data + UPDATE_PREFIX_SIZE, length - SSZ_OFFSET_SIZE), .def = NULL};
-  bytes_t   fork_digest = bytes(r->response.data + 8, 4);
-  fork_id_t fork        = c4_eth_fork_from_digest(http_server.chain_id, fork_digest.data);
-  update.def            = eth_get_light_client_update(fork);
-  if (!update.def) THROW_PERIOD_ERROR(r, "period_store: LCU fetch for period %l failed: unrecognized fork digest 0x%x; this Colibri version does not support the current chain fork - please update the app", period, fork_digest);
-  ssz_ob_t finalized         = ssz_get(&update, "finalizedHeader");
-  ssz_ob_t header            = ssz_get(&finalized, "beacon");
-  uint64_t checkpoint_period = ssz_get_uint64(&header, "slot") >> 13;
-  if (checkpoint_period != period) THROW_PERIOD_ERROR(r, "period_store: LCU fetch for period %l failed: checkpoint period mismatch", period);
-  bytes32_t checkpoint = {0};
-  ssz_hash_tree_root(header, checkpoint);
-  c4_request_free(r);
-  c4_ps_fetch_lcb_for_checkpoint(checkpoint, period);
-}
-
-void c4_ps_schedule_fetch_lcb(uint64_t period) {
-  if (graceful_shutdown_in_progress) return;
-
-  // Skip if no Beacon API servers configured
-  server_list_t* sl = c4_get_server_list(C4_DATA_TYPE_BEACON_API);
-  if (!sl || sl->count == 0) return;
-
-  static client_t lcu_client = {0};
-
-  data_request_t* req = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
-  req->url            = bprintf(NULL, "eth/v1/beacon/light_client/updates?start_period=%l&count=1", period);
-  req->method         = C4_DATA_METHOD_GET;
-  req->chain_id       = http_server.chain_id;
-  req->type           = C4_DATA_TYPE_BEACON_API;
-  req->encoding       = C4_DATA_ENCODING_SSZ;
-  uint64_t* pdata     = (uint64_t*) safe_calloc(1, sizeof(uint64_t));
-  *pdata              = period;
-  c4_add_request(&lcu_client, req, pdata, fetch_lcb_cb);
 }
 
 // ---------------------------------------------------------------------------

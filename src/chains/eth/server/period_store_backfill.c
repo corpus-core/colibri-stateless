@@ -641,19 +641,6 @@ static void read_period_done(void* user_data, file_data_t* files, int num_files)
     }
   }
 
-  if (num_files > 3) {
-
-    // check lc bootstrap
-    if ((files[3].error || files[3].data.len == 0) && c4_ps_file_exists(p - 1, C4_PS_ZK_PROOF_G16)) {
-      if (files[3].error)
-        log_info("period_store: " C4_PS_LCB_SSZ " missing for period %l (%s) -> will fetch", p, files[3].error);
-      else
-        log_info("period_store: " C4_PS_LCB_SSZ " empty for period %l -> will fetch", p);
-      if (!graceful_shutdown_in_progress)
-        c4_ps_schedule_fetch_lcb(p);
-    }
-  }
-
   pd->period = p;
   // free temp results (also frees remaining buffers if not ownership-transferred)
   c4_file_data_array_free(files, num_files, 1);
@@ -672,7 +659,7 @@ static void read_period_done(void* user_data, file_data_t* files, int num_files)
 
 static void read_period(uint64_t period, period_data_t* period_data) {
   char*       dir  = c4_ps_ensure_period_dir(period);
-  file_data_t f[4] = {0};
+  file_data_t f[3] = {0};
   f[0].path        = bprintf(NULL, "%s/" C4_PS_BLOCKS_SSZ, dir);
   f[0].offset      = 0;
   f[0].limit       = 32 * SLOTS_PER_PERIOD;
@@ -682,14 +669,11 @@ static void read_period(uint64_t period, period_data_t* period_data) {
   f[2].path        = bprintf(NULL, "%s/" C4_PS_LCU_SSZ, dir);
   f[2].offset      = 0;
   f[2].limit       = 0; // read all
-  f[3].path        = bprintf(NULL, "%s/" C4_PS_LCB_SSZ, dir);
-  f[3].offset      = 0;
-  f[3].limit       = 0; // read all
   safe_free(dir);
   period_read_done_ctx_t* done = (period_read_done_ctx_t*) safe_calloc(1, sizeof(period_read_done_ctx_t));
   done->out                    = period_data;
   done->period                 = period;
-  c4_read_files_uv(done, read_period_done, f, 4);
+  c4_read_files_uv(done, read_period_done, f, 3);
 }
 
 static inline bool read_block(uint64_t slot, block_t* result) {

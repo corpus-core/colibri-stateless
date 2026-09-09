@@ -143,7 +143,7 @@ function validatePeriodFiles(period, options = {}) {
     // Added zk_proof_g16.bin as it's the final output we care about most, and light client update files
     const filesToCheck = ['sync.ssz', 'zk_proof.bin', 'zk_vk_raw.bin', 'zk_proof_g16.bin'];
     if (includeEarlyArtifacts)
-        filesToCheck.push('blocks.ssz', 'headers.ssz', 'lcu.ssz', 'lcb.ssz', "historical_root.json");
+        filesToCheck.push('blocks.ssz', 'headers.ssz', 'lcu.ssz', "historical_root.json");
 
     // Helper to get file size or -1 if missing
     const getFileSize = (filename) => {
