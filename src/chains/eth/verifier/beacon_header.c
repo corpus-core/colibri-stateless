@@ -66,7 +66,7 @@ bool eth_calculate_domain(chain_id_t chain_id, uint64_t slot, bytes32_t domain) 
   if (!chain) return false;
 
   fork_id_t fork = c4_chain_fork_id(chain_id, epoch_for_slot(slot - 1, chain));
-  if (!c4_eth_fork_data_root(chain_id, fork, base_digest)) return false;
+  if (!c4_eth_fork_data_root(chain, fork, base_digest)) return false;
 
   memcpy(domain, "\x07\x00\x00\x00", 4); // Domain-Type SYNC_COMMITTEE
   memcpy(domain + 4, base_digest, 28);   // last 28 bytes of the fork-data root
