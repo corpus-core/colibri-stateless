@@ -255,14 +255,34 @@ char* c4_req_mockname(data_request_t* req) {
       bprintf(&buf, "_%j", json_at(params, i));
   }
 
-  // Sanitize filename: replace characters that are invalid or problematic in filenames
-  // This ensures the mock filename can be safely used across different filesystems
-  for (int i = 0; i < buf.data.len; i++) {
-    switch (buf.data.data[i]) {
+  // Sanitize filename: replace characters that are invalid or problematic in filenames.
+  // JSON insignificant whitespace (outside strings) is dropped so pretty-printed
+  // fixtures produce the same mock names as compact ones. Spaces inside strings
+  // still become `_`.
+  uint32_t out       = 0;
+  bool     in_string = false;
+  bool     escape    = false;
+  for (uint32_t i = 0; i < buf.data.len; i++) {
+    uint8_t c = buf.data.data[i];
+    if (in_string) {
+      if (escape)
+        escape = false;
+      else if (c == '\\')
+        escape = true;
+      else if (c == '"')
+        in_string = false;
+    }
+    else {
+      if (c == '"')
+        in_string = true;
+      else if (c == ' ' || c == '\n' || c == '\r' || c == '\t')
+        continue;
+    }
+    switch (c) {
       case '/': // Path separator
       case '.': // Extension separator
       case ',': // Common separator
-      case ' ': // Whitespace
+      case ' ': // Whitespace inside strings
       case ':': // Windows invalid char
       case '=': // Query string
       case '?': // Query string
@@ -272,12 +292,14 @@ char* c4_req_mockname(data_request_t* req) {
       case ']': // Bracket
       case '{': // Brace
       case '}': // Brace
-        buf.data.data[i] = '_';
+        c = '_';
         break;
       default:
         break;
     }
+    buf.data.data[out++] = c;
   }
+  buf.data.len = out;
 
   // Truncate to maximum length to keep filenames manageable
   if (buf.data.len > C4_MAX_MOCKNAME_LEN) buf.data.len = C4_MAX_MOCKNAME_LEN;
