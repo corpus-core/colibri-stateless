@@ -857,16 +857,22 @@ c4_status_t c4_check_blockroot_proof(prover_ctx_t* ctx, blockroot_proof_t* block
   if ((ctx->flags & C4_PROVER_FLAG_CHAIN_STORE) &&
       (block_proof->sync.status == C4_STATE_SYNC_PERIODS || block_proof->sync.checkpoint_period ||
        block_proof->sync.post_sync_period)) {
-    eth_block_t latest = {0};
-    TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, json_parse("\"latest\""), &latest));
-    uint64_t head_period = (uint64_t) (latest.slot >> (chain->epochs_per_period_bits + chain->slots_per_epoch_bits));
-    bool     marker      = false;
-    uint64_t B           = block_proof->sync.block_period;
-    if (!c4_sync_has_period(&block_proof->sync, B) && (!head_period || B < head_period))
-      TRY_ASYNC(fetch_blocks_root_marker(ctx, B, &marker));
-    if (apply_blockroot_plan(&block_proof->sync, head_period, marker) == C4_HISTORIC_PLAN_ERROR)
-      THROW_ERROR_WITH("historic proof not ready for period %l (blocks_root.bin missing and no client committee at or before the block)", B);
-    decided = true;
+    uint64_t B = block_proof->sync.block_period;
+    // Client already has B: SyncAggregate, no head/marker round-trip.
+    if (c4_sync_has_period(&block_proof->sync, B)) {
+      decided = true;
+    }
+    else {
+      eth_block_t latest = {0};
+      TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, json_parse("\"latest\""), &latest));
+      uint64_t head_period = (uint64_t) (latest.slot >> (chain->epochs_per_period_bits + chain->slots_per_epoch_bits));
+      bool     marker      = false;
+      if (!head_period || B < head_period)
+        TRY_ASYNC(fetch_blocks_root_marker(ctx, B, &marker));
+      if (apply_blockroot_plan(&block_proof->sync, head_period, marker) == C4_HISTORIC_PLAN_ERROR)
+        THROW_ERROR_WITH("historic proof not ready for period %l (blocks_root.bin missing and no client committee at or before the block)", B);
+      decided = true;
+    }
   }
 
   // Prefetch LCUs / ZK for the decided required_period, in parallel with historic requests.
