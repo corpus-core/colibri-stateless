@@ -87,10 +87,22 @@ static void memory_delete(char* key) {
 }
 #endif
 
+bool c4_storage_name_is_safe(const char* name) {
+  if (!name || !*name) return false;
+  for (const char* p = name; *p; p++) {
+    if (*p == '/' || *p == '\\') return false;
+  }
+  // "." / ".." are directory references even without a separator
+  if (name[0] == '.' && (name[1] == '\0' || (name[1] == '.' && name[2] == '\0')))
+    return false;
+  return true;
+}
+
 #ifdef FILE_STORAGE
 char* state_data_dir = NULL;
 
 static char* combine_filename(char* name) {
+  if (!c4_storage_name_is_safe(name)) return NULL;
   if (state_data_dir == NULL)
     state_data_dir = getenv("C4_STATES_DIR");
   if (state_data_dir == NULL)

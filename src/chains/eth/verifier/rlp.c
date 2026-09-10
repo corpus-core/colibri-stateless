@@ -23,45 +23,76 @@
 
 #include "rlp.h"
 
+// True if header (1 prefix byte + header_extra length bytes) and payload_len fit in src.
+static bool payload_fits(uint32_t src_len, size_t src_idx, size_t header_extra, size_t payload_len) {
+  if (src_idx >= src_len) return false;
+  size_t remaining = (size_t) src_len - src_idx;
+  size_t header    = 1 + header_extra;
+  return header <= remaining && payload_len <= remaining - header;
+}
+
+// Read an RLP long-length prefix (1..8 big-endian bytes after src_idx). Rejects truncated prefixes and payloads.
+static bool read_long_len(const bytes_t* src, size_t src_idx, size_t n_len, size_t* payload_len) {
+  if (!n_len || n_len > 8 || src_idx >= src->len) return false;
+  size_t remaining = (size_t) src->len - src_idx;
+  if (remaining < 1 + n_len) return false;
+
+  uint64_t len = 0;
+  for (size_t i = 0; i < n_len; i++)
+    len = (len << 8) | (uint64_t) src->data[src_idx + 1 + i];
+
+  size_t max_payload = remaining - 1 - n_len;
+  if (len > (uint64_t) max_payload) return false;
+  *payload_len = (size_t) len;
+  return true;
+}
+
 static int check_range(bytes_t* target, bytes_t* src, size_t new_len, uint8_t* new_start, rlp_type_t result_type) {
-  if (!target) return RLP_OUT_OF_RANGE;
-  *target = bytes(new_start, new_len);
-  return (new_start >= src->data && (new_start + new_len) >= src->data && (new_start + new_len) <= (src->data + src->len)) ? result_type : RLP_OUT_OF_RANGE;
+  if (!target || !src->data || !new_start || new_start < src->data) return RLP_OUT_OF_RANGE;
+  size_t offset = (size_t) (new_start - src->data);
+  if (offset > src->len || new_len > (size_t) src->len - offset) return RLP_OUT_OF_RANGE;
+  *target = bytes(new_start, (uint32_t) new_len);
+  return (int) result_type;
 }
 
 INTERNAL rlp_type_t rlp_decode(bytes_t* src, int index, bytes_t* target) {
   size_t pos = 0, src_idx = 0;
   for (; src_idx < src->len; src_idx++, pos++) {
-    uint8_t c = src->data[src_idx];
+    uint8_t c           = src->data[src_idx];
+    bool    match_index = index >= 0 && (size_t) index == pos;
     if (c < 0x80) {
-      if ((int) pos == index)
-        return check_range(target, src, 1, src->data + src_idx, 1);
+      if (match_index)
+        return check_range(target, src, 1, src->data + src_idx, RLP_ITEM);
     }
     else if (c < 0xb8) {
-      if ((int) pos == index)
-        return check_range(target, src, c - 0x80, src->data + src_idx + 1, RLP_ITEM);
-      src_idx += c - 0x80;
+      size_t len = (size_t) (c - 0x80);
+      if (!payload_fits(src->len, src_idx, 0, len)) return RLP_OUT_OF_RANGE;
+      if (match_index)
+        return check_range(target, src, len, src->data + src_idx + 1, RLP_ITEM);
+      src_idx += len;
     }
     else if (c < 0xc0) {
-      size_t len, n;
-      for (len = 0, n = 0; n < (uint8_t) (c - 0xB7); n++)
-        len |= (*(src->data + src_idx + 1 + n)) << (8 * ((c - 0xb7) - n - 1));
-      if ((int) pos == index) return check_range(target, src, len, src->data + src_idx + c - 0xb7 + 1, RLP_ITEM);
-      src_idx += len + c - 0xb7;
+      size_t n_len = (size_t) (c - 0xb7);
+      size_t len   = 0;
+      if (!read_long_len(src, src_idx, n_len, &len)) return RLP_OUT_OF_RANGE;
+      if (match_index)
+        return check_range(target, src, len, src->data + src_idx + n_len + 1, RLP_ITEM);
+      src_idx += len + n_len;
     }
     else if (c < 0xf8) {
-      size_t len = c - 0xc0;
-      if ((int) pos == index)
+      size_t len = (size_t) (c - 0xc0);
+      if (!payload_fits(src->len, src_idx, 0, len)) return RLP_OUT_OF_RANGE;
+      if (match_index)
         return check_range(target, src, len, src->data + src_idx + 1, RLP_LIST);
       src_idx += len;
     }
     else {
-      size_t len = 0;
-      for (size_t i = 0; i < (uint8_t) (c - 0xF7); i++)
-        len |= (*(src->data + src_idx + 1 + i)) << (8 * ((c - 0xf7) - i - 1));
-      if ((int) pos == index)
-        return check_range(target, src, len, src->data + src_idx + c - 0xf7 + 1, RLP_LIST);
-      src_idx += len + c - 0xf7;
+      size_t n_len = (size_t) (c - 0xf7);
+      size_t len   = 0;
+      if (!read_long_len(src, src_idx, n_len, &len)) return RLP_OUT_OF_RANGE;
+      if (match_index)
+        return check_range(target, src, len, src->data + src_idx + n_len + 1, RLP_LIST);
+      src_idx += len + n_len;
     }
   }
 
@@ -128,9 +159,9 @@ INTERNAL void rlp_to_list(buffer_t* buf) {
 
 INTERNAL uint64_t rlp_get_uint64(bytes_t data, int index) {
   uint64_t value = 0;
-  rlp_decode(&data, index, &data);
+  if (rlp_decode(&data, index, &data) != RLP_ITEM) return 0;
   if (data.len > 8 || !data.len) return 0;
-  for (int i = 0; i < data.len; i++)
+  for (int i = 0; i < (int) data.len; i++)
     value |= ((uint64_t) data.data[i]) << ((data.len - i - 1) << 3);
   return value;
 }

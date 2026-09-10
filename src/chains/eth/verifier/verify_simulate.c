@@ -32,6 +32,7 @@
 
 #include "bytes.h"
 #include "call_ctx.h"
+#include "eth_account.h"
 #include "ssz.h"
 #include "verify_data_types.h"
 #include <stdbool.h>
@@ -216,16 +217,72 @@ static void build_state_changes(ssz_builder_t* builder, call_account_t* accounts
   ssz_add_builders(builder, "stateChanges", changes_builder);
 }
 
+static bool account_was_accessed(const call_account_t* acc) {
+  return acc && (acc->flags & ACCOUNT_ACCESSED);
+}
+
+/**
+ * Build a Tenderly-style generated access list (`address` + `storageKeys`)
+ * and attach the verified on-chain `codeHash` of each accessed account.
+ */
+static void build_access_list(ssz_builder_t* builder, call_account_t* accounts) {
+  size_t count = 0;
+  for (call_account_t* acc = accounts; acc; acc = acc->next)
+    if (account_was_accessed(acc)) count++;
+
+  if (!count) {
+    ssz_add_bytes(builder, "accessList", NULL_BYTES);
+    return;
+  }
+
+  ssz_builder_t list_builder = ssz_builder_for_def(ssz_get_def(builder->def, "accessList"));
+
+  for (call_account_t* acc = accounts; acc; acc = acc->next) {
+    if (!account_was_accessed(acc)) continue;
+
+    ssz_builder_t entry = ssz_builder_for_def(list_builder.def->def.vector.type);
+    ssz_add_bytes(&entry, "address", bytes(acc->address, 20));
+
+    uint32_t key_count = 0;
+    for (call_storage_t* s = acc->storage; s; s = s->next)
+      if (s->accessed) key_count++;
+
+    if (!key_count) {
+      ssz_add_bytes(&entry, "storageKeys", NULL_BYTES);
+    }
+    else {
+      ssz_builder_t keys = ssz_builder_for_def(ssz_get_def(entry.def, "storageKeys"));
+      for (call_storage_t* s = acc->storage; s; s = s->next) {
+        if (!s->accessed) continue;
+        ssz_add_dynamic_list_bytes(&keys, (int) key_count, bytes(s->key, 32));
+      }
+      ssz_add_builders(&entry, "storageKeys", keys);
+    }
+
+    const uint8_t* hash = (acc->flags & ACCOUNT_HAS_CODE_HASH) ? acc->code_hash : EMPTY_HASH;
+    ssz_add_bytes(&entry, "codeHash", bytes((uint8_t*) hash, 32));
+
+    ssz_add_dynamic_list_builders(&list_builder, (int) count, entry);
+  }
+
+  ssz_add_builders(builder, "accessList", list_builder);
+}
+
 ssz_ob_t eth_build_simulation_result_ssz(bytes_t call_result, emitted_log_t* logs, bool success, uint64_t gas_used, ssz_ob_t* execution_payload, call_account_t* accounts, keccak_entry_t* keccak_entries, trace_entry_t* traces) {
   ssz_builder_t builder = ssz_builder_for_def(eth_ssz_verification_type(ETH_SSZ_DATA_SIMULATION));
 
   bool has_state_changes = false;
-  for (call_account_t* a = accounts; a && !has_state_changes; a = a->next)
-    has_state_changes = account_has_changes(a);
+  bool has_access_list   = false;
+  for (call_account_t* a = accounts; a; a = a->next) {
+    if (!has_state_changes) has_state_changes = account_has_changes(a);
+    if (!has_access_list) has_access_list = account_was_accessed(a);
+    if (has_state_changes && has_access_list) break;
+  }
 
   uint32_t result_mask = ETH_SIMULATION_RESULT_MASK_GAS_USED | ETH_SIMULATION_RESULT_MASK_LOGS | ETH_SIMULATION_RESULT_MASK_STATUS | ETH_SIMULATION_RESULT_MASK_RETURN_VALUE;
   if (traces) result_mask |= ETH_SIMULATION_RESULT_MASK_TRACE;
   if (has_state_changes) result_mask |= ETH_SIMULATION_RESULT_MASK_STATE_CHANGES;
+  if (has_access_list) result_mask |= ETH_SIMULATION_RESULT_MASK_ACCESS_LIST;
   ssz_add_uint32(&builder, result_mask);
   ssz_add_uint64(&builder, execution_payload ? ssz_get_uint64(execution_payload, "blockNumber") : 0); // blockNumber (hidden by mask)
   ssz_add_uint64(&builder, gas_used);                                                                 // cumulativeGasUsed (hidden by mask)
@@ -284,6 +341,7 @@ ssz_ob_t eth_build_simulation_result_ssz(bytes_t call_result, emitted_log_t* log
   ssz_add_bytes(&builder, "returnValue", call_result); // returnValue (visible)
 
   build_state_changes(&builder, accounts, keccak_entries);
+  build_access_list(&builder, accounts);
 
   // Build and return the SSZ object
   return ssz_builder_to_bytes(&builder);

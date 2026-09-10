@@ -603,6 +603,7 @@ static void start_beacon_watch() {
   curl_easy_setopt(watcher_state.easy_handle, CURLOPT_HTTPHEADER, watcher_state.headers_list);
   curl_easy_setopt(watcher_state.easy_handle, CURLOPT_TCP_KEEPALIVE, 1L);
   curl_easy_setopt(watcher_state.easy_handle, CURLOPT_FOLLOWLOCATION, 1L); // Follow redirects if necessary
+  c4_curl_configure_ssl(watcher_state.easy_handle);
 
   // Add the handle to the beacon multi stack
   CURLMcode mc = curl_multi_add_handle(beacon_multi_handle, watcher_state.easy_handle);

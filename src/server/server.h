@@ -85,6 +85,9 @@ typedef struct {
   int tcp_keepalive_enabled; // CURLOPT_TCP_KEEPALIVE (1/0)
   int tcp_keepidle_s;        // CURLOPT_TCP_KEEPIDLE
   int tcp_keepintvl_s;       // CURLOPT_TCP_KEEPINTVL
+  int   tls_insecure; // disable TLS cert/host verification (0/1, default 0)
+  char* ca_file;      // optional CA bundle (CURLOPT_CAINFO), empty = system default
+  char* ca_path;      // optional CA directory (CURLOPT_CAPATH), empty = system default
   // Counters
   uint64_t total_requests;           // all transfers via libcurl
   uint64_t total_connects;           // sum of CURLINFO_NUM_CONNECTS
@@ -327,6 +330,35 @@ void c4_start_curl_requests(request_t* req, c4_state_t* state);
 bool c4_check_retry_request(request_t* req);
 void c4_init_curl(uv_timer_t* timer);
 void c4_cleanup_curl();
+
+/**
+ * Effective TLS options applied by `c4_curl_configure_ssl`.
+ */
+typedef struct {
+  long        verify_peer; // CURLOPT_SSL_VERIFYPEER (1 = verify)
+  long        verify_host; // CURLOPT_SSL_VERIFYHOST (2 = hostname must match)
+  long        ssl_version; // CURLOPT_SSLVERSION
+  const char* ca_file;     // CURLOPT_CAINFO, or NULL for system default
+  const char* ca_path;     // CURLOPT_CAPATH, or NULL for system default
+} c4_curl_ssl_options_t;
+
+/**
+ * Resolve the TLS options that `c4_curl_configure_ssl` will apply from `http_server.curl`.
+ *
+ * @param out filled with the effective libcurl TLS options
+ */
+void c4_curl_ssl_options(c4_curl_ssl_options_t* out);
+
+/**
+ * Apply TLS settings from `http_server.curl` to a libcurl easy handle.
+ *
+ * Default: certificate and hostname verification enabled, TLS 1.2 minimum.
+ * Set `http_server.curl.tls_insecure` to disable verification (lab/self-signed only).
+ * All outbound server curl handles must use this helper so TLS policy cannot drift.
+ *
+ * @param easy libcurl easy handle
+ */
+void c4_curl_configure_ssl(CURL* easy);
 void c4_on_new_connection(uv_stream_t* server, int status);
 void c4_http_respond(client_t* client, int status, char* content_type, bytes_t body);
 /**

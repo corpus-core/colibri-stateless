@@ -197,7 +197,6 @@ pub async fn run_http_primary_with_gossip_fallback(
     output_dir: &PathBuf,
     http_poll_interval: u64,
     chain_config: &ChainConfig,
-    expected_sequencer: Option<&str>,
     health_tracker: Arc<Mutex<HttpHealthTracker>>,
     stats: Arc<Mutex<KonaBridgeStats>>,
     running: Arc<Mutex<bool>>,
@@ -343,7 +342,6 @@ pub async fn run_http_primary_with_gossip_fallback(
                                         let gossip_output_dir = output_dir.clone();
                                         let gossip_stats = stats.clone();
                                         let gossip_running = running.clone();
-                                        let gossip_sequencer = expected_sequencer.map(|s| s.to_string());
                                         let gossip_deduplicator = deduplicator.clone();
                                         let gossip_bitmask_tracker = bitmask_tracker.clone();
                                         let gossip_sse_tx = sse_tx.clone();
@@ -356,7 +354,6 @@ pub async fn run_http_primary_with_gossip_fallback(
                                                 gossip_port,
                                                 &gossip_output_dir,
                                                 &gossip_chain_config,
-                                                gossip_sequencer.as_deref(),
                                                 gossip_stats,
                                                 gossip_running,
                                                 Some(gossip_deduplicator),
@@ -523,7 +520,6 @@ pub async fn run_http_primary_with_gossip_fallback(
                 gossip_port,
                 output_dir,
                 chain_config,
-                expected_sequencer,
                 stats,
                 running,
                 Some(deduplicator),

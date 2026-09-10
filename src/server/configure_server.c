@@ -64,6 +64,9 @@ http_server_t http_server = {
     .curl.tcp_keepalive_enabled = 1,
     .curl.tcp_keepidle_s        = 30,
     .curl.tcp_keepintvl_s       = 15,
+    .curl.tls_insecure          = 0,
+    .curl.ca_file               = "",
+    .curl.ca_path               = "",
 
 #ifdef TEST
     .test_dir = NULL,
@@ -156,6 +159,9 @@ static void config() {
   conf_int(&http_server.curl.tcp_keepalive_enabled, "C4_TCP_KEEPALIVE", "tcp_keepalive", 0, "TCP keepalive (0/1)", 0, 1);
   conf_int(&http_server.curl.tcp_keepidle_s, "C4_TCP_KEEPIDLE", "tcp_keepidle", 0, "TCP keepidle seconds", 1, 3600);
   conf_int(&http_server.curl.tcp_keepintvl_s, "C4_TCP_KEEPINTVL", "tcp_keepintvl", 0, "TCP keepintvl seconds", 1, 3600);
+  conf_int(&http_server.curl.tls_insecure, "C4_TLS_INSECURE", "tls_insecure", 0, "disable TLS certificate verification (0/1)", 0, 1);
+  conf_string(&http_server.curl.ca_file, "C4_CA_FILE", "ca_file", 0, "optional CA bundle file for TLS verification");
+  conf_string(&http_server.curl.ca_path, "C4_CA_PATH", "ca_path", 0, "optional CA directory for TLS verification");
 
 #ifdef TEST
   c4_configure_add_section("Test");
@@ -172,6 +178,8 @@ static void config() {
 
 static void apply_config() {
   c4_set_log_level(http_server.loglevel);
+  if (http_server.curl.tls_insecure)
+    log_error("TLS certificate verification is disabled (tls_insecure=1)");
   // Apply tracing configuration
   tracing_configure(http_server.tracing_enabled != 0,
                     http_server.tracing_url,

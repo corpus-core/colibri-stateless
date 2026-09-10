@@ -8,7 +8,7 @@ It enables the creation of Zero-Knowledge Proofs (ZKP) that attest to the validi
 *   **`program/`**: The Rust guest program running inside the zkVM. Contains the logic to verify BLS signatures, reconstruct Merkle roots, and validate chain transitions.
 *   **`script/`**: The Rust host script. Handles fetching data, generating proofs (Core & Groth16), and managing recursion.
 *   **`common/`**: Shared data structures between Host and Guest (`SP1GuestInput`, `VerificationOutput`).
-*   **`export_vk/`**: Tool to export the Groth16 Verification Key (VK) and constants to a C header for the embedded verifier.
+*   **`export_vk/`**: Tool that regex-parses `uint256 constant` VK points from the SP1-generated `Groth16Verifier.sol` (not compiled) and writes a C header for the embedded verifier. There is no on-chain Solidity verifier in this repo.
 
 ## Prerequisites
 

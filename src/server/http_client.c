@@ -987,31 +987,59 @@ static void cache_response(single_request_t* r) {
   // Note: r->buffer should already be empty or transferred to r->req->response in handle_curl_events
 }
 
-// Helper function to configure SSL settings for an easy handle
-static void configure_ssl_settings(CURL* easy) {
+void c4_curl_ssl_options(c4_curl_ssl_options_t* out) {
+  if (!out) return;
+  memset(out, 0, sizeof(*out));
+  if (http_server.curl.tls_insecure) {
+    out->verify_peer = 0L;
+    out->verify_host = 0L;
+  }
+  else {
+    out->verify_peer = 1L;
+    out->verify_host = 2L;
+  }
+  out->ssl_version = CURL_SSLVERSION_TLSv1_2;
+  if (http_server.curl.ca_file && http_server.curl.ca_file[0])
+    out->ca_file = http_server.curl.ca_file;
+  if (http_server.curl.ca_path && http_server.curl.ca_path[0])
+    out->ca_path = http_server.curl.ca_path;
+}
+
+void c4_curl_configure_ssl(CURL* easy) {
   if (!easy) {
-    log_error("configure_ssl_settings: NULL easy handle passed");
+    log_error("c4_curl_configure_ssl: NULL easy handle passed");
     return;
   }
 
-  // Disable SSL verification for development/testing
-  curl_easy_setopt(easy, CURLOPT_SSL_VERIFYPEER, 0L);
-  curl_easy_setopt(easy, CURLOPT_SSL_VERIFYHOST, 0L);
+  c4_curl_ssl_options_t opt;
+  c4_curl_ssl_options(&opt);
 
-  // Set SSL protocol version to be flexible - auto-negotiate
-  curl_easy_setopt(easy, CURLOPT_SSLVERSION, CURL_SSLVERSION_DEFAULT);
+  curl_easy_setopt(easy, CURLOPT_SSL_VERIFYPEER, opt.verify_peer);
+  curl_easy_setopt(easy, CURLOPT_SSL_VERIFYHOST, opt.verify_host);
+  curl_easy_setopt(easy, CURLOPT_SSLVERSION, opt.ssl_version);
+  if (opt.ca_file)
+    curl_easy_setopt(easy, CURLOPT_CAINFO, opt.ca_file);
+  if (opt.ca_path)
+    curl_easy_setopt(easy, CURLOPT_CAPATH, opt.ca_path);
 
-  // Enable TLS 1.3 if available
-  curl_easy_setopt(easy, CURLOPT_SSL_OPTIONS, CURLSSLOPT_ALLOW_BEAST | CURLSSLOPT_NO_REVOKE);
-
-  // Disable SSL session reuse to avoid potential issues
-  curl_easy_setopt(easy, CURLOPT_SSL_SESSIONID_CACHE, 0L);
-
-  // Uncomment for debugging SSL issues
-  // curl_easy_setopt(easy, CURLOPT_VERBOSE, 1L);
-
-  // Enable connection timeout to avoid hanging connections
-  curl_easy_setopt(easy, CURLOPT_CONNECTTIMEOUT, 30L);
+  /* CURLOPT_PROTOCOLS is an enum, not a macro -- gate on LIBCURL_VERSION_NUM. */
+#if LIBCURL_VERSION_NUM >= 0x075500 /* 7.85.0: CURLOPT_PROTOCOLS_STR */
+  curl_easy_setopt(easy, CURLOPT_PROTOCOLS_STR,
+#ifdef TEST
+                   "http,https,file"
+#else
+                   "http,https"
+#endif
+  );
+  curl_easy_setopt(easy, CURLOPT_REDIR_PROTOCOLS_STR, "http,https");
+#else
+  long protocols = CURLPROTO_HTTP | CURLPROTO_HTTPS;
+#ifdef TEST
+  protocols |= CURLPROTO_FILE;
+#endif
+  curl_easy_setopt(easy, CURLOPT_PROTOCOLS, protocols);
+  curl_easy_setopt(easy, CURLOPT_REDIR_PROTOCOLS, (long) (CURLPROTO_HTTP | CURLPROTO_HTTPS));
+#endif
 }
 
 // Callback for memcache get operations
@@ -1171,6 +1199,7 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
     curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION, curl_append);
     curl_easy_setopt(easy, CURLOPT_WRITEDATA, &r->buffer);
     curl_easy_setopt(easy, CURLOPT_TIMEOUT, (uint64_t) 120);
+    curl_easy_setopt(easy, CURLOPT_CONNECTTIMEOUT, 30L);
     curl_easy_setopt(easy, CURLOPT_CUSTOMREQUEST, CURL_METHODS[r->req->method]);
     curl_easy_setopt(easy, CURLOPT_PRIVATE, r);
     // Prefer IPv4 to avoid dual-stack races on stacks where IPv6 is not available
@@ -1194,8 +1223,7 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
 #endif
     if (g_curl_share) curl_easy_setopt(easy, CURLOPT_SHARE, g_curl_share);
 
-    // Configure SSL settings for this easy handle
-    configure_ssl_settings(easy);
+    c4_curl_configure_ssl(easy);
 
     // Mark request start for concurrency tracking (best-effort)
     c4_on_request_start(servers, selected_index, /*allow_overflow=*/true);

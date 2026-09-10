@@ -67,13 +67,17 @@ export async function enrichSimulation(
     return { contracts, decodedCall, decodedError, resolvedStorage, decodedTrace, decodedEvents };
 }
 
+/** keccak256("") -- code hash of accounts without bytecode. */
+const EMPTY_CODE_HASH = '0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470';
+
 function buildCodeHashMap(accessList?: AccessListEntry[]): Map<string, string> {
     const map = new Map<string, string>();
     if (!accessList) return map;
     for (const entry of accessList) {
-        if (entry.address && entry.codeHash) {
-            map.set(entry.address.toLowerCase(), entry.codeHash);
-        }
+        if (!entry.address || !entry.codeHash) continue;
+        const hash = entry.codeHash.toLowerCase();
+        if (hash === EMPTY_CODE_HASH) continue;
+        map.set(entry.address.toLowerCase(), hash);
     }
     return map;
 }

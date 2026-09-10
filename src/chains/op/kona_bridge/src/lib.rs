@@ -264,7 +264,9 @@ pub async fn run_http_first_network(
 
     let mut chain_config = ChainConfig::from(network_name, chain_id);
     
-    // Override with expected sequencer from C config if provided
+    // Seed the gossip BlockHandler signer. This is the ingest check; processing.rs
+    // only serializes envelopes that already passed. Clients re-check in
+    // op_verify_sequencer_proof.
     if let Some(expected) = expected_sequencer {
         if let Ok(addr) = expected.parse::<Address>() {
             chain_config.unsafe_signer = addr;
@@ -296,7 +298,6 @@ pub async fn run_http_first_network(
                 output_dir,
                 http_poll_interval,
                 &chain_config,
-                expected_sequencer,
                 health_tracker,
                 stats,
                 running,
@@ -312,7 +313,6 @@ pub async fn run_http_first_network(
                 gossip_port,
                 output_dir,
                 &chain_config,
-                expected_sequencer,
                 stats,
                 running,
                 None,
@@ -328,7 +328,6 @@ pub async fn run_http_first_network(
             gossip_port,
             output_dir,
             &chain_config,
-            expected_sequencer,
             stats,
             running,
             None,

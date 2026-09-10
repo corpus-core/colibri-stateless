@@ -57,8 +57,9 @@ static void init_cache() {
   cache_initialized = true;
 }
 
-// Get file path for key (similar to plugin.c)
+// Get file path for key (same name rules as plugin.c combine_filename)
 static char* get_file_path(const char* key) {
+  if (!c4_storage_name_is_safe(key)) return NULL;
   const char* base_path = getenv("C4_STATES_DIR");
   if (base_path != NULL) {
     size_t length    = strlen(base_path) + strlen(key) + 2;
@@ -253,6 +254,7 @@ static void on_async_delete_complete(uv_fs_t* req) {
 
 // RAM-based get function
 static bool ram_storage_get(char* key, buffer_t* buffer) {
+  if (!c4_storage_name_is_safe(key)) return false;
   init_cache();
 
   // First check RAM cache
@@ -300,6 +302,7 @@ static bool ram_storage_get(char* key, buffer_t* buffer) {
 
 // RAM-based set function with async file write
 static void ram_storage_set(char* key, bytes_t value) {
+  if (!c4_storage_name_is_safe(key)) return;
   init_cache();
 
   // Update RAM cache immediately
@@ -329,6 +332,7 @@ static void ram_storage_set(char* key, bytes_t value) {
 
 // RAM-based delete function with async file delete
 static void ram_storage_del(char* key) {
+  if (!c4_storage_name_is_safe(key)) return;
   init_cache();
 
   // Remove from RAM cache immediately
