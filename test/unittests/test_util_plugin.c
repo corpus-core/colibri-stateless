@@ -103,6 +103,8 @@ void test_storage_name_is_safe(void) {
   TEST_ASSERT_FALSE(c4_storage_name_is_safe("a\\b"));
   TEST_ASSERT_FALSE(c4_storage_name_is_safe("/abs"));
   TEST_ASSERT_TRUE(c4_storage_name_is_safe("states_1"));
+  // Allowed by the denylist (not `.` / `..` and no separators). Windows strips
+  // trailing dots, so filesystem tests below do not use "..." as a real file.
   TEST_ASSERT_TRUE(c4_storage_name_is_safe("..."));
   TEST_ASSERT_TRUE(c4_storage_name_is_safe("..foo"));
   TEST_ASSERT_TRUE(c4_storage_name_is_safe(".hidden"));
@@ -252,7 +254,8 @@ void test_file_storage_rejects_path_separators(void) {
   state_data_dir = saved_dir;
 }
 
-// Test 9: File storage allows basenames that only look like traversal ("...", "..foo")
+// Test 9: File storage allows basenames that only look like traversal ("..foo", ".hidden").
+// "..." is allowed by c4_storage_name_is_safe but cannot be created on Windows (trailing dots).
 void test_file_storage_allows_dot_prefix_basenames(void) {
   char* saved_dir = state_data_dir;
   state_data_dir  = ".";
@@ -262,7 +265,7 @@ void test_file_storage_allows_dot_prefix_basenames(void) {
 
   const char* payload = "safe-dot-name";
   bytes_t     data    = {.data = (uint8_t*) payload, .len = (uint32_t) strlen(payload)};
-  const char* names[] = {"...", "..foo"};
+  const char* names[] = {"..foo", ".hidden"};
 
   for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
     unlink(names[i]);

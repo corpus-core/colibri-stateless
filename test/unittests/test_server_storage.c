@@ -62,7 +62,7 @@ static void join_states(char* out, size_t out_len, const char* name) {
 
 static void cleanup_states_dir(void) {
   char        path[256];
-  const char* leftovers[] = {"c4_server_safe.txt", "...", "..foo", ".hidden"};
+  const char* leftovers[] = {"c4_server_safe.txt", "..foo", ".hidden"};
   for (size_t i = 0; i < sizeof(leftovers) / sizeof(leftovers[0]); i++) {
     join_states(path, sizeof(path), leftovers[i]);
     unlink(path);
@@ -210,7 +210,6 @@ void test_server_storage_get_allows_safe_basenames_from_disk(void) {
     const char* body;
   } files[] = {
       {"c4_server_safe.txt", "ok-safe"},
-      {"...", "ok-triple-dot"},
       {"..foo", "ok-dotdot-foo"},
       {".hidden", "ok-hidden"},
   };
