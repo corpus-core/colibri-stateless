@@ -93,6 +93,15 @@ On every new head event, the server writes:
 
 This happens for the current period and is safe against reorgs by overwriting the slot position.
 
+Skipped slots (no proposed block) are filled on the live path the same way BeaconState `block_roots` works: the previous proposed root is repeated, with an empty 112-byte header. Without that fill, `hash_tree_root(blocks.ssz)` disagrees with `historical_summaries` until backfill rewrites the zeros. Gaps larger than one period (8192 slots) are left to backfill.
+
+When the first live write of a new period `H` finishes (after any skipped-slot fills for `H-1` have been flushed), the server:
+1. refreshes `lcu.ssz` for `H-1`
+2. fetches `historical_summaries` from `head` and stores them as `<H>/historical_root.json`
+3. verifies only `H-1` against those summaries and writes `<H-1>/blocks_root.bin` on match
+
+The prover builds a historic-direct proof only when `<B>/blocks_root.bin` exists. A missing marker is not a hard error: the prover falls back to LCUs from a client committee `≤ B` when one exists.
+
 ### Backfill (startup + periodic)
 
 Backfill exists to quickly populate the last N periods after startup (or after falling behind).
@@ -107,10 +116,16 @@ How it works (high level):
 
 ### Blocks root verification (`blocks_root.bin`)
 
-Once `historical_root.json` exists for a historic period, the server can verify:
-- hash-tree-root(`blocks.ssz`) == expected root from `historical_summaries`
+`blocks_root.bin` is the gate the prover uses for historic-direct proofs. It is written only after:
 
-If the verification succeeds, it writes `blocks_root.bin` as an immutable marker.
+- hash-tree-root(`blocks.ssz`) == `historical_summaries[period].block_summary_root`
+
+Two triggers:
+
+1. **Period close** — as soon as `historical_root.json` exists under the new head period `H`, verify `H-1` immediately. Do not wait for `backfill_done()`.
+2. **Full sweep** — after backfill finishes, verify every completed period covered by the latest summaries (skips periods that already have the marker).
+
+If the verification succeeds, the marker is treated as immutable: `blocks.ssz` / `headers.ssz` for that period should not change. A root mismatch after the marker exists is a hard prover error (store corrupt), not a fallback.
 
 # Master / Slave modes
 

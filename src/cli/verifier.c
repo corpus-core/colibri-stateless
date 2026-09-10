@@ -46,29 +46,15 @@
 #include "../chains/eth/prover/cl_req.h"
 #include "historic_proof.h"
 #include "sync_committee.h"
-void init_state(chain_id_t chain_id, uint32_t period_init) {
-  storage_plugin_t storage              = {0};
-  json_t           finality_checkpoints = {0};
-  chain_spec_t*    chain_spec           = c4_eth_get_chain_spec(chain_id);
-  prover_ctx_t     ctx                  = {.chain_id = chain_id};
-  c4_chain_state_t state                = c4_get_chain_state(chain_id);
-  while (cl_get_finality_checkpoints(&ctx, &finality_checkpoints) == C4_PENDING)
-    curl_fetch_all(&ctx.state);
-  if (ctx.state.error) {
-    fprintf(stderr, "Error fetching the period: %s\n", ctx.state.error);
-    exit(EXIT_FAILURE);
-  }
-
-  finality_checkpoints            = json_get(finality_checkpoints, "finalized");
-  uint64_t  epoch                 = json_get_uint64(finality_checkpoints, "epoch");
-  uint64_t  period                = (epoch >> chain_spec->epochs_per_period_bits) - period_init;
+static void init_one_sync_period(prover_ctx_t* ctx, chain_id_t chain_id, uint64_t period) {
   bytes_t   updates               = {0};
   bytes32_t previous_pubkeys_hash = {0};
-  while (c4_fetch_client_updates(&ctx, period - 1, 1, &updates) == C4_PENDING)
-    curl_fetch_all(&ctx.state);
+  while (c4_fetch_client_updates(ctx, period - 1, 1, &updates) == C4_PENDING)
+    curl_fetch_all(&ctx->state);
 
-  if (ctx.state.error || updates.len < 25000) {
-    fprintf(stderr, "Error loading light client updates: %s\n", ctx.state.error ? ctx.state.error : "updates too short");
+  if (ctx->state.error || updates.len < 25000) {
+    fprintf(stderr, "Error loading light client updates for period %llu: %s\n",
+            (unsigned long long) period, ctx->state.error ? ctx->state.error : "updates too short");
     exit(EXIT_FAILURE);
   }
 
@@ -81,16 +67,80 @@ void init_state(chain_id_t chain_id, uint32_t period_init) {
   ssz_ob_t update      = {.bytes = bytes(updates.data + 12, length - 4), .def = NULL};
   update.def           = eth_get_light_client_update(c4_eth_fork_from_digest(chain_id, fork_digest.data));
   if (!update.def) {
-    c4_eth_unknown_lcu_fork_error(&ctx.state, fork_digest.data);
-    fprintf(stderr, "Error loading light client updates: %s\n", ctx.state.error);
+    c4_eth_unknown_lcu_fork_error(&ctx->state, fork_digest.data);
+    fprintf(stderr, "Error loading light client updates: %s\n", ctx->state.error);
     exit(EXIT_FAILURE);
   }
-  if (!ssz_is_valid(update, true, &ctx.state)) {
-    fprintf(stderr, "invalid light client updates: %s\n", ctx.state.error ? ctx.state.error : "updates too short");
+  if (!ssz_is_valid(update, true, &ctx->state)) {
+    fprintf(stderr, "invalid light client updates: %s\n", ctx->state.error ? ctx->state.error : "updates too short");
     exit(EXIT_FAILURE);
   }
   ssz_ob_t next_sync_committee = ssz_get(&update, "nextSyncCommittee");
-  c4_set_sync_period(period, ssz_get(&next_sync_committee, "pubkeys").bytes, chain_id, previous_pubkeys_hash);
+  c4_set_sync_period((uint32_t) period, ssz_get(&next_sync_committee, "pubkeys").bytes, chain_id, previous_pubkeys_hash);
+}
+
+void init_state(chain_id_t chain_id, const char* period_offsets) {
+  json_t        finality_checkpoints = {0};
+  chain_spec_t* chain_spec           = c4_eth_get_chain_spec(chain_id);
+  prover_ctx_t  ctx                  = {.chain_id = chain_id};
+  if (!period_offsets || !chain_spec) return;
+
+  while (cl_get_finality_checkpoints(&ctx, &finality_checkpoints) == C4_PENDING)
+    curl_fetch_all(&ctx.state);
+  if (ctx.state.error) {
+    fprintf(stderr, "Error fetching the period: %s\n", ctx.state.error);
+    exit(EXIT_FAILURE);
+  }
+
+  finality_checkpoints     = json_get(finality_checkpoints, "finalized");
+  uint64_t finalized_epoch = json_get_uint64(finality_checkpoints, "epoch");
+  uint64_t finalized_period = finalized_epoch >> chain_spec->epochs_per_period_bits;
+
+  uint32_t offsets[MAX_SYNC_PERIODS] = {0};
+  uint32_t n                         = 0;
+  const char* p                      = period_offsets;
+  while (*p && n < MAX_SYNC_PERIODS) {
+    char* end = NULL;
+    unsigned long off = strtoul(p, &end, 10);
+    if (end == p) {
+      fprintf(stderr, "invalid -I offset list: %s\n", period_offsets);
+      exit(EXIT_FAILURE);
+    }
+    offsets[n++] = (uint32_t) off;
+    if (*end == ',')
+      p = end + 1;
+    else if (*end == '\0')
+      break;
+    else {
+      fprintf(stderr, "invalid -I offset list: %s\n", period_offsets);
+      exit(EXIT_FAILURE);
+    }
+  }
+
+  // Oldest first (largest offset) so cleanup_old_periods keeps the gap.
+  for (uint32_t i = 0; i + 1 < n; i++) {
+    for (uint32_t j = i + 1; j < n; j++) {
+      if (offsets[j] > offsets[i]) {
+        uint32_t tmp = offsets[i];
+        offsets[i]   = offsets[j];
+        offsets[j]   = tmp;
+      }
+    }
+  }
+
+  for (uint32_t i = 0; i < n; i++) {
+    if (offsets[i] > finalized_period) {
+      fprintf(stderr, "Error: -I offset %u is larger than finalized period %llu\n",
+              offsets[i], (unsigned long long) finalized_period);
+      exit(EXIT_FAILURE);
+    }
+    uint64_t period = finalized_period - offsets[i];
+    if (!period) {
+      fprintf(stderr, "Error: -I offset %u would initialize period 0\n", offsets[i]);
+      exit(EXIT_FAILURE);
+    }
+    init_one_sync_period(&ctx, chain_id, period);
+  }
   c4_state_free(&ctx.state);
 }
 #endif
@@ -167,7 +217,7 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, "  -i <proof_file> proof file to read\n");
     fprintf(stderr, "  -s <cache_dir> cache directory\n");
     fprintf(stderr, "  -o <proof_file> proof file to write\n");
-    fprintf(stderr, "  -I <period_init> period to initialize the sync data state (default 0) 2 means 2 periods ago\n");
+    fprintf(stderr, "  -I <offsets> comma-separated offsets from the finalized period (TEST). -I 2 = two periods ago; -I 3,0 = oldest and current (gap in between)\n");
     fprintf(stderr, "  -p url of the prover\n");
     fprintf(stderr, "  -m <mode> prover mode: local, remote, hybrid\n");
     fprintf(stderr, "  -L local proof (shorthand for -m local)\n");
@@ -191,7 +241,7 @@ int main(int argc, char* argv[]) {
   char     tmp[1000] = {0};
   buffer_t buf       = stack_buffer(tmp);
 #endif
-  uint32_t         period_init            = 0;
+  const char*      period_init            = NULL;
   char*            method                 = NULL;
   chain_id_t       chain_id               = C4_CHAIN_MAINNET;
   buffer_t         args                   = {0};
@@ -344,7 +394,7 @@ int main(int argc, char* argv[]) {
 #ifdef TEST
 #ifdef USE_CURL
           case 'I':
-            period_init = atoi(argv[++i]);
+            period_init = argv[++i];
             break;
           case 'o':
             output = argv[++i];

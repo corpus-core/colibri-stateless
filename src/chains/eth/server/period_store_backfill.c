@@ -332,6 +332,27 @@ static void ps_finish_write(fs_ctx_t* ctx, bool ok) {
     else
       http_server.stats.period_sync_lag_slots = 0;
     log_debug("period_store: wrote slot %l (%s)", slot, was_backfill ? "backfill" : "head");
+    // Period-close after the live head write finished. Gap-fill tasks for H-1
+    // are queued in front of this head, so they are already on disk.
+    if (!was_backfill) {
+      static uint64_t last_written_head_period = UINT64_MAX;
+      uint64_t        period                   = slot / SLOTS_PER_PERIOD;
+      if (last_written_head_period == UINT64_MAX) {
+        last_written_head_period = period;
+      }
+      else if (period != last_written_head_period) {
+        if (period > 0) {
+          log_info("period_store: period changed (%l -> %l), refresh LCU for period %l and close historical summaries",
+                   last_written_head_period, period, period - 1);
+          c4_ps_schedule_fetch_lcu(period - 1);
+          if (!c4_ps_file_exists(period, C4_PS_HISTORICAL_ROOT_JSON))
+            c4_ps_schedule_fetch_historical_root(period);
+          else
+            c4_ps_schedule_verify_period(period, period - 1);
+        }
+        last_written_head_period = period;
+      }
+    }
   }
   else {
     http_server.stats.period_sync_errors_total++;
@@ -398,7 +419,28 @@ void c4_ps_set_block(block_t* block, bool run_backfill) {
   period_data_t* period_data = NULL;
   uint64_t       period      = block->slot / SLOTS_PER_PERIOD;
   uint64_t       idx         = block->slot % SLOTS_PER_PERIOD;
+  uint64_t       prev_head   = latest_head_slot;
   if (block->slot > latest_head_slot) latest_head_slot = block->slot;
+
+  // Live heads only write the proposed slot. BeaconState.block_roots repeats the
+  // previous proposed root for skipped slots; without that fill, hash_tree_root
+  // (blocks.ssz) disagrees with historical_summaries until backfill catches up.
+  if (!run_backfill && prev_head && block->slot > prev_head + 1) {
+    uint64_t gap = block->slot - prev_head - 1;
+    if (gap <= SLOTS_PER_PERIOD) {
+      log_info("period_store: live-fill %l skipped slots [%l, %l)", gap, prev_head + 1, block->slot);
+      for (uint64_t s = prev_head + 1; s < block->slot; s++) {
+        block_t skipped = {0};
+        skipped.slot    = s;
+        memcpy(skipped.root, block->parent_root, 32);
+        memcpy(skipped.parent_root, block->parent_root, 32);
+        c4_ps_set_block(&skipped, true);
+      }
+    }
+    else {
+      log_info("period_store: live gap of %l slots before slot %l; leaving fill to backfill", gap, block->slot);
+    }
+  }
 
   write_task_t* task = (write_task_t*) safe_calloc(1, sizeof(write_task_t));
   task->block        = *block;
@@ -419,21 +461,6 @@ void c4_ps_set_block(block_t* block, bool run_backfill) {
   if (period_data) {
     memcpy(period_data->blocks + idx * 32, task->block.root, 32);
     memcpy(period_data->headers + idx * HEADER_SIZE, task->block.header, HEADER_SIZE);
-  }
-
-  // update LCU for the previous period
-  if (!run_backfill) {
-    static uint64_t last_head_period = UINT64_MAX;
-    if (last_head_period == UINT64_MAX) {
-      last_head_period = period;
-    }
-    else if (period != last_head_period) {
-      if (period > 0) {
-        log_info("period_store: period changed (%l -> %l), refresh LCU for period %l", last_head_period, period, period - 1);
-        c4_ps_schedule_fetch_lcu(period - 1);
-      }
-      last_head_period = period;
-    }
   }
 
   if (queue.head == queue.tail) // this means we have only one task in the queue
