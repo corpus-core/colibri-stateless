@@ -71,12 +71,18 @@ extern "C" {
 //
 
 /**
- * a bitmask holding flags used during the verification context.
+ * Bitmask of `verify_flag_t` values stored in `verify_ctx_t.flags`.
  */
 typedef uint32_t verify_flags_t;
 
 /**
- * a enum as list of flags used during the verification context.
+ * Verification behavior and security options for `verify_ctx_t.flags`.
+ *
+ * Combine values with bitwise OR. Hosts typically set flags before `c4_verify_init`.
+ * Some flags are set by the verifier during execution (e.g. `VERIFY_FLAG_REVERTED`);
+ * `VERIFY_FLAG_SYNC_REINIT_TRIED` is internal and must not be set by hosts.
+ *
+ * Per-flag semantics are documented on each enumerator below.
  */
 typedef enum {
   VERIFY_FLAG_FREE_DATA            = 1 << 0,  // if set, the data section will be freed after verification. This flag is set when the verifier generates the actual result data from the proof and needs cleanup afterwards.
@@ -93,38 +99,50 @@ typedef enum {
 } verify_flag_t;
 
 /**
- * a struct holding the verification context.
+ * State for a single proof verification run.
+ *
+ * Populate via `c4_verify_init` or `c4_verify_from_bytes`, then drive `c4_verify`
+ * until the status is not `C4_PENDING`. On success, read `data` (and optionally
+ * `proof`); on failure, read `state.error`.
  */
 typedef struct {
-  char*          method;              // the rpc-method
-  json_t         args;                // the rpc-args as json array
-  ssz_ob_t       proof;               // the proof as ssz object using the Proof-Type directly
-  ssz_ob_t       data;                // the data as ssz object or Empty if not needed
-  ssz_ob_t       sync_data;           // the sync-data as ssz object or Empty if not needed
-  bool           success;             // true if the verification was successful
-  c4_state_t     state;               // the state of the verification holding errors or data requests.
-  chain_id_t     chain_id;            // the chain-id of the verification
-  bytes_t        witness_keys;        // the witness keys used to sign the checkpoints (multiple addresses are concatinated bytes with 20 bytes each)
-  verify_flags_t flags;               // a bitmask holding flags used during the verification context.
-  uint64_t       min_latest_block_ts; // Lower bound for `block.timestamp` (Unix seconds) used for freshness check.  `0` disables the check.
-  void*          user_data;           // optional method-specific in-memory state surviving C4_PENDING rounds
-  void (*user_data_free)(void*);      // cleanup function called by c4_verify_free(); may be NULL
+  char*          method;              ///< RPC method name (not owned by the context)
+  json_t         args;                ///< RPC arguments as a parsed JSON array (references caller string)
+  ssz_ob_t       proof;               ///< Proof SSZ object (view into request bytes or empty)
+  ssz_ob_t       data;                ///< Verified result SSZ object, or empty until verification completes
+  ssz_ob_t       sync_data;           ///< Sync committee / checkpoint SSZ slice from the request, or empty
+  bool           success;             ///< Set by chain verifiers when cryptographic checks pass
+  c4_state_t     state;               ///< Pending `data_request_t` list and accumulated error message
+  chain_id_t     chain_id;            ///< Chain id for module dispatch and chain-specific rules
+  bytes_t        witness_keys;        ///< Concatenated 20-byte witness signer addresses (heap-owned when set)
+  verify_flags_t flags;               ///< Bitmask of `verify_flag_t` values for this verification
+  uint64_t       min_latest_block_ts; ///< Minimum allowed `block.timestamp` for `"latest"` freshness checks; `0` disables
+  void*          user_data;           ///< Optional method-specific state preserved across `C4_PENDING` rounds
+  void (*user_data_free)(void*);      ///< Called from `c4_verify_free_data` to release `user_data`; may be NULL
 } verify_ctx_t;
 
 /**
- * a enum as list of method types.
+ * How an RPC method is handled for the given chain, params, and verify flags.
+ *
+ * Returned by `c4_get_method_type` before a `verify_ctx_t` exists. Used by bindings
+ * and the CLI to choose proof, direct RPC, or local execution paths.
  */
 typedef enum {
-  METHOD_UNDEFINED     = 0, // the method is not defined
-  METHOD_PROOFABLE     = 1, // the method is proofable
-  METHOD_UNPROOFABLE   = 2, // the method is unproofable
-  METHOD_NOT_SUPPORTED = 3, // the method is not supported
-  METHOD_LOCAL         = 4  // the method is executed locally
+  METHOD_UNDEFINED     = 0, ///< Unknown method name for this chain
+  METHOD_PROOFABLE     = 1, ///< Requires a cryptographic proof (local or remote prover)
+  METHOD_UNPROOFABLE   = 2, ///< Served via direct JSON-RPC without proof verification
+  METHOD_NOT_SUPPORTED = 3, ///< Recognized name but not implemented for this chain
+  METHOD_LOCAL         = 4  ///< Executed inside Colibri without fetching a remote proof (e.g. PAP cache hit)
 } method_type_t;
 
 /**
- * get the request type for a given chain-type.
- * For each chain-type there is one request-type used, the request-type will be specified by the verifier-module.
+ * Returns the SSZ container definition for proof requests on a chain type.
+ *
+ * Each registered chain module supplies one request container used to decode
+ * `request_bytes` in `c4_verify_init`.
+ *
+ * @param chain_type chain family (e.g. `C4_CHAIN_TYPE_ETHEREUM`)
+ * @return SSZ definition for the chain's request type, or NULL if unsupported
  */
 const ssz_def_t* c4_get_request_type(chain_type_t chain_type);
 
@@ -148,37 +166,58 @@ chain_type_t c4_get_chain_type_from_req(bytes_t request_bytes);
 const ssz_def_t* c4_get_req_type_from_req(bytes_t request_bytes);
 
 /**
- * the main verification function executing the verifier in the modules.
- * @param ctx the verification context
- * @return C4_SUCCESS, C4_ERROR, or C4_PENDING
+ * Runs one step of proof verification for the chain module selected by `ctx->chain_id`.
+ *
+ * When the return value is `C4_PENDING`, satisfy requests in `ctx->state` (via
+ * `c4_req_set_response` / `c4_req_set_error`) and call again. When the return
+ * value is `C4_ERROR`, inspect `ctx->state.error`. When `C4_SUCCESS`, check
+ * `ctx->success` and read `ctx->data`.
+ *
+ * @param ctx initialized verification context (must not be NULL)
+ * @return `C4_PENDING` if external data is required, `C4_ERROR` on failure, `C4_SUCCESS` when the step finished without pending work
  */
 c4_status_t c4_verify(verify_ctx_t* ctx);
 
 /**
- * shortcut to verify a request from bytes.
- * @param ctx the verification context.
- * @param request_bytes the request as bytes.
- * @param method the method to verify (required, cannot be NULL).
- * @param args the arguments for the method as json array.
- * @param chain_id the chain-id of the request.
- * @return C4_SUCCESS, C4_ERROR, or C4_PENDING
+ * Initializes `ctx` from encoded request bytes and runs `c4_verify` once.
+ *
+ * Equivalent to `c4_verify_init(..., flags=0)` followed by `c4_verify`. Prefer
+ * `c4_verify_init` when non-zero `verify_flags_t` values are required.
+ *
+ * @param ctx verification context to initialize (must not be NULL)
+ * @param request_bytes SSZ-encoded request (`data`, `proof`, `sync_data`); empty bytes require a separate proof path
+ * @param method RPC method name (must not be NULL)
+ * @param args RPC parameters as a parsed JSON array
+ * @param chain_id chain id for dispatch
+ * @return same as `c4_verify` after initialization (`C4_SUCCESS`, `C4_ERROR`, or `C4_PENDING`)
  */
 c4_status_t c4_verify_from_bytes(verify_ctx_t* ctx, bytes_t request_bytes, char* method, json_t args, chain_id_t chain_id);
 
 /**
- * free all allocated memory from the verification context. it does not free the verification context itself.
+ * Releases heap resources held by `ctx` but not `ctx` itself.
+ *
+ * Frees SSZ data when `VERIFY_FLAG_FREE_DATA` is set, clears `ctx->state`,
+ * witness key bytes, and optional `user_data` via `user_data_free`.
+ *
+ * @param ctx verification context to clean up (must not be NULL)
+ * @return none
  */
 void c4_verify_free_data(verify_ctx_t* ctx);
 
 /**
- * initialize the verification context.
+ * Initializes a verification context from request bytes and RPC metadata.
  *
- * @param ctx the verification context (required, cannot be NULL).
- * @param request_bytes the request as bytes.
- * @param method the method to verify (required, cannot be NULL).
- * @param args the arguments for the method as json array.
- * @param chain_id the chain-id of the request.
- * @return C4_SUCCESS or C4_ERROR
+ * Parses `request_bytes` when non-empty; when empty, validates that `method`
+ * and `args` are sufficient for the resolved `method_type_t` (or returns an error
+ * such as `"missing proof!"` for proofable methods).
+ *
+ * @param ctx verification context to initialize (must not be NULL)
+ * @param request_bytes encoded proof request, or empty for proof-less checks
+ * @param method RPC method name (must not be NULL)
+ * @param args RPC parameters as a parsed JSON array
+ * @param chain_id chain id for dispatch
+ * @param flags verification flags stored in `ctx->flags`
+ * @return `C4_SUCCESS` on successful initialization, `C4_ERROR` if validation fails (see `ctx->state.error`)
  */
 c4_status_t c4_verify_init(verify_ctx_t* ctx, bytes_t request_bytes, char* method, json_t args, chain_id_t chain_id, verify_flags_t flags);
 
@@ -194,6 +233,7 @@ c4_status_t c4_verify_init(verify_ctx_t* ctx, bytes_t request_bytes, char* metho
  * @param method the rpc-method name
  * @param params the rpc-params as parsed json array (may be empty)
  * @param flags verify flags (e.g. VERIFY_FLAG_PAP for PAP mode)
+ * @return `METHOD_PROOFABLE`, `METHOD_UNPROOFABLE`, `METHOD_LOCAL`, `METHOD_NOT_SUPPORTED`, or `METHOD_UNDEFINED`
  */
 method_type_t c4_get_method_type(chain_id_t chain_id, char* method, json_t params, verify_flags_t flags);
 
@@ -212,6 +252,7 @@ method_type_t c4_get_method_type(chain_id_t chain_id, char* method, json_t param
  * @param flags verify flags (e.g. VERIFY_FLAG_PAP)
  * @param method_out output buffer for the transformed method (empty if unchanged)
  * @param params_out output buffer for the transformed params (empty if unchanged)
+ * @return none; inspect `method_out` / `params_out` length to detect transformation
  */
 void c4_get_prover_payload(chain_id_t chain_id, const char* method, const char* params,
                            verify_flags_t flags, buffer_t* method_out, buffer_t* params_out);
@@ -269,6 +310,7 @@ typedef struct {
  * return without modifying `ctx`.
  *
  * @param ctx initialization context (must not be NULL)
+ * @return none; hooks may append to `ctx->snapshots`
  */
 void c4_init_rpc_ctx(c4_init_ctx_t* ctx);
 
@@ -277,6 +319,8 @@ void c4_init_rpc_ctx(c4_init_ctx_t* ctx);
  *
  * Each chain module may register a `RESET_CACHES` hook via CMake. Hooks
  * are invoked in registration order. Persistent storage is left untouched.
+ *
+ * @return none
  */
 void c4_reset_verifier_caches(void);
 
