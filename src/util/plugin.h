@@ -65,6 +65,18 @@ void    c4_set_storage_config(storage_plugin_t* plugin);
  */
 bytes_t c4_get_client_state(chain_id_t chain_id);
 
+/**
+ * Returns whether `name` is a safe basename for file-backed storage.
+ *
+ * Rejects `NULL`, empty strings, `.`, `..`, and any name containing `/` or `\`.
+ * This blocks POSIX path traversal out of `C4_STATES_DIR`; it is not a full
+ * allowlist and does not canonicalize Windows drive letters or trailing dots.
+ *
+ * @param name storage key to check
+ * @return true if the name contains no path separators and is not `.` or `..`
+ */
+bool c4_storage_name_is_safe(const char* name);
+
 #ifdef FILE_STORAGE
 /**
  * Fills the given plugin with the file-based storage implementation.
