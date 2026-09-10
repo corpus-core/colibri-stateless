@@ -76,7 +76,8 @@ export {
 // Re-export transaction verification utilities
 export {
   TransactionVerifier,
-  PrototypeProtection
+  PrototypeProtection,
+  compareTransactionParameters
 } from './transactionVerifier.js';
 
 // EIP-3668 / CCIP-Read: the EVM ran to completion but reverted. Map the

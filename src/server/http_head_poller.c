@@ -148,16 +148,26 @@ static void c4_head_handle_curl_events() {
     long code = 0;
     curl_easy_getinfo(easy, CURLINFO_RESPONSE_CODE, &code);
     if (msg->data.result == CURLE_OK && code == 200 && ctx && ctx->response_buffer.data.len > 0) {
-      json_t   root  = json_parse((char*) ctx->response_buffer.data.data);
-      uint64_t block = json_get_uint64(root, "result");
-      if (block > 0 && g_head_servers && ctx->server_index < g_head_servers->count) {
-        server_health_t* h   = &g_head_servers->health_stats[ctx->server_index];
-        h->latest_block      = block;
-        h->head_last_seen_ms = current_ms();
-        // Debug log for polling result (server name + latency)
-        const char* name   = head_extract_server_name(g_head_servers->urls[ctx->server_index]);
-        uint64_t    elapse = current_ms() - ctx->start_ms;
-        log_debug("head poll: [%d] head=%l latency_ms=%l ( %s )", (uint32_t) ctx->server_index, block, elapse, name);
+      json_t root  = json_parse((char*) ctx->response_buffer.data.data);
+      char*  error = json_validate(root, "{result:hexuint}", "head poll parsing error ");
+      if (error) {
+        log_error("head poll parsing error: %s", error);
+        safe_free(error);
+        continue;
+      }
+      else {
+        // this result is not verified, because it is expected to configure it to a trusted source.
+        // And the latest is only use to figure out, whether a failed response may be due to not having the latest yet. This will not touch the proof itself.
+        uint64_t block = json_get_uint64(root, "result");
+        if (block > 0 && g_head_servers && ctx->server_index < g_head_servers->count) {
+          server_health_t* h   = &g_head_servers->health_stats[ctx->server_index];
+          h->latest_block      = block;
+          h->head_last_seen_ms = current_ms();
+          // Debug log for polling result (server name + latency)
+          const char* name   = head_extract_server_name(g_head_servers->urls[ctx->server_index]);
+          uint64_t    elapse = current_ms() - ctx->start_ms;
+          log_debug("head poll: [%d] head=%l latency_ms=%l ( %s )", (uint32_t) ctx->server_index, block, elapse, name);
+        }
       }
     }
     curl_multi_remove_handle(g_head_multi, easy);

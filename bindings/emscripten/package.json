@@ -20,7 +20,7 @@
     },
     "scripts": {
         "test": "npm run test:node && npm run test:webpack",
-        "test:node": "node --test test/rpc.test.mjs test/cjs_bridge.test.mjs test/runtime_selection.test.mjs",
+        "test:node": "node --test test/rpc.test.mjs test/cjs_bridge.test.mjs test/runtime_selection.test.mjs test/transactionVerifier.test.mjs",
         "test:node:native": "node --test test/native.test.mjs",
         "test:integration": "C4_RUN_INTEGRATION=1 node --test test/integration.test.mjs",
         "test:rpc-integration": "C4_RUN_RPC_INTEGRATION=1 node --test --test-concurrency=1 --test-timeout=3600000 test/rpc_integration.test.mjs",

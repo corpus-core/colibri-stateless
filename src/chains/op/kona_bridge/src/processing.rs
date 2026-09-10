@@ -27,11 +27,16 @@ fn encode_prefixed_ssz_payload(envelope: &OpNetworkPayloadEnvelope) -> Vec<u8> {
 }
 
 /// Write a gossip envelope as `zstd(prefix || SSZ payload) || signature(65)`.
+///
+/// Does not recover or compare the sequencer signer. Unsigned / wrong-signer
+/// envelopes never reach this function: kona's `BlockHandler` already drops them
+/// against `chain_config.unsafe_signer` (set from the C sequencer config before
+/// the gossip driver starts). The client trust boundary is
+/// `op_verify_sequencer_proof`, which recovers the signer from these same bytes.
 pub async fn process_preconf_with_correct_format(
     payload_envelope: &OpNetworkPayloadEnvelope,
     chain_id: u64,
     output_dir: &PathBuf,
-    _expected_sequencer: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let block_number = payload_envelope.payload.block_number();
     let block_hash = payload_envelope.payload.block_hash();

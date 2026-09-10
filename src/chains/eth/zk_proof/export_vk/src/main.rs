@@ -10,7 +10,9 @@ use serde::Deserialize;
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
-    /// Path to the Groth16Verifier.sol file
+    /// Path to the SP1-generated Groth16Verifier.sol (circuit VK constants).
+    /// Regex-parsed only; never compiled. Pass the circuit artifact
+    /// (`~/.sp1/circuits/groth16/<ver>/Groth16Verifier.sol`), not an SP1Verifier wrapper.
     #[clap(long)]
     solidity_path: PathBuf,
 
@@ -76,7 +78,8 @@ async fn main() {
     let vk_root = BigUint::parse_bytes(args.vk_root.trim_start_matches("0x").as_bytes(), 16)
         .expect("Invalid hex in --vk-root");
 
-    // 2. Parse Solidity Constants
+    // 2. Extract Groth16 VK points from Groth16Verifier.sol (text only, not compiled).
+    // The C verifier in zk_verifier/ is the runtime; this Solidity file is a constant source.
     let sol_file = File::open(&args.solidity_path).expect("Failed to open Solidity file");
     let reader = BufReader::new(sol_file);
     let mut content = String::new();
@@ -85,7 +88,7 @@ async fn main() {
         content.push('\n');
     }
 
-    // Regex to find constants: uint256 constant NAME = VALUE;
+    // uint256 constant NAME = VALUE;  (ALPHA_X, PUB_0_X, … — not VERIFIER_HASH / wrapper code)
     let re = Regex::new(r"uint256\s+constant\s+(\w+)\s*=\s*([0-9x]+);").unwrap();
 
     let mut found_constants = std::collections::HashMap::new();

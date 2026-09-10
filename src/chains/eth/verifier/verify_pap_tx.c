@@ -203,8 +203,7 @@ static bool get_tx_index_and_block(verify_ctx_t* ctx, bytes32_t requested_hash, 
         if (pap_tx_cache_get(ctx->chain_id, requested_hash, block_number, tx_index))
           return true;
       }
-      uint8_t  tmp[200];
-      buffer_t buf = stack_buffer(tmp);
+      buffer_t buf = {0};
       ssz_ob_t proof_req;
       if (pap_request_proof(ctx, ctx->method, bprintf(&buf, "[%J]", json_at(ctx->args, 0)), &proof_req) == C4_SUCCESS) {
         ctx->proof     = ssz_get(&proof_req, "proof");
@@ -212,6 +211,7 @@ static bool get_tx_index_and_block(verify_ctx_t* ctx, bytes32_t requested_hash, 
         ctx->sync_data = ssz_get(&proof_req, "sync_data");
         c4_verify(ctx);
       }
+      buffer_free(&buf);
       return false;
     }
   }
@@ -247,14 +247,14 @@ static bool pap_tx_receipt(verify_ctx_t* ctx) {
 #else
   RETURN_VERIFY_ERROR(ctx, "PAP: ETH_RECEIPT is not enabled");
 #endif
-  ssz_ob_t receipts         = ssz_get(&receipt_proof, "receipts");
-  ssz_ob_t transactions     = ssz_get(&receipt_proof, "transactions");
-  uint64_t blk_num          = eth_el_header_get_uint64(el_header, EL_BLOCK_NUMBER);
-  uint64_t base_fee         = eth_el_header_get_uint64(el_header, EL_BASE_FEE_PER_GAS);
-  uint64_t excess_blob_gas  = eth_el_header_get_uint64(el_header, EL_EXCESS_BLOB_GAS);
-  uint64_t block_ts         = eth_el_header_get_uint64(el_header, EL_TIMESTAMP);
-  uint32_t num_receipts     = ssz_len(receipts);
-  uint64_t prev_cumulative  = 0;
+  ssz_ob_t receipts        = ssz_get(&receipt_proof, "receipts");
+  ssz_ob_t transactions    = ssz_get(&receipt_proof, "transactions");
+  uint64_t blk_num         = eth_el_header_get_uint64(el_header, EL_BLOCK_NUMBER);
+  uint64_t base_fee        = eth_el_header_get_uint64(el_header, EL_BASE_FEE_PER_GAS);
+  uint64_t excess_blob_gas = eth_el_header_get_uint64(el_header, EL_EXCESS_BLOB_GAS);
+  uint64_t block_ts        = eth_el_header_get_uint64(el_header, EL_TIMESTAMP);
+  uint32_t num_receipts    = ssz_len(receipts);
+  uint64_t prev_cumulative = 0;
   uint32_t next_log_index  = 0;
   if (tx_index > num_receipts) RETURN_VERIFY_ERROR(ctx, "PAP: invalid transaction index");
 
@@ -318,12 +318,12 @@ static bool pap_tx_by_block_and_index(verify_ctx_t* ctx) {
 /* ── eth_sendRawTransaction / eth_sendTransaction ── */
 
 static bool pap_handle_send_tx(verify_ctx_t* ctx) {
-  uint8_t  tmp[4096];
-  buffer_t buf = stack_buffer(tmp);
-  json_t   result;
-  if (pap_request_eth_rpc(ctx, ctx->method,
-                          bprintf(&buf, "[%J]", json_at(ctx->args, 0)), "bytes32", &result) != C4_SUCCESS)
-    return false;
+  buffer_t    buf = {0};
+  json_t      result;
+  c4_status_t status = pap_request_eth_rpc(ctx, ctx->method,
+                                           bprintf(&buf, "[%J]", json_at(ctx->args, 0)), "bytes32", &result);
+  buffer_free(&buf);
+  if (status != C4_SUCCESS) return false;
 
   if (result.type == JSON_TYPE_STRING && result.len == 66) {
     bytes32_t tx_hash = {0};

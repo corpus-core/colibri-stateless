@@ -120,6 +120,7 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let mut chain_config = ChainConfig::from(network_name, chain_id);
+    // Seeds kona's BlockHandler; processing.rs does not re-check the signer.
     if let Some(ref addr) = sequencer_address {
         if let Ok(parsed) = addr.parse::<Address>() {
             chain_config.unsafe_signer = parsed;
@@ -149,7 +150,7 @@ async fn main() -> anyhow::Result<()> {
             run_http_primary_with_gossip_fallback(
                 http_endpoint, chain_id, disc_port, gossip_port,
                 &output_dir, http_poll_interval, &chain_config,
-                sequencer_address.as_deref(), health_tracker, stats, running,
+                health_tracker, stats, running,
                 Arc::new(Mutex::new(BlockDeduplicator::new())),
                 Arc::new(Mutex::new(BlockBitmaskTracker::new())),
                 Some(sse_tx),
@@ -158,7 +159,7 @@ async fn main() -> anyhow::Result<()> {
             warn!("MODE={} but no HTTP endpoint — starting gossip", mode);
             gossip::run_gossip_network(
                 chain_id, disc_port, gossip_port, &output_dir,
-                &chain_config, sequencer_address.as_deref(),
+                &chain_config,
                 stats, running, None, None, Some(sse_tx),
             ).await.map_err(|e| anyhow::anyhow!("{}", e))?;
         }
@@ -166,7 +167,7 @@ async fn main() -> anyhow::Result<()> {
         info!("📡 MODE=gossip — P2P only (set MODE=http-first to poll HTTP)");
         gossip::run_gossip_network(
             chain_id, disc_port, gossip_port, &output_dir,
-            &chain_config, sequencer_address.as_deref(),
+            &chain_config,
             stats, running, None, None, Some(sse_tx),
         ).await.map_err(|e| anyhow::anyhow!("{}", e))?;
     }

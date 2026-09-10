@@ -111,9 +111,10 @@ export interface PromptConfig {
     /**
      * Full override for the base system prompt. When set, it *replaces* the
      * built-in analyst prompt (`DEFAULT_SYSTEM_PROMPT`). The language instruction
-     * and `systemPromptInclude` are still appended afterwards. Leave unset to use
-     * the default. Use `DEFAULT_SYSTEM_PROMPT` as a starting point if you only want
-     * to tweak it.
+     * and `systemPromptInclude` are still appended afterwards, then the
+     * untrusted-data handling rule (always last, so it wins recency). Leave unset
+     * to use the default. Use `DEFAULT_SYSTEM_PROMPT` as a starting point if you
+     * only want to tweak it.
      */
     systemPrompt?: string;
     /**

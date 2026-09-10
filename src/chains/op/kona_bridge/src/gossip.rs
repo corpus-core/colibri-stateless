@@ -259,7 +259,6 @@ pub async fn run_gossip_network(
     gossip_port: u16,
     output_dir: &PathBuf,
     chain_config: &ChainConfig,
-    expected_sequencer: Option<&str>,
     stats: Arc<Mutex<KonaBridgeStats>>,
     running: Arc<Mutex<bool>>,
     deduplicator: Option<Arc<Mutex<BlockDeduplicator>>>,
@@ -343,10 +342,11 @@ pub async fn run_gossip_network(
     let l2_chain_id = rollup_config.l2_chain_id.id();
 
     // Build the gossip driver (produces signed OpNetworkPayloadEnvelopes via handle_event).
-    // The returned `unsafe_block_signer_sender` seeds a `watch::channel` inside the driver
-    // with `chain_config.unsafe_signer` and is retained here on purpose: we do not rotate
-    // the signer at runtime, and `watch` preserves the last value for readers even after
-    // its sender is dropped. Binding it keeps the intent explicit.
+    // `chain_config.unsafe_signer` is the sequencer address: kona's BlockHandler recovers
+    // the payload signature and drops any envelope that does not match. The returned
+    // `unsafe_block_signer_sender` seeds that watch channel and is retained on purpose:
+    // we do not rotate the signer at runtime, and `watch` keeps the last value for
+    // readers even after the sender is dropped. Binding it keeps the intent explicit.
     // One healthy topic peer is enough to receive publishes. Default kona mesh
     // wants Dlo=6, which kept us hunting and churning connections instead of
     // grafting the one Base node that actually spoke gossipsub.
@@ -676,7 +676,6 @@ pub async fn run_gossip_network(
                     &payload_envelope,
                     chain_id,
                     output_dir,
-                    expected_sequencer,
                 ).await {
                     Ok(()) => {
                         latest_block_number = number;

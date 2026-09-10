@@ -8,6 +8,8 @@
 #include "compat.h"
 #include "logger.h"
 #include <ctype.h>
+#include <errno.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -50,15 +52,24 @@ const config_param_t* c4_get_config_params(int* count) {
 
 static char* get_arg(char* name, char shortcut, bool has_value) {
   int len = strlen(name);
-  for (int i = 0; i < args_count - (has_value ? 1 : 0); i++) {
-    if (args[i][0] == '-') {
-      if (args[i][1] == '-') {
-        if (strcmp(args[i] + 2, name) == 0) return has_value ? args[i + 1] : (char*) "true";
-        if (strncmp(args[i] + 2, name, len) == 0 && args[i][len + 2] == '=') return args[i] + len + 3;
+  for (int i = 0; i < args_count; i++) {
+    if (!args[i] || args[i][0] != '-') continue;
+    if (args[i][1] == '-') {
+      if (strcmp(args[i] + 2, name) == 0) {
+        if (!has_value) return (char*) "true";
+        if (i + 1 >= args_count) return NULL;
+        return args[i + 1];
       }
-      else {
-        for (int j = 1; j < strlen(args[i]); j++) {
-          if (args[i][j] == shortcut) return has_value ? args[i + 1] : (char*) "true";
+      // `--name=value` may be the last argv entry; do not require a following token.
+      if (strncmp(args[i] + 2, name, len) == 0 && args[i][len + 2] == '=')
+        return args[i] + len + 3;
+    }
+    else if (shortcut) {
+      for (int j = 1; args[i][j]; j++) {
+        if (args[i][j] == shortcut) {
+          if (!has_value) return (char*) "true";
+          if (i + 1 >= args_count) return NULL;
+          return args[i + 1];
         }
       }
     }
@@ -103,24 +114,59 @@ int conf_key(bytes32_t target, char* env_name, char* arg_nane, char shortcut, ch
   return 0;
 }
 
+// Parse a signed decimal int. Rejects overflow, empty input, and trailing garbage.
+static bool parse_conf_int(const char* s, int* out) {
+  if (!s || !*s) return false;
+  char* end   = NULL;
+  errno       = 0;
+  long parsed = strtol(s, &end, 10);
+  if (errno == ERANGE || end == s) return false;
+  while (*end && isspace((unsigned char) *end)) end++;
+  if (*end != '\0') return false;
+  if (parsed < (long) INT_MIN || parsed > (long) INT_MAX) return false;
+  *out = (int) parsed;
+  return true;
+}
+
+// Parse an unsigned decimal uint64. Rejects overflow, signs, empty input, and trailing garbage.
+static bool parse_conf_uint64(const char* s, uint64_t* out) {
+  if (!s || !*s) return false;
+  while (isspace((unsigned char) *s)) s++;
+  // strtoull("-1") returns UINT64_MAX; reject leading signs explicitly.
+  if (*s == '-' || *s == '+') return false;
+  char* end                 = NULL;
+  errno                     = 0;
+  unsigned long long parsed = strtoull(s, &end, 10);
+  if (errno == ERANGE || end == s) return false;
+  while (*end && isspace((unsigned char) *end)) end++;
+  if (*end != '\0') return false;
+  *out = (uint64_t) parsed;
+  return true;
+}
+
+static const char* conf_raw_value(char* env_value, char* arg_value) {
+  if (arg_value) return arg_value;
+  return env_value;
+}
+
 int conf_int(int* target, char* env_name, char* arg_nane, char shortcut, char* descr, int min, int max) {
   char* default_value = bprintf(NULL, "%d", *target);
   add_help_line(shortcut, arg_nane, env_name, descr, default_value);
   safe_free(default_value);
   register_config_param(env_name, arg_nane, descr, CONFIG_PARAM_INT, target, min, max);
-  char* env_value = getenv(env_name);
-  char* arg_value = get_arg(arg_nane, shortcut, max != 1);
-  int   val       = 0;
-  bool  set       = false;
-  if (env_value) {
-    val = max == 1 ? (strcmp(env_value, "true") == 0 || strcmp(env_value, "1") == 0) : atoi(env_value);
-    set = true;
+  char*       env_value = getenv(env_name);
+  char*       arg_value = get_arg(arg_nane, shortcut, max != 1);
+  const char* raw       = conf_raw_value(env_value, arg_value);
+  if (!raw) return 0;
+
+  int val = 0;
+  if (max == 1) {
+    val = (strcmp(raw, "true") == 0 || strcmp(raw, "1") == 0);
   }
-  if (arg_value) {
-    val = max == 1 ? (strcmp(arg_value, "true") == 0 || strcmp(arg_value, "1") == 0) : atoi(arg_value);
-    set = true;
+  else if (!parse_conf_int(raw, &val)) {
+    log_error("Invalid value for %s: %s (must be between %d and %d)", env_name, raw, (uint32_t) min, (uint32_t) max);
+    return 1;
   }
-  if (!set) return 0;
   if (val < min || val > max) {
     log_error("Invalid value for %s: %d (must be between %d and %d)", env_name, (uint32_t) val, (uint32_t) min, (uint32_t) max);
     return 1;
@@ -134,21 +180,21 @@ int conf_uint64(uint64_t* target, char* env_name, char* arg_nane, char shortcut,
   add_help_line(shortcut, arg_nane, env_name, descr, default_value);
   safe_free(default_value);
   register_config_param(env_name, arg_nane, descr, CONFIG_PARAM_INT, target, min, max);
-  char*    env_value = getenv(env_name);
-  char*    arg_value = get_arg(arg_nane, shortcut, max != 1);
-  uint64_t val       = 0;
-  bool     set       = false;
-  if (env_value) {
-    val = max == 1 ? (strcmp(env_value, "true") == 0 || strcmp(env_value, "1") == 0) : atoll(env_value);
-    set = true;
+  char*       env_value = getenv(env_name);
+  char*       arg_value = get_arg(arg_nane, shortcut, max != 1);
+  const char* raw       = conf_raw_value(env_value, arg_value);
+  if (!raw) return 0;
+
+  uint64_t val = 0;
+  if (max == 1) {
+    val = (strcmp(raw, "true") == 0 || strcmp(raw, "1") == 0);
   }
-  if (arg_value) {
-    val = max == 1 ? (strcmp(arg_value, "true") == 0 || strcmp(arg_value, "1") == 0) : atoll(arg_value);
-    set = true;
+  else if (!parse_conf_uint64(raw, &val)) {
+    log_error("Invalid value for %s: %s (must be between %l and %l)", env_name, raw, (uint64_t) min, (uint64_t) max);
+    return 1;
   }
-  if (!set) return 0;
   if (val < min || val > max) {
-    log_error("Invalid value for %s: %d (must be between %d and %d)", env_name, (uint32_t) val, (uint32_t) min, (uint32_t) max);
+    log_error("Invalid value for %s: %l (must be between %l and %l)", env_name, val, min, max);
     return 1;
   }
   *target = val;

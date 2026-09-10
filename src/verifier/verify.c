@@ -47,6 +47,15 @@ c4_status_t c4_verify_init(verify_ctx_t* ctx, bytes_t request_bytes, char* metho
   if (args.type == JSON_TYPE_INVALID) THROW_ERROR("args must be a valid JSON object");
   if (args.type != JSON_TYPE_ARRAY) THROW_ERROR("args must be a JSON array");
 
+  // make sure the method-name is valid
+  for (char* c = method; *c; c++) {
+    if (*c == '_') continue;
+    if (*c >= '0' && *c <= '9') continue;
+    if (*c >= 'a' && *c <= 'z') continue;
+    if (*c >= 'A' && *c <= 'Z') continue;
+    THROW_ERROR("method contains invalid characters");
+  }
+
   memset(ctx, 0, sizeof(verify_ctx_t));
   if (request_bytes.len == 0) {
     method_type_t method_type = c4_get_method_type(chain_id, method, args, flags);
