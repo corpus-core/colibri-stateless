@@ -67,6 +67,8 @@ export interface ContractStateChange {
 
 export interface AccessListEntry {
     address: string;
+    storageKeys?: string[];
+    /** keccak256 of the deployed runtime bytecode. Absent / empty-code hash for EOAs. */
     codeHash?: string;
 }
 

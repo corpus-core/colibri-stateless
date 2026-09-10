@@ -109,6 +109,32 @@ describe('enrichSimulation', () => {
         const ctx = await enrichSimulation(WETH_DEPOSIT_RESULT, TX_PARAMS, 1);
         assert.equal(ctx.decodedError, undefined);
     });
+
+    it('does not use EMPTY_CODE_HASH from accessList as a cache key', async () => {
+        const emptyHash = '0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470';
+        const cache = {
+            get: async (key) => {
+                assert.equal(key.includes(emptyHash.slice(2)), false,
+                    'EMPTY_CODE_HASH must not be used as cache key');
+                return null;
+            },
+            set: async () => { },
+        };
+        mockSourcify({
+            '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2': WETH_ABI,
+        });
+
+        const result = {
+            ...WETH_DEPOSIT_RESULT,
+            accessList: [
+                { address: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2', codeHash: emptyHash, storageKeys: [] },
+                { address: '0x3610bad33aac567d2c5fb03e47eec5c2172fd42a', codeHash: emptyHash, storageKeys: [] },
+            ],
+        };
+        const ctx = await enrichSimulation(result, TX_PARAMS, 1, { cache });
+        assert.ok(ctx.decodedCall);
+        assert.equal(ctx.decodedCall.name, 'deposit');
+    });
 });
 
 describe('toEnhancedResult', () => {
