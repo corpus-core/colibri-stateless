@@ -54,7 +54,9 @@ static const ssz_def_t PROOF_HEADER[4];
 //
 // Together, these proofs establish a framework for stateless, verifiable access to all critical Ethereum state components without reliance on trusted RPC endpoints.
 
-// :: Consensus Layer Header Proof
+// :: Proofs
+
+// ::: Consensus Layer Header Proof
 //
 // Execution-layer data is proven against a verified **execution block hash**, not against
 // individual fields of the Beacon `ExecutionPayload`. The shared container for this is
@@ -210,7 +212,7 @@ static const ssz_def_t ETH_HEADER_PROOFS_UNION[] = {
     SSZ_CONTAINER("checkpoint", ETH_CHECKPOINT_PROOF)       // WSP anchor via LightClientBootstrap (currentSyncCommittee branch)
 };
 
-// :: Execution Layer Header Proof
+// ::: Execution Layer Header Proof
 //
 // All proofs are based on the correct blockhash of the execution block.
 // In order to prove this blockhash the `ETH_EL_PROOF_UNION` offers four variants:
@@ -269,7 +271,7 @@ static const ssz_def_t ETH_EL_PROOF_UNION[] = {
     SSZ_CONTAINER("witnessProof", ETH_WITNESS_HEADER_PROOF), // 3: reserved; c4_verify_block rejects until ecrecover+allow-list exist
 };
 
-// :: Logs Proof
+// ::: Logs Proof
 //
 // A **Logs Proof** verifies that specific log entries, returned by `eth_getLogs`, are correctly
 // included within transaction receipts of a verified execution block.
@@ -358,7 +360,7 @@ static const ssz_def_t ETH_LOGS_COMPLETENESS_PROOF[] = {
 };
 static const ssz_def_t ETH_LOGS_COMPLETENESS_PROOF_CONTAINER = SSZ_CONTAINER("LogsCompletenessProof", ETH_LOGS_COMPLETENESS_PROOF);
 
-// :: Transaction Proof
+// ::: Transaction Proof
 //
 // A Transaction Proof verifies that a specific transaction is included in a verified execution block.
 //
@@ -400,7 +402,7 @@ static const ssz_def_t ETH_TRANSACTION_PROOF[] = {
     SSZ_UNION("elProof", ETH_EL_PROOF_UNION),          // the proof for the execution block containing the transaction
 };
 
-// :: Receipt Proof
+// ::: Receipt Proof
 //
 // A **Receipt Proof** verifies a transaction receipt and its inclusion in a verified execution block.
 //
@@ -443,7 +445,7 @@ static const ssz_def_t ETH_RECEIPT_PROOF[] = {
     SSZ_UNION("elProof", ETH_EL_PROOF_UNION),          // the proof for the execution block containing the transaction
 };
 
-// :: Account Proof
+// ::: Account Proof
 //
 // An Account Proof represents the account and storage values, including the Merkle proof, of the specified account.
 //
@@ -507,7 +509,7 @@ static const ssz_def_t ETH_CODE_UNION[] = {
     SSZ_BYTES("code", 4194304), // the code of the contract
 };
 
-// :: Call Proof
+// ::: Call Proof
 //
 // `eth_call` returns the result of a smart contract call.
 // To verify that this result is correct, every referenced account, contract code, and storage value must be validated
@@ -569,7 +571,7 @@ static const ssz_def_t ETH_CALL_PROOF[] = {
     SSZ_PROG_LIST("accounts", ETH_CALL_ACCOUNT_CONTAINER), // used accounts
     SSZ_UNION("elProof", ETH_EL_PROOF_UNION)};             // EL header proof of the accounts
 
-// :: Sync Proof
+// ::: Sync Proof
 //
 // The **Sync Proof** serves as input data for verifying a sync committee transition,
 // typically used within zero-knowledge proof systems (zk).
@@ -725,7 +727,7 @@ static const ssz_def_t ETH_SYNC_PROOF[] = {
     SSZ_PROG_LIST("proof", ssz_bytes32) // the merkle proof from the signing root to the pubkeys of the next sync committee
 };
 
-// :: Block Proof
+// ::: Block Proof
 //
 // The **Block Proof** verifies that a specific execution-layer block is valid
 // and correctly referenced by the consensus layer (Beacon Chain).
@@ -779,7 +781,7 @@ static const ssz_def_t ETH_BLOCK_PROOF[] = {
     SSZ_UNION("body", ETH_BLOCK_BODY_UNION),
     SSZ_UNION("elProof", ETH_EL_PROOF_UNION)}; // the proof for the execution block
 
-// :: Block Receipts Proof
+// ::: Block Receipts Proof
 //
 // A **Block Receipts Proof** verifies all transaction receipts of a given block.
 // Instead of proving a single receipt via Patricia Merkle Proof, the proof includes

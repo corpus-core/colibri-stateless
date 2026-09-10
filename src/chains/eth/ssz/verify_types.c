@@ -60,7 +60,9 @@ static inline size_t array_idx(const ssz_def_t* array, size_t len, const ssz_def
 
 // : Ethereum
 
-// :: Ethereum Main Proof Request
+// :: Proofs
+
+// ::: Ethereum Main Proof Request
 //
 // The proofs are always wrapped into a ssz-container with the name `C4Request`.
 // This Container holds the a version (4 bytes) and unions for different proof types.
@@ -273,7 +275,7 @@ const ssz_def_t* eth_ssz_verification_type(eth_ssz_type_t type) {
   }
 }
 
-// :: SyncCommittee Proof
+// ::: SyncCommittee Proof
 //
 // The Verifier always needs the pubkeys of the sync committee for a given period in order to verify the BLS signature of a Beacon BlockHeader. These keys can be fetched as part of the proof for example from a remote prover. While it allows colibri to verify even without any previous state if the pubkeys are part of the proof-response, instead of adding those 25kB for the pubkeys, they easily be cached.
 //

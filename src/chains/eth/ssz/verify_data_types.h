@@ -73,7 +73,9 @@
 
 // : Ethereum
 
-// :: Transaction Proof
+// :: Proofs
+
+// ::: Transaction Proof
 
 // Entry in the access list of a transaction or call.
 static const ssz_def_t ETH_ACCESS_LIST_DATA[] = {
@@ -129,7 +131,7 @@ static const ssz_def_t ETH_TX_DATA[] = {
     SSZ_UINT64("blockTimestamp")                                               // the timestamp of the block containing the transaction (post-Cancun)
 };
 
-// :: Logs Proof
+// ::: Logs Proof
 
 // A log entry in the receipt.
 static const ssz_def_t ETH_RECEIPT_DATA_LOG[] = {
@@ -146,7 +148,7 @@ static const ssz_def_t ETH_RECEIPT_DATA_LOG[] = {
 // Container type for log entries in transaction receipts
 static const ssz_def_t ETH_RECEIPT_DATA_LOG_CONTAINER = SSZ_CONTAINER("Log", ETH_RECEIPT_DATA_LOG);
 
-// :: Receipt Proof
+// ::: Receipt Proof
 
 // The transaction receipt data as returned by eth_getTransactionReceipt.
 static const ssz_def_t ETH_RECEIPT_DATA[] = {
@@ -181,7 +183,7 @@ static const ssz_def_t ETH_BLOCK_DATA_TRANSACTION_UNION[] = {
     SSZ_PROG_LIST("as_data", ETH_TX_DATA_CONTAINER), // the transactions data
 };
 
-// :: Block Proof
+// ::: Block Proof
 
 // Display the block data reconstructed from the verified RLP execution header
 // (and, for full-block methods, the proven transactions / withdrawals).
@@ -239,7 +241,7 @@ static const ssz_def_t ETH_BLOCK_HEADER_DATA[] = {
 
 };
 
-// :: Account Proof
+// ::: Account Proof
 
 // Represents the storage proof of a key. The value can be taken from the last entry, which is the leaf of the proof.
 static const ssz_def_t ETH_STORAGE_PROOF_DATA[] = {
