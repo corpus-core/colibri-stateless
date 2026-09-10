@@ -244,6 +244,7 @@ static void tracing_enqueue_body(buffer_t* body) {
   // Short timeouts to avoid long-hung exports; still non-blocking via multi
   curl_easy_setopt(easy, CURLOPT_TIMEOUT_MS, 500L);
   curl_easy_setopt(easy, CURLOPT_CONNECTTIMEOUT_MS, 250L);
+  c4_curl_configure_ssl(easy);
   // Capture a small response body for diagnostics
   curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION, trace_write_callback);
   curl_easy_setopt(easy, CURLOPT_WRITEDATA, &ctx->resp);

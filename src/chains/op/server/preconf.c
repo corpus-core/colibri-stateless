@@ -42,6 +42,7 @@ static void preconf_remote_worker(uv_work_t* work) {
   curl_easy_setopt(curl, CURLOPT_WRITEDATA, ctx);
   curl_easy_setopt(curl, CURLOPT_TIMEOUT, 5L);
   curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+  c4_curl_configure_ssl(curl);
 
   long     http_code = 0;
   CURLcode res       = curl_easy_perform(curl);

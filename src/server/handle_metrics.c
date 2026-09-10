@@ -691,6 +691,10 @@ static void c4_write_curl_metrics(buffer_t* data) {
   bprintf(data, "# TYPE colibri_curl_tcp_keepintvl_seconds gauge\n");
   bprintf(data, "colibri_curl_tcp_keepintvl_seconds %d\n", http_server.curl.tcp_keepintvl_s);
 
+  bprintf(data, "# HELP colibri_curl_tls_insecure TLS certificate verification disabled (1=insecure).\n");
+  bprintf(data, "# TYPE colibri_curl_tls_insecure gauge\n");
+  bprintf(data, "colibri_curl_tls_insecure %d\n", http_server.curl.tls_insecure);
+
   bprintf(data, "# HELP colibri_curl_total_requests Total libcurl transfers.\n");
   bprintf(data, "# TYPE colibri_curl_total_requests counter\n");
   bprintf(data, "colibri_curl_total_requests %l\n", http_server.curl.total_requests);

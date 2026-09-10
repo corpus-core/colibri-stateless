@@ -204,8 +204,7 @@ static void c4_head_poll_cb(uv_timer_t* handle) {
     curl_easy_setopt(easy, CURLOPT_WRITEDATA, &ctx->response_buffer);
     curl_easy_setopt(easy, CURLOPT_TIMEOUT, 5L);
     curl_easy_setopt(easy, CURLOPT_FOLLOWLOCATION, 1L);
-    curl_easy_setopt(easy, CURLOPT_SSL_VERIFYPEER, 0L);
-    curl_easy_setopt(easy, CURLOPT_SSL_VERIFYHOST, 0L);
+    c4_curl_configure_ssl(easy);
     // Connection reuse and HTTP preferences
     curl_easy_setopt(easy, CURLOPT_HTTP_VERSION, http_server.curl.http2_enabled ? CURL_HTTP_VERSION_2TLS : CURL_HTTP_VERSION_1_1);
     curl_easy_setopt(easy, CURLOPT_PIPEWAIT, 1L);

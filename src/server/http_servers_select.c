@@ -840,8 +840,7 @@ static rpc_probe_result_t* rpc_call_servers(server_list_t* servers, const char* 
     curl_easy_setopt(r->easy_handle, CURLOPT_WRITEDATA, &r->response_buffer);
     curl_easy_setopt(r->easy_handle, CURLOPT_TIMEOUT, 10L);
     curl_easy_setopt(r->easy_handle, CURLOPT_FOLLOWLOCATION, 1L);
-    curl_easy_setopt(r->easy_handle, CURLOPT_SSL_VERIFYPEER, 0L);
-    curl_easy_setopt(r->easy_handle, CURLOPT_SSL_VERIFYHOST, 0L);
+    c4_curl_configure_ssl(r->easy_handle);
     r->headers = curl_slist_append(r->headers, "Content-Type: application/json");
     curl_easy_setopt(r->easy_handle, CURLOPT_HTTPHEADER, r->headers);
     curl_easy_setopt(r->easy_handle, CURLOPT_POSTFIELDS, payload);
@@ -920,8 +919,7 @@ static buffer_t rpc_call_single(const char* url, const char* payload) {
   curl_easy_setopt(handle, CURLOPT_WRITEDATA, &buf);
   curl_easy_setopt(handle, CURLOPT_TIMEOUT, 10L);
   curl_easy_setopt(handle, CURLOPT_FOLLOWLOCATION, 1L);
-  curl_easy_setopt(handle, CURLOPT_SSL_VERIFYPEER, 0L);
-  curl_easy_setopt(handle, CURLOPT_SSL_VERIFYHOST, 0L);
+  c4_curl_configure_ssl(handle);
   curl_easy_setopt(handle, CURLOPT_HTTPHEADER, hdrs);
   curl_easy_setopt(handle, CURLOPT_POSTFIELDS, payload);
   curl_easy_setopt(handle, CURLOPT_POSTFIELDSIZE, (long) strlen(payload));
@@ -1007,8 +1005,7 @@ void c4_detect_server_client_types(server_list_t* servers, data_request_type_t t
     curl_easy_setopt(req->easy_handle, CURLOPT_WRITEDATA, &req->response_buffer);
     curl_easy_setopt(req->easy_handle, CURLOPT_TIMEOUT, 10L); // 10 second timeout
     curl_easy_setopt(req->easy_handle, CURLOPT_FOLLOWLOCATION, 1L);
-    curl_easy_setopt(req->easy_handle, CURLOPT_SSL_VERIFYPEER, 0L); // Same as main client
-    curl_easy_setopt(req->easy_handle, CURLOPT_SSL_VERIFYHOST, 0L);
+    c4_curl_configure_ssl(req->easy_handle);
 
     // Setup RPC-specific headers and payload if needed
     req->headers = NULL;

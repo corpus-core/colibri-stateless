@@ -60,6 +60,9 @@ void setUp(void) {
   unsetenv("C4_TEST_U64");
   unsetenv("PORT");
   unsetenv("HOST");
+  unsetenv("C4_TLS_INSECURE");
+  unsetenv("C4_CA_FILE");
+  unsetenv("C4_CA_PATH");
 }
 
 void tearDown(void) {
@@ -67,6 +70,9 @@ void tearDown(void) {
   unsetenv("C4_TEST_U64");
   unsetenv("PORT");
   unsetenv("HOST");
+  unsetenv("C4_TLS_INSECURE");
+  unsetenv("C4_CA_FILE");
+  unsetenv("C4_CA_PATH");
   // Best-effort cleanup
   char cmd[1024];
 #ifdef _WIN32
@@ -314,6 +320,54 @@ void test_configure_port_overflow_keeps_default(void) {
   TEST_ASSERT_EQUAL_INT(8090, http_server.port);
 }
 
+void test_configure_tls_insecure_cli_and_env(void) {
+  char* argv_on[] = {"prog", "--tls_insecure=1"};
+  c4_configure(2, argv_on);
+  TEST_ASSERT_EQUAL_INT(1, http_server.curl.tls_insecure);
+
+  char* argv_off[] = {"prog", "--tls_insecure=0"};
+  c4_configure(2, argv_off);
+  TEST_ASSERT_EQUAL_INT(0, http_server.curl.tls_insecure);
+
+  setenv("C4_TLS_INSECURE", "1", 1);
+  char* argv_env[] = {"prog"};
+  c4_configure(1, argv_env);
+  TEST_ASSERT_EQUAL_INT(1, http_server.curl.tls_insecure);
+  unsetenv("C4_TLS_INSECURE");
+
+  char* argv_reset[] = {"prog", "--tls_insecure=0"};
+  c4_configure(2, argv_reset);
+  TEST_ASSERT_EQUAL_INT(0, http_server.curl.tls_insecure);
+}
+
+void test_configure_tls_ca_file_and_path(void) {
+  char* argv[] = {"prog", "--ca_file", "/tmp/c4-test-ca.pem", "--ca_path", "/tmp/c4-test-ca"};
+  c4_configure(5, argv);
+  TEST_ASSERT_EQUAL_STRING("/tmp/c4-test-ca.pem", http_server.curl.ca_file);
+  TEST_ASSERT_EQUAL_STRING("/tmp/c4-test-ca", http_server.curl.ca_path);
+
+  char* argv_clear[] = {"prog", "--ca_file", "", "--ca_path", ""};
+  c4_configure(5, argv_clear);
+  TEST_ASSERT_NOT_NULL(http_server.curl.ca_file);
+  TEST_ASSERT_NOT_NULL(http_server.curl.ca_path);
+  TEST_ASSERT_EQUAL_STRING("", http_server.curl.ca_file);
+  TEST_ASSERT_EQUAL_STRING("", http_server.curl.ca_path);
+
+  setenv("C4_CA_FILE", "/tmp/c4-env-ca.pem", 1);
+  setenv("C4_CA_PATH", "/tmp/c4-env-ca", 1);
+  char* argv_env[] = {"prog"};
+  c4_configure(1, argv_env);
+  TEST_ASSERT_EQUAL_STRING("/tmp/c4-env-ca.pem", http_server.curl.ca_file);
+  TEST_ASSERT_EQUAL_STRING("/tmp/c4-env-ca", http_server.curl.ca_path);
+  unsetenv("C4_CA_FILE");
+  unsetenv("C4_CA_PATH");
+
+  char* argv_reset[] = {"prog", "--ca_file", "", "--ca_path", ""};
+  c4_configure(5, argv_reset);
+  TEST_ASSERT_EQUAL_STRING("", http_server.curl.ca_file);
+  TEST_ASSERT_EQUAL_STRING("", http_server.curl.ca_path);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_configure_help_no_exit);
@@ -331,6 +385,8 @@ int main(void) {
   RUN_TEST(test_conf_int_rejects_int_max_plus_one);
   RUN_TEST(test_conf_uint64_overflow_and_sign_rejected);
   RUN_TEST(test_configure_port_overflow_keeps_default);
+  RUN_TEST(test_configure_tls_insecure_cli_and_env);
+  RUN_TEST(test_configure_tls_ca_file_and_path);
   return UNITY_END();
 }
 
