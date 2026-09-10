@@ -64,7 +64,13 @@ extern "C" {
 // ```
 
 /**
- * a bitmask holding flags used during the prover context.
+ * Prover options and runtime flags stored in `prover_ctx_t.flags`.
+ *
+ * Combine with bitwise OR when calling `c4_prover_create`. Some flags are set
+ * internally during execution (e.g. `C4_PROVER_FLAG_UV_WORKER_REQUIRED`,
+ * `C4_PROVER_FLAG_INPUT_VALIDATED`); those must not be treated as public request options.
+ *
+ * Per-flag semantics are documented on each enumerator below.
  */
 typedef enum {
   C4_PROVER_FLAG_INCLUDE_CODE       = 1 << 0,  // includes the code of the contracts when creating the proof for eth_call, otherwise the verifier will need to fetch and cache the code as needed
@@ -86,7 +92,7 @@ typedef enum {
 } prover_flag_types_t;
 
 /**
- * a bitmask holding flags used during the prover context.
+ * Bitmask of `prover_flag_types_t` values stored in `prover_ctx_t.flags`.
  */
 typedef uint32_t prover_flags_t;
 
@@ -122,135 +128,155 @@ typedef union {
 
 typedef void (*cache_free_cb)(void*);
 typedef struct cache_entry {
-  prover_cache_key_t  key;       // cache key
-  void*               value;     // cache value
-  uint32_t            size;      // cache value size in order to
-  uint64_t            timestamp; // cache timestamp to be removed after ttl. if this timestamp is 0. the entry will live only in the prover_ctx, otherwise it will be stored in the global cache when prover_free is called.
-  cache_free_cb       free;      // the function to free the value.
-  uint32_t            use_counter;
-  struct cache_entry* next;              // next cache entry
-  bool                from_global_cache; // previous cache entry
+  prover_cache_key_t  key;               ///< 32-byte cache key
+  void*               value;             ///< Cached payload (ownership per `free` callback)
+  uint32_t            size;              ///< Size of `value` in bytes
+  uint64_t            timestamp;         ///< TTL: relative ms until global promotion, or absolute expiry in global cache; `0` = local-only or invalidated
+  cache_free_cb       free;              ///< Frees `value` when the entry is evicted
+  uint32_t            use_counter;       ///< References from local copies of a global entry
+  struct cache_entry* next;              ///< Next entry in the per-context linked list
+  bool                from_global_cache; ///< True if this local entry mirrors a global cache hit
 } cache_entry_t;
 #endif
 
 /**
- * a struct holding the prover context.
+ * State for a single proof generation run.
+ *
+ * Create with `c4_prover_create`, drive `c4_prover_execute` until not `C4_PENDING`,
+ * then read `proof`. On failure, inspect `state.error`.
  */
 #ifdef PROVER_TRACE
 // Forward declaration for pointer fields
 typedef struct prover_trace_span prover_trace_span_t;
 #endif
 typedef struct {
-  char*          method;          // rpc-method
-  json_t         params;          // rpc- params
-  bytes_t        proof;           // result or proof as bytes
-  chain_id_t     chain_id;        // target chain
-  c4_state_t     state;           // prover ctx state, holding errors and requests.
-  prover_flags_t flags;           // prover flags
-  bytes_t        client_state;    // optional client_state representing the synced periods and trusted blockhashes
-  bytes32_t      last_block_hash; // the block hash of the last execution block known and cached by the verifier. If set and matches the request block hash, the prover will not append the block proof again.
-  bytes_t        witness_key;     // witness key for the prover
+  char*          method;          ///< RPC method name (heap-owned)
+  json_t         params;          ///< RPC parameters as parsed JSON array (owns `start` buffer)
+  bytes_t        proof;           ///< Encoded proof bytes when generation succeeds (heap-owned)
+  chain_id_t     chain_id;        ///< Target chain for module dispatch
+  c4_state_t     state;           ///< Pending requests and error message
+  prover_flags_t flags;           ///< Bitmask of `prover_flag_types_t`
+  bytes_t        client_state;    ///< Optional synced-period / checkpoint snapshot from the client
+  bytes32_t      last_block_hash; ///< Cached EL block hash; skips redundant block proofs when it matches the request
+  bytes_t        witness_key;     ///< Witness signer key material for checkpoint signing
 #ifdef PROVER_CACHE
-  cache_entry_t* cache; // cache for the prover (only active in the server context)
+  cache_entry_t* cache; ///< Per-request cache list (server builds; promotes to global on free)
 #endif
 #ifdef HTTP_SERVER
-  uint32_t client_type; // client type for the prover (for beacon API only)
+  uint32_t client_type; ///< Beacon client compatibility hint for server-side routing
 #endif
-  uint32_t version;       // the version of the requesting client
-  uint64_t compute_units; // accumulated compute units for this request. Filled by prover implementations and consumed by the server to emit the `Compute-Units` HTTP response header (used by an upstream load balancer for API-key billing).
+  uint32_t version;       ///< Requesting client version (affects proof URL layout and features)
+  uint64_t compute_units; ///< Work units accumulated for the `Compute-Units` HTTP response header
 
 #ifdef PROVER_TRACE
-  // Collected finished spans (consumed by server); and currently open span
-  prover_trace_span_t* trace_spans;
-  prover_trace_span_t* trace_open;
+  prover_trace_span_t* trace_spans; ///< Finished spans (consumed by server export)
+  prover_trace_span_t* trace_open;  ///< Currently open span, if any
 #endif
 } prover_ctx_t;
 
 /**
- * create a new prover context
- * @param method the rpc-method to proof (required, cannot be NULL)
- * @param params the rpc-params to proof (optional, defaults to "[]" if NULL)
- * @param chain_id the target chain
- * @param flags the prover flags
- * @return the prover context, which needs to get freed with c4_prover_free.
- *         Always returns a valid context - check ctx->state.error for validation errors.
+ * Allocates and initializes a prover context for one RPC proof request.
+ *
+ * Always returns a non-NULL context. On invalid input, `ctx->state.error` is set
+ * and subsequent `c4_prover_execute` calls return `C4_ERROR`.
+ *
+ * @param method RPC method to prove (must not be NULL)
+ * @param params JSON array string, or NULL for `"[]"`
+ * @param chain_id target chain id
+ * @param flags bitmask of `prover_flag_types_t`
+ * @return newly allocated context; release with `c4_prover_free`
  */
 prover_ctx_t* c4_prover_create(char* method, char* params, chain_id_t chain_id, prover_flags_t flags) M_RET;
 
 /**
- * cleanup for the ctx
- * @param ctx the prover context
+ * Releases all resources owned by `ctx`, including the context struct.
+ *
+ * @param ctx prover context to destroy (may be NULL)
+ * @return none
  */
 void c4_prover_free(prover_ctx_t* ctx);
 
 /**
- * tries to create the proof, but if there are pending requests, they need to fetched before calling it again.
- * This function should be called until it returns C4_SUCCESS or C4_ERROR.
- * @param ctx the prover context
- * @return the status of the prover
+ * Runs one step of proof generation for the chain module selected by `ctx->chain_id`.
+ *
+ * When the return value is `C4_PENDING`, satisfy requests in `ctx->state` and call
+ * again. Repeat until `C4_SUCCESS` (`ctx->proof` populated) or `C4_ERROR`
+ * (`ctx->state.error`).
+ *
+ * @param ctx prover context (must not be NULL)
+ * @return `C4_PENDING`, `C4_SUCCESS`, or `C4_ERROR`
  */
 c4_status_t c4_prover_execute(prover_ctx_t* ctx);
 
 /**
- * returns the status of the prover
- * @param ctx the prover context
- * @return the status of the prover
+ * Derives the current prover state without advancing execution.
+ *
+ * @param ctx prover context (must not be NULL)
+ * @return `C4_ERROR` if `state.error` is set, `C4_SUCCESS` if `proof` is ready, otherwise `C4_PENDING`
  */
 c4_status_t c4_prover_status(prover_ctx_t* ctx);
 
 #ifdef PROVER_CACHE
 /**
- * Retrieve a cached value by key. First checks local cache, then global cache.
- * If found in global cache, copies entry to local cache for thread-safety.
- * @param ctx the prover context
+ * Retrieve a cached value by key from the local list, then the global cache.
+ *
+ * If found globally, copies metadata into the local list for thread-safe reuse.
+ *
+ * @param ctx prover context
  * @param key 32-byte cache key
- * @return read-only pointer to cached value, or NULL if not found.
- *         Caller MUST NOT modify the returned data.
- *         Pointer is valid until cache cleanup or context destruction.
+ * @return read-only pointer to cached value, or NULL if not found (do not mutate; valid until cache cleanup or `c4_prover_free`)
  */
 const void* c4_prover_cache_get(prover_ctx_t* ctx, bytes32_t key);
 
 /**
- * Retrieve a cached value by key, but only from the local cahe.
- * @param ctx the prover context
+ * Retrieve a cached value by key from the local per-context list only.
+ *
+ * @param ctx prover context
  * @param key 32-byte cache key
- * @return read-only pointer to cached value, or NULL if not found.
- *         Caller MUST NOT modify the returned data.
- *         Pointer is valid until cache cleanup or context destruction.
+ * @return read-only pointer to cached value, or NULL if not found
  */
 const void* c4_prover_cache_get_local(prover_ctx_t* ctx, bytes32_t key);
 /**
- * Store a value in the local cache. Will be moved to global cache on context destruction
- * if duration_ms > 0.
- * @param ctx the prover context
+ * Store a value in the local cache.
+ *
+ * Entries with `duration_ms > 0` may be promoted to the global cache when
+ * `c4_prover_free` runs; `duration_ms == 0` keeps the entry local-only.
+ *
+ * @param ctx prover context
  * @param key 32-byte cache key
- * @param value pointer to the value to cache (ownership transferred)
- * @param size size of the cached value in bytes
- * @param duration_ms cache TTL in milliseconds (0 = local-only, never moved to global)
- * @param free function to free the value when cache entry is removed
+ * @param value cached payload (`free` takes ownership)
+ * @param size size of `value` in bytes
+ * @param duration_ms TTL in milliseconds for global promotion (`0` = local-only)
+ * @param free callback invoked when the entry is evicted
+ * @return none
  */
 void c4_prover_cache_set(prover_ctx_t* ctx, bytes32_t key, void* value, uint32_t size, uint64_t duration_ms, cache_free_cb free);
 
 /**
- * Clean up expired entries from global cache and enforce size limits.
- * Removes entries that are expired OR would exceed size limit (unless in use).
- * @param now current timestamp in milliseconds
- * @param extra_size additional size to reserve (for new entries)
+ * Evicts expired or oversized entries from the global cache.
+ *
+ * @param now current time in milliseconds (same clock as `current_ms`)
+ * @param extra_size reserve this many bytes before enforcing the size cap
+ * @return none
  */
 void c4_prover_cache_cleanup(uint64_t now, uint64_t extra_size);
 
 /**
- * Invalidate a cache entry by key (marks as expired).
+ * Marks a global cache entry as invalid (immediate expiry).
+ *
  * @param key 32-byte cache key to invalidate
+ * @return none
  */
 void c4_prover_cache_invalidate(bytes32_t key);
 
 /**
- * Get statistics about the global cache.
- * @param entries number of entries in global cache
- * @param size current total size of cached data in bytes
- * @param max_size maximum allowed cache size in bytes
- * @param capacity current allocated capacity of the cache array
+ * Returns statistics for the global prover cache.
+ *
+ * @param entries number of entries in the global cache
+ * @param size total bytes stored in cached payloads
+ * @param max_size configured maximum cache size in bytes
+ * @param capacity allocated slot capacity of the global array
+ * @return none
  */
 void c4_prover_cache_stats(uint64_t* entries, uint64_t* size, uint64_t* max_size, uint64_t* capacity);
 #endif
@@ -260,11 +286,25 @@ void c4_prover_cache_stats(uint64_t* entries, uint64_t* size, uint64_t* max_size
  *
  * Each chain module may register a `RESET_CACHES` hook via CMake. Hooks
  * are invoked in registration order. Persistent storage is left untouched.
+ *
+ * @return none
  */
 void c4_reset_prover_caches(void);
 
-// Time helpers made available to headers that need them
+/**
+ * Monotonic millisecond clock for cache TTL and server timing.
+ *
+ * Uses libuv when `C4_PROVER_USE_UV_TIME` is defined, otherwise `current_unix_ms`.
+ *
+ * @return milliseconds since an implementation-defined epoch (consistent within the process)
+ */
 uint64_t current_ms();
+
+/**
+ * Wall-clock time in milliseconds since the Unix epoch.
+ *
+ * @return Unix time in milliseconds
+ */
 uint64_t current_unix_ms();
 
 #ifdef PROVER_TRACE
