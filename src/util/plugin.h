@@ -43,8 +43,26 @@ typedef struct {
   uint32_t max_sync_states;
 } storage_plugin_t;
 
+/**
+ * Fills `plugin` with the active storage backend (file, memory, or host-registered).
+ *
+ * @param plugin output plugin struct (must not be NULL)
+ */
 void    c4_get_storage_config(storage_plugin_t* plugin);
+
+/**
+ * Registers the storage backend used by `c4_get_client_state` and retry-delay persistence.
+ *
+ * @param plugin plugin vtable copied into global config (must remain valid for process lifetime)
+ */
 void    c4_set_storage_config(storage_plugin_t* plugin);
+
+/**
+ * Loads the persisted client sync snapshot for a chain (`states_<chain_id>` key).
+ *
+ * @param chain_id target chain
+ * @return snapshot bytes, or `NULL_BYTES` if missing or storage unavailable
+ */
 bytes_t c4_get_client_state(chain_id_t chain_id);
 
 #ifdef FILE_STORAGE

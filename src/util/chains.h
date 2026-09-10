@@ -32,12 +32,28 @@ extern "C" {
 #include <stdint.h>
 
 #include "bytes.h"
-#include "chains.h"
 #include "crypto.h"
 
+/**
+ * Builds a legacy `chain_id_t` from an EVM numeric chain id only (type bits zero).
+ *
+ * Prefer `CHAIN_ID` for new code so the high byte encodes `chain_type_t`.
+ */
 #define CHAIN(id)                ((chain_id_t) ((uint64_t) id))
+
+/**
+ * Encodes a chain type in the top byte and the network-specific id in the lower 56 bits.
+ *
+ * Example: Ethereum mainnet is `CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 1)`.
+ */
 #define CHAIN_ID(chain_type, id) ((chain_id_t) (((uint64_t) chain_type) << 56 | id))
 
+/**
+ * High-level chain family used for module dispatch (verifier/prover plugins).
+ *
+ * Values 0–14 are reserved; OP-Stack L2s may also map to `C4_CHAIN_TYPE_OP` via
+ * `c4_chain_type()` even when the numeric id uses `C4_CHAIN_TYPE_ETHEREUM` encoding.
+ */
 typedef enum {
   C4_CHAIN_TYPE_ETHEREUM  = 0,
   C4_CHAIN_TYPE_SOLANA    = 1,
@@ -55,8 +71,10 @@ typedef enum {
   C4_CHAIN_TYPE_TELOS     = 14,
 } chain_type_t;
 
+/** Packed chain identity: top 8 bits = `chain_type_t`, low 56 bits = network-specific id. */
 typedef uint64_t chain_id_t;
 
+/** Well-known Ethereum L1 testnets and networks (see `chains.c` for full list). */
 extern const chain_id_t C4_CHAIN_MAINNET;
 extern const chain_id_t C4_CHAIN_SEPOLIA;
 extern const chain_id_t C4_CHAIN_GNOSIS_CHIADO;
@@ -96,7 +114,13 @@ extern const chain_id_t C4_CHAIN_BOLT_DEVNET;
 extern const chain_id_t C4_CHAIN_BOLT_STAGING;
 extern const chain_id_t C4_CHAIN_BOLT_MAINNET;
 extern const chain_id_t C4_CHAIN_PLATABERGET;
-// Generic chain properties (extensible)
+
+/**
+ * Generic chain properties (extensible).
+ *
+ * Populated by `c4_chains_get_props` from the generated chain-properties table
+ * (`chain_props.h` / CMake `CHAIN_PROPS_PATH`).
+ */
 typedef struct {
   uint64_t     block_time; // in ms
   char*        chain_name;
@@ -105,11 +129,33 @@ typedef struct {
   uint32_t     flags; // reserved
 } chain_properties_t;
 
-// returns true if the chain_id is known and the properties have been set
+/**
+ * Returns true if the chain_id is known and the properties have been set.
+ *
+ * @param chain_id chain to resolve
+ * @param props output structure filled on success (must not be NULL)
+ * @return true if `chain_id` is known and `props` was filled, false otherwise
+ */
 static inline bool c4_chains_get_props(chain_id_t chain_id, chain_properties_t* props);
 
+/**
+ * Returns the chain family for dispatch (Ethereum, OP-Stack, Bitcoin, …).
+ *
+ * OP-Stack rollups listed as `C4_CHAIN_OP_*` macros map to `C4_CHAIN_TYPE_OP`;
+ * other ids use the type byte embedded in `chain_id`.
+ *
+ * @param chain_id packed chain identifier
+ * @return chain type enum value
+ */
 chain_type_t c4_chain_type(chain_id_t chain_id);
-uint64_t     c4_chain_specific_id(chain_id_t chain_id);
+
+/**
+ * Extracts the lower 56 bits of `chain_id` (EVM chain id or chain-specific number).
+ *
+ * @param chain_id packed chain identifier
+ * @return network-specific id (e.g. `1` for mainnet, `8453` for Base)
+ */
+uint64_t c4_chain_specific_id(chain_id_t chain_id);
 #ifdef __cplusplus
 }
 #endif

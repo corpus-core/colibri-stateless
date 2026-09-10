@@ -192,7 +192,6 @@ prover_ctx_t* c4_prover_create(char* method, char* params, chain_id_t chain_id, 
  * Releases all resources owned by `ctx`, including the context struct.
  *
  * @param ctx prover context to destroy (may be NULL)
- * @return none
  */
 void c4_prover_free(prover_ctx_t* ctx);
 
@@ -248,7 +247,6 @@ const void* c4_prover_cache_get_local(prover_ctx_t* ctx, bytes32_t key);
  * @param size size of `value` in bytes
  * @param duration_ms TTL in milliseconds for global promotion (`0` = local-only)
  * @param free callback invoked when the entry is evicted
- * @return none
  */
 void c4_prover_cache_set(prover_ctx_t* ctx, bytes32_t key, void* value, uint32_t size, uint64_t duration_ms, cache_free_cb free);
 
@@ -257,7 +255,6 @@ void c4_prover_cache_set(prover_ctx_t* ctx, bytes32_t key, void* value, uint32_t
  *
  * @param now current time in milliseconds (same clock as `current_ms`)
  * @param extra_size reserve this many bytes before enforcing the size cap
- * @return none
  */
 void c4_prover_cache_cleanup(uint64_t now, uint64_t extra_size);
 
@@ -265,7 +262,6 @@ void c4_prover_cache_cleanup(uint64_t now, uint64_t extra_size);
  * Marks a global cache entry as invalid (immediate expiry).
  *
  * @param key 32-byte cache key to invalidate
- * @return none
  */
 void c4_prover_cache_invalidate(bytes32_t key);
 
@@ -276,7 +272,6 @@ void c4_prover_cache_invalidate(bytes32_t key);
  * @param size total bytes stored in cached payloads
  * @param max_size configured maximum cache size in bytes
  * @param capacity allocated slot capacity of the global array
- * @return none
  */
 void c4_prover_cache_stats(uint64_t* entries, uint64_t* size, uint64_t* max_size, uint64_t* capacity);
 #endif
@@ -286,8 +281,6 @@ void c4_prover_cache_stats(uint64_t* entries, uint64_t* size, uint64_t* max_size
  *
  * Each chain module may register a `RESET_CACHES` hook via CMake. Hooks
  * are invoked in registration order. Persistent storage is left untouched.
- *
- * @return none
  */
 void c4_reset_prover_caches(void);
 

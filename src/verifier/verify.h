@@ -200,7 +200,6 @@ c4_status_t c4_verify_from_bytes(verify_ctx_t* ctx, bytes_t request_bytes, char*
  * witness key bytes, and optional `user_data` via `user_data_free`.
  *
  * @param ctx verification context to clean up (must not be NULL)
- * @return none
  */
 void c4_verify_free_data(verify_ctx_t* ctx);
 
@@ -252,7 +251,8 @@ method_type_t c4_get_method_type(chain_id_t chain_id, char* method, json_t param
  * @param flags verify flags (e.g. VERIFY_FLAG_PAP)
  * @param method_out output buffer for the transformed method (empty if unchanged)
  * @param params_out output buffer for the transformed params (empty if unchanged)
- * @return none; inspect `method_out` / `params_out` length to detect transformation
+ *
+ * Inspect `method_out` / `params_out` length to detect transformation.
  */
 void c4_get_prover_payload(chain_id_t chain_id, const char* method, const char* params,
                            verify_flags_t flags, buffer_t* method_out, buffer_t* params_out);
@@ -310,7 +310,8 @@ typedef struct {
  * return without modifying `ctx`.
  *
  * @param ctx initialization context (must not be NULL)
- * @return none; hooks may append to `ctx->snapshots`
+ *
+ * Hooks may append to `ctx->snapshots`.
  */
 void c4_init_rpc_ctx(c4_init_ctx_t* ctx);
 
@@ -319,8 +320,6 @@ void c4_init_rpc_ctx(c4_init_ctx_t* ctx);
  *
  * Each chain module may register a `RESET_CACHES` hook via CMake. Hooks
  * are invoked in registration order. Persistent storage is left untouched.
- *
- * @return none
  */
 void c4_reset_verifier_caches(void);
 
