@@ -369,9 +369,12 @@ ctest --test-dir build/default  # Run tests
 ### Comments
 
 - All comments must be in English.
-- Documentation for public API: `/** ... */` with `@param` and `@return` tags, using Markdown syntax.
+- **Every function** must have a standardized `/** ... */` block; explain each argument with `@param` and the return value with `@return` (not just the C type).
+- Documentation for public API uses Markdown in the comment body where helpful.
 - Only `@param` and `@return` are allowed as documentation tags.
+- **Public API**: document each function once in the **`.h` file** above the prototype; the **`.c` definition must not duplicate** the same `/** ... */` block (implementation-only `//` comments are fine). **Static / file-local** functions: document above the definition in the `.c` file.
 - Section markers for doc generation: `// :` (top-level), `// ::` (subsection), `// :::` (detail).
+- **Spec-facing text is frozen by default** — comments that document specification or GitBook content (including `// :` sections) must not be edited unless the exact change has been agreed beforehand. See [src/AGENTS.md](src/AGENTS.md) (Software quality — documentation).
 
 ## Testing
 

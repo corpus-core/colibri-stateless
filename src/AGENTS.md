@@ -36,6 +36,17 @@ Both prover and verifier depend on the chain modules, which register themselves 
 - `verifiers.h` -- dispatches verification to the correct chain module.
 - `provers.h` -- dispatches proof generation to the correct chain module.
 
+## Software quality — documentation
+
+When changing or adding code under `src/`, follow these documentation rules:
+
+- **Standardized function comments** — Every function (public API and internal helpers) must have a consistent `/** ... */` block: brief purpose, then `@param` for each parameter and `@return` for the return value (use `@return` with a short phrase even when the return type is `void` or `c4_status_t`, describing success/error semantics where relevant).
+- **Explain arguments and return values** — Do not restate the C type alone; say what the value means, valid ranges, ownership (`M_RET` / caller-frees), and error paths when non-obvious.
+- **Header vs. implementation** — Document **public functions once**: place the full `/** ... */` block **immediately above the prototype in the `.h` file**. In the matching `.c` file, **do not repeat** that API comment on the definition; use only brief `//` notes for non-obvious implementation details if needed. Functions **static** to a `.c` file (or otherwise not declared in a header) are documented **above the definition in that `.c` file** only.
+- **Specification-aligned comments are protected** — Many existing comments also document protocol or product specification (GitBook), including section markers `// :`, `// ::`, `// :::` and prose tied to the Colibri spec. **Do not change that wording** (rephrase, delete, or “fix” spec claims) **without explicit prior agreement** on the exact text to change. Implementation-only edits belong in separate comments or in `@param`/`@return` lines that describe code behavior, not spec policy.
+
+For project-wide comment style and doc generation, see the **Comments** and **Documentation Generation** sections in the root [AGENTS.md](../AGENTS.md).
+
 ## Chain Module Registration
 
 Chain modules are registered in their respective `CMakeLists.txt` using CMake functions defined in `chains/chains.cmake`:
