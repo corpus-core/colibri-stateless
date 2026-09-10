@@ -304,6 +304,7 @@ static void historical_root_write_done_cb(void* user_data, file_data_t* files, i
     log_info("period_store: wrote " C4_PS_HISTORICAL_ROOT_JSON " for period %l", ctx->period);
     // Remember latest period for which we have historical_summaries and trigger verification.
     latest_hist_period = ctx->period;
+    if (ctx->period > 0) c4_ps_schedule_verify_period(ctx->period, ctx->period - 1);
     if (c4_ps_backfill_done())
       c4_ps_schedule_verify_all_blocks_for_historical();
   }
@@ -339,6 +340,43 @@ static void fetch_historical_root_cb(client_t* client, void* data, data_request_
     c4_file_data_array_free(files, 1, 0);
     c4_request_free(r);
     safe_free(wctx);
+  }
+}
+
+void c4_ps_schedule_verify_period(uint64_t hist_period, uint64_t target_period) {
+  if (graceful_shutdown_in_progress) return;
+  if (!eth_config.period_store) return;
+  if (!c4_ps_file_exists(hist_period, C4_PS_HISTORICAL_ROOT_JSON)) return;
+  if (c4_ps_file_exists(target_period, C4_PS_BLOCKS_ROOT_BIN)) return;
+  if (!c4_ps_file_exists(target_period, C4_PS_BLOCKS_SSZ)) return;
+
+  const chain_spec_t* chain = c4_eth_get_chain_spec((chain_id_t) http_server.chain_id);
+  if (!chain || !chain->fork_epochs) return;
+
+  uint64_t offset_period = (uint64_t) (chain->fork_epochs[C4_FORK_BELLATRIX] >> chain->epochs_per_period_bits);
+  if (target_period < offset_period) return;
+
+  verify_blocks_ctx_t* ctx = (verify_blocks_ctx_t*) safe_calloc(1, sizeof(verify_blocks_ctx_t));
+  ctx->hist_period         = hist_period;
+  ctx->current_period      = target_period;
+  ctx->last_period         = target_period;
+  ctx->offset_period       = (uint32_t) offset_period;
+  ctx->json_buf            = (buffer_t) {0};
+
+  char*       dir  = c4_ps_ensure_period_dir(hist_period);
+  file_data_t f[1] = {0};
+  f[0].path        = bprintf(NULL, "%s/" C4_PS_HISTORICAL_ROOT_JSON, dir);
+  f[0].offset      = 0;
+  f[0].limit       = 0;
+  safe_free(dir);
+
+  int rc = c4_read_files_uv(ctx, verify_hist_json_read_cb, f, 1);
+  if (rc < 0) {
+    log_warn("period_store: scheduling " C4_PS_HISTORICAL_ROOT_JSON " read failed for hist_period %l target %l",
+             hist_period, target_period);
+    c4_file_data_array_free(f, 1, 0);
+    buffer_free(&ctx->json_buf);
+    safe_free(ctx);
   }
 }
 

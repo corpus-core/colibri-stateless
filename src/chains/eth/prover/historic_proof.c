@@ -118,6 +118,101 @@ c4_status_t c4_test_get_historical_summaries(prover_ctx_t* ctx, eth_block_t* blo
 }
 #endif
 
+static uint64_t sync_block_period(const syncdata_state_t* sync) {
+  return sync->block_period ? sync->block_period : sync->required_period;
+}
+
+static uint64_t sync_head_or_threshold(const syncdata_state_t* sync, uint64_t head_period) {
+  if (head_period) return head_period;
+  return sync->oldest_period ? sync->oldest_period : sync->post_sync_period;
+}
+
+static uint64_t lcu_fetch_start(const syncdata_state_t* sync) {
+  return sync->lcu_start_period ? sync->lcu_start_period : sync->newest_period;
+}
+
+bool c4_sync_has_period(const syncdata_state_t* sync, uint64_t period) {
+  if (!sync || !period) return false;
+  bool any = false;
+  for (int i = 0; i < MAX_SYNC_PERIODS; i++) {
+    if (!sync->periods[i]) continue;
+    any = true;
+    if ((uint64_t) sync->periods[i] == period) return true;
+  }
+  if (any) return false;
+  if (sync->oldest_period && period == sync->oldest_period) return true;
+  if (sync->newest_period && period == sync->newest_period) return true;
+  return false;
+}
+
+uint64_t c4_sync_best_anchor(const syncdata_state_t* sync, uint64_t block_period) {
+  if (!sync || !block_period) return 0;
+  uint64_t best = 0;
+  bool     any  = false;
+  for (int i = 0; i < MAX_SYNC_PERIODS; i++) {
+    uint64_t p = sync->periods[i];
+    if (!p) continue;
+    any = true;
+    if (p <= block_period && p > best) best = p;
+  }
+  if (any) return best;
+  if (sync->oldest_period && sync->oldest_period <= block_period) return sync->oldest_period;
+  return 0;
+}
+
+bool c4_needs_historic_direct(const syncdata_state_t* sync, uint64_t head_period, bool marker_ready) {
+  if (!sync || !marker_ready) return false;
+  uint64_t block_period = sync_block_period(sync);
+  if (!block_period) return false;
+  if (c4_sync_has_period(sync, block_period)) return false;
+  uint64_t threshold = sync_head_or_threshold(sync, head_period);
+  return threshold != 0 && block_period < threshold;
+}
+
+c4_historic_plan_t c4_plan_blockroot_proof(const syncdata_state_t* sync, uint64_t head_period, bool marker_ready,
+                                           uint64_t* out_required, uint64_t* out_lcu_start) {
+  uint64_t           block_period = sync ? sync_block_period(sync) : 0;
+  uint64_t           required     = block_period;
+  uint64_t           lcu_start    = 0;
+  c4_historic_plan_t plan         = C4_HISTORIC_PLAN_LCU_FORWARD;
+
+  if (!sync || !block_period) {
+    if (out_required) *out_required = required;
+    if (out_lcu_start) *out_lcu_start = 0;
+    return C4_HISTORIC_PLAN_SYNC_AGGREGATE;
+  }
+
+  if (c4_sync_has_period(sync, block_period)) {
+    plan = C4_HISTORIC_PLAN_SYNC_AGGREGATE;
+  }
+  else if (head_period && block_period >= head_period) {
+    plan = C4_HISTORIC_PLAN_LCU_FORWARD;
+  }
+  else if (c4_needs_historic_direct(sync, head_period, marker_ready)) {
+    uint64_t head = sync_head_or_threshold(sync, head_period);
+    if (head > required) required = head;
+    plan = C4_HISTORIC_PLAN_HISTORIC;
+  }
+  else {
+    uint64_t anchor = c4_sync_best_anchor(sync, block_period);
+    if (anchor && anchor < block_period) {
+      lcu_start = anchor;
+      plan      = C4_HISTORIC_PLAN_LCU_GAP;
+    }
+    else if ((sync->oldest_period && block_period < sync->oldest_period) ||
+             (!sync->oldest_period && sync->post_sync_period && block_period < sync->post_sync_period)) {
+      plan = C4_HISTORIC_PLAN_ERROR;
+    }
+    else {
+      plan = C4_HISTORIC_PLAN_LCU_FORWARD;
+    }
+  }
+
+  if (out_required) *out_required = required;
+  if (out_lcu_start) *out_lcu_start = lcu_start;
+  return plan;
+}
+
 static c4_status_t check_historic_proof_direct(prover_ctx_t* ctx, blockroot_proof_t* block_proof, eth_block_t* src_block) {
   uint64_t            slot          = src_block->slot;
   c4_status_t         status        = C4_SUCCESS;
@@ -137,10 +232,9 @@ static c4_status_t check_historic_proof_direct(prover_ctx_t* ctx, blockroot_proo
   // need the block's own, older sync committee (which the finalized-anchored CheckpointProof
   // cannot vouch for).
   if (!(ctx->flags & C4_PROVER_FLAG_CHAIN_STORE)) return C4_SUCCESS;
-  uint64_t state_period = block_proof->sync.post_sync_period ? block_proof->sync.post_sync_period : block_proof->sync.oldest_period; // the newest period the client will hold after syncing
-  uint64_t block_period = block_proof->sync.block_period ? block_proof->sync.block_period : block_proof->sync.required_period;       // the period of the target block
-  if (!state_period) return C4_SUCCESS;                                                                                              // the client does not have a state yet, so he might as well get the head and verify the block.
-  if (block_period >= state_period) return C4_SUCCESS;                                                                               // the target block is within the current range of the client
+  uint64_t block_period = block_proof->sync.block_period ? block_proof->sync.block_period : block_proof->sync.required_period;
+  if (!c4_needs_historic_direct(&block_proof->sync, block_proof->sync.head_period, block_proof->sync.marker_ready))
+    return C4_SUCCESS;
 
   // Historic-direct path: the actual sub-requests below are billed via their
   // respective helpers; this constant covers the server-side composition work
@@ -448,9 +542,11 @@ c4_status_t c4_fetch_client_updates(prover_ctx_t* ctx, uint64_t start_period, ui
 }
 
 static c4_status_t fetch_updates_data(prover_ctx_t* ctx, syncdata_state_t* sync_data, ssz_builder_t* updates) {
-  uint32_t count          = (uint32_t) (sync_data->required_period - sync_data->newest_period);
+  uint64_t start = lcu_fetch_start(sync_data);
+  if (sync_data->required_period <= start) return C4_SUCCESS;
+  uint32_t count          = (uint32_t) (sync_data->required_period - start);
   bytes_t  client_updates = {0};
-  TRY_ASYNC(c4_fetch_client_updates(ctx, sync_data->newest_period, count, &client_updates));
+  TRY_ASYNC(c4_fetch_client_updates(ctx, start, count, &client_updates));
 
   if (!updates) return C4_SUCCESS;
 
@@ -544,7 +640,7 @@ c4_status_t c4_get_syncdata_proof(prover_ctx_t* ctx, syncdata_state_t* sync_data
     safe_free(zk_proof.signatures.data);
     return C4_SUCCESS;
   }
-  if (sync_data->checkpoint_period == 0 && sync_data->required_period <= sync_data->newest_period) return C4_SUCCESS;
+  if (sync_data->checkpoint_period == 0 && sync_data->required_period <= lcu_fetch_start(sync_data)) return C4_SUCCESS;
 
   builder->def            = eth_ssz_verification_type(ETH_SSZ_VERIFY_LC_SYNCDATA);
   ssz_ob_t      bootstrap = {.def = &ssz_none};
@@ -566,8 +662,9 @@ c4_status_t c4_get_syncdata_proof(prover_ctx_t* ctx, syncdata_state_t* sync_data
     // Note: the chain spec is dereferenced inside the `if (chain && ...)` guard, not
     // before, so a missing spec (unsupported chain) skips the WSP path cleanly.
     const chain_spec_t* chain = c4_eth_get_chain_spec(ctx->chain_id);
-    if (chain && sync_data->required_period > sync_data->newest_period) {
-      uint64_t epoch_gap = ((uint64_t) (sync_data->required_period - sync_data->newest_period)) << chain->epochs_per_period_bits;
+    uint64_t            start = lcu_fetch_start(sync_data);
+    if (chain && sync_data->required_period > start) {
+      uint64_t epoch_gap = ((uint64_t) (sync_data->required_period - start)) << chain->epochs_per_period_bits;
       if (epoch_gap > chain->weak_subjectivity_epochs) {
         TRY_ASYNC(fetch_finalized_checkpoint_proof(ctx, &cp_ob));
         bootstrap = cp_ob;
@@ -577,13 +674,54 @@ c4_status_t c4_get_syncdata_proof(prover_ctx_t* ctx, syncdata_state_t* sync_data
 
   // After this point `cp_ob` may own heap memory; any early-return must `safe_free` it.
   // `fetch_updates_data` can return PENDING, so we cannot rely on TRY_ASYNC here.
-  if (sync_data->required_period > sync_data->newest_period)
+  if (sync_data->required_period > lcu_fetch_start(sync_data))
     TRY_ASYNC_CATCH(fetch_updates_data(ctx, sync_data, &updates), safe_free(cp_ob.bytes.data));
 
   ssz_add_ob(builder, "bootstrap", bootstrap);
   ssz_add_builders(builder, "update", updates);
   safe_free(cp_ob.bytes.data);
   return C4_SUCCESS;
+}
+
+static void load_client_periods(prover_ctx_t* ctx, syncdata_state_t* sync_data) {
+  c4_chain_state_t chain_state = c4_state_deserialize(ctx->client_state);
+  sync_data->status            = chain_state.status;
+  memset(sync_data->periods, 0, sizeof(sync_data->periods));
+  if (chain_state.status != C4_STATE_SYNC_PERIODS) return;
+  for (int i = 0; i < MAX_SYNC_PERIODS && chain_state.data.periods[i]; i++) {
+    uint32_t p            = chain_state.data.periods[i];
+    sync_data->periods[i] = p;
+    if (!sync_data->oldest_period || p < sync_data->oldest_period) sync_data->oldest_period = p;
+    if (!sync_data->newest_period || p > sync_data->newest_period) sync_data->newest_period = p;
+  }
+  if (!sync_data->post_sync_period) sync_data->post_sync_period = sync_data->newest_period;
+}
+
+static c4_status_t fetch_blocks_root_marker(prover_ctx_t* ctx, uint64_t block_period, bool* out_ready) {
+  *out_ready = false;
+  if (!block_period) return C4_SUCCESS;
+  char     path[128] = {0};
+  buffer_t buf       = stack_buffer(path);
+  bprintf(&buf, C4_PS_INTERNAL_PREFIX "%l/" C4_PS_BLOCKS_ROOT_BIN, block_period);
+  data_request_t* req = NULL;
+  c4_status_t     st  = c4_send_internal_request_no_throw(ctx, path, NULL, 0, &req);
+  if (st == C4_PENDING) return C4_PENDING;
+  *out_ready = (st == C4_SUCCESS && req && req->response.len == 32);
+  return C4_SUCCESS;
+}
+
+static c4_historic_plan_t apply_blockroot_plan(syncdata_state_t* sync, uint64_t head_period, bool marker_ready) {
+  uint64_t           required  = 0;
+  uint64_t           lcu_start = 0;
+  c4_historic_plan_t plan      = c4_plan_blockroot_proof(sync, head_period, marker_ready, &required, &lcu_start);
+  sync->head_period            = head_period;
+  sync->marker_ready           = marker_ready;
+  if (plan != C4_HISTORIC_PLAN_ERROR) {
+    if (required > sync->required_period) sync->required_period = required;
+    sync->lcu_start_period = lcu_start;
+    if (sync->required_period > sync->post_sync_period) sync->post_sync_period = sync->required_period;
+  }
+  return plan;
 }
 
 /**
@@ -594,8 +732,8 @@ static c4_status_t update_syncdata_state(prover_ctx_t* ctx, syncdata_state_t* sy
   zk_proof_data_t  zk_proof    = {0};
   c4_chain_state_t chain_state = c4_state_deserialize(ctx->client_state);
   sync_data->status            = chain_state.status;
-  sync_data->block_period      = sync_data->required_period;
-  sync_data->post_sync_period  = sync_data->oldest_period;
+  if (!sync_data->block_period) sync_data->block_period = sync_data->required_period;
+  if (!sync_data->post_sync_period) sync_data->post_sync_period = sync_data->oldest_period;
 
   switch (sync_data->status) {
     case C4_STATE_SYNC_EMPTY:
@@ -623,11 +761,14 @@ static c4_status_t update_syncdata_state(prover_ctx_t* ctx, syncdata_state_t* sy
       }
       return C4_SUCCESS;
     case C4_STATE_SYNC_PERIODS:
+      memset(sync_data->periods, 0, sizeof(sync_data->periods));
       for (int i = 0; i < MAX_SYNC_PERIODS && chain_state.data.periods[i]; i++) {
-        if (!sync_data->oldest_period || chain_state.data.periods[i] < sync_data->oldest_period) sync_data->oldest_period = chain_state.data.periods[i];
-        if (!sync_data->newest_period || chain_state.data.periods[i] > sync_data->newest_period) sync_data->newest_period = chain_state.data.periods[i];
+        uint32_t p            = chain_state.data.periods[i];
+        sync_data->periods[i] = p;
+        if (!sync_data->oldest_period || p < sync_data->oldest_period) sync_data->oldest_period = p;
+        if (!sync_data->newest_period || p > sync_data->newest_period) sync_data->newest_period = p;
       }
-      sync_data->post_sync_period = sync_data->newest_period;
+      if (!sync_data->post_sync_period) sync_data->post_sync_period = sync_data->newest_period;
       break;
     case C4_STATE_SYNC_CHECKPOINT: {
       if ((ctx->flags & C4_PROVER_FLAG_INCLUDE_SYNC) == 0) return C4_SUCCESS;
@@ -672,10 +813,18 @@ static c4_status_t update_syncdata_state(prover_ctx_t* ctx, syncdata_state_t* sy
     }
   }
 
-  // if there is a gap, fetch the light client updates
-  if ((ctx->flags & C4_PROVER_FLAG_ZK_PROOF) && (ctx->flags & C4_PROVER_FLAG_CHAIN_STORE) && sync_data->newest_period < sync_data->required_period)
+  if (sync_data->required_period > sync_data->post_sync_period)
+    sync_data->post_sync_period = sync_data->required_period;
+
+  // Prefetch LCUs / ZK for the *decided* required_period (head for historic,
+  // block period otherwise). Gap fallback uses `lcu_start_period` when the
+  // target is older than `newest_period`.
+  uint64_t lcu_start = lcu_fetch_start(sync_data);
+  if ((ctx->flags & C4_PROVER_FLAG_ZK_PROOF) && (ctx->flags & C4_PROVER_FLAG_CHAIN_STORE) &&
+      sync_data->newest_period && sync_data->newest_period < sync_data->required_period)
     return c4_fetch_zk_proof_data(ctx, &zk_proof, sync_data->required_period);
-  else if ((ctx->flags & C4_PROVER_FLAG_INCLUDE_SYNC) && sync_data->newest_period < sync_data->required_period)
+  else if ((ctx->flags & C4_PROVER_FLAG_INCLUDE_SYNC) && sync_data->newest_period &&
+           sync_data->required_period > lcu_start)
     return fetch_updates_data(ctx, sync_data, NULL);
   return C4_SUCCESS;
 }
@@ -687,19 +836,58 @@ c4_status_t c4_check_blockroot_proof(prover_ctx_t* ctx, blockroot_proof_t* block
   const chain_spec_t* chain = c4_eth_get_chain_spec(ctx->chain_id);
   if (!chain) THROW_ERROR("unsupported chain id!");
 
-  // set the periods in the sync daata
-  // we also allow pending requests here
-  block_proof->sync.required_period = max64(block_proof->sync.required_period, (uint64_t) (src_block->slot >> (chain->epochs_per_period_bits + chain->slots_per_epoch_bits)));
-  c4_status_t update_status         = update_syncdata_state(ctx, &block_proof->sync, chain);
+  uint64_t block_period = (uint64_t) (src_block->slot >> (chain->epochs_per_period_bits + chain->slots_per_epoch_bits));
+  if (!block_proof->sync.block_period) block_proof->sync.block_period = block_period;
+  block_proof->sync.required_period = max64(block_proof->sync.required_period, block_period);
 
-  // we continue, if only light_clientupdates are pending, but we wait for checkpoints, since we need to make decisions based on the checkpoint period.
-  if (update_status == C4_ERROR || (update_status == C4_PENDING && block_proof->sync.checkpoint && !block_proof->sync.checkpoint_period)) return update_status;
+  load_client_periods(ctx, &block_proof->sync);
 
-  // should we use historic summaries?
+  bool        decided       = false;
+  c4_status_t update_status = C4_SUCCESS;
+
+  // Empty / checkpoint-only clients need ZK or bootstrap before we can decide.
+  if (block_proof->sync.status == C4_STATE_SYNC_EMPTY ||
+      (block_proof->sync.status == C4_STATE_SYNC_CHECKPOINT && !block_proof->sync.checkpoint_period)) {
+    update_status = update_syncdata_state(ctx, &block_proof->sync, chain);
+    if (update_status == C4_ERROR ||
+        (update_status == C4_PENDING && block_proof->sync.checkpoint && !block_proof->sync.checkpoint_period))
+      return update_status;
+  }
+
+  if ((ctx->flags & C4_PROVER_FLAG_CHAIN_STORE) &&
+      (block_proof->sync.status == C4_STATE_SYNC_PERIODS || block_proof->sync.checkpoint_period ||
+       block_proof->sync.post_sync_period)) {
+    uint64_t B = block_proof->sync.block_period;
+    // Client already has B: SyncAggregate, no head/marker round-trip.
+    if (c4_sync_has_period(&block_proof->sync, B)) {
+      decided = true;
+    }
+    else {
+      eth_block_t latest = {0};
+      TRY_ASYNC(c4_beacon_get_block_for_eth(ctx, json_parse("\"latest\""), &latest));
+      uint64_t head_period = (uint64_t) (latest.slot >> (chain->epochs_per_period_bits + chain->slots_per_epoch_bits));
+      bool     marker      = false;
+      if (!head_period || B < head_period)
+        TRY_ASYNC(fetch_blocks_root_marker(ctx, B, &marker));
+      if (apply_blockroot_plan(&block_proof->sync, head_period, marker) == C4_HISTORIC_PLAN_ERROR)
+        THROW_ERROR_WITH("historic proof not ready for period %l (blocks_root.bin missing and no client committee at or before the block)", B);
+      decided = true;
+    }
+  }
+
+  // Prefetch LCUs / ZK for the decided required_period, in parallel with historic requests.
+  if (block_proof->sync.status == C4_STATE_SYNC_PERIODS ||
+      (block_proof->sync.status == C4_STATE_SYNC_CHECKPOINT && block_proof->sync.checkpoint_period) ||
+      !decided) {
+    update_status = update_syncdata_state(ctx, &block_proof->sync, chain);
+    if (update_status == C4_ERROR ||
+        (update_status == C4_PENDING && block_proof->sync.checkpoint && !block_proof->sync.checkpoint_period))
+      return update_status;
+  }
+
   TRY_ASYNC(check_historic_proof_direct(ctx, block_proof, src_block));
   if (block_proof->historic_proof.len) return update_status;
 
-  // no proof means we use the current, but do we we need headers-proof?
   TRY_ASYNC(check_historic_proof_header(ctx, block_proof, src_block));
   return update_status;
 }

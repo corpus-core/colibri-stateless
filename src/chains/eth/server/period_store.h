@@ -33,6 +33,17 @@ typedef struct {
 } block_t;
 
 void     c4_ps_schedule_verify_all_blocks_for_historical();
+/**
+ * Verifies `blocks.ssz` of `target_period` against `historical_root.json` of
+ * `hist_period` and writes `blocks_root.bin` on match.
+ *
+ * Used on period change to close `H-1` as soon as summaries for the new head
+ * period exist, without waiting for a full `backfill_done()` sweep.
+ *
+ * @param hist_period period directory that holds `historical_root.json` (usually `H`)
+ * @param target_period completed period to verify (usually `H-1`)
+ */
+void     c4_ps_schedule_verify_period(uint64_t hist_period, uint64_t target_period);
 bool     c4_ps_backfill_done();
 uint64_t c4_ps_backfill_start_slot();
 void     c4_ps_set_block(block_t* block, bool run_backfill);

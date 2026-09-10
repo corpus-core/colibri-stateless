@@ -33,6 +33,7 @@ extern "C" {
 #include "prover.h"
 #include "ssz.h"
 #include "sync_committee.h"
+#include <stdbool.h>
 
 typedef enum {
   HISTORIC_PROOF_NONE   = 0,
@@ -40,15 +41,27 @@ typedef enum {
   HISTORIC_PROOF_HEADER = 2,
 } historic_proof_type_t;
 
+typedef enum {
+  C4_HISTORIC_PLAN_SYNC_AGGREGATE = 0, /**< client already has the block period */
+  C4_HISTORIC_PLAN_HISTORIC       = 1, /**< historical_summaries from head; LCUs only newest → head */
+  C4_HISTORIC_PLAN_LCU_FORWARD    = 2, /**< block in/after head period: LCU newest → block */
+  C4_HISTORIC_PLAN_LCU_GAP        = 3, /**< no verified marker: LCU fallback from an older client period */
+  C4_HISTORIC_PLAN_ERROR          = 4  /**< block older than every client period and historic is not ready */
+} c4_historic_plan_t;
+
 typedef struct {
   uint8_t*             checkpoint;        // if no ZERO, the checkpoint used by the verifier
   uint64_t             checkpoint_period; // the period extracted from the bootstrap
-  uint64_t             required_period;   // latest_period  required
-  uint64_t             oldest_period;     // current period used by the the verifier
-  uint64_t             newest_period;     // current period used by the the verifier
-  uint64_t             block_period;      // the period of the target block
-  uint64_t             post_sync_period;  // the period of the target block after the sync period
-  c4_state_sync_type_t status;            // the status of the
+  uint64_t             required_period;   // period the client must reach (head for historic, else block)
+  uint64_t             oldest_period;     // oldest stored client sync-committee period
+  uint64_t             newest_period;     // newest stored client sync-committee period
+  uint64_t             block_period;      // period of the target block (never overwritten by required)
+  uint64_t             post_sync_period;  // committee the client will have after attached LCUs / ZK
+  uint64_t             head_period;       // period of beacon `latest` (0 if unknown)
+  uint64_t             lcu_start_period;  // if set, fetch LCUs from this period instead of newest
+  uint32_t             periods[MAX_SYNC_PERIODS];
+  bool                 marker_ready; // `blocks_root.bin` present for `block_period`
+  c4_state_sync_type_t status;
 
 } syncdata_state_t;
 
@@ -84,6 +97,77 @@ typedef struct {
  * @return The status of the check
  */
 c4_status_t c4_check_blockroot_proof(prover_ctx_t* ctx, blockroot_proof_t* block_proof, eth_block_t* block);
+
+/**
+ * Returns whether the client already stores `period` in `sync->periods`.
+ *
+ * When `periods[]` is empty, `oldest_period` and `newest_period` are treated
+ * as the only known members (partially filled structs in tests / prefetch).
+ *
+ * @param sync populated sync-data state
+ * @param period sync-committee period to look up
+ * @return true if the client has keys for `period`
+ */
+bool c4_sync_has_period(const syncdata_state_t* sync, uint64_t period);
+
+/**
+ * Returns `max { p ∈ client periods | p ≤ block_period }`, or `0` if none.
+ *
+ * Used as the LCU start when historic-direct is not ready (`blocks_root.bin`
+ * missing) and the client still has an older committee that can walk forward
+ * to the target block.
+ *
+ * @param sync populated sync-data state
+ * @param block_period target block's sync-committee period
+ * @return best client period `≤ block_period`, or `0`
+ */
+uint64_t c4_sync_best_anchor(const syncdata_state_t* sync, uint64_t block_period);
+
+/**
+ * Returns whether a historic-direct (`historical_summaries`) proof should be built.
+ *
+ * Historic-direct is used when the client does **not** have the block's own
+ * committee, the block sits in a **completed** period (`block < head`), and
+ * `period_store/<B>/blocks_root.bin` is present so `blocks.ssz` matches
+ * `hash_tree_root(state.block_roots)`.
+ *
+ * A client that already stores the block period (e.g. `{1852, 1853}` proving
+ * a finalized block in 1852) must use that committee's SyncAggregate. A hole
+ * in the middle (`{1850, 1853}` proving 1852) **does** use historic when the
+ * marker is ready -- that is cheaper than LCUs for the gap, and the proof
+ * anchors at `latest` (head committee).
+ *
+ * `head_period == 0` falls back to `oldest_period ?: post_sync_period` so an
+ * empty client about to install a ZK/bootstrap committee still requests
+ * historical_summaries for a strictly older block.
+ *
+ * @param sync populated sync-data state (periods + target block period)
+ * @param head_period period of beacon `latest`, or `0` if not fetched yet
+ * @param marker_ready true if `blocks_root.bin` for the target period exists
+ * @return true if `check_historic_proof_direct` should build a proof
+ */
+bool c4_needs_historic_direct(const syncdata_state_t* sync, uint64_t head_period, bool marker_ready);
+
+/**
+ * Decides how to prove the target block root and which LCUs to attach.
+ *
+ * | Plan | When | `required` | LCU start |
+ * |------|------|------------|-----------|
+ * | `SYNC_AGGREGATE` | client has `B` | `B` | none |
+ * | `HISTORIC` | `B ∉ P`, `B < H`, marker ready | `H` | `newest` (if `newest < H`) |
+ * | `LCU_FORWARD` | `B ∉ P`, `B ≥ H` | `B` | `newest` |
+ * | `LCU_GAP` | `B ∉ P`, `B < H`, no marker, anchor `≤ B` | `B` | `anchor` |
+ * | `ERROR` | `B` older than every client period and no historic | — | — |
+ *
+ * @param sync populated sync-data state
+ * @param head_period period of beacon `latest`, or `0` if unknown
+ * @param marker_ready true if `blocks_root.bin` for the target period exists
+ * @param out_required period the client must reach (may be NULL)
+ * @param out_lcu_start if non-zero, fetch LCUs from this period instead of `newest` (may be NULL)
+ * @return selected plan
+ */
+c4_historic_plan_t c4_plan_blockroot_proof(const syncdata_state_t* sync, uint64_t head_period, bool marker_ready,
+                                           uint64_t* out_required, uint64_t* out_lcu_start);
 
 c4_status_t c4_get_syncdata_proof(prover_ctx_t* ctx, syncdata_state_t* sync_data, ssz_builder_t* builder);
 void        ssz_add_header_proof(ssz_builder_t* builder, eth_block_t* block_data, blockroot_proof_t block_proof);

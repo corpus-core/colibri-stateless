@@ -36,6 +36,7 @@
 
 const ssz_def_t ELECTRA_LIGHT_CLIENT_BOOTSTRAP_CONTAINER = SSZ_CONTAINER("LightClientBootstrap", ELECTRA_LIGHT_CLIENT_BOOTSTRAP);
 const ssz_def_t GLOAS_LIGHT_CLIENT_BOOTSTRAP_CONTAINER   = SSZ_CONTAINER("LightClientBootstrap", GLOAS_LIGHT_CLIENT_BOOTSTRAP);
+const ssz_def_t BLOCK_ROOTS                              = SSZ_VECTOR("roots", ssz_bytes32, 8192);
 
 const ssz_def_t* get_definition(char* typename, chain_id_t chain_id) {
   if (strcmp(typename, "signedblock") == 0) return eth_ssz_type_for_fork(ETH_SSZ_SIGNED_BEACON_BLOCK_CONTAINER, C4_FORK_ELECTRA, chain_id);
@@ -46,6 +47,7 @@ const ssz_def_t* get_definition(char* typename, chain_id_t chain_id) {
   if (strcmp(typename, "txcache") == 0) return &PAP_TX_CACHE_SNAPSHOT;
   if (strcmp(typename, "txpending") == 0) return &PAP_PENDING_TX_LIST;
   if (strcmp(typename, "headers") == 0) return c4_header_cache_snapshot_def();
+  if (strcmp(typename, "blockroots") == 0) return &BLOCK_ROOTS;
   fprintf(stderr, "Unknown type : %s \n", typename);
   exit(EXIT_FAILURE);
 }
