@@ -655,9 +655,13 @@ echo \"Combined library created at: ${OUTPUT_DIRECTORY}/libc4.a\"
 endif()
 
 
-# Shared library if requested and not embedded
+# Shared library if requested and not embedded.
+# Compile colibri.c / colibri_common.c into the SHARED target itself: linking
+# the static `api`/`api_ffi` archives without WHOLE_ARCHIVE would drop the
+# exported `c4_*` symbols under --gc-sections.
 if(SHAREDLIB AND NOT EMBEDDED)
-    add_library(c4 SHARED src/util/version.c bindings/colibri.c bindings/colibri_common.c)
+    add_library(c4 SHARED src/util/version.c src/api/colibri.c src/api/colibri_common.c)
+    target_include_directories(c4 PRIVATE ${CMAKE_SOURCE_DIR}/src/api)
     target_link_libraries(c4 PRIVATE crypto verifier util blst  prover    verifier eth_verifier)
     set_target_properties(c4 PROPERTIES
         LIBRARY_OUTPUT_DIRECTORY ${OUTPUT_DIRECTORY}

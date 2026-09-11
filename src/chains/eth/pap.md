@@ -69,7 +69,7 @@ flowchart TB
 | `colibri_proofCall` | [`src/chains/eth/prover/proof_call.c`](https://github.com/corpus-core/colibri-stateless/blob/dev/src/chains/eth/prover/proof_call.c) |
 | Bloom variants | [`src/chains/eth/verifier/eth_bloom.c`](https://github.com/corpus-core/colibri-stateless/blob/dev/src/chains/eth/verifier/eth_bloom.c) |
 | Local log filter | [`src/chains/eth/verifier/verify_logs_proof.c`](https://github.com/corpus-core/colibri-stateless/blob/dev/src/chains/eth/verifier/verify_logs_proof.c) |
-| Hybrid routing | [`bindings/colibri_common.c`](https://github.com/corpus-core/colibri-stateless/blob/dev/bindings/colibri_common.c) |
+| Hybrid routing | [`src/api/colibri_common.c`](https://github.com/corpus-core/colibri-stateless/blob/dev/src/api/colibri_common.c) |
 
 ## Privacy model
 
@@ -117,7 +117,7 @@ The provider only sees `eth_getProof`. Contract bytecode for calls is cached und
 3. After execution, unverified slots are proven with [`colibri_proofCall`](https://github.com/corpus-core/colibri-stateless/blob/dev/src/chains/eth/prover/proof_call.c#L295), which takes the **already observed** access list. Nobody sees `eth_createAccessList` or the original calldata.
 4. If a proven value differs from the cache, the EVM is re-run.
 
-In **hybrid** mode `colibri_proofCall` is not remote-delegated ([`c4_is_remote_delegated_prover_method`](https://github.com/corpus-core/colibri-stateless/blob/dev/bindings/colibri_common.c#L646) only forwards block-header methods). The local sub-prover turns the access list into `eth_getProof` RPCs ([`c4_get_eth_proofs`](https://github.com/corpus-core/colibri-stateless/blob/dev/src/chains/eth/prover/proof_call.c#L211)); with oblivious nodes those go through TEE/ORAM. The remote prover therefore never sees the access list — only a header proof. In **remote** mode the same `colibri_proofCall` is posted to the server, so that server *does* see which slots were read.
+In **hybrid** mode `colibri_proofCall` is not remote-delegated ([`c4_is_remote_delegated_prover_method`](https://github.com/corpus-core/colibri-stateless/blob/dev/src/api/colibri_common.c#L646) only forwards block-header methods). The local sub-prover turns the access list into `eth_getProof` RPCs ([`c4_get_eth_proofs`](https://github.com/corpus-core/colibri-stateless/blob/dev/src/chains/eth/prover/proof_call.c#L211)); with oblivious nodes those go through TEE/ORAM. The remote prover therefore never sees the access list — only a header proof. In **remote** mode the same `colibri_proofCall` is posted to the server, so that server *does* see which slots were read.
 
 **Not in basic**: dummy storage slots mixed into `colibri_proofCall`.
 

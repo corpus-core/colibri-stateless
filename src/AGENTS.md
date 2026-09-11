@@ -13,11 +13,12 @@ This directory contains the core C implementation of Colibri Stateless. All modu
 | Utilities | `util/` | SSZ, bytes, state machine, crypto, JSON, logging. See [util/AGENTS.md](util/AGENTS.md) |
 | Server | `server/` | HTTP prover server (libuv/llhttp). See [server/AGENTS.md](server/AGENTS.md) |
 | CLI | `cli/` | Command-line tools (prover, verifier, ssz) |
+| Host API | `api/` | Public C FFI (`colibri.h`) and unified RPC context (`colibri_common.h`) |
 
 ## Dependency Graph
 
 ```
-  cli/          server/          bindings/colibri.h
+  cli/          server/          api/colibri.h
    │               │                    │
    ▼               ▼                    ▼
   prover/ ◄──────────────────────► verifier/
@@ -82,11 +83,12 @@ All tools read `c4_config.json` (or `C4_CONFIG` env var) for RPC/Beacon API endp
 
 ### Source Modules (auto-generated)
 
-- `chains/` -- 109 .c, 46 .h files
-- `cli/` -- 3 .c, 1 .h files
+- `api/` -- 2 .c, 2 .h files
+- `chains/` -- 102 .c, 50 .h files
+- `cli/` -- 3 .c, 2 .h files
 - `prover/` -- 1 .c, 1 .h files
 - `server/` -- 21 .c, 5 .h files
-- `util/` -- 14 .c, 15 .h files
+- `util/` -- 13 .c, 14 .h files
 - `verifier/` -- 1 .c, 1 .h files
 
 <!-- AUTO:SRC_MODULE_INDEX:END -->

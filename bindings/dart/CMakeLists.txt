@@ -9,7 +9,7 @@ if(NOT EXISTS "${CMAKE_SOURCE_DIR}/src/prover/prover.h")
     "  cmake --build build-dart --target colibri_dart")
 endif()
 
-include_directories(${CMAKE_SOURCE_DIR}/bindings)
+include_directories(${CMAKE_SOURCE_DIR}/src/api)
 include_directories(${CMAKE_SOURCE_DIR}/src/util)
 include_directories(${CMAKE_SOURCE_DIR}/src/prover)
 include_directories(${CMAKE_SOURCE_DIR}/src/verifier)
@@ -17,8 +17,6 @@ include_directories(${CMAKE_SOURCE_DIR}/src/verifier)
 file(MAKE_DIRECTORY ${CMAKE_SOURCE_DIR}/bindings/dart/native)
 
 add_library(colibri_dart SHARED
-    ../colibri.c
-    ../colibri_common.c
     force_link.c
 )
 
@@ -32,6 +30,7 @@ endif()
 
 target_link_libraries(colibri_dart
     PRIVATE
+    api_ffi
     util
     prover
     verifier

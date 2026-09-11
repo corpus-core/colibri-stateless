@@ -3,7 +3,7 @@
 //!
 //! The C core prints request pointers as decimal strings and
 //! `exclude_mask` as a numeric string (see
-//! `bindings/colibri_common.c::c4i_add_data_request`); we deserialise
+//! `src/api/colibri_common.c::c4i_add_data_request`); we deserialise
 //! them into `u64` / `u32` via custom visitors.
 
 use serde::de::{self, Deserializer};
@@ -151,7 +151,7 @@ pub enum Status {
 impl Status {
     /// Parse a JSON status blob emitted by the C core. The blob has one
     /// of three shapes; see
-    /// `bindings/colibri_common.c::c4i_build_verifier_json_status`.
+    /// `src/api/colibri_common.c::c4i_build_verifier_json_status`.
     pub fn parse(json: &str) -> Result<Self, serde_json::Error> {
         #[derive(Deserialize)]
         struct Raw {

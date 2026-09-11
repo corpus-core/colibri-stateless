@@ -16,13 +16,11 @@ find_package(pybind11 REQUIRED PATHS ${pybind11_DIR})
 # Create the pybind11 module with both C++ and C sources
 pybind11_add_module(_native 
     src/bindings.cpp
-    ${CMAKE_SOURCE_DIR}/bindings/colibri.c
-    ${CMAKE_SOURCE_DIR}/bindings/colibri_common.c
 )
 
 # Include directories for bindings (only generic APIs, no chain-specific headers)
 target_include_directories(_native PRIVATE
-    ${CMAKE_SOURCE_DIR}/bindings
+    ${CMAKE_SOURCE_DIR}/src/api
     ${CMAKE_SOURCE_DIR}/src/util
     ${CMAKE_SOURCE_DIR}/src/prover
     ${CMAKE_SOURCE_DIR}/src/verifier
@@ -31,6 +29,7 @@ target_include_directories(_native PRIVATE
 # Link main functionality libraries into the Python module
 # CMake will automatically resolve all dependencies (eth_verifier, eth_prover, crypto, etc.)
 target_link_libraries(_native PRIVATE
+    api_ffi
     verifier
     prover
     eth_verifier
@@ -97,7 +96,7 @@ add_custom_command(TARGET _native POST_BUILD
 )
 
 # Add dependencies to ensure proper build order
-add_dependencies(_native verifier prover)
+add_dependencies(_native verifier prover api_ffi)
 
 # Debug info
 message(STATUS "Python bindings configured:")

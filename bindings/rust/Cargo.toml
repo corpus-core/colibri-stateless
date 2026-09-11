@@ -38,7 +38,6 @@ async-trait = "0.1"
 
 [build-dependencies]
 cmake = "0.1"
-cc = "1"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

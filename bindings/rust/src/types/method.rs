@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 /// Support level returned by [`c4_get_method_support`] for an RPC method.
 ///
 /// The values match the underlying `c4_method_type_t` enum in the C core
-/// (see `bindings/colibri.h`).
+/// (see `src/api/colibri.h`).
 ///
 /// [`c4_get_method_support`]: crate::ffi::c4_get_method_support
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]

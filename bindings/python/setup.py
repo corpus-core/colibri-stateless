@@ -66,7 +66,7 @@ if not native_extension_exists:
                     "src/bindings.cpp",
                 ],
                 include_dirs=[
-                    str(project_root / "bindings"),
+                    str(project_root / "src/api"),
                     str(project_root / "src/util"),
                     str(project_root / "src/prover"),
                     str(project_root / "src/verifier"),

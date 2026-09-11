@@ -21,7 +21,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "../colibri_common.h"
+#include "colibri_common.h"
 #include "plugin.h"
 #include "sync_committee.h"
 #include "version.h"

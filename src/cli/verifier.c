@@ -21,7 +21,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "../../bindings/colibri_common.h"
+#include "colibri_common.h"
 #include "beacon.h"
 #include "beacon_types.h"
 #include "bytes.h"

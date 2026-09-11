@@ -52,14 +52,14 @@ foreach(test_source ${TEST_SOURCES})
     get_filename_component(test_name ${test_source} NAME_WE)
 
     # Erstelle eine ausführbare Datei für den Test
-    add_executable(${test_name} ${test_source} ../../bindings/colibri.c ../../bindings/colibri_common.c)
+    add_executable(${test_name} ${test_source})
 
     # Füge die Include-Verzeichnisse hinzu
     target_include_directories(${test_name} PRIVATE ${TEST_INCLUDES})
 
 
     # Verknüpfe die Testausführbare mit Unity und deinem Code
-    target_link_libraries(${test_name} PRIVATE unity verifier prover eth_verifier eth_prover)
+    target_link_libraries(${test_name} PRIVATE unity api verifier prover eth_verifier eth_prover)
 
     # The eth chain module sets USE_CHECKPOINTZ via directory-scoped add_definitions,
     # which does NOT propagate to consumers. Tests that include eth verifier headers

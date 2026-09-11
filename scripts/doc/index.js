@@ -48,7 +48,7 @@ const doc_files = [
     "util/ssz.h",
     "util/crypto.h",
     "util/state.h",
-    "../bindings/colibri.h",
+    "api/colibri.h",
     "server/API.md",
 
 ]

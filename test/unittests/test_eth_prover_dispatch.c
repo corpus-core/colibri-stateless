@@ -17,7 +17,7 @@
  * through to the "Unsupported method" branch.
  */
 
-#include "../../bindings/colibri_common.h"
+#include "colibri_common.h"
 #include "json.h"
 #include "prover.h"
 #include "state.h"

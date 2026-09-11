@@ -1,9 +1,9 @@
 // Build script for the `colibri-stateless` crate.
 //
 // The crate needs a set of native static libraries produced from the C
-// code in `bindings/colibri.c` + `bindings/colibri_common.c` and the
-// core Colibri libraries (verifier, prover, chain modules, third-party
-// crypto). This script covers three scenarios:
+// code in `src/api/` (`api` + `api_ffi`) and the core Colibri libraries
+// (verifier, prover, chain modules, third-party crypto). This script
+// covers three scenarios:
 //
 // 1. `COLIBRI_LIB_DIR` env var: skip building and link statically
 //    against the archives already present in that directory. Used by
@@ -69,9 +69,9 @@ fn main() {
 fn emit_source_rerun_hints(repo_root: &Path) {
     for rel in [
         "CMakeLists.txt",
-        "bindings/colibri.c",
-        "bindings/colibri_common.c",
-        "bindings/colibri.h",
+        "src/api/colibri.c",
+        "src/api/colibri_common.c",
+        "src/api/colibri.h",
         "src",
         "libs/crypto",
     ] {
@@ -128,7 +128,7 @@ fn resolve_link_setup(manifest_dir: &Path, target: &str) -> LinkSetup {
         .and_then(Path::parent)
         .map(Path::to_path_buf);
     if let Some(root) = repo_root.as_ref() {
-        if root.join("CMakeLists.txt").exists() && root.join("bindings/colibri.c").exists() {
+        if root.join("CMakeLists.txt").exists() && root.join("src/api/colibri.c").exists() {
             return build_with_cmake(root, target);
         }
     }
@@ -200,6 +200,7 @@ fn build_with_cmake(repo_root: &Path, target: &str) -> LinkSetup {
         "eth_prover",
         "op_verifier",
         "op_prover",
+        "api_ffi",
     ];
     for tgt in extra_targets {
         // Use raw `cmake --build <dir> --target <t>` so we don't reset
@@ -222,25 +223,15 @@ fn build_with_cmake(repo_root: &Path, target: &str) -> LinkSetup {
         }
     }
 
-    // Compile `bindings/colibri.c` + `colibri_common.c` here so the
-    // `.o` files live inside the crate's build output (avoids polluting
-    // the shared CMake tree). The archive we produce is called
-    // `libcolibri_wrapper.a` and is linked BEFORE all the deep
-    // dependencies so that `c4_create_*_ctx` etc. resolve into our
-    // wrapper first.
-    let wrapper_out = compile_wrapper(repo_root, &dst);
-    let mut search_paths = vec![wrapper_out];
-
-    // Now discover every static archive under the build dir. We link
-    // them all -- macOS/BSD `ld` and GNU `ld --start-group` both
-    // handle the resulting order-independence for us.
-    let mut static_libs: Vec<String> = vec!["colibri_wrapper".into()];
+    // Discover every static archive under the build dir, including
+    // `libapi.a` / `libapi_ffi.a` from `src/api`. We link them all --
+    // macOS/BSD `ld` and GNU `ld --start-group` both handle the
+    // resulting order-independence for us.
+    let mut search_paths = Vec::new();
+    let mut static_libs: Vec<String> = Vec::new();
     let archives = find_static_archives(&build_dir, target);
     for archive in archives {
         let name = archive_lib_name(&archive, target);
-        if name == "colibri_wrapper" {
-            continue;
-        }
         let dir = archive
             .parent()
             .expect("archive path should have parent")
@@ -257,39 +248,6 @@ fn build_with_cmake(repo_root: &Path, target: &str) -> LinkSetup {
         search_paths,
         static_libs,
     }
-}
-
-/// Compile the two bindings wrappers with the `cc` crate. Returns the
-/// directory containing the resulting `libcolibri_wrapper.a`.
-fn compile_wrapper(repo_root: &Path, dst: &Path) -> PathBuf {
-    let mut build = cc::Build::new();
-    build
-        .file(repo_root.join("bindings/colibri.c"))
-        .file(repo_root.join("bindings/colibri_common.c"))
-        .include(repo_root.join("bindings"))
-        .include(repo_root.join("src/util"))
-        .include(repo_root.join("src/prover"))
-        .include(repo_root.join("src/verifier"))
-        .include(repo_root.join("src/chains"))
-        .include(repo_root.join("src/chains/eth"))
-        .include(repo_root.join("src/chains/eth/ssz"))
-        .include(repo_root.join("src/chains/eth/verifier"))
-        .include(repo_root.join("libs/crypto"))
-        // The generated dispatcher headers `verifiers.h` / `provers.h`
-        // and `version.h` live in the CMake build directory root.
-        .include(dst.join("build"));
-    // Match core defines used by the CMake build.
-    build.define("CHAIN_ETH", None);
-    build.define("CHAIN_OP", None);
-    build.define("VERIFIER", None);
-    build.define("PROVER", None);
-    // Must match CMake `option(PROVER_CACHE)` (default ON). The wrapper itself
-    // no longer calls into the cache, but keep the define consistent so any
-    // `#ifdef PROVER_CACHE` in the bindings sources agrees with libprover.a.
-    build.define("PROVER_CACHE", None);
-    build.compile("colibri_wrapper");
-    // `cc` places the archive into $OUT_DIR by default.
-    PathBuf::from(env::var("OUT_DIR").unwrap())
 }
 
 fn find_static_archives(root: &Path, target: &str) -> Vec<PathBuf> {

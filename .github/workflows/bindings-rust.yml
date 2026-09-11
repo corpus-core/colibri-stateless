@@ -188,19 +188,16 @@ jobs:
 
           find "$BUILD_DIR" -name '*.a' -exec cp {} native-out/${{ matrix.target }}/lib/ \;
 
-          # The unified-RPC wrapper (bindings/colibri.c) is compiled by the
-          # cc crate inside build.rs, so its archive lives in cargo's
-          # OUT_DIR, not in the CMake tree. Without it the published crate
-          # fails to link (c4_rpc_* symbols missing).
-          WRAPPER=$(find target/${{ matrix.target }}/release/build -name 'libcolibri_wrapper.a' | head -1)
-          if [ -z "$WRAPPER" ]; then
-            echo "libcolibri_wrapper.a not found under target/${{ matrix.target }}/release/build"
+          # `src/api` (`libapi.a` + `libapi_ffi.a`) is part of the CMake
+          # tree; the published crate needs those archives for `c4_rpc_*`.
+          if ! ls native-out/${{ matrix.target }}/lib/libapi.a native-out/${{ matrix.target }}/lib/libapi_ffi.a >/dev/null 2>&1; then
+            echo "libapi.a / libapi_ffi.a not found under native-out/${{ matrix.target }}/lib"
+            ls -la native-out/${{ matrix.target }}/lib || true
             exit 1
           fi
-          cp "$WRAPPER" native-out/${{ matrix.target }}/lib/
 
-          cp ../colibri.h native-out/${{ matrix.target }}/include/
-          cp ../colibri_common.h native-out/${{ matrix.target }}/include/ 2>/dev/null || true
+          cp ../../src/api/colibri.h native-out/${{ matrix.target }}/include/
+          cp ../../src/api/colibri_common.h native-out/${{ matrix.target }}/include/
 
           tar -czf ${{ matrix.asset }} -C native-out/${{ matrix.target }} .
 
@@ -233,19 +230,17 @@ jobs:
           Get-ChildItem -Path $buildDir -Recurse -Include *.lib,*.a `
             | ForEach-Object { Copy-Item $_.FullName "$out/lib/" }
 
-          # The unified-RPC wrapper (bindings/colibri.c) is compiled by the
-          # cc crate inside build.rs, so its archive lives in cargo's
-          # OUT_DIR, not in the CMake tree.
-          $wrapper = Get-ChildItem -Path "target/$target/release/build" -Recurse `
-            -Include colibri_wrapper.lib,libcolibri_wrapper.a | Select-Object -First 1
-          if (-not $wrapper) {
-            Write-Host "colibri_wrapper archive not found under target/$target/release/build"
+          # `src/api` (`api.lib` + `api_ffi.lib`) is part of the CMake tree.
+          $apiOk = (Test-Path "$out/lib/api.lib") -or (Test-Path "$out/lib/libapi.a")
+          $ffiOk = (Test-Path "$out/lib/api_ffi.lib") -or (Test-Path "$out/lib/libapi_ffi.a")
+          if (-not ($apiOk -and $ffiOk)) {
+            Write-Host "api / api_ffi archive not found under $out/lib"
+            Get-ChildItem "$out/lib" | ForEach-Object { Write-Host $_.Name }
             exit 1
           }
-          Copy-Item $wrapper.FullName "$out/lib/"
 
-          Copy-Item "../colibri.h"        "$out/include/"
-          Copy-Item "../colibri_common.h" "$out/include/" -ErrorAction SilentlyContinue
+          Copy-Item "../../src/api/colibri.h"        "$out/include/"
+          Copy-Item "../../src/api/colibri_common.h" "$out/include/"
 
           tar -czf "${{ matrix.asset }}" -C $out .
 
