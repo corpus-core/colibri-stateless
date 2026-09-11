@@ -58,8 +58,16 @@ foreach(test_source ${TEST_SOURCES})
     target_include_directories(${test_name} PRIVATE ${TEST_INCLUDES})
 
 
-    # Verknüpfe die Testausführbare mit Unity und deinem Code
-    target_link_libraries(${test_name} PRIVATE unity api verifier prover eth_verifier eth_prover)
+    # GNU ld does not rescan static archives. Chain modules call back into
+    # `verifier`/`prover`; tests that never reference `libapi` no longer pull
+    # `colibri_common.o` into the executable (it used to be compiled as a
+    # source file of every test). `--start-group` keeps scanning until the
+    # cycle resolves. ld64 (macOS) and MSVC already rescan, so they skip this.
+    target_link_libraries(${test_name} PRIVATE unity)
+    if(UNIX AND NOT APPLE)
+        target_link_libraries(${test_name} PRIVATE "-Wl,--start-group")
+    endif()
+    target_link_libraries(${test_name} PRIVATE api verifier prover eth_verifier eth_prover)
 
     # The eth chain module sets USE_CHECKPOINTZ via directory-scoped add_definitions,
     # which does NOT propagate to consumers. Tests that include eth verifier headers
@@ -170,6 +178,10 @@ foreach(test_source ${TEST_SOURCES})
     # Suppress MSVC warning C4113 for test targets
     if(MSVC)
         target_compile_options(${test_name} PRIVATE /wd4113)
+    endif()
+
+    if(UNIX AND NOT APPLE)
+        target_link_libraries(${test_name} PRIVATE "-Wl,--end-group")
     endif()
 
     # Füge den Test zu CTest hinzu
