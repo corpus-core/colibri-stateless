@@ -84,3 +84,6 @@ audit-workspace/
 
 # Live RPC integration request/response dumps (kept only for failed tests)
 bindings/emscripten/test/.rpc-dumps/
+bindings/dart/flutter/colibri_flutter/android/.gradle/9.2.0/fileHashes/fileHashes.bin
+bindings/dart/flutter/colibri_flutter/android/.gradle/9.2.0/fileHashes/fileHashes.lock
+bindings/dart/flutter/colibri_flutter/android/.gradle/buildOutputCleanup/buildOutputCleanup.lock
