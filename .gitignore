@@ -7,6 +7,7 @@
 .vscode
 .DS_Store
 bindings/rust/target
+bindings/dart/build-dart
 bindings/swift/src/include
 bindings/swift/.build
 bindings/kotlin/.cxx
