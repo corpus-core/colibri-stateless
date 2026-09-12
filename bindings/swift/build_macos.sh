@@ -208,10 +208,10 @@ else
     echo "   ./build_macos.sh -dev  # Nur aktuelle Architektur, inkrementell"
 fi
 
-# Kopiere bindings/colibri.h für lokale Development (konsistent mit build_ios.sh)
-echo "📋 Kopiere bindings/colibri.h für lokales Development..."
+# Kopiere src/api/colibri.h für lokale Development (konsistent mit build_ios.sh)
+echo "📋 Kopiere src/api/colibri.h für lokales Development..."
 mkdir -p "$SWIFT_DIR/Sources/CColibri/include"
-cp "$ROOT_DIR/bindings/colibri.h" "$SWIFT_DIR/Sources/CColibri/include/"
+cp "$ROOT_DIR/src/api/colibri.h" "$SWIFT_DIR/Sources/CColibri/include/"
 
 # Test data path for integration tests (will be embedded directly in GeneratedIntegrationTests.swift)
 TEST_DATA_PATH="$ROOT_DIR/test/data"

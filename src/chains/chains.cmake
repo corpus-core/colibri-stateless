@@ -306,7 +306,7 @@ function(generate_provers_header)
 
     # Add c4_reset_prover_caches dispatcher (no-op if no module registered a hook).
     # The global prover cache lives in prover.c (compiled with the CMake
-    # PROVER_CACHE flag). Clearing it here -- not in bindings/colibri_common.c --
+    # PROVER_CACHE flag). Clearing it here -- not in src/api/colibri_common.c --
     # keeps reset working when a binding compiles the wrapper without -DPROVER_CACHE
     # (e.g. the Rust cc crate) while the core library still has the cache enabled.
     file(APPEND ${PROVERS_H} "\nvoid c4_reset_prover_caches(void) {\n")

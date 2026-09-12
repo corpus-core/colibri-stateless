@@ -1,6 +1,6 @@
 # bindings/ - Language Bindings
 
-All bindings wrap the C API defined in `colibri.h` (this directory) and follow a common architecture pattern.
+All bindings wrap the C API defined in [`src/api/colibri.h`](../src/api/colibri.h) and follow a common architecture pattern.
 
 ## Common Architecture
 
@@ -20,7 +20,7 @@ The JSON status protocol (returned by `*_execute_json_status()`) uses this forma
 {"status": "error", "error": "description"}
 ```
 
-## Public C API (`colibri.h`)
+## Public C API (`src/api/colibri.h`)
 
 | Function | Purpose |
 |----------|---------|
@@ -110,7 +110,7 @@ CI builds prebuilds per platform and bundles them into the npm package (`prebuil
 - `src/core/{prover,verifier,rpc}.rs` -- RAII wrappers around the C
   prover / verifier / rpc contexts, `Drop`-safe.
 - `src/ffi.rs` -- Manually maintained `extern "C"` declarations
-  mirroring `bindings/colibri.h` + `src/util/plugin.h`.
+  mirroring `src/api/colibri.h` + `src/util/plugin.h`.
 - `src/storage/` -- `Storage` trait plus `MemoryStorage` /
   `FileStorage`; a global bridge installs Rust callbacks with the C
   storage plugin.
@@ -122,10 +122,9 @@ CI builds prebuilds per platform and bundles them into the npm package (`prebuil
   `DOCS_RS`.
 
 **Build**: `cargo build` inside the monorepo drives CMake to produce
-`libc4.a` + the individual chain archives, then compiles
-`bindings/colibri.c` + `bindings/colibri_common.c` and links them
-into the crate. Downstream users on crates.io get prebuilt native
-archives from the matching GitHub Release.
+`libapi.a` + `libapi_ffi.a` and the individual chain archives, then
+links them into the crate. Downstream users on crates.io get prebuilt
+native archives from the matching GitHub Release.
 
 ## Docker
 
@@ -140,12 +139,13 @@ archives from the matching GitHub Release.
 
 ### Binding Modules (auto-generated)
 
-- `dart/` -- 352 files
+- `dart/` -- 354 files
 - `docker/` -- 9 files
-- `emscripten/` -- 110 files
-- `kotlin/` -- 36 files
-- `python/` -- 27 files
-- `rust/` -- 676 files
-- `swift/` -- 14 files
+- `emscripten/` -- 121 files
+- `kotlin/` -- 38 files
+- `node-addon/` -- 3 files
+- `python/` -- 28 files
+- `rust/` -- 1550 files
+- `swift/` -- 15 files
 
 <!-- AUTO:BINDINGS_INDEX:END -->

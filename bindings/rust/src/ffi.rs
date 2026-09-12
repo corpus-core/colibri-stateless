@@ -1,6 +1,6 @@
 //! Raw FFI declarations for the Colibri C API.
 //!
-//! This file mirrors `bindings/colibri.h` and `src/util/plugin.h`. The
+//! This file mirrors `src/api/colibri.h` and `src/util/plugin.h`. The
 //! declarations are hand-written (and structurally match what `rust-bindgen`
 //! would produce for the same headers) so the crate has no build-time
 //! dependency on `bindgen`/libclang and can be published on crates.io
@@ -65,7 +65,7 @@ pub struct storage_plugin_t {
 
 extern "C" {
     // ------------------------------------------------------------------
-    // Prover API (bindings/colibri.h)
+    // Prover API (src/api/colibri.h)
     // ------------------------------------------------------------------
 
     pub fn c4_create_prover_ctx(

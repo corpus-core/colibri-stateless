@@ -91,7 +91,7 @@ echo "🔨 Erstelle iOS XCFramework (Device + Simulator arm64/x86_64)..."
 "$SWIFT_DIR/create_ios_xcframework.sh" \
     "$BUILD_iOS_ARM_DIR" \
     "$BUILD_iOS_X86_DIR" \
-    "$ROOT_DIR/bindings/colibri.h" \
+    "$ROOT_DIR/src/api/colibri.h" \
     "$SWIFT_DIR/xcframework/modules/module.modulemap" \
     "$BUILD_iOS_ARM_SIM_DIR"
 
@@ -136,9 +136,9 @@ mkdir -p "$iOS_PACKAGE_DIR/Sources/CColibri/include"
 echo "📋 Kopiere src/util/*.h Headers..."
 cp "$ROOT_DIR/src/util"/*.h "$iOS_PACKAGE_DIR/Sources/CColibri/include/"
 
-# Kopiere bindings/colibri.h (Haupt-API Header)
-echo "📋 Kopiere bindings/colibri.h..."
-cp "$ROOT_DIR/bindings/colibri.h" "$iOS_PACKAGE_DIR/Sources/CColibri/include/"
+# Kopiere src/api/colibri.h (Haupt-API Header)
+echo "📋 Kopiere src/api/colibri.h..."
+cp "$ROOT_DIR/src/api/colibri.h" "$iOS_PACKAGE_DIR/Sources/CColibri/include/"
 
 # Passe swift_storage_bridge.c an, um lokale Header zu verwenden
 echo "📋 Passe swift_storage_bridge.c für iOS Package an..."

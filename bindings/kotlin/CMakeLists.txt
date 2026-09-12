@@ -57,18 +57,15 @@ elseif(NOT Java_INCLUDE_DIRS)
     message(WARNING "Java include directories manually set to: ${Java_INCLUDE_DIRS}")
 endif()
 include_directories(${Java_INCLUDE_DIRS})
-include_directories(${CMAKE_SOURCE_DIR}/bindings)
-include_directories(${CMAKE_SOURCE_DIR}/bindings)
+include_directories(${CMAKE_SOURCE_DIR}/src/api)
 
 # Define SWIG flags (used in both cases)
 set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/Colibri.i PROPERTIES CPLUSPLUS OFF)
-set(CMAKE_SWIG_FLAGS "-module" "c4" "-package" "com.corpuscore.colibri" "-I${CMAKE_SOURCE_DIR}/bindings")
+set(CMAKE_SWIG_FLAGS "-module" "c4" "-package" "com.corpuscore.colibri" "-I${CMAKE_SOURCE_DIR}/src/api")
 
 # Define sources
 set(SWIG_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/colibri.i
-    ${CMAKE_CURRENT_SOURCE_DIR}/../colibri.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../colibri_common.c
     ${CMAKE_CURRENT_SOURCE_DIR}/jni_bridge.c
 )
 
@@ -89,4 +86,4 @@ else()
 endif()
 
 # Link libraries in both cases
-target_link_libraries(c4_java prover util verifier eth_verifier)
+target_link_libraries(c4_java api_ffi prover util verifier eth_verifier)

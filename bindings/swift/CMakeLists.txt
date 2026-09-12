@@ -19,7 +19,7 @@
 #
 # SPDX-License-Identifier: MIT
 
-include_directories(${CMAKE_SOURCE_DIR}/bindings)
+include_directories(${CMAKE_SOURCE_DIR}/src/api)
 
 # Auto-detect iOS SDK paths if building for iOS and not set
 if(CMAKE_SYSTEM_NAME STREQUAL "iOS" AND NOT CMAKE_OSX_SYSROOT)
@@ -54,10 +54,10 @@ if(CMAKE_SYSTEM_NAME STREQUAL "iOS" AND NOT CMAKE_OSX_SYSROOT)
     endif()
 endif()
 
-# Create the C binding library
+# Create the C binding library (objects must live in this archive for the XCFramework)
 add_library(c4_swift_binding STATIC 
-    ../colibri.c
-    ../colibri_common.c
+    ${CMAKE_SOURCE_DIR}/src/api/colibri.c
+    ${CMAKE_SOURCE_DIR}/src/api/colibri_common.c
 )
 
 # Add build dependencies based on enabled features
@@ -71,6 +71,7 @@ endif()
 add_dependencies(c4_swift_binding ${C4_SWIFT_BUILD_DEPS})
 target_include_directories(c4_swift_binding 
     PRIVATE 
+    ../../src/api
     ../../src/util
     ../../src/prover
     ../../src/verifier

@@ -42,7 +42,7 @@ flowchart TD
     APP["Rust application"]
     CLIENT["<b>colibri_stateless::Colibri</b><br/>builder + rpc / create_proof / verify_proof<br/>parallel request fetching via reqwest<br/>Storage and RequestHandler traits"]
     FFI["<b>Rust FFI wrappers</b> (src/core/*)<br/>Prover / Verifier / RpcCtx as Drop-safe RAII handles<br/>c4_req_set_response / c4_req_set_error shims"]
-    NATIVE["<b>Static archive</b> (libc4.a + colibri.c)<br/>prover, verifier, chain modules, crypto libs<br/>loaded via build.rs (CMake dev build or release asset)"]
+    NATIVE["<b>Static archive</b> (libapi_ffi.a + libapi.a)<br/>prover, verifier, chain modules, crypto libs<br/>loaded via build.rs (CMake dev build or release asset)"]
     APP --> CLIENT
     CLIENT --> FFI
     FFI --> NATIVE

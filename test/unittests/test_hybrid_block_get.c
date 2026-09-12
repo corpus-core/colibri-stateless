@@ -12,7 +12,7 @@
 
 #ifdef HTTP_SERVER
 
-#include "../../bindings/colibri_common.h"
+#include "colibri_common.h"
 #include "../../src/util/json.h"
 #include "test_server_helper.h"
 

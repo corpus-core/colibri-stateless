@@ -36,7 +36,6 @@ FetchContent_MakeAvailable(node_api_headers)
 
 add_library(colibri_native MODULE
     src/addon.c
-    ${CMAKE_SOURCE_DIR}/bindings/colibri_common.c
 )
 
 set_target_properties(colibri_native PROPERTIES
@@ -48,10 +47,10 @@ set_target_properties(colibri_native PROPERTIES
 
 target_include_directories(colibri_native PRIVATE
     ${node_api_headers_SOURCE_DIR}/include
-    ${CMAKE_SOURCE_DIR}/bindings
+    ${CMAKE_SOURCE_DIR}/src/api
 )
 
-target_link_libraries(colibri_native PRIVATE prover verifier eth_verifier)
+target_link_libraries(colibri_native PRIVATE api prover verifier eth_verifier)
 if(TARGET eth_prover)
     target_link_libraries(colibri_native PRIVATE eth_prover)
 endif()
