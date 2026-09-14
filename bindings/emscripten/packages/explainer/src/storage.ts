@@ -105,6 +105,38 @@ export function resolveStorageSlot(
 }
 
 /**
+ * Parse a runtime storage slot hex quantity. Rejects array dumps and negatives.
+ *
+ * @param slotHex - Slot from the simulation result
+ * @return Slot number, or `null` if the value is not clean hex
+ */
+function parseHexSlot(slotHex: string): bigint | null {
+    const raw = slotHex.trim();
+    if (!raw || raw.startsWith('[') || raw.startsWith('-') || /^0x-/i.test(raw)) return null;
+    if (!/^(?:0x)?[0-9a-fA-F]+$/.test(raw)) return null;
+    try {
+        return BigInt(raw.startsWith('0x') || raw.startsWith('0X') ? raw : '0x' + raw);
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Parse a solc storage-layout slot (decimal string or number).
+ *
+ * @param slot - `entry.slot` from the compiler layout
+ * @return Non-negative slot, or `null` if the value is not a decimal integer
+ */
+function parseLayoutSlot(slot: string | number): bigint | null {
+    try {
+        const n = typeof slot === 'number' ? BigInt(slot) : BigInt(String(slot).trim());
+        return n < 0n ? null : n;
+    } catch {
+        return null;
+    }
+}
+
+/**
  * Resolve a storage slot that has no slotSource by matching the raw slot
  * number against the storage layout. Handles direct variables, packed
  * variables, and dynamic arrays (via keccak256 heuristic).
@@ -116,13 +148,19 @@ export function resolveDirectSlot(
     slotHex: string,
     layout: SolidityStorageLayout | null,
 ): ResolvedSlot {
-    const slotBigInt = BigInt(slotHex);
+    const slotBigInt = slotHex ? parseHexSlot(slotHex) : null;
+    if (slotBigInt === null) {
+        return { baseSlot: -1, raw: slotHex ?? '' };
+    }
 
     if (!layout?.storage || !layout.types) {
         return { baseSlot: safeBaseSlot(slotBigInt), raw: slotHex };
     }
 
-    const entry = layout.storage.find(s => BigInt(s.slot) === slotBigInt);
+    const entry = layout.storage.find(s => {
+        const n = parseLayoutSlot(s.slot);
+        return n !== null && n === slotBigInt;
+    });
     if (entry) {
         const typeInfo = layout.types[entry.type];
         return {
@@ -153,9 +191,8 @@ function resolveArraySlot(
         const typeInfo = layout.types[entry.type];
         if (!typeInfo || typeInfo.encoding !== 'dynamic_array') continue;
 
-        const arrayBaseHash = keccak256(
-            AbiCoder.defaultAbiCoder().encode(['uint256'], [BigInt(entry.slot)]),
-        );
+        const arrayBaseHash = keccak256Uint256Slot(entry.slot);
+        if (!arrayBaseHash) continue;
         const arrayStart = BigInt(arrayBaseHash);
 
         const MAX_ARRAY_ELEMENTS = 100_000;
@@ -175,7 +212,7 @@ function resolveArraySlot(
             return {
                 variableName: entry.label,
                 variableType: typeInfo.label,
-                baseSlot: safeBaseSlot(BigInt(entry.slot)),
+                baseSlot: safeBaseSlot(parseLayoutSlot(entry.slot) ?? 0n),
                 raw: '0x' + slot.toString(16).padStart(64, '0'),
                 arrayIndex: index,
                 structField,
@@ -184,6 +221,23 @@ function resolveArraySlot(
     }
 
     return null;
+}
+
+/**
+ * keccak256(abi.encode(uint256 slot)). Returns null if the slot is not a
+ * scalar integer (array dumps, placeholders) so callers never throw.
+ *
+ * @param slot - Storage layout slot number as string or number
+ * @return Hex hash, or `null` if encoding fails
+ */
+function keccak256Uint256Slot(slot: string | number): string | null {
+    try {
+        const n = parseLayoutSlot(slot);
+        if (n === null) return null;
+        return keccak256(AbiCoder.defaultAbiCoder().encode(['uint256'], [n]));
+    } catch {
+        return null;
+    }
 }
 
 function getElementSlotSize(

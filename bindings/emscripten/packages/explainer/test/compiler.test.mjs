@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { getBundledCompiler, compileAndVerify, loadCompiler, solcCacheFileName, resetCompilerStateForTests, hashRuntimeBytecode } from '../dist/compiler.js';
+import { Module } from 'node:module';
+import { getBundledCompiler, compileAndVerify, loadCompiler, solcCacheFileName, resetCompilerStateForTests, hashRuntimeBytecode, compileSoljsonSourceForTests, installDummyCompilerForTests, compilerCacheSizeForTests } from '../dist/compiler.js';
 import { keccak256 } from 'ethers';
 
 describe('getBundledCompiler', () => {
@@ -197,6 +198,114 @@ describe('solc disk cache', () => {
             assert.equal(calls, 1);
         } finally {
             globalThis.fetch = originalFetch;
+        }
+    });
+});
+
+describe('solc module release', () => {
+    after(() => {
+        resetCompilerStateForTests();
+    });
+
+    it('drops process listeners added by a compiled module', async () => {
+        const beforeRejection = process.listenerCount('unhandledRejection');
+        const beforeException = process.listenerCount('uncaughtException');
+        const loaded = await compileSoljsonSourceForTests(
+            `
+            process.on('unhandledRejection', function c4xFakeRejection() {});
+            process.on('uncaughtException', function c4xFakeException() {});
+            module.exports = { ok: true };
+            `,
+            'soljson-c4x-listener-test.js',
+        );
+        assert.deepEqual(loaded.exports, { ok: true });
+        assert.ok(process.listenerCount('unhandledRejection') > beforeRejection);
+        assert.ok(process.listenerCount('uncaughtException') > beforeException);
+        loaded.release();
+        assert.equal(process.listenerCount('unhandledRejection'), beforeRejection);
+        assert.equal(process.listenerCount('uncaughtException'), beforeException);
+    });
+
+    it('evicts oldest dummy compilers and calls release', () => {
+        resetCompilerStateForTests();
+        const released = [];
+        for (let i = 0; i < 5; i++) {
+            installDummyCompilerForTests(`0.8.${i}+commit.aaaaaa`, () => released.push(i));
+        }
+        assert.equal(compilerCacheSizeForTests(), 3);
+        assert.deepEqual(released, [0, 1]);
+        resetCompilerStateForTests();
+        assert.equal(compilerCacheSizeForTests(), 0);
+        assert.deepEqual(released, [0, 1, 2, 3, 4]);
+    });
+
+    it('loadCompiler returns the cached compiler, not the LRU wrapper', async () => {
+        resetCompilerStateForTests();
+        installDummyCompilerForTests('0.8.99+commit.bbbbbb', () => { });
+        const compiler = await loadCompiler('0.8.99+commit.bbbbbb');
+        assert.equal(typeof compiler.compile, 'function');
+        assert.equal(compiler.compile('{}'), '{}');
+        assert.equal(compiler.version(), '0.8.99+commit.bbbbbb');
+        assert.equal(compilerCacheSizeForTests(), 1);
+    });
+
+    it('drops listeners even when _compile throws', async () => {
+        const events = ['uncaughtException', 'unhandledRejection', 'exit', 'beforeExit', 'warning'];
+        const before = Object.fromEntries(events.map(e => [e, process.listenerCount(e)]));
+        await assert.rejects(
+            () => compileSoljsonSourceForTests(
+                `
+                process.on('uncaughtException', function c4xFailException() {});
+                process.on('unhandledRejection', function c4xFailRejection() {});
+                process.on('exit', function c4xFailExit() {});
+                process.on('beforeExit', function c4xFailBeforeExit() {});
+                process.on('warning', function c4xFailWarning() {});
+                throw new Error('soljson compile boom');
+                `,
+                'soljson-c4x-compile-fail.js',
+            ),
+            /soljson compile boom/,
+        );
+        for (const event of events) {
+            assert.equal(process.listenerCount(event), before[event], event);
+        }
+        assert.equal('soljson-c4x-compile-fail.js' in (Module._cache || {}), false);
+    });
+
+    it('release does not remove listeners that existed before compile', async () => {
+        function keepWarning() { }
+        process.on('warning', keepWarning);
+        try {
+            const loaded = await compileSoljsonSourceForTests(
+                `process.on('warning', function c4xExtraWarning() {}); module.exports = { ok: true };`,
+                'soljson-c4x-keep-listener.js',
+            );
+            loaded.release();
+            assert.ok(process.listeners('warning').includes(keepWarning));
+        } finally {
+            process.removeListener('warning', keepWarning);
+        }
+    });
+
+    it('release of one module does not drop later host or sibling listeners', async () => {
+        function hostAfter() { }
+        const first = await compileSoljsonSourceForTests(
+            `process.on('warning', function c4xFirstWarning() {}); module.exports = { n: 1 };`,
+            'soljson-c4x-first.js',
+        );
+        process.on('warning', hostAfter);
+        const second = await compileSoljsonSourceForTests(
+            `process.on('warning', function c4xSecondWarning() {}); module.exports = { n: 2 };`,
+            'soljson-c4x-second.js',
+        );
+        try {
+            first.release();
+            assert.ok(process.listeners('warning').includes(hostAfter));
+            assert.ok(process.listeners('warning').some(fn => fn.name === 'c4xSecondWarning'));
+            assert.equal(process.listeners('warning').some(fn => fn.name === 'c4xFirstWarning'), false);
+        } finally {
+            second.release();
+            process.removeListener('warning', hostAfter);
         }
     });
 });

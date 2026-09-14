@@ -38,7 +38,22 @@ interface CompileResult {
 const MAX_CACHED_COMPILERS = 3;
 const SOLC_WASM_BASE = 'https://binaries.soliditylang.org/wasm';
 const SOLC_BIN_BASE = 'https://binaries.soliditylang.org/bin';
-const compilerCache = new Map<string, SolcInstance>();
+
+/** Process events Emscripten soljson typically registers (each holds the wasm heap). */
+const SOLC_PROCESS_EVENTS = [
+    'uncaughtException',
+    'unhandledRejection',
+    'exit',
+    'beforeExit',
+    'warning',
+] as const;
+
+interface CachedCompiler {
+    compiler: SolcInstance;
+    release: () => void;
+}
+
+const compilerCache = new Map<string, CachedCompiler>();
 const compilerLoads = new Map<string, Promise<SolcInstance>>();
 let bundledVersion: string | null = null;
 
@@ -56,11 +71,22 @@ function validateCompilerVersion(version: string): void {
     }
 }
 
+/** Drop the oldest LRU entry and release its Emscripten listeners / module refs. */
 function evictOldestCompiler(): void {
     if (compilerCache.size >= MAX_CACHED_COMPILERS) {
         const oldest = compilerCache.keys().next().value;
-        if (oldest) compilerCache.delete(oldest);
+        if (oldest) {
+            const entry = compilerCache.get(oldest);
+            compilerCache.delete(oldest);
+            entry?.release();
+        }
     }
+}
+
+/** Release every cached compiler. Test-only via `resetCompilerStateForTests`. */
+function releaseAllCompilers(): void {
+    for (const entry of compilerCache.values()) entry.release();
+    compilerCache.clear();
 }
 
 /**
@@ -95,9 +121,29 @@ export function solcCacheFileName(version: string): string {
  * Drop in-memory compiler instances and in-flight loads. Test-only.
  */
 export function resetCompilerStateForTests(): void {
-    compilerCache.clear();
+    releaseAllCompilers();
     compilerLoads.clear();
     bundledVersion = null;
+}
+
+/**
+ * Number of compiler versions currently retained in the in-memory LRU. Test-only.
+ *
+ * @return Cache size
+ */
+export function compilerCacheSizeForTests(): number {
+    return compilerCache.size;
+}
+
+/**
+ * Insert a dummy compiler so eviction/release can be tested without a real soljson.
+ *
+ * @param version - Cache key (short version string)
+ * @param release - Called when this entry is evicted or reset
+ */
+export function installDummyCompilerForTests(version: string, release: () => void): void {
+    evictOldestCompiler();
+    compilerCache.set(version, { compiler: { compile: () => '{}', version: () => version }, release });
 }
 
 function isNodeEnvironment(): boolean {
@@ -114,7 +160,8 @@ function isNodeEnvironment(): boolean {
  * Node downloads prefer `binaries.soliditylang.org/wasm/` (needed for 0.4.x on
  * modern V8) and fall back to `/bin/` if the wasm build is missing. Disk cache
  * lives under `{cacheDir}/solc/wasm/` so older asm.js files are not reused.
- * Caches loaded compilers in memory (~8 MB per version, LRU cap 3).
+ * Caches loaded compilers in memory (~8–50 MB wasm heap per version, LRU cap 3).
+ * Evicted instances drop Emscripten `process` listeners so the heap can be GC'd.
  *
  * @param version - Compiler version string, e.g. `"0.8.19+commit.7dd6d404"` or `"v0.8.19+commit.7dd6d404"`
  * @return Loaded compiler instance
@@ -126,7 +173,7 @@ export async function loadCompiler(version: string): Promise<SolcInstance> {
     const shortVersion = extractShortVersion(normalizedVersion);
 
     const cached = compilerCache.get(shortVersion);
-    if (cached) return cached;
+    if (cached) return cached.compiler;
 
     const inflight = compilerLoads.get(shortVersion);
     if (inflight) return inflight;
@@ -140,22 +187,22 @@ export async function loadCompiler(version: string): Promise<SolcInstance> {
 
 async function loadCompilerUncached(version: string, shortVersion: string): Promise<SolcInstance> {
     const cached = compilerCache.get(shortVersion);
-    if (cached) return cached;
+    if (cached) return cached.compiler;
 
     const bundled = await getBundledCompiler();
     if (shortVersion === bundledVersion) {
-        compilerCache.set(shortVersion, bundled);
+        compilerCache.set(shortVersion, { compiler: bundled, release: () => { /* bundled solc is process-lifetime */ } });
         return bundled;
     }
 
     const versionStr = version.startsWith('v') ? version : 'v' + version;
-    const compiler = isNodeEnvironment()
+    const loaded = isNodeEnvironment()
         ? await loadRemoteCompilerNode(versionStr)
         : await loadRemoteCompilerBrowser(versionStr);
 
     evictOldestCompiler();
-    compilerCache.set(shortVersion, compiler);
-    return compiler;
+    compilerCache.set(shortVersion, loaded);
+    return loaded.compiler;
 }
 
 async function resolveSolcDiskPath(versionStr: string): Promise<string | null> {
@@ -193,18 +240,184 @@ export function hashRuntimeBytecode(bytecodeHex: string): string | null {
 interface NodeModuleInstance {
     _compile(source: string, filename: string): void;
     exports: unknown;
+    parent?: { children?: unknown[] };
 }
 
-async function instantiateSoljson(source: string, filename: string): Promise<SolcInstance> {
-    const nodeModule = await import('node:module');
-    const ModuleCtor = nodeModule.Module as unknown as new (filename: string) => NodeModuleInstance;
+type ProcessListenerFn = (...args: unknown[]) => unknown;
+type ProcessListenerMap = Map<string, ProcessListenerFn[]>;
+
+interface ProcessLike {
+    listeners(event: string): ProcessListenerFn[];
+    removeListener(event: string, listener: ProcessListenerFn): void;
+}
+
+interface NodeModuleNamespace {
+    Module: {
+        new(filename: string, parent?: unknown): NodeModuleInstance;
+        _cache?: Record<string, unknown>;
+    };
+}
+
+/**
+ * Narrow `process` to the listener APIs we need. Returns null in the browser.
+ *
+ * @return Process listener surface, or `null` if unavailable
+ */
+function nodeProcess(): ProcessLike | null {
+    if (typeof process === 'undefined') return null;
+    const p = process as unknown as ProcessLike;
+    if (typeof p.listeners !== 'function' || typeof p.removeListener !== 'function') return null;
+    return p;
+}
+
+/**
+ * Snapshot `process` listeners for events Emscripten soljson registers.
+ *
+ * @return Event name → listener functions present before `_compile`
+ */
+function snapshotSolcProcessListeners(): ProcessListenerMap {
+    const snap: ProcessListenerMap = new Map();
+    const p = nodeProcess();
+    if (!p) return snap;
+    for (const event of SOLC_PROCESS_EVENTS) {
+        snap.set(event, p.listeners(event).slice());
+    }
+    return snap;
+}
+
+/**
+ * Listeners that appeared after `before` was taken.
+ *
+ * @param before - Snapshot taken immediately before `_compile`
+ * @return New listeners keyed by event name
+ */
+function listenersAddedSince(before: ProcessListenerMap): ProcessListenerMap {
+    const added: ProcessListenerMap = new Map();
+    const p = nodeProcess();
+    if (!p) return added;
+    for (const event of SOLC_PROCESS_EVENTS) {
+        const prev = before.get(event) ?? [];
+        const extra = p.listeners(event).filter(fn => !prev.includes(fn));
+        if (extra.length) added.set(event, extra);
+    }
+    return added;
+}
+
+/**
+ * Remove only the tracked listener references (not later host handlers).
+ *
+ * @param added - Listener set captured right after `_compile` / `setupMethods`
+ */
+function removeTrackedListeners(added: ProcessListenerMap): void {
+    const p = nodeProcess();
+    if (!p) return;
+    for (const [event, fns] of added) {
+        for (const fn of fns) p.removeListener(event, fn);
+    }
+    added.clear();
+}
+
+/**
+ * Unlink a compiled soljson CJS module from Node's module graph so GC can
+ * collect it once the wrapper drops its last reference (same idea as
+ * `solc.loadRemoteVersion`).
+ *
+ * @param compiled - Module instance produced by `Module._compile`
+ * @param filename - Absolute or virtual filename used as the cache key
+ * @param ModuleCtor - Node `Module` constructor (for `_cache`)
+ */
+function detachCompiledNodeModule(
+    compiled: NodeModuleInstance,
+    filename: string,
+    ModuleCtor: { _cache?: Record<string, unknown> },
+): void {
+    const parent = compiled.parent;
+    if (parent?.children) {
+        const index = parent.children.indexOf(compiled);
+        if (index >= 0) parent.children.splice(index, 1);
+    }
+    try {
+        if (ModuleCtor._cache && filename in ModuleCtor._cache) {
+            delete ModuleCtor._cache[filename];
+        }
+    } catch { /* Module cache shape varies by Node version */ }
+}
+
+/**
+ * Evaluate a soljson JS blob as a CommonJS module and return a release hook
+ * that drops Emscripten `process` listeners (those closures pin the wasm heap).
+ * Test-only.
+ *
+ * @param source - soljson JavaScript source
+ * @param filename - Filename passed to `Module._compile`
+ * @return Compiled `module.exports` plus a `release` function
+ */
+export async function compileSoljsonSourceForTests(
+    source: string,
+    filename: string,
+): Promise<{ exports: unknown; release: () => void }> {
+    const nodeModule = await import('node:module') as unknown as NodeModuleNamespace;
+    const loaded = compileSoljsonSource(source, filename, nodeModule);
+    return { exports: loaded.exports, release: loaded.release };
+}
+
+/**
+ * Compile a soljson source string as a CommonJS module.
+ *
+ * @param source - JavaScript source of a soljson binary
+ * @param filename - Virtual or disk path used as the module id
+ * @param nodeModule - The `node:module` namespace
+ * @return Exports plus a `release` hook that drops Emscripten process listeners
+ */
+function compileSoljsonSource(
+    source: string,
+    filename: string,
+    nodeModule: NodeModuleNamespace,
+): { exports: unknown; release: () => void } {
+    const ModuleCtor = nodeModule.Module;
+    const beforeListeners = snapshotSolcProcessListeners();
     const compiled = new ModuleCtor(filename);
-    compiled._compile(source, filename);
-    const solc = await import('solc');
-    return solc.default.setupMethods(compiled.exports) as SolcInstance;
+    try {
+        compiled._compile(source, filename);
+    } catch (err) {
+        removeTrackedListeners(listenersAddedSince(beforeListeners));
+        detachCompiledNodeModule(compiled, filename, ModuleCtor);
+        throw err;
+    }
+    const addedListeners = listenersAddedSince(beforeListeners);
+    detachCompiledNodeModule(compiled, filename, ModuleCtor);
+    return {
+        exports: compiled.exports,
+        release: () => {
+            removeTrackedListeners(addedListeners);
+            compiled.exports = {};
+        },
+    };
 }
 
-async function loadRemoteCompilerNode(versionStr: string): Promise<SolcInstance> {
+async function instantiateSoljson(source: string, filename: string): Promise<CachedCompiler> {
+    const nodeModule = await import('node:module') as unknown as NodeModuleNamespace;
+    const loaded = compileSoljsonSource(source, filename, nodeModule);
+    const beforeSetup = snapshotSolcProcessListeners();
+    try {
+        const solc = await import('solc');
+        const compiler = solc.default.setupMethods(loaded.exports) as SolcInstance;
+        const addedDuringSetup = listenersAddedSince(beforeSetup);
+        return {
+            compiler,
+            release: () => {
+                removeTrackedListeners(addedDuringSetup);
+                loaded.release();
+            },
+        };
+    } catch (err) {
+        removeTrackedListeners(listenersAddedSince(beforeSetup));
+        loaded.release();
+        throw err;
+    }
+}
+
+async function loadRemoteCompilerNode(versionStr: string): Promise<CachedCompiler> {
     const diskPath = await resolveSolcDiskPath(versionStr);
     const fs = await import('fs');
 
@@ -246,14 +459,15 @@ async function downloadSoljson(versionStr: string): Promise<string> {
     throw new Error(`Failed to load solc ${versionStr}: HTTP ${binResponse.status}`);
 }
 
-async function loadRemoteCompilerBrowser(versionStr: string): Promise<SolcInstance> {
+async function loadRemoteCompilerBrowser(versionStr: string): Promise<CachedCompiler> {
     const solc = await import('solc');
-    return new Promise<SolcInstance>((resolve, reject) => {
+    const compiler = await new Promise<SolcInstance>((resolve, reject) => {
         solc.default.loadRemoteVersion(versionStr, (err: Error | null, instance: SolcInstance) => {
             if (err) reject(new Error(`Failed to load solc ${versionStr}: ${err.message}`));
             else resolve(instance);
         });
     });
+    return { compiler, release: () => { /* browser: no process-listener leak */ } };
 }
 
 /**

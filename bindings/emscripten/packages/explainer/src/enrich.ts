@@ -132,8 +132,23 @@ async function fetchAllContracts(
     const results: Array<[string, ContractMetadata]> = [];
     for (const addr of addresses) {
         results.push(await resolveContract(addr, chainId, codeHashes, eoas, cache, baseUrl));
+        // Yield so V8 can GC parser/solc output between contracts.
+        await yieldEventLoop();
     }
     return new Map(results);
+}
+
+/**
+ * Return to the event loop so large compile/parse heaps can be collected
+ * between sequential contract resolutions.
+ *
+ * @return Resolves on the next turn of the event loop
+ */
+function yieldEventLoop(): Promise<void> {
+    return new Promise(resolve => {
+        if (typeof setImmediate === 'function') setImmediate(resolve);
+        else setTimeout(resolve, 0);
+    });
 }
 
 function verifiedToMeta(cached: VerifiedContract): ContractMetadata {

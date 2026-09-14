@@ -194,7 +194,11 @@ function formatParams(
 
 function formatValue(val: unknown): string {
     if (val === null || val === undefined) return '';
-    if (typeof val === 'bigint') return '0x' + val.toString(16);
+    if (typeof val === 'bigint') {
+        // Negative ints as decimal -- `0x` + toString(16) yields `0x-31380`,
+        // which ethers and strict hex parsers reject.
+        return val >= 0n ? '0x' + val.toString(16) : val.toString();
+    }
     if (typeof val === 'string') return val;
     if (typeof val === 'boolean') return val.toString();
     if (Array.isArray(val)) return `[${val.map(v => formatValue(v)).join(', ')}]`;

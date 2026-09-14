@@ -187,6 +187,49 @@ describe('enrichSimulation', () => {
         assert.equal(calls, first);
     });
 
+    it('yields the event loop after resolving each contract', async () => {
+        const codeHash = '0x' + 'cd'.repeat(32);
+        const a = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+        const b = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+        const verified = JSON.stringify({
+            abi: [],
+            storageLayout: null,
+            sources: {},
+            compilerVersion: '0.8.0',
+            contractName: 'C',
+        });
+        const cache = {
+            get: async () => verified,
+            set: async () => { },
+        };
+        let immediates = 0;
+        const origImmediate = setImmediate;
+        globalThis.setImmediate = (fn, ...args) => {
+            immediates++;
+            return origImmediate(fn, ...args);
+        };
+        try {
+            const result = {
+                gasUsed: '0x1',
+                status: '0x1',
+                returnValue: '0x',
+                logs: [],
+                stateChanges: [
+                    { address: a, storage: [] },
+                    { address: b, storage: [] },
+                ],
+                accessList: [
+                    { address: a, codeHash, storageKeys: [] },
+                    { address: b, codeHash, storageKeys: [] },
+                ],
+            };
+            await enrichSimulation(result, { to: a, data: '0xd0e30db0' }, 1, { cache });
+            assert.ok(immediates >= 2, `expected a yield per contract, got ${immediates}`);
+        } finally {
+            globalThis.setImmediate = origImmediate;
+        }
+    });
+
     it('resolves two addresses with the same codeHash without throwing', async () => {
         const codeHash = '0x' + 'ab'.repeat(32);
         const a = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';

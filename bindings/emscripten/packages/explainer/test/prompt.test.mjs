@@ -175,6 +175,24 @@ describe('buildPrompt', () => {
         assert.ok(userPrompt.includes('Insufficient balance'), `Expected revert reason in prompt`);
     });
 
+    it('renders array dumps and negative hex storage values without throwing', () => {
+        const result = {
+            ...WETH_DEPOSIT_RESULT,
+            stateChanges: [{
+                address: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
+                storage: [{
+                    slot: '0x0000000000000000000000000000000000000000000000000000000000000123',
+                    previousValue: '[0x309066af5db7ee2d246, 0x0]',
+                    newValue: '0x-31380',
+                }],
+            }],
+        };
+        const { userPrompt } = buildPrompt(result, TX_PARAMS, {});
+        assert.ok(userPrompt.includes('[0x309066af5db7ee2d246, 0x0]'), `Expected array dump, got:\n${userPrompt}`);
+        assert.ok(userPrompt.includes('-201600'), `Expected decimal negative, got:\n${userPrompt}`);
+        assert.equal(userPrompt.includes('0x-31380'), false);
+    });
+
     it('includes custom error name in prompt when no reason string', () => {
         const context = {
             contracts: new Map(),
