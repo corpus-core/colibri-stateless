@@ -1,6 +1,9 @@
-import { describe, it } from 'node:test';
+import { describe, it, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { getBundledCompiler, compileAndVerify } from '../dist/compiler.js';
+import { mkdtempSync, rmSync, existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { getBundledCompiler, compileAndVerify, loadCompiler, solcCacheFileName, resetCompilerStateForTests, hashRuntimeBytecode } from '../dist/compiler.js';
 import { keccak256 } from 'ethers';
 
 describe('getBundledCompiler', () => {
@@ -89,5 +92,111 @@ describe('compileAndVerify', () => {
         );
 
         assert.equal(result.verified, false);
+    });
+});
+
+describe('hashRuntimeBytecode', () => {
+    it('hashes clean hex with or without 0x', () => {
+        const a = hashRuntimeBytecode('00');
+        const b = hashRuntimeBytecode('0x00');
+        assert.equal(a, b);
+        assert.ok(a.startsWith('0x'));
+        assert.equal(a.length, 66);
+    });
+
+    it('returns null for placeholders and invalid hex', () => {
+        assert.equal(hashRuntimeBytecode('0x-36ece5c4'), null);
+        assert.equal(hashRuntimeBytecode('73__$aabbccdd$__'), null);
+        assert.equal(hashRuntimeBytecode('0x__LibName_________________'), null);
+        assert.equal(hashRuntimeBytecode('0xabc'), null);
+        assert.equal(hashRuntimeBytecode(''), null);
+    });
+});
+
+describe('solc disk cache', () => {
+    const previousDir = process.env.C4_STATE_DIR;
+    const tmp = mkdtempSync(join(tmpdir(), 'c4x-solc-'));
+
+    after(() => {
+        resetCompilerStateForTests();
+        rmSync(tmp, { recursive: true, force: true });
+        if (previousDir === undefined) delete process.env.C4_STATE_DIR;
+        else process.env.C4_STATE_DIR = previousDir;
+    });
+
+    it('builds a safe filename from a validated version', () => {
+        assert.equal(solcCacheFileName('0.4.26+commit.4563c3fc'), 'soljson-v0.4.26+commit.4563c3fc.js');
+        assert.equal(solcCacheFileName('v0.8.19+commit.7dd6d404'), 'soljson-v0.8.19+commit.7dd6d404.js');
+        assert.equal(
+            solcCacheFileName('0.8.19+commit.7dd6d404.Emscripten.clang'),
+            'soljson-v0.8.19+commit.7dd6d404.Emscripten.clang.js',
+        );
+        assert.throws(() => solcCacheFileName('../evil'));
+        assert.throws(() => solcCacheFileName('0.8.19'));
+        assert.throws(() => solcCacheFileName('v0.8.19+commit.7dd6d404/../x'));
+    });
+
+    it('persists a downloaded soljson file under C4_STATE_DIR/solc/wasm', async () => {
+        process.env.C4_STATE_DIR = tmp;
+        resetCompilerStateForTests();
+        const originalFetch = globalThis.fetch;
+        globalThis.fetch = async (url) => {
+            assert.ok(String(url).includes('/wasm/soljson-v0.4.26+commit.4563c3fc.js'));
+            return new Response('not-a-real-solc-binary', { status: 200 });
+        };
+        try {
+            await assert.rejects(() => loadCompiler('0.4.26+commit.4563c3fc'));
+            const file = join(tmp, 'solc', 'wasm', 'soljson-v0.4.26+commit.4563c3fc.js');
+            assert.equal(existsSync(file), true);
+            assert.equal(readFileSync(file, 'utf-8'), 'not-a-real-solc-binary');
+        } finally {
+            globalThis.fetch = originalFetch;
+        }
+    });
+
+    it('falls back to /bin/ when the wasm build is missing', async () => {
+        process.env.C4_STATE_DIR = tmp;
+        resetCompilerStateForTests();
+        const originalFetch = globalThis.fetch;
+        const urls = [];
+        globalThis.fetch = async (url) => {
+            urls.push(String(url));
+            if (String(url).includes('/wasm/')) {
+                return new Response('missing', { status: 404 });
+            }
+            return new Response('asmjs-fallback', { status: 200 });
+        };
+        try {
+            await assert.rejects(() => loadCompiler('0.4.11+commit.68ef5810'));
+            assert.ok(urls.some(u => u.includes('/wasm/')));
+            assert.ok(urls.some(u => u.includes('/bin/')));
+            const file = join(tmp, 'solc', 'wasm', 'soljson-v0.4.11+commit.68ef5810.js');
+            assert.equal(readFileSync(file, 'utf-8'), 'asmjs-fallback');
+        } finally {
+            globalThis.fetch = originalFetch;
+        }
+    });
+
+    it('shares one in-flight download for the same version', async () => {
+        process.env.C4_STATE_DIR = tmp;
+        resetCompilerStateForTests();
+        let calls = 0;
+        let release;
+        const gate = new Promise(resolve => { release = resolve; });
+        const originalFetch = globalThis.fetch;
+        globalThis.fetch = async () => {
+            calls++;
+            await gate;
+            return new Response('not-a-real-solc-binary', { status: 200 });
+        };
+        try {
+            const p1 = loadCompiler('0.5.17+commit.d19bba13');
+            const p2 = loadCompiler('0.5.17+commit.d19bba13');
+            release();
+            await Promise.allSettled([p1, p2]);
+            assert.equal(calls, 1);
+        } finally {
+            globalThis.fetch = originalFetch;
+        }
     });
 });

@@ -22,6 +22,7 @@
  */
 
 import { keccak256 } from 'ethers';
+import { getCacheDirectory } from './cache.js';
 
 interface SolcInstance {
     compile(input: string): string;
@@ -35,10 +36,14 @@ interface CompileResult {
 }
 
 const MAX_CACHED_COMPILERS = 3;
+const SOLC_WASM_BASE = 'https://binaries.soliditylang.org/wasm';
+const SOLC_BIN_BASE = 'https://binaries.soliditylang.org/bin';
 const compilerCache = new Map<string, SolcInstance>();
+const compilerLoads = new Map<string, Promise<SolcInstance>>();
 let bundledVersion: string | null = null;
 
 const COMPILER_VERSION_RE = /^v?\d+\.\d+\.\d+\+commit\.[0-9a-f]{6,10}(\.Emscripten\.clang)?$/;
+const HEX_BYTECODE_RE = /^(?:0x)?[0-9a-fA-F]+$/;
 
 function extractShortVersion(fullVersion: string): string {
     const match = fullVersion.match(/^(\d+\.\d+\.\d+\+commit\.[a-f0-9]+)/);
@@ -60,6 +65,8 @@ function evictOldestCompiler(): void {
 
 /**
  * Get the bundled solc compiler (shipped with the `solc` npm package).
+ *
+ * @return Bundled compiler instance
  */
 export async function getBundledCompiler(): Promise<SolcInstance> {
     const solc = await import('solc');
@@ -69,9 +76,45 @@ export async function getBundledCompiler(): Promise<SolcInstance> {
 }
 
 /**
+ * Filesystem name for a cached solc JS binary (`soljson-vX.Y.Z+commit....js`).
+ *
+ * @param version - Compiler version string (with or without leading `v`)
+ * @return Safe filename derived from the validated version
+ */
+export function solcCacheFileName(version: string): string {
+    validateCompilerVersion(version);
+    const versionStr = version.startsWith('v') ? version : 'v' + version;
+    const fileName = `soljson-${versionStr}.js`;
+    if (fileName.includes('..') || fileName.includes('/') || fileName.includes('\\')) {
+        throw new Error(`Invalid compiler cache filename: ${fileName}`);
+    }
+    return fileName;
+}
+
+/**
+ * Drop in-memory compiler instances and in-flight loads. Test-only.
+ */
+export function resetCompilerStateForTests(): void {
+    compilerCache.clear();
+    compilerLoads.clear();
+    bundledVersion = null;
+}
+
+function isNodeEnvironment(): boolean {
+    return typeof process !== 'undefined'
+        && typeof process.versions !== 'undefined'
+        && typeof process.versions.node !== 'undefined';
+}
+
+/**
  * Load a specific solc compiler version. If the version matches the bundled
- * compiler, returns it directly; otherwise downloads via `loadRemoteVersion`.
- * Caches loaded WASM binaries in memory (~8 MB per version).
+ * compiler, returns it directly; otherwise loads from the on-disk cache
+ * (Node.js) or downloads the official JS binary.
+ *
+ * Node downloads prefer `binaries.soliditylang.org/wasm/` (needed for 0.4.x on
+ * modern V8) and fall back to `/bin/` if the wasm build is missing. Disk cache
+ * lives under `{cacheDir}/solc/wasm/` so older asm.js files are not reused.
+ * Caches loaded compilers in memory (~8 MB per version, LRU cap 3).
  *
  * @param version - Compiler version string, e.g. `"0.8.19+commit.7dd6d404"` or `"v0.8.19+commit.7dd6d404"`
  * @return Loaded compiler instance
@@ -85,24 +128,132 @@ export async function loadCompiler(version: string): Promise<SolcInstance> {
     const cached = compilerCache.get(shortVersion);
     if (cached) return cached;
 
+    const inflight = compilerLoads.get(shortVersion);
+    if (inflight) return inflight;
+
+    const promise = loadCompilerUncached(version, shortVersion).finally(() => {
+        if (compilerLoads.get(shortVersion) === promise) compilerLoads.delete(shortVersion);
+    });
+    compilerLoads.set(shortVersion, promise);
+    return promise;
+}
+
+async function loadCompilerUncached(version: string, shortVersion: string): Promise<SolcInstance> {
+    const cached = compilerCache.get(shortVersion);
+    if (cached) return cached;
+
     const bundled = await getBundledCompiler();
     if (shortVersion === bundledVersion) {
         compilerCache.set(shortVersion, bundled);
         return bundled;
     }
 
-    const solc = await import('solc');
     const versionStr = version.startsWith('v') ? version : 'v' + version;
-    const compiler = await new Promise<SolcInstance>((resolve, reject) => {
+    const compiler = isNodeEnvironment()
+        ? await loadRemoteCompilerNode(versionStr)
+        : await loadRemoteCompilerBrowser(versionStr);
+
+    evictOldestCompiler();
+    compilerCache.set(shortVersion, compiler);
+    return compiler;
+}
+
+async function resolveSolcDiskPath(versionStr: string): Promise<string | null> {
+    const dir = await getCacheDirectory();
+    if (!dir) return null;
+    const pathMod = await import('path');
+    const fileName = solcCacheFileName(versionStr);
+    const solcDir = pathMod.resolve(dir, 'solc', 'wasm');
+    const resolved = pathMod.resolve(solcDir, fileName);
+    if (!resolved.startsWith(solcDir + pathMod.sep)) return null;
+    return resolved;
+}
+
+/**
+ * keccak256 of deployed runtime bytecode. Returns `null` for library
+ * placeholders, odd-length hex, or any other non-hex payload so callers
+ * never throw on Sourcify/solc output.
+ *
+ * @param bytecodeHex - Runtime bytecode, with or without `0x`
+ * @return Hash, or `null` if the input is not clean hex
+ */
+export function hashRuntimeBytecode(bytecodeHex: string): string | null {
+    if (!bytecodeHex || !HEX_BYTECODE_RE.test(bytecodeHex)) return null;
+    const hex = bytecodeHex.startsWith('0x') || bytecodeHex.startsWith('0X')
+        ? bytecodeHex.slice(2)
+        : bytecodeHex;
+    if (hex.length === 0 || hex.length % 2 !== 0) return null;
+    try {
+        return keccak256('0x' + hex);
+    } catch {
+        return null;
+    }
+}
+
+interface NodeModuleInstance {
+    _compile(source: string, filename: string): void;
+    exports: unknown;
+}
+
+async function instantiateSoljson(source: string, filename: string): Promise<SolcInstance> {
+    const nodeModule = await import('node:module');
+    const ModuleCtor = nodeModule.Module as unknown as new (filename: string) => NodeModuleInstance;
+    const compiled = new ModuleCtor(filename);
+    compiled._compile(source, filename);
+    const solc = await import('solc');
+    return solc.default.setupMethods(compiled.exports) as SolcInstance;
+}
+
+async function loadRemoteCompilerNode(versionStr: string): Promise<SolcInstance> {
+    const diskPath = await resolveSolcDiskPath(versionStr);
+    const fs = await import('fs');
+
+    if (diskPath) {
+        try {
+            const source = fs.readFileSync(diskPath, 'utf-8');
+            return await instantiateSoljson(source, diskPath);
+        } catch {
+            /* missing or corrupt -- fall through to download */
+        }
+    }
+
+    const source = await downloadSoljson(versionStr);
+
+    if (diskPath) {
+        try {
+            const pathMod = await import('path');
+            fs.mkdirSync(pathMod.dirname(diskPath), { recursive: true });
+            fs.writeFileSync(diskPath, source, 'utf-8');
+        } catch { /* disk full / permissions -- still use the in-memory source */ }
+    }
+
+    try {
+        return await instantiateSoljson(source, `soljson-${versionStr}.js`);
+    } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        throw new Error(`Failed to load solc ${versionStr}: ${message}`);
+    }
+}
+
+async function downloadSoljson(versionStr: string): Promise<string> {
+    const file = `soljson-${versionStr}.js`;
+    const wasmResponse = await fetch(`${SOLC_WASM_BASE}/${file}`);
+    if (wasmResponse.ok) return wasmResponse.text();
+
+    const binResponse = await fetch(`${SOLC_BIN_BASE}/${file}`);
+    if (binResponse.ok) return binResponse.text();
+
+    throw new Error(`Failed to load solc ${versionStr}: HTTP ${binResponse.status}`);
+}
+
+async function loadRemoteCompilerBrowser(versionStr: string): Promise<SolcInstance> {
+    const solc = await import('solc');
+    return new Promise<SolcInstance>((resolve, reject) => {
         solc.default.loadRemoteVersion(versionStr, (err: Error | null, instance: SolcInstance) => {
             if (err) reject(new Error(`Failed to load solc ${versionStr}: ${err.message}`));
             else resolve(instance);
         });
     });
-
-    evictOldestCompiler();
-    compilerCache.set(shortVersion, compiler);
-    return compiler;
 }
 
 /**
@@ -168,8 +319,8 @@ export async function compileAndVerify(
             const bytecodeHex = evm?.deployedBytecode?.object;
             if (!bytecodeHex || bytecodeHex.length < 2) continue;
 
-            const cleanHex = bytecodeHex.startsWith('0x') ? bytecodeHex : '0x' + bytecodeHex;
-            const hash = keccak256(cleanHex);
+            const hash = hashRuntimeBytecode(bytecodeHex);
+            if (!hash) continue;
             if (hash.toLowerCase() === normalizedHash) {
                 const abi = Array.isArray(contractData.abi) ? contractData.abi : null;
                 return { verified: true, abi, sources };

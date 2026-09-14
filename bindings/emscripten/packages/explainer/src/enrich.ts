@@ -38,9 +38,11 @@ import { cacheGet, cacheSet, getDefaultCache } from './cache.js';
  * Enrich a simulation result with decoded contract metadata.
  *
  * Resolve chain per contract address:
- * 1. Cache lookup by `codeHash` (from `accessList`)
- * 2. Fetch source from Sourcify, compile + verify bytecode, extract layout via skeleton
- * 3. Best-effort Sourcify fallback when no `codeHash` is available
+ * 1. Skip EOAs (`EMPTY_CODE_HASH` in `accessList`)
+ * 2. Cache lookup by `codeHash` (from `accessList`)
+ * 3. Fetch source from Sourcify (cached by chainId+address, including 404 misses),
+ *    compile + verify bytecode, extract layout via skeleton
+ * 4. Best-effort Sourcify fallback when no `codeHash` is available
  *
  * @param result - Simulation result from C-core
  * @param txParams - Original transaction parameters
@@ -55,9 +57,9 @@ export async function enrichSimulation(
     options?: { sourcifyBaseUrl?: string; cache?: ContractCache },
 ): Promise<EnrichedContext> {
     const cache = options?.cache || await getDefaultCache();
-    const codeHashes = buildCodeHashMap(result.accessList);
+    const { hashes: codeHashes, eoas } = buildCodeHashMap(result.accessList);
     const addresses = collectAddresses(result, txParams);
-    const contracts = await fetchAllContracts(addresses, chainId, codeHashes, cache, options?.sourcifyBaseUrl);
+    const contracts = await fetchAllContracts(addresses, chainId, codeHashes, eoas, cache, options?.sourcifyBaseUrl);
     const decodedCall = decodeMainCall(txParams, contracts);
     const decodedError = decodeRevertError(result, txParams, contracts);
     const decodedTrace = decodeTraceEntries(result.trace, contracts);
@@ -70,16 +72,23 @@ export async function enrichSimulation(
 /** keccak256("") -- code hash of accounts without bytecode. */
 const EMPTY_CODE_HASH = '0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470';
 
-function buildCodeHashMap(accessList?: AccessListEntry[]): Map<string, string> {
-    const map = new Map<string, string>();
-    if (!accessList) return map;
+const inflightByCodeHash = new Map<string, Promise<ContractMetadata>>();
+
+function buildCodeHashMap(accessList?: AccessListEntry[]): { hashes: Map<string, string>; eoas: Set<string> } {
+    const hashes = new Map<string, string>();
+    const eoas = new Set<string>();
+    if (!accessList) return { hashes, eoas };
     for (const entry of accessList) {
         if (!entry.address || !entry.codeHash) continue;
+        const addr = entry.address.toLowerCase();
         const hash = entry.codeHash.toLowerCase();
-        if (hash === EMPTY_CODE_HASH) continue;
-        map.set(entry.address.toLowerCase(), hash);
+        if (hash === EMPTY_CODE_HASH) {
+            eoas.add(addr);
+            continue;
+        }
+        hashes.set(addr, hash);
     }
-    return map;
+    return { hashes, eoas };
 }
 
 function collectAddresses(result: SimulationResult, txParams: TxParams): string[] {
@@ -115,43 +124,69 @@ async function fetchAllContracts(
     addresses: string[],
     chainId: number,
     codeHashes: Map<string, string>,
+    eoas: Set<string>,
     cache: ContractCache,
     baseUrl?: string,
 ): Promise<Map<string, ContractMetadata>> {
-    const results = await Promise.all(
-        addresses.map(addr => resolveContract(addr, chainId, codeHashes, cache, baseUrl)),
-    );
+    // Sequential: parallel parse/compile of Sourcify sources OOMs on large contracts.
+    const results: Array<[string, ContractMetadata]> = [];
+    for (const addr of addresses) {
+        results.push(await resolveContract(addr, chainId, codeHashes, eoas, cache, baseUrl));
+    }
     return new Map(results);
+}
+
+function verifiedToMeta(cached: VerifiedContract): ContractMetadata {
+    return {
+        abi: cached.abi,
+        sources: cached.sources,
+        storageLayout: cached.storageLayout,
+    };
 }
 
 async function resolveContract(
     address: string,
     chainId: number,
     codeHashes: Map<string, string>,
+    eoas: Set<string>,
     cache: ContractCache,
     baseUrl?: string,
 ): Promise<[string, ContractMetadata]> {
     const addr = address.toLowerCase();
-    const codeHash = codeHashes.get(addr);
     const empty: ContractMetadata = { abi: null, sources: null, storageLayout: null };
 
-    // Step 1: Cache lookup by codeHash
+    if (eoas.has(addr)) return [addr, empty];
+
+    const codeHash = codeHashes.get(addr);
     if (codeHash) {
         const cached = await cacheGet(cache, codeHash);
-        if (cached) {
-            return [addr, {
-                abi: cached.abi,
-                sources: cached.sources,
-                storageLayout: cached.storageLayout,
-            }];
-        }
+        if (cached) return [addr, verifiedToMeta(cached)];
+
+        const existing = inflightByCodeHash.get(codeHash);
+        if (existing) return [addr, await existing];
+
+        const promise = resolveFromSourcify(addr, chainId, codeHash, cache, baseUrl, empty)
+            .finally(() => {
+                if (inflightByCodeHash.get(codeHash) === promise) inflightByCodeHash.delete(codeHash);
+            });
+        inflightByCodeHash.set(codeHash, promise);
+        return [addr, await promise];
     }
 
-    // Step 2 & 3: Fetch from Sourcify
-    const comp = await fetchCompilationInput(addr, chainId, baseUrl);
-    if (!comp.abi && !comp.sources) return [addr, empty];
+    return [addr, await resolveFromSourcify(addr, chainId, undefined, cache, baseUrl, empty)];
+}
 
-    // Extract storage layout via skeleton when sources are available
+async function resolveFromSourcify(
+    addr: string,
+    chainId: number,
+    codeHash: string | undefined,
+    cache: ContractCache,
+    baseUrl: string | undefined,
+    empty: ContractMetadata,
+): Promise<ContractMetadata> {
+    const comp = await fetchCompilationInput(addr, chainId, baseUrl, cache);
+    if (!comp.abi && !comp.sources) return empty;
+
     let storageLayout = null;
     if (comp.sources) {
         try {
@@ -160,14 +195,13 @@ async function resolveContract(
     }
 
     if (codeHash && comp.sources && comp.stdJsonInput && comp.compilerVersion) {
-        // Step 2: Compile + verify bytecode, then cache
         let verification;
         try {
             verification = await compileAndVerify(
                 comp.stdJsonInput, comp.compilerVersion, codeHash, comp.sources,
             );
         } catch {
-            return [addr, { abi: comp.abi, sources: comp.sources, storageLayout }];
+            return { abi: comp.abi, sources: comp.sources, storageLayout };
         }
 
         const abi = verification.verified ? (verification.abi ?? comp.abi) : comp.abi;
@@ -183,11 +217,10 @@ async function resolveContract(
             await cacheSet(cache, codeHash, verifiedContract);
         }
 
-        return [addr, { abi, sources: comp.sources, storageLayout }];
+        return { abi, sources: comp.sources, storageLayout };
     }
 
-    // Step 3: No codeHash or no sources -- best-effort (not cached)
-    return [addr, { abi: comp.abi, sources: comp.sources, storageLayout }];
+    return { abi: comp.abi, sources: comp.sources, storageLayout };
 }
 
 function decodeMainCall(
