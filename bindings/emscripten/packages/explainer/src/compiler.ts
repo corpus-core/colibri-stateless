@@ -26,6 +26,7 @@ import { getCacheDirectory } from './cache.js';
 
 interface SolcInstance {
     compile(input: string): string;
+    compileAsync?(input: string): Promise<string>;
     version(): string;
 }
 
@@ -35,7 +36,7 @@ interface CompileResult {
     sources: Record<string, { content: string }> | null;
 }
 
-const MAX_CACHED_COMPILERS = 3;
+const MAX_CACHED_COMPILERS = 1;
 const SOLC_WASM_BASE = 'https://binaries.soliditylang.org/wasm';
 const SOLC_BIN_BASE = 'https://binaries.soliditylang.org/bin';
 
@@ -71,7 +72,7 @@ function validateCompilerVersion(version: string): void {
     }
 }
 
-/** Drop the oldest LRU entry and release its Emscripten listeners / module refs. */
+/** Drop the oldest cached remote compiler (cap 1) and release its heap / worker. */
 function evictOldestCompiler(): void {
     if (compilerCache.size >= MAX_CACHED_COMPILERS) {
         const oldest = compilerCache.keys().next().value;
@@ -127,7 +128,7 @@ export function resetCompilerStateForTests(): void {
 }
 
 /**
- * Number of compiler versions currently retained in the in-memory LRU. Test-only.
+ * Number of compiler versions currently retained in memory (cap 1). Test-only.
  *
  * @return Cache size
  */
@@ -160,8 +161,10 @@ function isNodeEnvironment(): boolean {
  * Node downloads prefer `binaries.soliditylang.org/wasm/` (needed for 0.4.x on
  * modern V8) and fall back to `/bin/` if the wasm build is missing. Disk cache
  * lives under `{cacheDir}/solc/wasm/` so older asm.js files are not reused.
- * Caches loaded compilers in memory (~8–50 MB wasm heap per version, LRU cap 3).
- * Evicted instances drop Emscripten `process` listeners so the heap can be GC'd.
+ * Remote compilers run in a worker thread on Node (`compileAsync`).
+ * Emscripten heaps are not reclaimable in-process. At most one remote version
+ * is kept; switching versions terminates the previous worker.
+ * Set `C4_SOLC_IN_PROCESS=1` to load soljson in the main thread instead.
  *
  * @param version - Compiler version string, e.g. `"0.8.19+commit.7dd6d404"` or `"v0.8.19+commit.7dd6d404"`
  * @return Loaded compiler instance
@@ -249,6 +252,11 @@ type ProcessListenerMap = Map<string, ProcessListenerFn[]>;
 interface ProcessLike {
     listeners(event: string): ProcessListenerFn[];
     removeListener(event: string, listener: ProcessListenerFn): void;
+    on?: (event: string, listener: ProcessListenerFn) => unknown;
+    addListener?: (event: string, listener: ProcessListenerFn) => unknown;
+    once?: (event: string, listener: ProcessListenerFn) => unknown;
+    prependListener?: (event: string, listener: ProcessListenerFn) => unknown;
+    prependOnceListener?: (event: string, listener: ProcessListenerFn) => unknown;
 }
 
 interface NodeModuleNamespace {
@@ -270,43 +278,58 @@ function nodeProcess(): ProcessLike | null {
     return p;
 }
 
-/**
- * Snapshot `process` listeners for events Emscripten soljson registers.
- *
- * @return Event name → listener functions present before `_compile`
- */
-function snapshotSolcProcessListeners(): ProcessListenerMap {
-    const snap: ProcessListenerMap = new Map();
-    const p = nodeProcess();
-    if (!p) return snap;
-    for (const event of SOLC_PROCESS_EVENTS) {
-        snap.set(event, p.listeners(event).slice());
-    }
-    return snap;
-}
+const PROCESS_ON_METHODS = ['on', 'addListener', 'once', 'prependListener', 'prependOnceListener'] as const;
 
 /**
- * Listeners that appeared after `before` was taken.
+ * Record every `process.on` / `once` / `addListener` registration while
+ * soljson initializes. Emscripten often registers handlers during the first
+ * `version()` / `compile()`, not during `_compile`.
  *
- * @param before - Snapshot taken immediately before `_compile`
- * @return New listeners keyed by event name
+ * @return `finish()` restores the original methods and returns the captured listeners
  */
-function listenersAddedSince(before: ProcessListenerMap): ProcessListenerMap {
+function interceptProcessListeners(): { finish: () => ProcessListenerMap } {
     const added: ProcessListenerMap = new Map();
-    const p = nodeProcess();
-    if (!p) return added;
-    for (const event of SOLC_PROCESS_EVENTS) {
-        const prev = before.get(event) ?? [];
-        const extra = p.listeners(event).filter(fn => !prev.includes(fn));
-        if (extra.length) added.set(event, extra);
+    const p = process as unknown as ProcessLike & Record<string, unknown>;
+    const originals = new Map<string, { fn: (...args: unknown[]) => unknown; owned: boolean }>();
+
+    const track = (event: unknown, fn: unknown): void => {
+        if (typeof event !== 'string' || typeof fn !== 'function') return;
+        if (!(SOLC_PROCESS_EVENTS as readonly string[]).includes(event)) return;
+        const list = added.get(event) ?? [];
+        list.push(fn as ProcessListenerFn);
+        added.set(event, list);
+    };
+
+    for (const name of PROCESS_ON_METHODS) {
+        const current = p[name];
+        if (typeof current !== 'function') continue;
+        const orig = current as (...args: unknown[]) => unknown;
+        originals.set(name, { fn: orig, owned: Object.prototype.hasOwnProperty.call(p, name) });
+        p[name] = (event: unknown, fn: unknown, ...rest: unknown[]) => {
+            track(event, fn);
+            return orig.call(p, event, fn, ...rest);
+        };
     }
-    return added;
+
+    let finished = false;
+    return {
+        finish: () => {
+            if (!finished) {
+                finished = true;
+                for (const [name, saved] of originals) {
+                    if (saved.owned) p[name] = saved.fn;
+                    else delete p[name];
+                }
+            }
+            return added;
+        },
+    };
 }
 
 /**
  * Remove only the tracked listener references (not later host handlers).
  *
- * @param added - Listener set captured right after `_compile` / `setupMethods`
+ * @param added - Listeners captured during init and the first `compile()`
  */
 function removeTrackedListeners(added: ProcessListenerMap): void {
     const p = nodeProcess();
@@ -367,25 +390,27 @@ export async function compileSoljsonSourceForTests(
  * @param source - JavaScript source of a soljson binary
  * @param filename - Virtual or disk path used as the module id
  * @param nodeModule - The `node:module` namespace
+ * @param intercept - Optional open interceptor so the caller can cover setup/compile
  * @return Exports plus a `release` hook that drops Emscripten process listeners
  */
 function compileSoljsonSource(
     source: string,
     filename: string,
     nodeModule: NodeModuleNamespace,
+    intercept?: { finish: () => ProcessListenerMap },
 ): { exports: unknown; release: () => void } {
     const ModuleCtor = nodeModule.Module;
-    const beforeListeners = snapshotSolcProcessListeners();
+    const owned = intercept ?? interceptProcessListeners();
     const compiled = new ModuleCtor(filename);
     try {
         compiled._compile(source, filename);
     } catch (err) {
-        removeTrackedListeners(listenersAddedSince(beforeListeners));
+        removeTrackedListeners(owned.finish());
         detachCompiledNodeModule(compiled, filename, ModuleCtor);
         throw err;
     }
-    const addedListeners = listenersAddedSince(beforeListeners);
     detachCompiledNodeModule(compiled, filename, ModuleCtor);
+    const addedListeners = intercept ? new Map() : owned.finish();
     return {
         exports: compiled.exports,
         release: () => {
@@ -395,53 +420,197 @@ function compileSoljsonSource(
     };
 }
 
+/**
+ * Instantiate soljson in this process. Prefer the worker path on Node.
+ *
+ * @param source - soljson JavaScript source
+ * @param filename - Module id passed to `_compile`
+ * @return Compiler plus a release hook for Emscripten process listeners
+ */
 async function instantiateSoljson(source: string, filename: string): Promise<CachedCompiler> {
     const nodeModule = await import('node:module') as unknown as NodeModuleNamespace;
-    const loaded = compileSoljsonSource(source, filename, nodeModule);
-    const beforeSetup = snapshotSolcProcessListeners();
+    const solc = await import('solc');
+    const intercept = interceptProcessListeners();
+    const loaded = compileSoljsonSource(source, filename, nodeModule, intercept);
     try {
-        const solc = await import('solc');
         const compiler = solc.default.setupMethods(loaded.exports) as SolcInstance;
-        const addedDuringSetup = listenersAddedSince(beforeSetup);
+        try { compiler.version(); } catch { /* some binaries expose version only after compile */ }
+        const added = intercept.finish();
+        const origCompile = compiler.compile.bind(compiler);
+        let firstCompile = true;
+        compiler.compile = (input: string) => {
+            if (!firstCompile) return origCompile(input);
+            firstCompile = false;
+            const duringCompile = interceptProcessListeners();
+            try {
+                return origCompile(input);
+            } finally {
+                const extra = duringCompile.finish();
+                for (const [event, fns] of extra) {
+                    const list = added.get(event) ?? [];
+                    list.push(...fns);
+                    added.set(event, list);
+                }
+            }
+        };
         return {
             compiler,
             release: () => {
-                removeTrackedListeners(addedDuringSetup);
+                removeTrackedListeners(added);
                 loaded.release();
             },
         };
     } catch (err) {
-        removeTrackedListeners(listenersAddedSince(beforeSetup));
+        removeTrackedListeners(intercept.finish());
         loaded.release();
         throw err;
     }
 }
 
+/**
+ * True when remote solc should run in a worker (reclaimable heap).
+ * Set `C4_SOLC_IN_PROCESS=1` to force the in-process fallback.
+ *
+ * @return Whether this load should use a worker
+ */
+function canUseSolcWorker(): boolean {
+    if (!isNodeEnvironment()) return false;
+    if (process.env.C4_SOLC_IN_PROCESS === '1') return false;
+    return true;
+}
+
+/**
+ * Spawn a worker that owns one soljson instance.
+ *
+ * @param versionStr - Version string including leading `v`
+ * @param diskPath - Cached soljson path, if written
+ * @param source - In-memory soljson when no disk path is available
+ * @return Compiler proxy whose `compileAsync` posts to the worker
+ */
+async function createWorkerCompiler(
+    versionStr: string,
+    diskPath: string | null,
+    source: string | null,
+): Promise<CachedCompiler> {
+    const { Worker } = await import('node:worker_threads');
+    const worker = new Worker(new URL('./compiler-worker.js', import.meta.url), {
+        workerData: {
+            diskPath: diskPath || undefined,
+            source: diskPath ? undefined : source,
+            filename: diskPath || `soljson-${versionStr}.js`,
+        },
+    });
+
+    const pending = new Map<number, { resolve: (out: string) => void; reject: (err: Error) => void }>();
+    let nextId = 1;
+
+    const failAll = (err: Error): void => {
+        for (const wait of pending.values()) wait.reject(err);
+        pending.clear();
+    };
+
+    const handle = await new Promise<CachedCompiler>((resolve, reject) => {
+        let settled = false;
+        worker.on('message', (msg: { type: string; id?: number; ok?: boolean; output?: string; error?: string }) => {
+            if (msg.type === 'ready' && !settled) {
+                settled = true;
+                resolve({
+                    compiler: {
+                        compile: () => {
+                            throw new Error('worker compiler requires compileAsync');
+                        },
+                        compileAsync: (input: string) => new Promise<string>((res, rej) => {
+                            const id = nextId++;
+                            pending.set(id, { resolve: res, reject: rej });
+                            worker.postMessage({ id, input });
+                        }),
+                        version: () => versionStr.startsWith('v') ? versionStr.slice(1) : versionStr,
+                    },
+                    release: () => {
+                        failAll(new Error('compiler worker released'));
+                        void worker.terminate();
+                    },
+                });
+                return;
+            }
+            if (msg.type === 'error' && !settled) {
+                settled = true;
+                void worker.terminate();
+                reject(new Error(msg.error || 'compiler worker failed'));
+                return;
+            }
+            if (msg.type === 'result' && msg.id != null) {
+                const wait = pending.get(msg.id);
+                if (!wait) return;
+                pending.delete(msg.id);
+                if (msg.ok && msg.output !== undefined) wait.resolve(msg.output);
+                else wait.reject(new Error(msg.error || 'compile failed'));
+            }
+        });
+        worker.on('error', (err) => {
+            const error = err instanceof Error ? err : new Error(String(err));
+            if (!settled) {
+                settled = true;
+                reject(error);
+            }
+            failAll(error);
+        });
+        worker.on('exit', (code) => {
+            const error = new Error(`compiler worker exited (${code})`);
+            if (!settled) {
+                settled = true;
+                reject(error);
+            }
+            failAll(error);
+        });
+    });
+
+    return handle;
+}
+
+/**
+ * Load a remote solc version from disk or soliditylang.org.
+ *
+ * @param versionStr - Version string including leading `v`
+ * @return Worker-backed compiler (default) or in-process fallback
+ */
 async function loadRemoteCompilerNode(versionStr: string): Promise<CachedCompiler> {
     const diskPath = await resolveSolcDiskPath(versionStr);
     const fs = await import('fs');
 
-    if (diskPath) {
+    if (canUseSolcWorker() && diskPath && fs.existsSync(diskPath)) {
         try {
-            const source = fs.readFileSync(diskPath, 'utf-8');
-            return await instantiateSoljson(source, diskPath);
+            return await createWorkerCompiler(versionStr, diskPath, null);
         } catch {
-            /* missing or corrupt -- fall through to download */
+            /* corrupt cache -- re-download below */
         }
     }
 
-    const source = await downloadSoljson(versionStr);
-
+    let source: string | null = null;
     if (diskPath) {
         try {
-            const pathMod = await import('path');
-            fs.mkdirSync(pathMod.dirname(diskPath), { recursive: true });
-            fs.writeFileSync(diskPath, source, 'utf-8');
-        } catch { /* disk full / permissions -- still use the in-memory source */ }
+            source = fs.readFileSync(diskPath, 'utf-8');
+        } catch {
+            source = null;
+        }
+    }
+
+    if (!source) {
+        source = await downloadSoljson(versionStr);
+        if (diskPath) {
+            try {
+                const pathMod = await import('path');
+                fs.mkdirSync(pathMod.dirname(diskPath), { recursive: true });
+                fs.writeFileSync(diskPath, source, 'utf-8');
+            } catch { /* disk full / permissions -- still use the in-memory source */ }
+        }
     }
 
     try {
-        return await instantiateSoljson(source, `soljson-${versionStr}.js`);
+        if (canUseSolcWorker()) {
+            return await createWorkerCompiler(versionStr, diskPath, source);
+        }
+        return await instantiateSoljson(source, diskPath || `soljson-${versionStr}.js`);
     } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         throw new Error(`Failed to load solc ${versionStr}: ${message}`);
@@ -518,7 +687,10 @@ export async function compileAndVerify(
 
     let output: Record<string, unknown>;
     try {
-        output = JSON.parse(compiler.compile(JSON.stringify(input)));
+        const raw = compiler.compileAsync
+            ? await compiler.compileAsync(JSON.stringify(input))
+            : compiler.compile(JSON.stringify(input));
+        output = JSON.parse(raw);
     } catch {
         return { verified: false, abi: null, sources: null };
     }

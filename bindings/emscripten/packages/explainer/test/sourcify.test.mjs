@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
     fetchContractMetadata, fetchCompilationInput,
     resetSourcifyStateForTests, setSourcifyClockForTests, parseRetryAfter,
+    setSourcifyLogger,
 } from '../dist/sourcify.js';
 
 const ADDR = '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2';
@@ -389,5 +390,109 @@ describe('parseRetryAfter', () => {
         assert.equal(parseRetryAfter(null), null);
         assert.equal(parseRetryAfter(''), null);
         assert.equal(parseRetryAfter('not-a-date'), null);
+    });
+});
+
+describe('Sourcify error logging', () => {
+    let originalFetch;
+
+    beforeEach(() => {
+        originalFetch = globalThis.fetch;
+        resetSourcifyStateForTests();
+        setSourcifyClockForTests(() => Date.now(), async () => { });
+    });
+
+    afterEach(() => {
+        globalThis.fetch = originalFetch;
+        resetSourcifyStateForTests();
+    });
+
+    it('logs network failures after retries are exhausted', async () => {
+        const logs = [];
+        setSourcifyLogger((message, extra) => { logs.push({ message, extra }); });
+        globalThis.fetch = async () => { throw new Error('ECONNREFUSED'); };
+
+        await fetchContractMetadata('0xabc', 1);
+        assert.ok(logs.some(l => l.message.includes('request failed')));
+        assert.ok(logs.some(l => String(l.extra?.error || '').includes('ECONNREFUSED')));
+    });
+
+    it('logs non-404 HTTP errors and does not log 404', async () => {
+        const logs = [];
+        setSourcifyLogger((message, extra) => { logs.push({ message, extra }); });
+        globalThis.fetch = async () => new Response('nope', { status: 500 });
+
+        await fetchCompilationInput(ADDR, 1);
+        assert.ok(logs.some(l => l.message.includes('HTTP 500')));
+
+        logs.length = 0;
+        globalThis.fetch = async () => new Response('Not Found', { status: 404 });
+        await fetchCompilationInput('0x0000000000000000000000000000000000000001', 1);
+        assert.equal(logs.length, 0);
+    });
+
+    it('logs invalid JSON on HTTP 200', async () => {
+        const logs = [];
+        setSourcifyLogger((message) => { logs.push(message); });
+        globalThis.fetch = async () => new Response('not-json', { status: 200 });
+
+        await fetchContractMetadata('0xabc', 1);
+        assert.ok(logs.some(m => m.includes('invalid JSON')));
+    });
+
+    it('logs when HTTP 200 JSON is not an object', async () => {
+        const logs = [];
+        setSourcifyLogger((message) => { logs.push(message); });
+        globalThis.fetch = async () => new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } });
+
+        const meta = await fetchContractMetadata('0xabc', 1);
+        assert.equal(meta.abi, null);
+        assert.ok(logs.some(m => m.includes('not a JSON object')));
+    });
+
+    it('logs HTTP retries then a terminal status', async () => {
+        const logs = [];
+        setSourcifyLogger((message, extra) => { logs.push({ message, extra }); });
+        let calls = 0;
+        globalThis.fetch = async () => {
+            calls++;
+            if (calls === 1) return new Response('slow down', { status: 429, headers: { 'Retry-After': '1' } });
+            return new Response('nope', { status: 500 });
+        };
+
+        await fetchCompilationInput(ADDR, 1);
+        assert.ok(logs.some(l => l.message.includes('HTTP 429') && l.message.includes('retrying')));
+        assert.ok(logs.some(l => l.message.includes('HTTP 500') && !l.message.includes('retrying')));
+        assert.equal(logs.some(l => l.extra?.status === 404), false);
+    });
+
+    it('does not fail the request when the logger throws', async () => {
+        setSourcifyLogger(() => { throw new Error('logger down'); });
+        globalThis.fetch = async () => { throw new Error('ECONNREFUSED'); };
+        const meta = await fetchContractMetadata('0xabc', 1);
+        assert.equal(meta.abi, null);
+    });
+
+    it('silences logs when the logger is set to null', async () => {
+        const logs = [];
+        setSourcifyLogger(null);
+        const origWarn = console.warn;
+        console.warn = (...args) => { logs.push(args); };
+        try {
+            globalThis.fetch = async () => new Response('nope', { status: 500 });
+            await fetchCompilationInput(ADDR, 1);
+            assert.equal(logs.length, 0);
+        } finally {
+            console.warn = origWarn;
+        }
+    });
+
+    it('stringifies non-Error network failures', async () => {
+        const logs = [];
+        setSourcifyLogger((message, extra) => { logs.push({ message, extra }); });
+        globalThis.fetch = async () => { throw 'ECONNREFUSED'; };
+
+        await fetchContractMetadata('0xabc', 1);
+        assert.ok(logs.some(l => String(l.extra?.error || '').includes('ECONNREFUSED')));
     });
 });

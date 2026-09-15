@@ -1,11 +1,70 @@
 import { describe, it, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, existsSync, readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { Module } from 'node:module';
+import { Worker } from 'node:worker_threads';
 import { getBundledCompiler, compileAndVerify, loadCompiler, solcCacheFileName, resetCompilerStateForTests, hashRuntimeBytecode, compileSoljsonSourceForTests, installDummyCompilerForTests, compilerCacheSizeForTests } from '../dist/compiler.js';
 import { keccak256 } from 'ethers';
+
+const FAKE_SOLC_V1 = '0.7.6+commit.aaaaaa';
+const FAKE_SOLC_V2 = '0.7.7+commit.bbbbbb';
+
+/**
+ * Minimal CommonJS soljson that `solc.setupMethods` can wrap.
+ *
+ * @param version - Short compiler version string
+ * @return Fake soljson JavaScript source
+ */
+function fakeSoljsonSource(version) {
+    return `
+        process.on('unhandledRejection', function c4xFakeSolcReject() {});
+        module.exports = {
+            cwrap: function (name) {
+                if (name === 'version' || name === 'solidity_version') {
+                    return function () {
+                        process.on('uncaughtException', function c4xFakeSolcVersion() {});
+                        return ${JSON.stringify(version)};
+                    };
+                }
+                if (name === 'solidity_compile' || name === 'compileStandard') {
+                    return function (input) {
+                        process.once('warning', function c4xFakeSolcCompile() {});
+                        if (typeof input === 'string' && input.indexOf('__c4xThrow') !== -1) {
+                            throw new Error('compile boom');
+                        }
+                        if (typeof input === 'string' && input.indexOf('__c4xHang') !== -1) {
+                            Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);
+                        }
+                        return JSON.stringify({
+                            contracts: {
+                                'test.sol': {
+                                    T: {
+                                        abi: [{ type: 'function', name: 'x' }],
+                                        evm: { deployedBytecode: { object: '00' } }
+                                    }
+                                }
+                            }
+                        });
+                    };
+                }
+                if (name === 'solidity_reset') return function () {};
+                return function () {};
+            },
+            _version: 1,
+            _solidity_compile: 1,
+            _solidity_reset: 1,
+            addFunction: function () { return 1; },
+            removeFunction: function () {},
+            UTF8ToString: function () { return ''; },
+            lengthBytesUTF8: function (s) { return String(s).length; },
+            stringToUTF8: function () {},
+            setValue: function () {},
+            _malloc: function () { return 1; }
+        };
+    `;
+}
 
 describe('getBundledCompiler', () => {
     it('returns a compiler with compile and version methods', async () => {
@@ -93,6 +152,54 @@ describe('compileAndVerify', () => {
         );
 
         assert.equal(result.verified, false);
+    });
+
+    it('uses compileAsync when the cached compiler provides it', async () => {
+        resetCompilerStateForTests();
+        installDummyCompilerForTests('0.8.99+commit.bbbbbb', () => { });
+        const compiler = await loadCompiler('0.8.99+commit.bbbbbb');
+        let asyncCalls = 0;
+        const bytecode = 'aabb';
+        compiler.compileAsync = async () => {
+            asyncCalls++;
+            return JSON.stringify({
+                contracts: {
+                    'test.sol': {
+                        T: {
+                            abi: [{ type: 'function', name: 'x' }],
+                            evm: { deployedBytecode: { object: bytecode } },
+                        },
+                    },
+                },
+            });
+        };
+
+        const result = await compileAndVerify(
+            { language: 'Solidity', sources: {}, settings: {} },
+            '0.8.99+commit.bbbbbb',
+            keccak256('0x' + bytecode),
+            { 'test.sol': { content: '' } },
+        );
+        assert.equal(asyncCalls, 1);
+        assert.equal(result.verified, true);
+        assert.ok(Array.isArray(result.abi));
+        resetCompilerStateForTests();
+    });
+
+    it('returns verified=false when compileAsync throws', async () => {
+        resetCompilerStateForTests();
+        installDummyCompilerForTests('0.8.99+commit.cccccc', () => { });
+        const compiler = await loadCompiler('0.8.99+commit.cccccc');
+        compiler.compileAsync = async () => { throw new Error('worker down'); };
+
+        const result = await compileAndVerify(
+            { language: 'Solidity', sources: {}, settings: {} },
+            '0.8.99+commit.cccccc',
+            keccak256('0x00'),
+            {},
+        );
+        assert.equal(result.verified, false);
+        resetCompilerStateForTests();
     });
 });
 
@@ -208,6 +315,7 @@ describe('solc module release', () => {
     });
 
     it('drops process listeners added by a compiled module', async () => {
+        const origOn = process.on;
         const beforeRejection = process.listenerCount('unhandledRejection');
         const beforeException = process.listenerCount('uncaughtException');
         const loaded = await compileSoljsonSourceForTests(
@@ -219,11 +327,44 @@ describe('solc module release', () => {
             'soljson-c4x-listener-test.js',
         );
         assert.deepEqual(loaded.exports, { ok: true });
+        assert.equal(process.on, origOn);
         assert.ok(process.listenerCount('unhandledRejection') > beforeRejection);
         assert.ok(process.listenerCount('uncaughtException') > beforeException);
         loaded.release();
         assert.equal(process.listenerCount('unhandledRejection'), beforeRejection);
         assert.equal(process.listenerCount('uncaughtException'), beforeException);
+    });
+
+    it('captures addListener, once, prependListener, and prependOnceListener', async () => {
+        const origOn = process.on;
+        const origAdd = process.addListener;
+        const origOnce = process.once;
+        const origPrepend = process.prependListener;
+        const origPrependOnce = process.prependOnceListener;
+        const events = ['uncaughtException', 'unhandledRejection', 'exit', 'warning'];
+        const before = Object.fromEntries(events.map(e => [e, process.listenerCount(e)]));
+        const loaded = await compileSoljsonSourceForTests(
+            `
+            process.addListener('uncaughtException', function c4xAddExc() {});
+            process.once('unhandledRejection', function c4xOnceRej() {});
+            process.prependListener('exit', function c4xPrependExit() {});
+            process.prependOnceListener('warning', function c4xPrependOnceWarn() {});
+            module.exports = { ok: true };
+            `,
+            'soljson-c4x-on-methods.js',
+        );
+        assert.equal(process.on, origOn);
+        assert.equal(process.addListener, origAdd);
+        assert.equal(process.once, origOnce);
+        assert.equal(process.prependListener, origPrepend);
+        assert.equal(process.prependOnceListener, origPrependOnce);
+        for (const event of events) {
+            assert.ok(process.listenerCount(event) > before[event], event);
+        }
+        loaded.release();
+        for (const event of events) {
+            assert.equal(process.listenerCount(event), before[event], event);
+        }
     });
 
     it('evicts oldest dummy compilers and calls release', () => {
@@ -232,8 +373,8 @@ describe('solc module release', () => {
         for (let i = 0; i < 5; i++) {
             installDummyCompilerForTests(`0.8.${i}+commit.aaaaaa`, () => released.push(i));
         }
-        assert.equal(compilerCacheSizeForTests(), 3);
-        assert.deepEqual(released, [0, 1]);
+        assert.equal(compilerCacheSizeForTests(), 1);
+        assert.deepEqual(released, [0, 1, 2, 3]);
         resetCompilerStateForTests();
         assert.equal(compilerCacheSizeForTests(), 0);
         assert.deepEqual(released, [0, 1, 2, 3, 4]);
@@ -307,5 +448,132 @@ describe('solc module release', () => {
             second.release();
             process.removeListener('warning', hostAfter);
         }
+    });
+});
+
+describe('remote solc worker', () => {
+    const previousDir = process.env.C4_STATE_DIR;
+    const previousInProcess = process.env.C4_SOLC_IN_PROCESS;
+    const tmp = mkdtempSync(join(tmpdir(), 'c4x-solc-worker-'));
+
+    after(() => {
+        resetCompilerStateForTests();
+        rmSync(tmp, { recursive: true, force: true });
+        if (previousDir === undefined) delete process.env.C4_STATE_DIR;
+        else process.env.C4_STATE_DIR = previousDir;
+        if (previousInProcess === undefined) delete process.env.C4_SOLC_IN_PROCESS;
+        else process.env.C4_SOLC_IN_PROCESS = previousInProcess;
+    });
+
+    /**
+     * Write a fake soljson into the disk cache and load it.
+     *
+     * @param version - Compiler version (no leading `v`)
+     * @param inProcess - When true, skip the worker (`C4_SOLC_IN_PROCESS=1`)
+     * @return Loaded compiler instance
+     */
+    async function loadFake(version, inProcess = false) {
+        process.env.C4_STATE_DIR = tmp;
+        if (inProcess) process.env.C4_SOLC_IN_PROCESS = '1';
+        else delete process.env.C4_SOLC_IN_PROCESS;
+        const file = join(tmp, 'solc', 'wasm', solcCacheFileName(version));
+        mkdirSync(join(tmp, 'solc', 'wasm'), { recursive: true });
+        writeFileSync(file, fakeSoljsonSource(version));
+        return loadCompiler(version);
+    }
+
+    it('compileAsync compiles in a worker and compile() is rejected', async () => {
+        resetCompilerStateForTests();
+        const compiler = await loadFake(FAKE_SOLC_V1);
+        assert.equal(typeof compiler.compileAsync, 'function');
+        assert.throws(() => compiler.compile('{}'), /compileAsync/);
+        const raw = await compiler.compileAsync('{}');
+        const output = JSON.parse(raw);
+        assert.ok(output.contracts['test.sol'].T.abi);
+        assert.equal(compilerCacheSizeForTests(), 1);
+    });
+
+    it('compileAndVerify uses worker compileAsync for a matching hash', async () => {
+        resetCompilerStateForTests();
+        await loadFake(FAKE_SOLC_V1);
+        const result = await compileAndVerify(
+            { language: 'Solidity', sources: { 'test.sol': { content: 'x' } }, settings: {} },
+            FAKE_SOLC_V1,
+            keccak256('0x00'),
+            { 'test.sol': { content: 'x' } },
+        );
+        assert.equal(result.verified, true);
+        assert.ok(Array.isArray(result.abi));
+    });
+
+    it('rejects compileAsync when the worker compile throws', async () => {
+        resetCompilerStateForTests();
+        const compiler = await loadFake(FAKE_SOLC_V1);
+        await assert.rejects(
+            () => compiler.compileAsync(JSON.stringify({ __c4xThrow: true })),
+            /compile boom/,
+        );
+    });
+
+    it('rejects in-flight compileAsync when the worker is released', async () => {
+        resetCompilerStateForTests();
+        const compiler = await loadFake(FAKE_SOLC_V1);
+        const hanging = compiler.compileAsync(JSON.stringify({ __c4xHang: true }));
+        resetCompilerStateForTests();
+        await assert.rejects(() => hanging, /compiler worker released/);
+    });
+
+    it('evicts the previous worker when loading a second version', async () => {
+        resetCompilerStateForTests();
+        const first = await loadFake(FAKE_SOLC_V1);
+        const hanging = first.compileAsync(JSON.stringify({ __c4xHang: true }));
+        const second = await loadFake(FAKE_SOLC_V2);
+        assert.equal(compilerCacheSizeForTests(), 1);
+        await assert.rejects(() => hanging, /compiler worker released/);
+        const raw = await second.compileAsync('{}');
+        assert.ok(JSON.parse(raw).contracts);
+    });
+
+    it('in-process fallback captures listeners during version and compile', async () => {
+        resetCompilerStateForTests();
+        const origOn = process.on;
+        const beforeRejection = process.listenerCount('unhandledRejection');
+        const beforeException = process.listenerCount('uncaughtException');
+        const beforeWarning = process.listenerCount('warning');
+        const compiler = await loadFake(FAKE_SOLC_V1, true);
+        assert.equal(typeof compiler.compileAsync, 'undefined');
+        assert.equal(process.on, origOn);
+        assert.ok(process.listenerCount('unhandledRejection') > beforeRejection);
+        assert.ok(process.listenerCount('uncaughtException') > beforeException);
+        compiler.compile('{}');
+        assert.ok(process.listenerCount('warning') > beforeWarning);
+        assert.equal(process.on, origOn);
+        resetCompilerStateForTests();
+        assert.equal(process.listenerCount('unhandledRejection'), beforeRejection);
+        assert.equal(process.listenerCount('uncaughtException'), beforeException);
+        assert.equal(process.listenerCount('warning'), beforeWarning);
+    });
+
+    it('worker posts error when soljson source is missing', async () => {
+        const worker = new Worker(new URL('../dist/compiler-worker.js', import.meta.url), {
+            workerData: { filename: 'soljson-missing.js' },
+        });
+        try {
+            const msg = await new Promise((resolve, reject) => {
+                worker.on('message', resolve);
+                worker.on('error', reject);
+            });
+            assert.equal(msg.type, 'error');
+            assert.match(String(msg.error), /missing soljson source/);
+        } finally {
+            await worker.terminate();
+        }
+    });
+
+    it('refuses to run as a regular module', async () => {
+        await assert.rejects(
+            () => import('../dist/compiler-worker.js'),
+            /compiler-worker must run as a worker thread/,
+        );
     });
 });

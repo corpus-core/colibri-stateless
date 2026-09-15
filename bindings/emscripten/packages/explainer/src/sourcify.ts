@@ -49,6 +49,40 @@ const waitQueue: Array<() => void> = [];
 let nowFn = (): number => Date.now();
 let sleepFn = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
 
+export type SourcifyLogFn = (message: string, extra?: Record<string, unknown>) => void;
+
+const defaultSourcifyLog: SourcifyLogFn = (message, extra) => {
+    if (typeof console === 'undefined' || typeof console.warn !== 'function') return;
+    if (extra && Object.keys(extra).length) console.warn(`[sourcify] ${message}`, extra);
+    else console.warn(`[sourcify] ${message}`);
+};
+
+let sourcifyLog: SourcifyLogFn = defaultSourcifyLog;
+
+/**
+ * Replace the Sourcify error logger used for HTTP/network/parse failures.
+ * Pass `null` to silence, omit the argument to restore `console.warn`.
+ *
+ * @param fn - Logger, `null` to disable, or omit to restore the default
+ */
+export function setSourcifyLogger(fn?: SourcifyLogFn | null): void {
+    if (fn === undefined) sourcifyLog = defaultSourcifyLog;
+    else if (fn === null) sourcifyLog = () => { /* silenced */ };
+    else sourcifyLog = fn;
+}
+
+/**
+ * Log a Sourcify client error. Never throws.
+ *
+ * @param message - Short description
+ * @param extra - Optional structured fields (url, status, attempt)
+ */
+function logSourcify(message: string, extra?: Record<string, unknown>): void {
+    try {
+        sourcifyLog(message, extra);
+    } catch { /* a broken logger must not fail the request */ }
+}
+
 /**
  * Replace clock/sleep used by the Sourcify client. Test-only.
  *
@@ -64,7 +98,7 @@ export function setSourcifyClockForTests(
 }
 
 /**
- * Reset in-flight maps, rate-limit cooldown, and the default clock. Test-only.
+ * Reset in-flight maps, rate-limit cooldown, clock, and the error logger. Test-only.
  */
 export function resetSourcifyStateForTests(): void {
     inflight.clear();
@@ -73,6 +107,7 @@ export function resetSourcifyStateForTests(): void {
     waitQueue.length = 0;
     nowFn = () => Date.now();
     sleepFn = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+    sourcifyLog = defaultSourcifyLog;
 }
 
 /**
@@ -254,9 +289,14 @@ async function sourcifyRequest<T>(
         let response: Response;
         try {
             response = await fetch(url, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
-        } catch {
+        } catch (err) {
             releaseSlot();
-            if (attempt + 1 >= MAX_ATTEMPTS) return { kind: 'unavailable' };
+            const detail = err instanceof Error ? err.message : String(err);
+            if (attempt + 1 >= MAX_ATTEMPTS) {
+                logSourcify(`request failed after ${MAX_ATTEMPTS} attempts`, { url, error: detail });
+                return { kind: 'unavailable' };
+            }
+            logSourcify('request failed, retrying', { url, error: detail, attempt: attempt + 1 });
             const delay = backoffMs(attempt);
             applyCooldown(delay);
             await sleepFn(delay);
@@ -269,10 +309,13 @@ async function sourcifyRequest<T>(
             let body: unknown;
             try {
                 body = await response.json();
-            } catch {
+            } catch (err) {
+                const detail = err instanceof Error ? err.message : String(err);
+                logSourcify('invalid JSON in 200 response', { url, error: detail });
                 return { kind: 'unavailable' };
             }
             if (!body || typeof body !== 'object' || Array.isArray(body)) {
+                logSourcify('200 response is not a JSON object', { url });
                 return { kind: 'unavailable' };
             }
             return { kind: 'ok', value: parse(body as Record<string, unknown>) };
@@ -285,14 +328,19 @@ async function sourcifyRequest<T>(
             || (isConditionalRetryable(response.status) && retryAfter !== null);
 
         if (!retryable || attempt + 1 >= MAX_ATTEMPTS) {
+            logSourcify(`HTTP ${response.status}`, { url, status: response.status, attempt: attempt + 1 });
             return { kind: 'unavailable' };
         }
 
+        logSourcify(`HTTP ${response.status}, retrying`, {
+            url, status: response.status, attempt: attempt + 1, retryAfterMs: retryAfter ?? undefined,
+        });
         const delay = retryAfter ?? backoffMs(attempt);
         applyCooldown(delay);
         await sleepFn(delay);
     }
 
+    logSourcify(`giving up after ${MAX_ATTEMPTS} attempts`, { url });
     return { kind: 'unavailable' };
 }
 
