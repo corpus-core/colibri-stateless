@@ -25,6 +25,7 @@ import type { CompilationInput, ContractCache, ContractMetadata, SolidityStorage
 import {
     cacheGetCompilation, cacheGetMetadata, cacheSetCompilation, cacheSetMetadata,
 } from './cache.js';
+import { elapsedMs, explainerLog } from './log.js';
 
 export type { CompilationInput } from './types.js';
 
@@ -78,9 +79,13 @@ export function setSourcifyLogger(fn?: SourcifyLogFn | null): void {
  * @param extra - Optional structured fields (url, status, attempt)
  */
 function logSourcify(message: string, extra?: Record<string, unknown>): void {
-    try {
-        sourcifyLog(message, extra);
-    } catch { /* a broken logger must not fail the request */ }
+    if (sourcifyLog !== defaultSourcifyLog) {
+        try {
+            sourcifyLog(message, extra);
+        } catch { /* a broken logger must not fail the request */ }
+        return;
+    }
+    explainerLog('warn', message, { scope: 'sourcify', ...extra });
 }
 
 /**
@@ -134,8 +139,14 @@ export async function fetchContractMetadata(
 
     if (cache) {
         const cached = await cacheGetMetadata(cache, chainId, addr);
-        if (cached === 'empty') return EMPTY_METADATA;
-        if (cached) return cached;
+        if (cached === 'empty') {
+            explainerLog('debug', 'metadata cache miss marker', { scope: 'sourcify', address: addr, chainId });
+            return EMPTY_METADATA;
+        }
+        if (cached) {
+            explainerLog('debug', 'metadata cache hit', { scope: 'sourcify', address: addr, chainId });
+            return cached;
+        }
     }
 
     return dedupe(key, async () => {
@@ -176,8 +187,14 @@ export async function fetchCompilationInput(
 
     if (cache) {
         const cached = await cacheGetCompilation(cache, chainId, addr);
-        if (cached === 'empty') return EMPTY_COMPILATION;
-        if (cached) return cached;
+        if (cached === 'empty') {
+            explainerLog('debug', 'compilation cache miss marker', { scope: 'sourcify', address: addr, chainId });
+            return EMPTY_COMPILATION;
+        }
+        if (cached) {
+            explainerLog('debug', 'compilation cache hit', { scope: 'sourcify', address: addr, chainId });
+            return cached;
+        }
     }
 
     return dedupe(key, async () => {
@@ -261,7 +278,10 @@ function applyCooldown(ms: number): void {
 
 async function waitForCooldown(): Promise<void> {
     const wait = rateLimitedUntil - nowFn();
-    if (wait > 0) await sleepFn(wait);
+    if (wait > 0) {
+        explainerLog('debug', 'waiting for rate-limit cooldown', { scope: 'sourcify', waitMs: wait });
+        await sleepFn(wait);
+    }
 }
 
 async function acquireSlot(): Promise<void> {
@@ -285,6 +305,8 @@ async function sourcifyRequest<T>(
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
         await waitForCooldown();
         await acquireSlot();
+        explainerLog('debug', 'GET', { scope: 'sourcify', url, attempt: attempt + 1 });
+        const started = Date.now();
 
         let response: Response;
         try {
@@ -304,6 +326,9 @@ async function sourcifyRequest<T>(
         }
 
         releaseSlot();
+        explainerLog('debug', 'response', {
+            scope: 'sourcify', url, status: response.status, ms: elapsedMs(started),
+        });
 
         if (response.ok) {
             let body: unknown;
@@ -321,7 +346,10 @@ async function sourcifyRequest<T>(
             return { kind: 'ok', value: parse(body as Record<string, unknown>) };
         }
 
-        if (response.status === 404) return { kind: 'miss' };
+        if (response.status === 404) {
+            explainerLog('debug', 'not verified (404)', { scope: 'sourcify', url });
+            return { kind: 'miss' };
+        }
 
         const retryAfter = parseRetryAfter(response.headers.get('Retry-After'));
         const retryable = isAlwaysRetryable(response.status)

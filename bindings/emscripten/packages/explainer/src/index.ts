@@ -63,6 +63,10 @@ export { hexToBigInt, weiToEth, formatTokenAmount, formatGas, shortenAddress } f
 export { lookupAddress, labelAddress } from './known_addresses.js';
 export { fetchContractMetadata, fetchCompilationInput, setSourcifyLogger } from './sourcify.js';
 export type { SourcifyLogFn } from './sourcify.js';
+export {
+    explainerLog, parseLogLevel, getExplainerLogLevel, setExplainerLogLevel, setExplainerLogSink,
+} from './log.js';
+export type { LogLevel, ExplainerLogFn } from './log.js';
 export { decodeFunctionCall, decodeEventLog, decodeFunctionResult, decodeRevertData } from './decoder.js';
 export { parseSlotSource, resolveStorageSlot, resolveDirectSlot } from './storage.js';
 export { enrichSimulation, toEnhancedResult } from './enrich.js';

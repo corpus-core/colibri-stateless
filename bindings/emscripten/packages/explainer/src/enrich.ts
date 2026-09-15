@@ -33,6 +33,7 @@ import { resolveStorageSlot, resolveDirectSlot } from './storage.js';
 import { compileAndVerify } from './compiler.js';
 import { extractStorageLayout } from './layout.js';
 import { cacheGet, cacheSet, getDefaultCache } from './cache.js';
+import { elapsedMs, explainerLog } from './log.js';
 
 /**
  * Enrich a simulation result with decoded contract metadata.
@@ -59,7 +60,17 @@ export async function enrichSimulation(
     const cache = options?.cache || await getDefaultCache();
     const { hashes: codeHashes, eoas } = buildCodeHashMap(result.accessList);
     const addresses = collectAddresses(result, txParams);
+    explainerLog('info', 'enrich start', {
+        scope: 'enrich', chainId, addresses: addresses.length, to: txParams.to,
+    });
+    const started = Date.now();
     const contracts = await fetchAllContracts(addresses, chainId, codeHashes, eoas, cache, options?.sourcifyBaseUrl);
+    explainerLog('info', 'enrich done', {
+        scope: 'enrich',
+        ms: elapsedMs(started),
+        addresses: addresses.length,
+        withAbi: [...contracts.values()].filter(c => !!c.abi).length,
+    });
     const decodedCall = decodeMainCall(txParams, contracts);
     const decodedError = decodeRevertError(result, txParams, contracts);
     const decodedTrace = decodeTraceEntries(result.trace, contracts);
@@ -130,8 +141,21 @@ async function fetchAllContracts(
 ): Promise<Map<string, ContractMetadata>> {
     // Sequential: parallel parse/compile of Sourcify sources OOMs on large contracts.
     const results: Array<[string, ContractMetadata]> = [];
-    for (const addr of addresses) {
+    for (let i = 0; i < addresses.length; i++) {
+        const addr = addresses[i];
+        explainerLog('debug', 'resolve contract', {
+            scope: 'enrich', index: i + 1, of: addresses.length, address: addr,
+        });
+        const started = Date.now();
         results.push(await resolveContract(addr, chainId, codeHashes, eoas, cache, baseUrl));
+        explainerLog('info', 'resolve contract done', {
+            scope: 'enrich',
+            address: addr,
+            index: i + 1,
+            of: addresses.length,
+            ms: elapsedMs(started),
+            abi: !!results[results.length - 1][1].abi,
+        });
         // Yield so V8 can GC parser/solc output between contracts.
         await yieldEventLoop();
     }
@@ -170,12 +194,18 @@ async function resolveContract(
     const addr = address.toLowerCase();
     const empty: ContractMetadata = { abi: null, sources: null, storageLayout: null };
 
-    if (eoas.has(addr)) return [addr, empty];
+    if (eoas.has(addr)) {
+        explainerLog('debug', 'skip EOA', { scope: 'enrich', address: addr });
+        return [addr, empty];
+    }
 
     const codeHash = codeHashes.get(addr);
     if (codeHash) {
         const cached = await cacheGet(cache, codeHash);
-        if (cached) return [addr, verifiedToMeta(cached)];
+        if (cached) {
+            explainerLog('debug', 'codeHash cache hit', { scope: 'enrich', address: addr });
+            return [addr, verifiedToMeta(cached)];
+        }
 
         const existing = inflightByCodeHash.get(codeHash);
         if (existing) return [addr, await existing];
@@ -200,24 +230,46 @@ async function resolveFromSourcify(
     empty: ContractMetadata,
 ): Promise<ContractMetadata> {
     const comp = await fetchCompilationInput(addr, chainId, baseUrl, cache);
-    if (!comp.abi && !comp.sources) return empty;
+    if (!comp.abi && !comp.sources) {
+        explainerLog('debug', 'no sourcify source', { scope: 'enrich', address: addr });
+        return empty;
+    }
 
     let storageLayout = null;
     if (comp.sources) {
+        const layoutStarted = Date.now();
         try {
             storageLayout = await extractStorageLayout(comp.sources, comp.contractName ?? undefined) ?? null;
         } catch { /* parser or compiler failure -- proceed without layout */ }
+        explainerLog('debug', 'storage layout', {
+            scope: 'enrich',
+            address: addr,
+            ms: elapsedMs(layoutStarted),
+            ok: !!storageLayout,
+            files: Object.keys(comp.sources).length,
+        });
     }
 
     if (codeHash && comp.sources && comp.stdJsonInput && comp.compilerVersion) {
+        explainerLog('debug', 'bytecode verify start', {
+            scope: 'enrich', address: addr, compiler: comp.compilerVersion,
+        });
         let verification;
         try {
             verification = await compileAndVerify(
                 comp.stdJsonInput, comp.compilerVersion, codeHash, comp.sources,
             );
         } catch {
+            explainerLog('warn', 'bytecode verify threw', { scope: 'enrich', address: addr });
             return { abi: comp.abi, sources: comp.sources, storageLayout };
         }
+
+        explainerLog('info', 'bytecode verify', {
+            scope: 'enrich',
+            address: addr,
+            compiler: comp.compilerVersion,
+            verified: verification.verified,
+        });
 
         const abi = verification.verified ? (verification.abi ?? comp.abi) : comp.abi;
 

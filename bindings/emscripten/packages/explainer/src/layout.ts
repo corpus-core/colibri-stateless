@@ -23,6 +23,7 @@
 
 import type { SolidityStorageLayout } from './types.js';
 import { getBundledCompiler } from './compiler.js';
+import { elapsedMs, explainerLog } from './log.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type ASTNode = Record<string, any>;
@@ -59,6 +60,11 @@ export async function extractStorageLayout(
     sources: Record<string, { content: string }>,
     contractName?: string,
 ): Promise<SolidityStorageLayout | null> {
+    const fileCount = Object.keys(sources).length;
+    explainerLog('debug', 'parse sources for layout', {
+        scope: 'layout', files: fileCount, contract: contractName,
+    });
+    const parseStarted = Date.now();
     const parser = await import('@solidity-parser/parser');
 
     const structs: string[] = [];
@@ -94,6 +100,10 @@ export async function extractStorageLayout(
         }
     }
 
+    explainerLog('debug', 'sources parsed', {
+        scope: 'layout', ms: elapsedMs(parseStarted), contracts: contracts.size, files: fileCount,
+    });
+
     const target = contractName || lastContractName;
     if (!target || !contracts.has(target)) return null;
 
@@ -122,7 +132,7 @@ function extractContractSkeleton(node: ASTNode): ContractSkeleton {
 
     const kind: ContractSkeleton['kind'] = node.kind === 'library' ? 'library'
         : node.kind === 'interface' ? 'interface'
-        : 'contract';
+            : 'contract';
 
     return { name: assertIdentifier(node.name), kind, bases, stateVars };
 }
@@ -218,6 +228,13 @@ function emitContract(
     }
 }
 
+/**
+ * Compile a storage-only skeleton with the bundled solc.
+ *
+ * @param source - Skeleton Solidity source
+ * @param contractName - Contract to read `storageLayout` from
+ * @return Layout, or `null` if compilation fails
+ */
 async function compileSkeleton(
     source: string,
     contractName: string,
@@ -232,12 +249,16 @@ async function compileSkeleton(
         },
     });
 
+    explainerLog('debug', 'compile skeleton', { scope: 'layout', contract: contractName });
+    const started = Date.now();
     let output: Record<string, unknown>;
     try {
         output = JSON.parse(compiler.compile(input));
     } catch {
+        explainerLog('debug', 'skeleton compile failed', { scope: 'layout', contract: contractName });
         return null;
     }
+    explainerLog('debug', 'skeleton compiled', { scope: 'layout', contract: contractName, ms: elapsedMs(started) });
 
     const errors = output.errors as Array<{ severity: string; message: string }> | undefined;
     const hasErrors = errors?.some(e => e.severity === 'error');

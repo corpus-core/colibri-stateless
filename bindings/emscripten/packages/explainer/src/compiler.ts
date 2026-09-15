@@ -23,6 +23,7 @@
 
 import { keccak256 } from 'ethers';
 import { getCacheDirectory } from './cache.js';
+import { elapsedMs, explainerLog } from './log.js';
 
 interface SolcInstance {
     compile(input: string): string;
@@ -176,7 +177,10 @@ export async function loadCompiler(version: string): Promise<SolcInstance> {
     const shortVersion = extractShortVersion(normalizedVersion);
 
     const cached = compilerCache.get(shortVersion);
-    if (cached) return cached.compiler;
+    if (cached) {
+        explainerLog('debug', 'compiler cache hit', { scope: 'solc', version: shortVersion });
+        return cached.compiler;
+    }
 
     const inflight = compilerLoads.get(shortVersion);
     if (inflight) return inflight;
@@ -205,6 +209,7 @@ async function loadCompilerUncached(version: string, shortVersion: string): Prom
 
     evictOldestCompiler();
     compilerCache.set(shortVersion, loaded);
+    explainerLog('info', 'compiler loaded', { scope: 'solc', version: shortVersion });
     return loaded.compiler;
 }
 
@@ -480,6 +485,21 @@ function canUseSolcWorker(): boolean {
 }
 
 /**
+ * Absolute path of the Node compiler worker next to this module.
+ *
+ * Resolve via `path.join` + `fileURLToPath`. A relative worker URL passed to
+ * `new Worker` is rewritten by Vite as a browser Worker and then fails on
+ * `node:worker_threads` (playground Docker/CI build).
+ *
+ * @return Filesystem path to `compiler-worker.js`
+ */
+async function resolveCompilerWorkerPath(): Promise<string> {
+    const { fileURLToPath } = await import('node:url');
+    const { dirname, join } = await import('node:path');
+    return join(dirname(fileURLToPath(import.meta.url)), 'compiler-worker.js');
+}
+
+/**
  * Spawn a worker that owns one soljson instance.
  *
  * @param versionStr - Version string including leading `v`
@@ -492,8 +512,10 @@ async function createWorkerCompiler(
     diskPath: string | null,
     source: string | null,
 ): Promise<CachedCompiler> {
+    explainerLog('info', 'spawning compiler worker', { scope: 'solc', version: versionStr });
+    const spawnStarted = Date.now();
     const { Worker } = await import('node:worker_threads');
-    const worker = new Worker(new URL('./compiler-worker.js', import.meta.url), {
+    const worker = new Worker(await resolveCompilerWorkerPath(), {
         workerData: {
             diskPath: diskPath || undefined,
             source: diskPath ? undefined : source,
@@ -514,6 +536,9 @@ async function createWorkerCompiler(
         worker.on('message', (msg: { type: string; id?: number; ok?: boolean; output?: string; error?: string }) => {
             if (msg.type === 'ready' && !settled) {
                 settled = true;
+                explainerLog('info', 'compiler worker ready', {
+                    scope: 'solc', version: versionStr, ms: elapsedMs(spawnStarted),
+                });
                 resolve({
                     compiler: {
                         compile: () => {
@@ -661,7 +686,12 @@ export async function compileAndVerify(
     let compiler: SolcInstance;
     try {
         compiler = await loadCompiler(compilerVersion);
-    } catch {
+    } catch (err) {
+        explainerLog('warn', 'failed to load compiler', {
+            scope: 'solc',
+            version: compilerVersion,
+            error: err instanceof Error ? err.message : String(err),
+        });
         return { verified: false, abi: null, sources: null };
     }
 
@@ -685,15 +715,30 @@ export async function compileAndVerify(
     settings.outputSelection = outputSelection;
     input.settings = settings;
 
+    const files = stdJsonInput.sources && typeof stdJsonInput.sources === 'object'
+        ? Object.keys(stdJsonInput.sources as object).length
+        : 0;
+    explainerLog('debug', 'compile start', { scope: 'solc', version: compilerVersion, files });
+    const compileStarted = Date.now();
+
     let output: Record<string, unknown>;
     try {
         const raw = compiler.compileAsync
             ? await compiler.compileAsync(JSON.stringify(input))
             : compiler.compile(JSON.stringify(input));
         output = JSON.parse(raw);
-    } catch {
+    } catch (err) {
+        explainerLog('warn', 'compile failed', {
+            scope: 'solc',
+            version: compilerVersion,
+            ms: elapsedMs(compileStarted),
+            error: err instanceof Error ? err.message : String(err),
+        });
         return { verified: false, abi: null, sources: null };
     }
+    explainerLog('info', 'compile done', {
+        scope: 'solc', version: compilerVersion, ms: elapsedMs(compileStarted), files,
+    });
 
     const contracts = output.contracts as Record<string, Record<string, Record<string, unknown>>> | undefined;
     if (!contracts) return { verified: false, abi: null, sources: null };

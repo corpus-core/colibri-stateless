@@ -5,6 +5,9 @@ import {
     resetSourcifyStateForTests, setSourcifyClockForTests, parseRetryAfter,
     setSourcifyLogger,
 } from '../dist/sourcify.js';
+import {
+    setExplainerLogLevel, setExplainerLogSink, resetExplainerLogForTests,
+} from '../dist/log.js';
 
 const ADDR = '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2';
 
@@ -405,6 +408,7 @@ describe('Sourcify error logging', () => {
     afterEach(() => {
         globalThis.fetch = originalFetch;
         resetSourcifyStateForTests();
+        resetExplainerLogForTests();
     });
 
     it('logs network failures after retries are exhausted', async () => {
@@ -475,16 +479,53 @@ describe('Sourcify error logging', () => {
 
     it('silences logs when the logger is set to null', async () => {
         const logs = [];
+        const explainerLines = [];
         setSourcifyLogger(null);
+        setExplainerLogSink((level, message) => { explainerLines.push({ level, message }); });
+        setExplainerLogLevel('debug');
         const origWarn = console.warn;
         console.warn = (...args) => { logs.push(args); };
         try {
             globalThis.fetch = async () => new Response('nope', { status: 500 });
             await fetchCompilationInput(ADDR, 1);
             assert.equal(logs.length, 0);
+            assert.equal(explainerLines.some(l => l.message.includes('HTTP 500')), false);
         } finally {
             console.warn = origWarn;
         }
+    });
+
+    it('does not double-print sourcify errors through explainerLog when a custom logger is set', async () => {
+        const sourcifyLogs = [];
+        const explainerLines = [];
+        setSourcifyLogger((message, extra) => { sourcifyLogs.push({ message, extra }); });
+        setExplainerLogSink((level, message, extra) => {
+            explainerLines.push({ level, message, extra });
+        });
+        setExplainerLogLevel('debug');
+        globalThis.fetch = async () => { throw new Error('ECONNREFUSED'); };
+
+        await fetchContractMetadata('0xabc', 1);
+        assert.ok(sourcifyLogs.some(l => l.message.includes('request failed')));
+        assert.equal(
+            explainerLines.some(l => l.level === 'warn' && String(l.message).includes('request failed')),
+            false,
+        );
+    });
+
+    it('routes sourcify errors through explainerLog when no custom logger is set', async () => {
+        const explainerLines = [];
+        setExplainerLogSink((level, message, extra) => {
+            explainerLines.push({ level, message, extra });
+        });
+        setExplainerLogLevel('warn');
+        globalThis.fetch = async () => new Response('nope', { status: 500 });
+
+        await fetchCompilationInput(ADDR, 1);
+        const hit = explainerLines.find(l => String(l.message).includes('HTTP 500'));
+        assert.ok(hit);
+        assert.equal(hit.level, 'warn');
+        assert.equal(hit.extra.scope, 'sourcify');
     });
 
     it('stringifies non-Error network failures', async () => {

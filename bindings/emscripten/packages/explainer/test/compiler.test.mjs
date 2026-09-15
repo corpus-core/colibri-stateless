@@ -456,6 +456,12 @@ describe('remote solc worker', () => {
     const previousInProcess = process.env.C4_SOLC_IN_PROCESS;
     const tmp = mkdtempSync(join(tmpdir(), 'c4x-solc-worker-'));
 
+    it('does not pass a relative worker URL to Worker (Vite treats that as a browser worker)', () => {
+        const src = readFileSync(new URL('../dist/compiler.js', import.meta.url), 'utf8');
+        assert.doesNotMatch(src, /new Worker\(\s*new URL\(/);
+        assert.doesNotMatch(src, /new URL\(\s*['"]\.\/compiler-worker\.js['"]/);
+    });
+
     after(() => {
         resetCompilerStateForTests();
         rmSync(tmp, { recursive: true, force: true });
