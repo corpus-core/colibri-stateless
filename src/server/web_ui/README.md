@@ -38,34 +38,19 @@ http://localhost:8090/config.html
 
 ## Security Considerations
 
-⚠️ **Important**: The configuration endpoints expose sensitive server settings.
+The Web UI is **disabled by default** (`WEB_UI_ENABLED=0`). It is currently unused in typical deployments. Enabling it (`WEB_UI_ENABLED=1` / `-u`) exposes `/config`, `/config.html`, and `/api/restart` with **no authentication, no CSRF token, and no origin check**.
 
-### Recommended Security Measures:
+Do **not** set `WEB_UI_ENABLED=1` on a network-reachable bind (`HOST=0.0.0.0`) without an authenticating reverse proxy. Residual issues when the flag is on:
 
-1. **API Key Authentication**: Set an API key via environment variable:
-   ```bash
-   export CONFIG_API_KEY="your-secret-key-here"
-   ```
+- Unauthenticated read/write of server configuration (RPC/beacon URLs, TLS options) and unauthenticated restart (`POST /api/restart` → `exit(0)`).
+- Config-file line injection: string values are persisted as `KEY=value` lines. A newline in a value can add extra keys, including ones the UI otherwise skips (e.g. `WITNESS_KEY`).
+- `CONFIG_API_KEY` is **not implemented**. Older notes that suggested exporting it have no effect on `handle_config.c`.
 
-2. **Firewall Rules**: Restrict access to the config endpoint:
-   ```bash
-   # Linux (iptables)
-   sudo iptables -A INPUT -p tcp --dport 8090 -s 192.168.1.0/24 -j ACCEPT
-   sudo iptables -A INPUT -p tcp --dport 8090 -j DROP
-   
-   # Or use a reverse proxy with authentication (nginx, Apache)
-   ```
+If you still enable the UI, keep the server on localhost and/or put a reverse proxy with authentication in front of it:
 
-3. **Separate Config Port**: Run config UI on a different port accessible only locally:
-   ```bash
-   # In server.conf
-   CONFIG_PORT=8091
-   ```
-
-4. **VPN/SSH Tunnel**: Access the UI through a secure tunnel:
-   ```bash
-   ssh -L 8090:localhost:8090 user@server
-   ```
+```bash
+ssh -L 8090:localhost:8090 user@server
+```
 
 ## Configuration Endpoints
 
@@ -85,7 +70,7 @@ Returns the current server configuration as JSON.
 ```
 
 ### POST /config
-Updates server configuration (requires authentication).
+Updates server configuration. Gated only by `WEB_UI_ENABLED` — there is no authentication.
 
 **Request:**
 ```json

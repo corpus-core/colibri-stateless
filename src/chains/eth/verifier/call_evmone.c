@@ -426,15 +426,26 @@ static void host_call(void* context, const struct evmone_message* msg, const uin
   if (eth_is_precompile_address(msg->code_address.bytes)) {
     buffer_t     output     = {0};
     uint64_t     gas_used   = 0;
-    pre_result_t pre_result = eth_execute_precompile(msg->code_address.bytes, bytes(msg->input_data, msg->input_size), &output, &gas_used);
+    uint64_t     gas_limit  = msg->gas > 0 ? (uint64_t) msg->gas : 0;
+    pre_result_t pre_result = eth_execute_precompile_ex(msg->code_address.bytes, bytes(msg->input_data, msg->input_size), &output, gas_limit, &gas_used);
     result->output_data     = output.data.data;
     result->output_size     = output.data.len;
-    result->gas_left        = msg->gas - gas_used;
     result->gas_refund      = 0;
-    result->status_code     = pre_result;
-    if (pre_result != PRE_SUCCESS) {
+    /* Do not copy pre_result_t into EVMC status_code: PRE_INVALID_INPUT==3
+     * would otherwise look like EVMC out-of-gas. */
+    if (pre_result == PRE_SUCCESS && gas_used <= gas_limit) {
+      result->status_code = 0; /* EVMC_SUCCESS */
+      result->gas_left    = (int64_t) (gas_limit - gas_used);
+    }
+    else if (pre_result == PRE_OUT_OF_GAS) {
+      EVM_LOG("Precompile out of gas (needed %l, had %l)", (size_t) gas_used, (size_t) gas_limit);
+      result->status_code = 3; /* EVMC_OUT_OF_GAS */
+      result->gas_left    = 0;
+    }
+    else {
       EVM_LOG("Precompile failed with status code: %d", pre_result);
-      result->gas_left = 0;
+      result->status_code = 12; /* EVMC_PRECOMPILE_FAILURE */
+      result->gas_left    = 0;
     }
     if (ctx->capture_events) {
       trace_entry_t* entry = create_trace_entry(ctx, msg);
@@ -850,11 +861,13 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
   if (eth_is_precompile_address(to)) {
     buffer_t     output         = {0};
     uint64_t     precompile_gas = 0;
-    pre_result_t pre_result     = eth_execute_precompile(to, bytes(message.input_data, message.input_size), &output, &precompile_gas);
+    uint64_t     gas_limit      = message.gas > 0 ? (uint64_t) message.gas : 0;
+    pre_result_t pre_result     = eth_execute_precompile_ex(to, bytes(message.input_data, message.input_size), &output, gas_limit, &precompile_gas);
     buffer_free(&buffer);
     evm->call_result = output.data;
     switch (pre_result) {
       case PRE_SUCCESS:
+        evm->gas_used = precompile_gas;
         return C4_SUCCESS;
       case PRE_ERROR:
         c4_state_add_error(&ctx->state, "Precompile error");
@@ -864,6 +877,9 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
         return C4_ERROR;
       case PRE_INVALID_INPUT:
         c4_state_add_error(&ctx->state, "Precompile Invalid Input");
+        return C4_ERROR;
+      case PRE_OUT_OF_GAS:
+        c4_state_add_error(&ctx->state, "Precompile out of gas");
         return C4_ERROR;
       default:
         c4_state_add_error(&ctx->state, "Precompile unknown error");

@@ -265,9 +265,14 @@ bytes_t call_account_get_code(evmone_context_t* ctx, const address_t address) {
       sbprintf(tmp, "code_%x", bytes(acc->code_hash, 32));
       buffer_t data = {0};
       if (cache.get && cache.get(tmp, &data)) {
-        acc->code = data.data;
-        acc->flags |= ACCOUNT_HAS_CODE | ACCOUNT_FREE_CODE;
-        return acc->code;
+        bytes32_t got_hash = {0};
+        keccak(data.data, got_hash); // reject cache entries that do not match code_hash
+        if (memcmp(got_hash, acc->code_hash, 32) == 0) {
+          acc->code = data.data;
+          acc->flags |= ACCOUNT_HAS_CODE | ACCOUNT_FREE_CODE;
+          return acc->code;
+        }
+        buffer_free(&data);
       }
     }
   }

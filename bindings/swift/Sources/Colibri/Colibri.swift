@@ -463,12 +463,18 @@ public class Colibri {
             }
         }
         
-        // Create bytes_t struct for proof data with safe memory handling
-        let proofBytes = proof.withUnsafeBytes { rawBufferPointer in
-            bytes_t(
-                len: UInt32(proof.count),
-                data: UnsafeMutablePointer(mutating: rawBufferPointer.bindMemory(to: UInt8.self).baseAddress!)
-            )
+        // Create bytes_t for the proof. Empty Data has a nil baseAddress, so
+        // skip the force-unwrap and pass a zero-length view to C.
+        let proofBytes: bytes_t
+        if proof.isEmpty {
+            proofBytes = bytes_t(len: 0, data: nil)
+        } else {
+            proofBytes = proof.withUnsafeBytes { rawBufferPointer in
+                bytes_t(
+                    len: UInt32(proof.count),
+                    data: UnsafeMutablePointer(mutating: rawBufferPointer.bindMemory(to: UInt8.self).baseAddress!)
+                )
+            }
         }
         
         guard let ctx = c4_verify_create_ctx(proofBytes, methodCStr, paramsCStr, chainId, trustedCheckpointCStr, getVerifyFlags()) else {

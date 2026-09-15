@@ -268,6 +268,24 @@ void test_precompile_identity() {
   buffer_free(&output);
 }
 
+void test_precompile_identity_out_of_gas() {
+  uint8_t addr[20];
+  make_precompile_address(0x04, addr);
+
+  bytes_t  input    = hex_to_bytes_alloc("48656c6c6f"); // "Hello" costs 15 + 3 = 18 gas
+  buffer_t output   = {0};
+  uint64_t gas_used = 0;
+
+  pre_result_t result = eth_execute_precompile_ex(addr, input, &output, 17, &gas_used);
+
+  TEST_ASSERT_EQUAL(PRE_OUT_OF_GAS, result);
+  TEST_ASSERT_EQUAL(17, gas_used);
+  TEST_ASSERT_EQUAL(0, output.data.len);
+
+  free(input.data);
+  buffer_free(&output);
+}
+
 // Test 5: Modexp (0x05)
 // Example from https://www.evm.codes/precompiled
 // Input: Bsize(32) + Esize(32) + Msize(32) + B(Bsize bytes) + E(Esize bytes) + M(Msize bytes)
@@ -592,6 +610,56 @@ void test_precompile_blake2f_invalid() {
   uint64_t     gas_used = 0;
   pre_result_t result   = eth_execute_precompile(addr, input, &output, &gas_used);
   TEST_ASSERT_EQUAL(PRE_INVALID_INPUT, result);
+  buffer_free(&output);
+}
+
+void test_precompile_blake2f_out_of_gas() {
+  uint8_t addr[20];
+  make_precompile_address(0x09, addr);
+
+  const char* input_hex =
+      "000f4240"
+      "48c9bdf267e6096a3ba7ca8485ae67bb2bf894fe72f36e3cf1361d5f3af54fa5d182e6ad7f520e511f6c3e2b8c68059b6bbd41fbabd9831f79217e1319cde05b"
+      "6162630000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      "03000000000000000000000000000000"
+      "01";
+
+  bytes_t  input    = hex_to_bytes_alloc(input_hex);
+  buffer_t output   = {0};
+  uint64_t gas_used = 0;
+
+  pre_result_t result = eth_execute_precompile_ex(addr, input, &output, 12, &gas_used);
+
+  TEST_ASSERT_EQUAL(PRE_OUT_OF_GAS, result);
+  TEST_ASSERT_EQUAL(12, gas_used);
+  TEST_ASSERT_EQUAL(0, output.data.len);
+
+  free(input.data);
+  buffer_free(&output);
+}
+
+void test_precompile_blake2f_exact_gas() {
+  uint8_t addr[20];
+  make_precompile_address(0x09, addr);
+
+  const char* input_hex =
+      "0000000c"
+      "48c9bdf267e6096a3ba7ca8485ae67bb2bf894fe72f36e3cf1361d5f3af54fa5d182e6ad7f520e511f6c3e2b8c68059b6bbd41fbabd9831f79217e1319cde05b"
+      "6162630000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      "03000000000000000000000000000000"
+      "01";
+
+  bytes_t  input    = hex_to_bytes_alloc(input_hex);
+  buffer_t output   = {0};
+  uint64_t gas_used = 0;
+
+  pre_result_t result = eth_execute_precompile_ex(addr, input, &output, 12, &gas_used);
+
+  TEST_ASSERT_EQUAL(PRE_SUCCESS, result);
+  TEST_ASSERT_EQUAL(12, gas_used);
+  TEST_ASSERT_EQUAL(64, output.data.len);
+
+  free(input.data);
   buffer_free(&output);
 }
 
@@ -1202,6 +1270,7 @@ int main(void) {
   RUN_TEST(test_precompile_sha256);
   RUN_TEST(test_precompile_ripemd160);
   RUN_TEST(test_precompile_identity);
+  RUN_TEST(test_precompile_identity_out_of_gas);
   RUN_TEST(test_precompile_ecrecover);
   RUN_TEST(test_precompile_ecrecover_invalid_input);
   RUN_TEST(test_precompile_ecrecover_short_input);
@@ -1250,6 +1319,8 @@ int main(void) {
   // EIP-152 Blake2f
   RUN_TEST(test_precompile_blake2f);
   RUN_TEST(test_precompile_blake2f_invalid);
+  RUN_TEST(test_precompile_blake2f_out_of_gas);
+  RUN_TEST(test_precompile_blake2f_exact_gas);
 
   // EIP-7951 P256VERIFY (0x100)
   RUN_TEST(test_precompile_p256verify_ok);

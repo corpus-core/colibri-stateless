@@ -270,7 +270,7 @@ const precompile_func_t precompile_fn[] = {
     NULL, // 0x07
     NULL, // 0x08
 #endif
-    pre_blake2f, // 0x09
+    NULL, // 0x09 blake2f — dispatched in eth_execute_precompile_ex (needs gas_limit)
 #ifdef PRECOMPILED_KZG
     pre_point_evaluation, // 0x0a
 #else
@@ -293,14 +293,40 @@ bool eth_is_precompile_address(const uint8_t* address) {
   return false;
 }
 
-pre_result_t eth_execute_precompile(const uint8_t* address, const bytes_t input, buffer_t* output, uint64_t* gas_used) {
+pre_result_t eth_execute_precompile_ex(const uint8_t* address, const bytes_t input, buffer_t* output, uint64_t gas_limit, uint64_t* gas_used) {
+  uint64_t discarded_gas = 0;
+  if (!gas_used) gas_used = &discarded_gas;
+  *gas_used = 0;
   if (!bytes_all_zero(bytes(address, 18))) return PRE_INVALID_ADDRESS;
   if (address[18] == 0x00) {
     if (address[19] == 0 || address[19] > PRECOMPILE_FN_COUNT) return PRE_INVALID_ADDRESS;
-    precompile_func_t fn = precompile_fn[address[19] - 1];
-    if (fn == NULL) return PRE_NOT_SUPPORTED;
-    return fn(input, output, gas_used);
+    pre_result_t result;
+    if (address[19] == 0x09)
+      result = pre_blake2f(input, output, gas_used, gas_limit);
+    else {
+      precompile_func_t fn = precompile_fn[address[19] - 1];
+      if (fn == NULL) return PRE_NOT_SUPPORTED;
+      result = fn(input, output, gas_used);
+      if (result == PRE_SUCCESS && *gas_used > gas_limit) {
+        buffer_reset(output);
+        *gas_used = gas_limit;
+        return PRE_OUT_OF_GAS;
+      }
+    }
+    return result;
   }
-  if (address[18] == 0x01 && address[19] == 0x00) return pre_p256verify(input, output, gas_used);
+  if (address[18] == 0x01 && address[19] == 0x00) {
+    pre_result_t result = pre_p256verify(input, output, gas_used);
+    if (result == PRE_SUCCESS && *gas_used > gas_limit) {
+      buffer_reset(output);
+      *gas_used = gas_limit;
+      return PRE_OUT_OF_GAS;
+    }
+    return result;
+  }
   return PRE_INVALID_ADDRESS;
+}
+
+pre_result_t eth_execute_precompile(const uint8_t* address, const bytes_t input, buffer_t* output, uint64_t* gas_used) {
+  return eth_execute_precompile_ex(address, input, output, UINT64_MAX, gas_used);
 }
