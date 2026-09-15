@@ -90,11 +90,10 @@ typedef struct {
  *
  * This function only fetches the data and sets it in the blockroot_proof_t if needed.
  *
- * @brief Check the blockroot proof for the given block
- * @param ctx The context of the prover
- * @param block_proof The blockroot proof holding the state
- * @param block The block to check the proof for
- * @return The status of the check
+ * @param ctx prover context
+ * @param block_proof blockroot proof state (input/output)
+ * @param block execution block being proven
+ * @return `C4_PENDING`, `C4_SUCCESS`, or `C4_ERROR`
  */
 c4_status_t c4_check_blockroot_proof(prover_ctx_t* ctx, blockroot_proof_t* block_proof, eth_block_t* block);
 
@@ -169,9 +168,40 @@ bool c4_needs_historic_direct(const syncdata_state_t* sync, uint64_t head_period
 c4_historic_plan_t c4_plan_blockroot_proof(const syncdata_state_t* sync, uint64_t head_period, bool marker_ready,
                                            uint64_t* out_required, uint64_t* out_lcu_start);
 
+/**
+ * Builds the `sync_data` section of a C4 request (bootstrap, LCUs, ZK) from client sync state.
+ *
+ * @param ctx prover context
+ * @param sync_data populated sync state from the client checkpoint / periods
+ * @param builder C4 request builder to append sync SSZ to
+ * @return `C4_PENDING`, `C4_SUCCESS`, or `C4_ERROR`
+ */
 c4_status_t c4_get_syncdata_proof(prover_ctx_t* ctx, syncdata_state_t* sync_data, ssz_builder_t* builder);
-void        ssz_add_header_proof(ssz_builder_t* builder, eth_block_t* block_data, blockroot_proof_t block_proof);
-void        c4_free_block_proof(blockroot_proof_t* block_proof);
+
+/**
+ * Appends the CL header proof chain for `block_data` into `builder` using `block_proof`.
+ *
+ * @param builder C4 proof builder
+ * @param block_data execution block metadata
+ * @param block_proof historic / sync aggregate state
+ */
+void ssz_add_header_proof(ssz_builder_t* builder, eth_block_t* block_data, blockroot_proof_t block_proof);
+
+/**
+ * Releases heap-owned fields inside `block_proof` (does not free the struct itself).
+ *
+ * @param block_proof proof bundle to clear
+ */
+void c4_free_block_proof(blockroot_proof_t* block_proof);
+
+/**
+ * Fetches ZK sync proof bytes and witness signatures for `period`.
+ *
+ * @param ctx prover context
+ * @param zk_proof output structure filled on success
+ * @param period sync-committee period to prove
+ * @return `C4_PENDING`, `C4_SUCCESS`, or `C4_ERROR`
+ */
 c4_status_t c4_fetch_zk_proof_data(prover_ctx_t* ctx, zk_proof_data_t* zk_proof, uint64_t period);
 
 /**

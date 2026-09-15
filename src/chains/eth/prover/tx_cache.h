@@ -69,11 +69,6 @@ void c4_eth_tx_cache_reset(void);
  *
  * @return Number of cached transactions
  */
-/**
- * Returns the current number of entries in the cache.
- *
- * @return Number of cached transactions
- */
 size_t c4_eth_tx_cache_size(void);
 
 /**

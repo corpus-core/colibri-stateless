@@ -30,13 +30,71 @@ extern "C" {
 
 #include "prover.h"
 
-c4_status_t c4_proof_account(prover_ctx_t* ctx);     // creates an account proof
-c4_status_t c4_proof_transaction(prover_ctx_t* ctx); // creates a transaction proof
-c4_status_t c4_proof_receipt(prover_ctx_t* ctx);     // creates a receipt proof
-c4_status_t c4_proof_logs(prover_ctx_t* ctx);        // creates a logs proof
+/**
+ * Creates an account proof for account-related RPC methods (for example `eth_getBalance`,
+ * `eth_getStorageAt`, `eth_getCode`, `eth_getProof`, `eth_getTransactionCount`).
+ *
+ * @param ctx prover context with `method` and `params` already set
+ * @return `C4_PENDING` while external data is needed, `C4_SUCCESS` when `ctx->proof` is ready, or `C4_ERROR` with `ctx->state.error`
+ */
+c4_status_t c4_proof_account(prover_ctx_t* ctx);
+
+/**
+ * Creates a transaction proof for transaction RPC methods (for example `eth_getTransactionByHash`
+ * and block-index variants).
+ *
+ * @param ctx prover context with `method` and `params` already set
+ * @return `C4_PENDING`, `C4_SUCCESS`, or `C4_ERROR`
+ */
+c4_status_t c4_proof_transaction(prover_ctx_t* ctx);
+
+/**
+ * Creates a receipt proof for `eth_getTransactionReceipt`.
+ *
+ * @param ctx prover context with `method` and `params` already set
+ * @return `C4_PENDING`, `C4_SUCCESS`, or `C4_ERROR`
+ */
+c4_status_t c4_proof_receipt(prover_ctx_t* ctx);
+
+/**
+ * Creates a logs proof for `eth_getLogs` and related log verification methods.
+ *
+ * @param ctx prover context with `method` and `params` already set
+ * @return `C4_PENDING`, `C4_SUCCESS`, or `C4_ERROR`
+ */
+c4_status_t c4_proof_logs(prover_ctx_t* ctx);
+
+/**
+ * Creates a call proof for `eth_call`, `eth_estimateGas`, and `colibri_simulateTransaction`.
+ *
+ * @param ctx prover context with `method` and `params` already set
+ * @return `C4_PENDING`, `C4_SUCCESS`, or `C4_ERROR`
+ */
 c4_status_t c4_proof_call(prover_ctx_t* ctx);
+
+/**
+ * Creates sync-committee sync data for proofs that require period updates or ZK sync sections.
+ *
+ * @param ctx prover context with `method` and `params` already set
+ * @return `C4_PENDING`, `C4_SUCCESS`, or `C4_ERROR`
+ */
 c4_status_t c4_proof_sync(prover_ctx_t* ctx);
-c4_status_t c4_proof_block(prover_ctx_t* ctx); // creates a block proof (body union NONE for header-only methods)
+
+/**
+ * Creates a block proof for block RPC methods (for example `eth_getBlockByNumber`, `eth_getBlockByHash`,
+ * `eth_getBlockHeader`). For header-only methods the block body union is `NONE`.
+ *
+ * @param ctx prover context with `method` and `params` already set
+ * @return `C4_PENDING`, `C4_SUCCESS`, or `C4_ERROR`
+ */
+c4_status_t c4_proof_block(prover_ctx_t* ctx);
+
+/**
+ * Creates a block receipts proof for `eth_getBlockReceipts`.
+ *
+ * @param ctx prover context with `method` and `params` already set
+ * @return `C4_PENDING`, `C4_SUCCESS`, or `C4_ERROR`
+ */
 c4_status_t c4_proof_block_receipts(prover_ctx_t* ctx);
 
 /**

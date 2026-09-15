@@ -84,7 +84,19 @@ typedef struct {
 // tag-to-block-hash mapping (`latest`/`safe`/`finalized` with TTLs) is prover-only
 // and stays private to `prover/beacon_header.c`.
 
-// get the beacon block for the given eth block number or hash
+/**
+ * Locates the signed beacon block and its parent for a `(sig_root, data_root)` pair.
+ *
+ * Used when the sync aggregate signs a parent header while the payload lives in a child block.
+ *
+ * @param ctx prover context
+ * @param sig_root block root whose sync aggregate is used for verification
+ * @param data_root block root of the block carrying execution data
+ * @param sig_block output signed block for `sig_root`
+ * @param data_block output signed block for `data_root`
+ * @param data_root_result receives the resolved data block root (may differ from input when redirected)
+ * @return `C4_PENDING`, `C4_SUCCESS`, or `C4_ERROR`
+ */
 c4_status_t c4_eth_get_signblock_and_parent(prover_ctx_t* ctx, bytes32_t sig_root, bytes32_t data_root, ssz_ob_t* sig_block, ssz_ob_t* data_block, bytes32_t data_root_result);
 
 /**
@@ -99,6 +111,16 @@ c4_status_t c4_eth_get_signblock_and_parent(prover_ctx_t* ctx, bytes32_t sig_roo
  * @return `C4_SUCCESS`, `C4_PENDING`, or `C4_ERROR`
  */
 c4_status_t c4_beacon_get_block_for_eth(prover_ctx_t* ctx, json_t block, eth_block_t* beacon_block);
+
+/**
+ * Like `c4_beacon_get_block_for_eth`, but always requests the execution payload body
+ * (transactions and withdrawals) in addition to the EL header.
+ *
+ * @param ctx prover context
+ * @param block JSON block identifier
+ * @param beacon_block output block with `el_body` populated when available
+ * @return `C4_SUCCESS`, `C4_PENDING`, or `C4_ERROR`
+ */
 c4_status_t c4_beacon_get_block_for_eth_with_body(prover_ctx_t* ctx, json_t block, eth_block_t* beacon_block);
 
 // :: Hybrid Mode (beacon_header.c)
@@ -164,30 +186,63 @@ bool c4_prover_header_tags_test_apply_write(uint32_t tag, uint64_t new_number, u
 c4_status_t c4_hybrid_test_resolve_block_hash(prover_ctx_t* ctx, const uint8_t* hash, bytes_t* el_header);
 #endif
 
-// creates a new header with the body_root passed and returns the ssz_builder_t, which must be freed
+/**
+ * Clones `header` with an overridden `body_root` for header-chain proofs.
+ *
+ * @param header source beacon header SSZ object
+ * @param body_root new `bodyRoot` to embed in the clone
+ * @return SSZ builder owning the new header; caller must free via `ssz_builder_free`
+ */
 ssz_builder_t c4_proof_add_header(ssz_ob_t header, bytes32_t body_root);
 
 #ifdef PROVER_CACHE
+/**
+ * Records the latest execution block number in the prover cache (tag `latest`).
+ *
+ * @param ctx prover context
+ * @param latest_block_number execution block number to cache
+ * @return `C4_PENDING`, `C4_SUCCESS`, or `C4_ERROR`
+ */
 c4_status_t c4_set_latest_block(prover_ctx_t* ctx, uint64_t latest_block_number);
+
+/**
+ * Updates finality checkpoint roots in the prover cache after a checkpoint fetch.
+ *
+ * @param ctx prover context
+ * @param checkpoint finalized checkpoint root to anchor
+ * @param slot receives the beacon slot associated with the checkpoint (optional output)
+ * @return `C4_PENDING`, `C4_SUCCESS`, or `C4_ERROR`
+ */
 c4_status_t c4_eth_update_finality(prover_ctx_t* ctx, bytes32_t checkpoint, uint64_t* slot);
 
-/*
- *  Updates the beacon block data in the cache.
+/**
+ * Updates the beacon block data in the cache.
  *
- *  This uses the following keys in the cache:
- *  - B<beacon_block_root> -> eth_block_t
- *  - Slatest -> beacon_head_t
- *  - S<exec_block_hash> -> beacon_head_t
- *  - S<exec_block_number> -> beacon_head_t
+ * This uses the following keys in the cache:
+ * - B&lt;beacon_block_root&gt; -&gt; eth_block_t
+ * - Slatest -&gt; beacon_head_t
+ * - S&lt;exec_block_hash&gt; -&gt; beacon_head_t
+ * - S&lt;exec_block_number&gt; -&gt; beacon_head_t
  *
- *  @param ctx The context of the prover
- *  @param beacon_block The beacon block to update
- *  @param latest_timestamp The latest timestamp of the block
- *  @param block_root The root of the block
+ * @param ctx prover context
+ * @param beacon_block populated `eth_block_t` to store
+ * @param latest_timestamp execution timestamp used for TTL keys
+ * @param block_root beacon block root for the `B&lt;root&gt;` key
  */
 void c4_beacon_cache_update_blockdata(prover_ctx_t* ctx, eth_block_t* beacon_block, uint64_t latest_timestamp, bytes32_t block_root);
 
 #endif
+
+/**
+ * Fills `beacon_block` beacon-side fields from fetched signed blocks.
+ *
+ * @param ctx prover context
+ * @param beacon_block output block to populate (`.beacon` union)
+ * @param data_root expected data block root
+ * @param data_block signed block carrying execution payload
+ * @param sig_block signed block carrying the sync aggregate
+ * @return `C4_SUCCESS`, `C4_PENDING`, or `C4_ERROR`
+ */
 c4_status_t c4_beacon_fill_becaon_block_from_eth(prover_ctx_t* ctx,
                                                  eth_block_t* beacon_block, bytes32_t data_root, ssz_ob_t data_block, ssz_ob_t sig_block);
 

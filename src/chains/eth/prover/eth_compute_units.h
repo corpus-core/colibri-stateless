@@ -123,12 +123,18 @@ static inline uint32_t cu_for_eth_rpc_method(const char* method) {
  * Prefer one of the more specific helpers (`eth_cu_add_proof`,
  * `eth_cu_add_multi_proof`, `eth_cu_add_patricia`) when applicable so the
  * cost model stays in one place. No-op if `ctx` is NULL.
+ *
+ * @param ctx prover context to accumulate into
+ * @param cu compute units to add
  */
 static inline void eth_cu_add(prover_ctx_t* ctx, uint32_t cu) {
   if (ctx) ctx->compute_units += cu;
 }
 
-/** Account for a single-leaf SSZ Merkle proof (`ssz_create_proof`). */
+/** Account for a single-leaf SSZ Merkle proof (`ssz_create_proof`).
+ *
+ * @param ctx prover context to accumulate into
+ */
 static inline void eth_cu_add_proof(prover_ctx_t* ctx) {
   if (ctx) ctx->compute_units += CU_SSZ_PROOF;
 }
@@ -136,6 +142,9 @@ static inline void eth_cu_add_proof(prover_ctx_t* ctx) {
 /**
  * Account for an SSZ multi-proof with `gindex_count` leaves
  * (`ssz_create_multi_proof*` family).
+ *
+ * @param ctx prover context to accumulate into
+ * @param gindex_count number of generalized indices in the multi-proof
  */
 static inline void eth_cu_add_multi_proof(prover_ctx_t* ctx, uint32_t gindex_count) {
   if (ctx) ctx->compute_units += CU_SSZ_MULTI_PROOF_BASE + gindex_count * CU_SSZ_MULTI_PROOF_LEAF;
@@ -145,6 +154,10 @@ static inline void eth_cu_add_multi_proof(prover_ctx_t* ctx, uint32_t gindex_cou
  * Account for building a Patricia-Merkle proof over a trie of `n_inserts`
  * elements with `n_proofs` Merkle proofs extracted from it: linear cost for
  * filling the trie plus a per-proof cost.
+ *
+ * @param ctx prover context to accumulate into
+ * @param n_inserts number of trie insert operations
+ * @param n_proofs number of Patricia proofs generated
  */
 static inline void eth_cu_add_patricia(prover_ctx_t* ctx, uint32_t n_inserts, uint32_t n_proofs) {
   if (ctx) ctx->compute_units += n_inserts * CU_PATRICIA_INSERT + n_proofs * CU_PATRICIA_PROOF;

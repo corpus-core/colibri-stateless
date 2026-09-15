@@ -226,6 +226,12 @@ void c4_prover_cache_cleanup(uint64_t now, uint64_t extra_size) {
 }
 
 // Helper function to ensure capacity and add an entry to the global cache array
+/**
+ * Promotes a local cache entry into the global array, converting relative TTL to absolute expiry.
+ *
+ * @param entry_to_add local cache entry metadata (value pointer transferred on success)
+ * @return true if the entry was stored, false on allocation failure or size cap
+ */
 static bool add_entry_to_global_cache(cache_entry_t* entry_to_add) {
   if (entry_to_add->size + global_cache_array.current_size > global_cache_max_size)
     c4_prover_cache_cleanup(current_ms(), entry_to_add->size);
@@ -281,6 +287,12 @@ static bool add_entry_to_global_cache(cache_entry_t* entry_to_add) {
 }
 
 // Find an entry in the global cache array by key
+/**
+ * Looks up a global cache slot by 32-byte key, ignoring invalidated entries (`timestamp == 0`).
+ *
+ * @param key cache key to find
+ * @return pointer to the entry in the global array, or NULL
+ */
 static cache_entry_t* find_global_cache_entry(bytes32_t key) {
   prover_cache_key_t key_aligned;
   memcpy(key_aligned.bytes32, key, 32);
