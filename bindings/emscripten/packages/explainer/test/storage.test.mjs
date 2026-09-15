@@ -1,5 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { keccak256, AbiCoder } from 'ethers';
 import { parseSlotSource, resolveStorageSlot, resolveDirectSlot } from '../dist/storage.js';
 import { UNI_STORAGE_LAYOUT } from './fixtures.mjs';
 
@@ -113,5 +114,98 @@ describe('resolveDirectSlot', () => {
         const result = resolveDirectSlot('0x0000000000000000000000000000000000000000000000000000000000000000', null);
         assert.equal(result.variableName, undefined);
         assert.equal(result.baseSlot, 0);
+    });
+
+    it('does not throw on negative hex or array dumps', () => {
+        const neg = resolveDirectSlot('0x-31380', UNI_STORAGE_LAYOUT);
+        assert.equal(neg.variableName, undefined);
+        assert.equal(neg.baseSlot, -1);
+        const arr = resolveDirectSlot('[0x309066af5db7ee2d246, 0x0]', UNI_STORAGE_LAYOUT);
+        assert.equal(arr.baseSlot, -1);
+        assert.equal(arr.raw, '[0x309066af5db7ee2d246, 0x0]');
+        const empty = resolveDirectSlot('', UNI_STORAGE_LAYOUT);
+        assert.equal(empty.baseSlot, -1);
+        assert.equal(empty.raw, '');
+        const decimalNeg = resolveDirectSlot('-31380', UNI_STORAGE_LAYOUT);
+        assert.equal(decimalNeg.baseSlot, -1);
+        const garbage = resolveDirectSlot('not-hex', UNI_STORAGE_LAYOUT);
+        assert.equal(garbage.baseSlot, -1);
+        assert.equal(garbage.variableName, undefined);
+    });
+});
+
+const ARRAY_LAYOUT = {
+    storage: [
+        { slot: '5', type: 't_array(t_uint256)dyn_storage', astId: 1, label: 'items', offset: 0, contract: 'C.sol:C' },
+        { slot: '-1', type: 't_array(t_uint256)dyn_storage', astId: 3, label: 'brokenNeg', offset: 0, contract: 'C.sol:C' },
+    ],
+    types: {
+        't_array(t_uint256)dyn_storage': {
+            label: 'uint256[]',
+            encoding: 'dynamic_array',
+            numberOfBytes: '32',
+            base: 't_uint256',
+        },
+        't_uint256': { label: 'uint256', encoding: 'inplace', numberOfBytes: '32' },
+    },
+};
+
+const STRUCT_ARRAY_LAYOUT = {
+    storage: [
+        { slot: '5', type: 't_array(t_struct(Item)storage)dyn_storage', astId: 1, label: 'items', offset: 0, contract: 'C.sol:C' },
+    ],
+    types: {
+        't_array(t_struct(Item)storage)dyn_storage': {
+            label: 'struct Item[]',
+            encoding: 'dynamic_array',
+            numberOfBytes: '32',
+            base: 't_struct(Item)storage',
+        },
+        't_struct(Item)storage': {
+            label: 'struct Item',
+            encoding: 'inplace',
+            numberOfBytes: '64',
+            members: [
+                { slot: '0', type: 't_uint256', astId: 2, label: 'a', offset: 0, contract: 'C.sol:C' },
+                { slot: '1', type: 't_uint256', astId: 3, label: 'b', offset: 0, contract: 'C.sol:C' },
+            ],
+        },
+        't_uint256': { label: 'uint256', encoding: 'inplace', numberOfBytes: '32' },
+    },
+};
+
+function arrayElementSlot(baseSlot, index, elementSlots = 1n) {
+    const arrayStart = BigInt(keccak256(AbiCoder.defaultAbiCoder().encode(['uint256'], [BigInt(baseSlot)])));
+    const slot = arrayStart + BigInt(index) * elementSlots;
+    return '0x' + slot.toString(16).padStart(64, '0');
+}
+
+describe('resolveDirectSlot dynamic arrays', () => {
+    it('resolves an element of a dynamic uint256 array', () => {
+        const result = resolveDirectSlot(arrayElementSlot(5, 2), ARRAY_LAYOUT);
+        assert.equal(result.variableName, 'items');
+        assert.equal(result.variableType, 'uint256[]');
+        assert.equal(result.arrayIndex, 2);
+        assert.equal(result.baseSlot, 5);
+    });
+
+    it('resolves a struct field inside a dynamic array element', () => {
+        const arrayStart = BigInt(keccak256(AbiCoder.defaultAbiCoder().encode(['uint256'], [5n])));
+        const slot = arrayStart + 1n * 2n + 1n; // items[1].b
+        const resolved = resolveDirectSlot('0x' + slot.toString(16).padStart(64, '0'), STRUCT_ARRAY_LAYOUT);
+        assert.equal(resolved.variableName, 'items');
+        assert.equal(resolved.arrayIndex, 1);
+        assert.equal(resolved.structField, 'b');
+    });
+
+    it('does not throw when a layout array slot is negative', () => {
+        const slot = arrayElementSlot(5, 0);
+        let result;
+        assert.doesNotThrow(() => {
+            result = resolveDirectSlot(slot, ARRAY_LAYOUT);
+        });
+        assert.equal(result.variableName, 'items');
+        assert.equal(result.arrayIndex, 0);
+        assert.notEqual(result.variableName, 'brokenNeg');
     });
 });

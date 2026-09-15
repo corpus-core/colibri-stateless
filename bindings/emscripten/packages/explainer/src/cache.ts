@@ -21,10 +21,20 @@
  * SPDX-License-Identifier: MIT
  */
 
-import type { ContractCache, VerifiedContract } from './types.js';
+import type { CompilationInput, ContractCache, ContractMetadata, VerifiedContract } from './types.js';
 
 const CACHE_PREFIX = 'c4x_';
-const SAFE_KEY_RE = /^c4x_0x[0-9a-fA-F]{1,64}$/;
+
+/**
+ * Allowed persistent cache filenames.
+ * - `c4x_0x{hex}` — verified contract by codeHash
+ * - `c4s_{chainId}_{address}` — Sourcify compilation input (or miss marker)
+ * - `c4m_{chainId}_{address}` — Sourcify metadata (or miss marker)
+ */
+const SAFE_KEY_RE = /^(?:c4x_0x[0-9a-fA-F]{1,64}|c4[sm]_\d+_0x[0-9a-fA-F]{1,40})$/;
+
+const ADDRESS_RE = /^0x[0-9a-f]{1,40}$/;
+const MISS_MARKER = '{"empty":true}';
 
 interface LocalStorageLike {
     getItem: (k: string) => string | null;
@@ -52,17 +62,73 @@ function isNodeEnvironment(): boolean {
         && typeof process.versions.node !== 'undefined';
 }
 
-function sanitizeKey(key: string): string {
+/**
+ * Validate a cache key. Rejects path traversal and unexpected prefixes.
+ *
+ * @param key - Raw cache key
+ * @return The same key if it is safe
+ */
+export function sanitizeKey(key: string): string {
     if (!SAFE_KEY_RE.test(key)) {
         throw new Error(`Invalid cache key: ${key}`);
     }
     return key;
 }
 
+function normalizeAddress(address: string): string | null {
+    const addr = address.toLowerCase();
+    return ADDRESS_RE.test(addr) ? addr : null;
+}
+
+function sourcifyKey(prefix: 'c4s' | 'c4m', chainId: number, address: string): string | null {
+    if (!Number.isInteger(chainId) || chainId < 0 || chainId > 0xffffffff) return null;
+    const addr = normalizeAddress(address);
+    if (!addr) return null;
+    const key = `${prefix}_${chainId}_${addr}`;
+    return SAFE_KEY_RE.test(key) ? key : null;
+}
+
+/**
+ * Cache key for a Sourcify compilation-input entry.
+ *
+ * @param chainId - EVM chain ID
+ * @param address - Contract address
+ * @return Safe key, or `null` if the inputs cannot be used as a filename
+ */
+export function sourcifyCompilationKey(chainId: number, address: string): string | null {
+    return sourcifyKey('c4s', chainId, address);
+}
+
+/**
+ * Cache key for a Sourcify metadata entry.
+ *
+ * @param chainId - EVM chain ID
+ * @param address - Contract address
+ * @return Safe key, or `null` if the inputs cannot be used as a filename
+ */
+export function sourcifyMetadataKey(chainId: number, address: string): string | null {
+    return sourcifyKey('c4m', chainId, address);
+}
+
+/**
+ * Resolve the Node.js cache directory (`C4_STATE_DIR` or `~/.colibri`).
+ *
+ * @return Absolute directory path, or `null` in the browser / when neither env is set
+ */
+export async function getCacheDirectory(): Promise<string | null> {
+    if (!isNodeEnvironment()) return null;
+    if (process.env.C4_STATE_DIR) return process.env.C4_STATE_DIR;
+    if (!process.env.HOME) return null;
+    const pathMod = await import('path');
+    return pathMod.join(process.env.HOME, '.colibri');
+}
+
 /**
  * Create the default cache backed by localStorage (browser),
  * the filesystem (Node.js with `HOME` or `C4_STATE_DIR`),
  * or an in-memory Map fallback.
+ *
+ * @return Cache implementation for the current environment
  */
 export async function getDefaultCache(): Promise<ContractCache> {
     const ls = getLocalStorage();
@@ -73,15 +139,10 @@ export async function getDefaultCache(): Promise<ContractCache> {
         };
     }
 
-    if (isNodeEnvironment()) {
-        const home = process.env.C4_STATE_DIR || (process.env.HOME ? undefined : null);
-        if (home === null) {
-            return createMemoryCache();
-        }
-
+    const dir = await getCacheDirectory();
+    if (dir) {
         const fs = await import('fs');
         const pathMod = await import('path');
-        const dir = home || pathMod.join(process.env.HOME!, '.colibri');
         try { fs.mkdirSync(dir, { recursive: true }); } catch { /* exists */ }
 
         return {
@@ -93,7 +154,7 @@ export async function getDefaultCache(): Promise<ContractCache> {
             set: async (key: string, value: string) => {
                 const resolved = pathMod.resolve(dir, sanitizeKey(key));
                 if (!resolved.startsWith(pathMod.resolve(dir) + pathMod.sep)) return;
-                fs.writeFileSync(resolved, value, 'utf-8');
+                try { fs.writeFileSync(resolved, value, 'utf-8'); } catch { /* quota / permissions */ }
             },
         };
     }
@@ -117,7 +178,17 @@ function isVerifiedContract(obj: unknown): obj is VerifiedContract {
         && typeof o.contractName === 'string';
 }
 
-/** Read a `VerifiedContract` from the cache by codeHash. */
+function isMissMarker(obj: unknown): boolean {
+    return !!obj && typeof obj === 'object' && (obj as Record<string, unknown>).empty === true;
+}
+
+/**
+ * Read a `VerifiedContract` from the cache by codeHash.
+ *
+ * @param cache - Cache backend
+ * @param codeHash - keccak256 of deployed runtime bytecode
+ * @return Cached contract, or `null` on miss / corruption
+ */
 export async function cacheGet(
     cache: ContractCache,
     codeHash: string,
@@ -132,13 +203,115 @@ export async function cacheGet(
     }
 }
 
-/** Write a `VerifiedContract` to the cache by codeHash. */
+/**
+ * Write a `VerifiedContract` to the cache by codeHash.
+ *
+ * @param cache - Cache backend
+ * @param codeHash - keccak256 of deployed runtime bytecode
+ * @param contract - Verified metadata to persist
+ */
 export async function cacheSet(
     cache: ContractCache,
     codeHash: string,
     contract: VerifiedContract,
 ): Promise<void> {
     await cache.set(CACHE_PREFIX + codeHash, JSON.stringify(contract));
+}
+
+/**
+ * Read a cached Sourcify compilation input.
+ *
+ * @param cache - Cache backend
+ * @param chainId - EVM chain ID
+ * @param address - Contract address
+ * @return `'empty'` for a persisted miss, the input on hit, or `null` if uncached
+ */
+export async function cacheGetCompilation(
+    cache: ContractCache,
+    chainId: number,
+    address: string,
+): Promise<CompilationInput | 'empty' | null> {
+    const key = sourcifyCompilationKey(chainId, address);
+    if (!key) return null;
+    const raw = await cache.get(key);
+    if (!raw) return null;
+    try {
+        const parsed = JSON.parse(raw);
+        if (isMissMarker(parsed)) return 'empty';
+        if (!parsed || typeof parsed !== 'object') return null;
+        return parsed as CompilationInput;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Persist a Sourcify compilation input or an explicit miss marker.
+ *
+ * @param cache - Cache backend
+ * @param chainId - EVM chain ID
+ * @param address - Contract address
+ * @param value - Compilation input, or `'empty'` for a verified miss (404 / no ABI)
+ */
+export async function cacheSetCompilation(
+    cache: ContractCache,
+    chainId: number,
+    address: string,
+    value: CompilationInput | 'empty',
+): Promise<void> {
+    const key = sourcifyCompilationKey(chainId, address);
+    if (!key) return;
+    try {
+        await cache.set(key, value === 'empty' ? MISS_MARKER : JSON.stringify(value));
+    } catch { /* quota */ }
+}
+
+/**
+ * Read cached Sourcify contract metadata.
+ *
+ * @param cache - Cache backend
+ * @param chainId - EVM chain ID
+ * @param address - Contract address
+ * @return `'empty'` for a persisted miss, metadata on hit, or `null` if uncached
+ */
+export async function cacheGetMetadata(
+    cache: ContractCache,
+    chainId: number,
+    address: string,
+): Promise<ContractMetadata | 'empty' | null> {
+    const key = sourcifyMetadataKey(chainId, address);
+    if (!key) return null;
+    const raw = await cache.get(key);
+    if (!raw) return null;
+    try {
+        const parsed = JSON.parse(raw);
+        if (isMissMarker(parsed)) return 'empty';
+        if (!parsed || typeof parsed !== 'object') return null;
+        return parsed as ContractMetadata;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Persist Sourcify contract metadata or an explicit miss marker.
+ *
+ * @param cache - Cache backend
+ * @param chainId - EVM chain ID
+ * @param address - Contract address
+ * @param value - Metadata, or `'empty'` for a verified miss
+ */
+export async function cacheSetMetadata(
+    cache: ContractCache,
+    chainId: number,
+    address: string,
+    value: ContractMetadata | 'empty',
+): Promise<void> {
+    const key = sourcifyMetadataKey(chainId, address);
+    if (!key) return;
+    try {
+        await cache.set(key, value === 'empty' ? MISS_MARKER : JSON.stringify(value));
+    } catch { /* quota */ }
 }
 
 /** @deprecated Use `getDefaultCache` instead. */

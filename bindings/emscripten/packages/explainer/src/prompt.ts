@@ -272,8 +272,11 @@ function formatKeyValue(key: { type: string; value: string }): string {
 }
 
 function formatSlotValue(hex: string): string {
-    const val = hexToBigInt(hex);
-    if (val === 0n) return '0';
+    if (hex == null || hex === '') return '0';
+    const s = String(hex);
+    if (s.startsWith('[')) return s;
+    const val = hexToBigInt(s);
+    if (val === 0n) return /^0x0*$/i.test(s) || s === '0' ? '0' : s;
     return val.toString();
 }
 

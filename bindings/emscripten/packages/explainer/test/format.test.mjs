@@ -18,6 +18,18 @@ describe('hexToBigInt', () => {
         assert.equal(hexToBigInt('0x'), 0n);
         assert.equal(hexToBigInt('0x0'), 0n);
     });
+
+    it('does not throw on array dumps or negative hex', () => {
+        assert.equal(hexToBigInt('[0x1, 0x2]'), 0n);
+        assert.equal(hexToBigInt('0x-31380'), -201600n);
+        assert.equal(hexToBigInt('0X-31380'), -201600n);
+        assert.equal(hexToBigInt('-201600'), -201600n);
+        assert.equal(hexToBigInt('not-hex'), 0n);
+        assert.equal(hexToBigInt('0X'), 0n);
+        assert.equal(hexToBigInt('0X0'), 0n);
+        assert.equal(hexToBigInt('0'), 0n);
+        assert.equal(hexToBigInt('  0xff  '), 255n);
+    });
 });
 
 describe('weiToEth', () => {

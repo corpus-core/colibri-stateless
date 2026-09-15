@@ -231,6 +231,15 @@ export interface ContractMetadata {
     storageLayout: SolidityStorageLayout | null;
 }
 
+/** Compilation artifacts returned by the Sourcify v2 `stdJsonInput` endpoint. */
+export interface CompilationInput {
+    stdJsonInput: Record<string, unknown> | null;
+    compilerVersion: string | null;
+    contractName: string | null;
+    abi: unknown[] | null;
+    sources: Record<string, { content: string }> | null;
+}
+
 export interface DecodedCall {
     name: string;
     signature: string;

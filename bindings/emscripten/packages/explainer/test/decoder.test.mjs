@@ -143,10 +143,12 @@ describe('decodeRevertData', () => {
 
     it('decodes custom error from ABI', () => {
         const abi = [
-            { name: 'InsufficientBalance', type: 'error', inputs: [
-                { name: 'available', type: 'uint256' },
-                { name: 'required', type: 'uint256' },
-            ]},
+            {
+                name: 'InsufficientBalance', type: 'error', inputs: [
+                    { name: 'available', type: 'uint256' },
+                    { name: 'required', type: 'uint256' },
+                ]
+            },
         ];
         const iface = new Interface(abi);
         const encoded = iface.encodeErrorResult('InsufficientBalance', [100, 200]);
@@ -168,5 +170,51 @@ describe('decodeRevertData', () => {
     it('returns null for unknown selector without ABI', () => {
         const data = '0xdeadbeef' + '0000000000000000000000000000000000000000000000000000000000000001';
         assert.equal(decodeRevertData(data), null);
+    });
+});
+
+describe('formatValue edge cases', () => {
+    it('formats negative int256 as decimal, not 0x-hex', () => {
+        const abi = [{
+            type: 'function',
+            name: 'adjust',
+            inputs: [{ name: 'delta', type: 'int256' }],
+            outputs: [],
+        }];
+        const iface = new Interface(abi);
+        const data = iface.encodeFunctionData('adjust', [-200064n]);
+        const result = decodeFunctionCall(abi, data);
+        assert.ok(result);
+        assert.equal(result.params[0].value, '-200064');
+        assert.equal(result.params[0].value.includes('0x-'), false);
+    });
+
+    it('formats int256[2] as a bracket list of hex values', () => {
+        const abi = [{
+            type: 'function',
+            name: 'setTicks',
+            inputs: [{ name: 'ticks', type: 'int256[2]' }],
+            outputs: [],
+        }];
+        const iface = new Interface(abi);
+        const data = iface.encodeFunctionData('setTicks', [[1n, 2n]]);
+        const result = decodeFunctionCall(abi, data);
+        assert.ok(result);
+        assert.equal(result.params[0].value, '[0x1, 0x2]');
+    });
+
+    it('formats mixed-sign int arrays without 0x-hex', () => {
+        const abi = [{
+            type: 'function',
+            name: 'setTicks',
+            inputs: [{ name: 'ticks', type: 'int256[2]' }],
+            outputs: [],
+        }];
+        const iface = new Interface(abi);
+        const data = iface.encodeFunctionData('setTicks', [[1n, -200064n]]);
+        const result = decodeFunctionCall(abi, data);
+        assert.ok(result);
+        assert.equal(result.params[0].value, '[0x1, -200064]');
+        assert.equal(result.params[0].value.includes('0x-'), false);
     });
 });

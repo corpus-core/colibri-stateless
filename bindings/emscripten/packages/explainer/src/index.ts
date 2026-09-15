@@ -39,6 +39,7 @@ export type {
     ContractCache,
     VerifiedContract,
     ContractMetadata,
+    CompilationInput,
     SolidityStorageLayout,
     SolidityStorageEntry,
     SolidityStorageType,
@@ -60,13 +61,18 @@ export { createProvider } from './providers/index.js';
 export { WebLLMProvider, DEFAULT_WEBLLM_MODEL } from './providers/webllm.js';
 export { hexToBigInt, weiToEth, formatTokenAmount, formatGas, shortenAddress } from './format.js';
 export { lookupAddress, labelAddress } from './known_addresses.js';
-export { fetchContractMetadata, fetchCompilationInput } from './sourcify.js';
+export { fetchContractMetadata, fetchCompilationInput, setSourcifyLogger } from './sourcify.js';
+export type { SourcifyLogFn } from './sourcify.js';
 export { decodeFunctionCall, decodeEventLog, decodeFunctionResult, decodeRevertData } from './decoder.js';
 export { parseSlotSource, resolveStorageSlot, resolveDirectSlot } from './storage.js';
 export { enrichSimulation, toEnhancedResult } from './enrich.js';
-export { compileAndVerify, loadCompiler, getBundledCompiler } from './compiler.js';
+export { compileAndVerify, loadCompiler, getBundledCompiler, hashRuntimeBytecode } from './compiler.js';
 export { extractStorageLayout } from './layout.js';
-export { getDefaultCache, get_default_cache, cacheGet, cacheSet } from './cache.js';
+export {
+    getDefaultCache, get_default_cache, cacheGet, cacheSet, getCacheDirectory,
+    sanitizeKey, sourcifyCompilationKey, sourcifyMetadataKey,
+    cacheGetCompilation, cacheSetCompilation, cacheGetMetadata, cacheSetMetadata,
+} from './cache.js';
 
 import type { SimulationResult, TxParams, ExplainerConfig, EnhancedSimulationResult } from './types.js';
 import { buildPrompt } from './prompt.js';

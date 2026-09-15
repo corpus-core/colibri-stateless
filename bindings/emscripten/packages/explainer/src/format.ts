@@ -21,14 +21,25 @@
  * SPDX-License-Identifier: MIT
  */
 
-/** Parse a hex string (with or without `0x` prefix) into a BigInt. Returns 0n for empty/null input. */
+/**
+ * Parse a hex string (with or without `0x` prefix) into a BigInt.
+ * Returns 0n for empty, null, array dumps, or any other non-scalar input.
+ * Negative quantities (`0x-31380`) are accepted.
+ *
+ * @param hex - Hex quantity, optional `0x` / `0X`
+ * @return Parsed value, or `0n` for empty / non-scalar input
+ */
 export function hexToBigInt(hex: string | undefined | null): bigint {
-    if (!hex || hex === '0x' || hex === '0x0') return 0n;
-    const clean = hex.startsWith('0x') ? hex : '0x' + hex;
+    if (hex == null || hex === '' || hex === '0x' || hex === '0X' || hex === '0x0' || hex === '0X0') return 0n;
+    const raw = String(hex).trim();
+    if (!raw || raw === '0' || raw.startsWith('[')) return 0n;
     try {
+        if (/^0x-/i.test(raw)) return -BigInt('0x' + raw.slice(3));
+        if (raw.startsWith('-')) return BigInt(raw);
+        const clean = raw.startsWith('0x') || raw.startsWith('0X') ? raw : '0x' + raw;
         return BigInt(clean);
     } catch {
-        throw new Error(`Invalid hex value: "${hex}"`);
+        return 0n;
     }
 }
 
