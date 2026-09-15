@@ -193,7 +193,18 @@ function buildSkeletonSource(
     for (const e of enums) lines.push(e, '');
 
     const emitted = new Set<string>();
+    // Interfaces/libraries first so contract-typed state vars (e.g. `IUniswapV2Router02`)
+    // have a declaration. Inheritance-only emission used to drop those and solc
+    // then failed the skeleton with a missing identifier.
+    for (const [name, sk] of contracts) {
+        if (sk.kind === 'interface' || sk.kind === 'library') {
+            emitContract(name, contracts, lines, emitted);
+        }
+    }
     emitContract(target, contracts, lines, emitted);
+    for (const name of contracts.keys()) {
+        emitContract(name, contracts, lines, emitted);
+    }
 
     return lines.join('\n');
 }
@@ -261,8 +272,13 @@ async function compileSkeleton(
     explainerLog('debug', 'skeleton compiled', { scope: 'layout', contract: contractName, ms: elapsedMs(started) });
 
     const errors = output.errors as Array<{ severity: string; message: string }> | undefined;
-    const hasErrors = errors?.some(e => e.severity === 'error');
-    if (hasErrors) return null;
+    const firstError = errors?.find(e => e.severity === 'error');
+    if (firstError) {
+        explainerLog('debug', 'skeleton compile errors', {
+            scope: 'layout', contract: contractName, error: firstError.message,
+        });
+        return null;
+    }
 
     const contracts = output.contracts as Record<string, Record<string, Record<string, unknown>>> | undefined;
     if (!contracts) return null;

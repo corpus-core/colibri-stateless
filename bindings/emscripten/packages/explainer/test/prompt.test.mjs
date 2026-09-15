@@ -238,8 +238,13 @@ describe('buildPrompt source-code budget (maxSourceChars)', () => {
         assert.ok(!userPrompt.includes('(truncated)'));
     });
 
-    it('truncates a large source file at the default per-file cap', () => {
+    it('gives a single source file the full default budget', () => {
         const { userPrompt } = buildPrompt(WETH_DEPOSIT_RESULT, TX_PARAMS, {}, sourceContext('A'.repeat(5000)));
+        assert.ok(!userPrompt.includes('(truncated)'));
+    });
+
+    it('truncates a single file that exceeds the default budget', () => {
+        const { userPrompt } = buildPrompt(WETH_DEPOSIT_RESULT, TX_PARAMS, {}, sourceContext('A'.repeat(12_000)));
         assert.ok(userPrompt.includes('(truncated)'));
     });
 
@@ -262,8 +267,44 @@ describe('buildPrompt source-code budget (maxSourceChars)', () => {
             WETH_DEPOSIT_RESULT, TX_PARAMS, { maxSourceChars: 600 }, sourceContext('C'.repeat(2000), 3),
         );
         assert.ok(userPrompt.includes('(truncated)'));
-        // The third file must be dropped once the budget is exhausted.
-        assert.ok(!userPrompt.includes('F2.sol'));
+        assert.ok(userPrompt.includes('F0.sol'));
+        assert.ok(userPrompt.includes('F1.sol'));
+        assert.ok(userPrompt.includes('F2.sol'));
+    });
+
+    it('when truncating, keeps the last contract (state vars) over leading helpers', () => {
+        const prefix = 'library L { function x() internal pure returns (uint) { return 1; } }\n'.repeat(40);
+        const src = `${prefix}contract MCGA { mapping(address => uint256) private _allowances; }`;
+        const { userPrompt } = buildPrompt(
+            WETH_DEPOSIT_RESULT, TX_PARAMS, { maxSourceChars: 400 }, sourceContext(src),
+        );
+        assert.ok(userPrompt.includes('contract MCGA'));
+        assert.ok(userPrompt.includes('_allowances'));
+        assert.ok(userPrompt.includes('(truncated)'));
+        assert.ok(!userPrompt.includes('library L'));
+    });
+
+    it('when truncating, starts the window at the last abstract contract', () => {
+        const prefix = 'library L { function x() internal pure returns (uint) { return 1; } }\n'.repeat(40);
+        const src = `${prefix}abstract contract Vault { mapping(address => uint256) private _allowances; }`;
+        const { userPrompt } = buildPrompt(
+            WETH_DEPOSIT_RESULT, TX_PARAMS, { maxSourceChars: 400 }, sourceContext(src),
+        );
+        assert.ok(userPrompt.includes('abstract contract Vault'));
+        assert.ok(userPrompt.includes('_allowances'));
+        assert.ok(userPrompt.includes('(truncated)'));
+        assert.ok(!userPrompt.includes('library L'));
+    });
+
+    it('even split keeps files that a 30% per-file cap would cut', () => {
+        // Two 800-char files, budget 2000: even split gives 1000 each (keep both).
+        // The old 30% cap was max(500, floor(2000*0.3)) = 600 and would truncate.
+        const { userPrompt } = buildPrompt(
+            WETH_DEPOSIT_RESULT, TX_PARAMS, { maxSourceChars: 2000 }, sourceContext('D'.repeat(800), 2),
+        );
+        assert.ok(userPrompt.includes('F0.sol'));
+        assert.ok(userPrompt.includes('F1.sol'));
+        assert.ok(!userPrompt.includes('(truncated)'));
     });
 
     it('omits source code when storage slots are resolved', () => {

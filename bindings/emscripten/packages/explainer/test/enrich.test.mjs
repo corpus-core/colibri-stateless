@@ -1,8 +1,9 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { keccak256, AbiCoder } from 'ethers';
 import { enrichSimulation, toEnhancedResult } from '../dist/enrich.js';
 import { resetSourcifyStateForTests, setSourcifyClockForTests } from '../dist/sourcify.js';
-import { WETH_DEPOSIT_RESULT, TX_PARAMS, WETH_ABI, REVERTED_TX_RESULT } from './fixtures.mjs';
+import { WETH_DEPOSIT_RESULT, TX_PARAMS, WETH_ABI, REVERTED_TX_RESULT, UNI_STORAGE_LAYOUT } from './fixtures.mjs';
 
 function memoryCache() {
     const store = new Map();
@@ -263,6 +264,108 @@ describe('enrichSimulation', () => {
         assert.equal(calls, 2);
         assert.deepEqual(ctx.contracts.get(a)?.abi, WETH_ABI);
         assert.deepEqual(ctx.contracts.get(b)?.abi, WETH_ABI);
+    });
+
+    function nestedAllowanceSlotSource(owner, spender, slot = 3n) {
+        const inner = keccak256(AbiCoder.defaultAbiCoder().encode(['address', 'uint256'], [owner, slot]));
+        return '0x' + spender.slice(2).padStart(64, '0') + inner.slice(2);
+    }
+
+    function layoutCache(codeHash) {
+        const verified = JSON.stringify({
+            abi: [],
+            storageLayout: UNI_STORAGE_LAYOUT,
+            sources: {},
+            compilerVersion: '0.8.0',
+            contractName: 'Uni',
+        });
+        return {
+            get: async (key) => (typeof key === 'string' && key.includes(codeHash) ? verified : null),
+            set: async () => { },
+        };
+    }
+
+    it('resolves nested mapping keys from decoded log address inputs', async () => {
+        mockSourcify({});
+        const token = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+        const owner = '0xedf8a8bf77e25b8a0ebe4a26889fa12f0d5485d5';
+        const spender = '0x40aa958dd87fc8305b97f2ba922cddca374bcd7f';
+        const codeHash = '0x' + '11'.repeat(32);
+        const result = {
+            gasUsed: '0x1',
+            status: '0x1',
+            returnValue: '0x',
+            logs: [{
+                inputs: [
+                    { name: 'owner', type: 'address', value: owner },
+                    { name: 'spender', type: 'address', value: spender },
+                    { name: 'value', type: 'uint256', value: '1' },
+                ],
+                name: 'Approval',
+                raw: { address: token, data: '0x', topics: ['0x' + 'ab'.repeat(32)] },
+            }],
+            stateChanges: [{
+                address: token,
+                storage: [{
+                    slot: '0x' + 'cd'.repeat(32),
+                    previousValue: '0x' + '00'.repeat(32),
+                    newValue: '0x' + '01'.repeat(32),
+                    slotSource: nestedAllowanceSlotSource(owner, spender),
+                }],
+            }],
+            accessList: [{ address: token, codeHash, storageKeys: [] }],
+        };
+
+        const ctx = await enrichSimulation(result, { to: token, data: '0xd0e30db0' }, 1, { cache: layoutCache(codeHash) });
+        const slots = ctx.resolvedStorage.get(token);
+        assert.ok(slots);
+        assert.equal(slots[0].variableName, 'allowances');
+        assert.equal(slots[0].baseSlot, 3);
+        assert.equal(slots[0].keys?.length, 2);
+        assert.ok(slots[0].keys[0].value.toLowerCase().includes(owner.slice(2)));
+        assert.ok(slots[0].keys[1].value.toLowerCase().includes(spender.slice(2)));
+    });
+
+    it('resolves nested mapping keys from indexed address topics', async () => {
+        mockSourcify({});
+        const token = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+        const owner = '0xedf8a8bf77e25b8a0ebe4a26889fa12f0d5485d5';
+        const spender = '0x40aa958dd87fc8305b97f2ba922cddca374bcd7f';
+        const codeHash = '0x' + '22'.repeat(32);
+        const result = {
+            gasUsed: '0x1',
+            status: '0x1',
+            returnValue: '0x',
+            logs: [{
+                raw: {
+                    address: token,
+                    data: '0x',
+                    topics: [
+                        '0x' + 'ab'.repeat(32),
+                        '0x' + '0'.repeat(24) + owner.slice(2),
+                        '0x' + '0'.repeat(24) + spender.slice(2),
+                    ],
+                },
+            }],
+            stateChanges: [{
+                address: token,
+                storage: [{
+                    slot: '0x' + 'cd'.repeat(32),
+                    previousValue: '0x' + '00'.repeat(32),
+                    newValue: '0x' + '01'.repeat(32),
+                    slotSource: nestedAllowanceSlotSource(owner, spender),
+                }],
+            }],
+            accessList: [{ address: token, codeHash, storageKeys: [] }],
+        };
+
+        const ctx = await enrichSimulation(result, { to: token, data: '0xd0e30db0' }, 1, { cache: layoutCache(codeHash) });
+        const slots = ctx.resolvedStorage.get(token);
+        assert.ok(slots);
+        assert.equal(slots[0].variableName, 'allowances');
+        assert.equal(slots[0].keys?.length, 2);
+        assert.equal(slots[0].keys[0].value.toLowerCase(), owner);
+        assert.equal(slots[0].keys[1].value.toLowerCase(), spender);
     });
 });
 

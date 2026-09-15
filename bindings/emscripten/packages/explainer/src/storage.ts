@@ -67,10 +67,14 @@ export function parseSlotSource(slotSource: string): { baseSlot: bigint; keyData
  *
  * @param slotSource - KECCAK256 preimage from EVM interception
  * @param layout - Solidity compiler storage layout (null if unavailable)
+ * @param candidateKeys - Addresses (and hex keys) to try as the *outer* key of
+ *   a nested mapping. The intercepted preimage is only one keccak level, so
+ *   `allowances[owner][spender]` arrives as `spender || keccak(owner . slot)`.
  */
 export function resolveStorageSlot(
     slotSource: string,
     layout: SolidityStorageLayout | null,
+    candidateKeys?: string[],
 ): ResolvedSlot {
     const { baseSlot, keyData } = parseSlotSource(slotSource);
 
@@ -81,7 +85,10 @@ export function resolveStorageSlot(
     const keys = [detectKeyType(keyData)];
 
     if (layout && layout.types) {
-        const entry = layout.storage.find(s => BigInt(s.slot) === baseSlot);
+        const entry = layout.storage.find(s => {
+            const n = parseLayoutSlot(s.slot);
+            return n !== null && n === baseSlot;
+        });
         if (entry) {
             const typeInfo = layout.types[entry.type];
             if (typeInfo) {
@@ -95,6 +102,12 @@ export function resolveStorageSlot(
                 };
             }
         }
+
+        const nested = matchNestedMapping(layout, baseSlot, keys[0], candidateKeys);
+        if (nested) {
+            nested.raw = slotSource;
+            return nested;
+        }
     }
 
     return {
@@ -102,6 +115,85 @@ export function resolveStorageSlot(
         baseSlot: safeBaseSlot(baseSlot),
         raw: slotSource,
     };
+}
+
+const MAX_NESTED_CANDIDATES = 32;
+
+/**
+ * keccak256(abi.encodePacked(padded32(key), padded32(slot))) -- Solidity mapping slot.
+ *
+ * @param key32hex - 32-byte key without `0x` (already padded)
+ * @param slot - Mapping base slot
+ * @return Hex hash
+ */
+function keccak256MappingPreimage(key32hex: string, slot: bigint): string {
+    return keccak256('0x' + key32hex + slot.toString(16).padStart(64, '0'));
+}
+
+/**
+ * Pad a candidate key the way solc pads mapping keys (left-padded 32 bytes).
+ *
+ * @param raw - Address (`0x` + 40 hex) or hex quantity
+ * @return 64 hex chars, or `null` if the value cannot be a mapping key
+ */
+function padMappingKey(raw: string): string | null {
+    const hex = raw.startsWith('0x') || raw.startsWith('0X') ? raw.slice(2) : raw;
+    if (!/^[0-9a-fA-F]+$/.test(hex) || hex.length > 64) return null;
+    return hex.toLowerCase().padStart(64, '0');
+}
+
+/**
+ * Match `innerBase === keccak256(outerKey . variableSlot)` for nested mappings.
+ *
+ * @param layout - Compiler storage layout
+ * @param innerBase - Second-level mapping slot from the intercepted preimage
+ * @param innerKey - Key decoded from the intercepted preimage (inner mapping)
+ * @param candidateKeys - Outer-key candidates (typically tx/event addresses)
+ * @return Resolved slot, or `null` if no mapping matches
+ */
+function matchNestedMapping(
+    layout: SolidityStorageLayout,
+    innerBase: bigint,
+    innerKey: ParsedKey,
+    candidateKeys?: string[],
+): ResolvedSlot | null {
+    if (!layout.types || !layout.storage || !candidateKeys?.length) return null;
+
+    const padded: string[] = [];
+    for (const raw of candidateKeys) {
+        if (padded.length >= MAX_NESTED_CANDIDATES) break;
+        const key = padMappingKey(raw);
+        if (key) padded.push(key);
+    }
+    if (padded.length === 0) return null;
+
+    for (const entry of layout.storage) {
+        const typeInfo = layout.types[entry.type];
+        if (!typeInfo || typeInfo.encoding !== 'mapping' || !typeInfo.value) continue;
+        const valueType = layout.types[typeInfo.value];
+        if (!valueType || valueType.encoding !== 'mapping') continue;
+
+        const base = parseLayoutSlot(entry.slot);
+        if (base === null) continue;
+
+        for (const key32 of padded) {
+            if (BigInt(keccak256MappingPreimage(key32, base)) !== innerBase) continue;
+            const outer = resolveKeysFromType(
+                [detectKeyType('0x' + key32)],
+                typeInfo,
+                layout,
+            );
+            const inner = resolveKeysFromType([innerKey], valueType, layout);
+            return {
+                variableName: entry.label,
+                variableType: typeInfo.label,
+                keys: [...outer, ...inner],
+                baseSlot: safeBaseSlot(base),
+                raw: '',
+            };
+        }
+    }
+    return null;
 }
 
 /**

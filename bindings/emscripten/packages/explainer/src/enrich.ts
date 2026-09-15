@@ -25,7 +25,7 @@ import type {
     SimulationResult, TxParams, EnrichedContext, ContractMetadata,
     DecodedCall, DecodedEvent, DecodedError, ResolvedSlot,
     EnhancedSimulationResult, EnhancedLog, EnhancedTraceEntry, EnhancedContractStateChange,
-    ContractCache, VerifiedContract, AccessListEntry,
+    ContractCache, VerifiedContract, AccessListEntry, ContractStateChange,
 } from './types.js';
 import { fetchCompilationInput } from './sourcify.js';
 import { decodeFunctionCall, decodeEventLog, decodeRevertData } from './decoder.js';
@@ -410,9 +410,10 @@ function resolveAllStorage(
             continue;
         }
 
+        const candidates = collectMappingKeyCandidates(result, change);
         const slots = change.storage.map(s => {
             if (s.slotSource) {
-                return resolveStorageSlot(s.slotSource, layout);
+                return resolveStorageSlot(s.slotSource, layout, candidates);
             }
             return resolveDirectSlot(s.slot, layout);
         });
@@ -421,4 +422,44 @@ function resolveAllStorage(
     }
 
     return resolved;
+}
+
+const ADDRESS_CANDIDATE_RE = /^0x[0-9a-fA-F]{40}$/;
+const INDEXED_ADDRESS_TOPIC_RE = /^0x0{24}[0-9a-fA-F]{40}$/;
+
+/**
+ * Collect addresses that may be outer keys of a nested mapping
+ * (`allowances[owner][spender]`). The intercepted `slotSource` only contains
+ * the inner keccak preimage.
+ *
+ * @param result - Full simulation result
+ * @param change - State change currently being resolved
+ * @return Deduplicated address candidates (lowercase)
+ */
+function collectMappingKeyCandidates(
+    result: SimulationResult,
+    change: ContractStateChange,
+): string[] {
+    const keys = new Set<string>();
+    const add = (value?: string): void => {
+        if (!value) return;
+        const v = value.toLowerCase();
+        if (ADDRESS_CANDIDATE_RE.test(v)) keys.add(v);
+    };
+
+    add(change.address);
+    for (const log of result.logs ?? []) {
+        add(log.raw?.address);
+        for (const input of log.inputs ?? []) {
+            if (input.type === 'address') add(input.value);
+        }
+        for (const topic of (log.raw?.topics ?? []).slice(1)) {
+            if (INDEXED_ADDRESS_TOPIC_RE.test(topic)) add('0x' + topic.slice(26));
+        }
+    }
+    for (const t of result.trace ?? []) {
+        add(t.from);
+        add(t.to);
+    }
+    return [...keys];
 }

@@ -74,6 +74,118 @@ describe('resolveStorageSlot', () => {
         assert.equal(result.baseSlot, 3);
     });
 
+    it('resolves a nested mapping from the inner keccak preimage plus outer-key candidates', () => {
+        const owner = '0xedf8a8bf77e25b8a0ebe4a26889fa12f0d5485d5';
+        const spender = '0x40aa958dd87fc8305b97f2ba922cddca374bcd7f';
+        const inner = keccak256(AbiCoder.defaultAbiCoder().encode(['address', 'uint256'], [owner, 3n]));
+        const slotSource = '0x' + spender.slice(2).padStart(64, '0') + inner.slice(2);
+        const result = resolveStorageSlot(slotSource, UNI_STORAGE_LAYOUT, [owner, spender]);
+        assert.equal(result.variableName, 'allowances');
+        assert.equal(result.baseSlot, 3);
+        assert.equal(result.keys?.length, 2);
+        assert.equal(result.keys[0].type, 'address');
+        assert.ok(result.keys[0].value.toLowerCase().includes(owner.slice(2)));
+        assert.ok(result.keys[1].value.toLowerCase().includes(spender.slice(2)));
+    });
+
+    it('does not invent a nested mapping name without outer-key candidates', () => {
+        const owner = '0xedf8a8bf77e25b8a0ebe4a26889fa12f0d5485d5';
+        const spender = '0x40aa958dd87fc8305b97f2ba922cddca374bcd7f';
+        const inner = keccak256(AbiCoder.defaultAbiCoder().encode(['address', 'uint256'], [owner, 3n]));
+        const slotSource = '0x' + spender.slice(2).padStart(64, '0') + inner.slice(2);
+        const result = resolveStorageSlot(slotSource, UNI_STORAGE_LAYOUT);
+        assert.equal(result.variableName, undefined);
+    });
+
+    it('does not match a nested mapping when outer-key candidates are unrelated', () => {
+        const owner = '0xedf8a8bf77e25b8a0ebe4a26889fa12f0d5485d5';
+        const spender = '0x40aa958dd87fc8305b97f2ba922cddca374bcd7f';
+        const inner = keccak256(AbiCoder.defaultAbiCoder().encode(['address', 'uint256'], [owner, 3n]));
+        const slotSource = '0x' + spender.slice(2).padStart(64, '0') + inner.slice(2);
+        const result = resolveStorageSlot(slotSource, UNI_STORAGE_LAYOUT, [
+            '0x1111111111111111111111111111111111111111',
+            'not-a-key',
+            '0x' + 'aa'.repeat(33),
+        ]);
+        assert.equal(result.variableName, undefined);
+    });
+
+    it('skips invalid candidates and still matches a valid outer key', () => {
+        const owner = '0xedf8a8bf77e25b8a0ebe4a26889fa12f0d5485d5';
+        const spender = '0x40aa958dd87fc8305b97f2ba922cddca374bcd7f';
+        const inner = keccak256(AbiCoder.defaultAbiCoder().encode(['address', 'uint256'], [owner, 3n]));
+        const slotSource = '0x' + spender.slice(2).padStart(64, '0') + inner.slice(2);
+        const result = resolveStorageSlot(slotSource, UNI_STORAGE_LAYOUT, [
+            '',
+            'not-a-key',
+            '0X' + owner.slice(2).toUpperCase(),
+            '0x' + 'aa'.repeat(33),
+        ]);
+        assert.equal(result.variableName, 'allowances');
+        assert.equal(result.keys?.length, 2);
+        assert.ok(result.keys[0].value.toLowerCase().includes(owner.slice(2)));
+        assert.ok(result.keys[1].value.toLowerCase().includes(spender.slice(2)));
+    });
+
+    it('picks the nested mapping whose keccak(outer . slot) matches', () => {
+        const owner = '0xedf8a8bf77e25b8a0ebe4a26889fa12f0d5485d5';
+        const spender = '0x40aa958dd87fc8305b97f2ba922cddca374bcd7f';
+        const layout = {
+            storage: [
+                { slot: '3', type: 't_mapping(t_address,t_mapping(t_address,t_uint256))', astId: 1, label: 'allowances', offset: 0, contract: 'C.sol:C' },
+                { slot: '5', type: 't_mapping(t_address,t_mapping(t_address,t_uint256))', astId: 2, label: 'freeze', offset: 0, contract: 'C.sol:C' },
+            ],
+            types: {
+                t_address: { label: 'address', encoding: 'inplace', numberOfBytes: '20' },
+                t_uint256: { label: 'uint256', encoding: 'inplace', numberOfBytes: '32' },
+                't_mapping(t_address,t_uint256)': {
+                    key: 't_address', label: 'mapping(address => uint256)', value: 't_uint256', encoding: 'mapping', numberOfBytes: '32',
+                },
+                't_mapping(t_address,t_mapping(t_address,t_uint256))': {
+                    key: 't_address', label: 'mapping(address => mapping(address => uint256))',
+                    value: 't_mapping(t_address,t_uint256)', encoding: 'mapping', numberOfBytes: '32',
+                },
+            },
+        };
+        const inner = keccak256(AbiCoder.defaultAbiCoder().encode(['address', 'uint256'], [owner, 5n]));
+        const slotSource = '0x' + spender.slice(2).padStart(64, '0') + inner.slice(2);
+        const result = resolveStorageSlot(slotSource, layout, [owner, spender]);
+        assert.equal(result.variableName, 'freeze');
+        assert.equal(result.baseSlot, 5);
+        assert.equal(result.keys?.length, 2);
+        assert.ok(result.keys[0].value.toLowerCase().includes(owner.slice(2)));
+    });
+
+    it('resolves a nested mapping whose outer key is a uint256', () => {
+        const outerKey = 7n;
+        const spender = '0x40aa958dd87fc8305b97f2ba922cddca374bcd7f';
+        const layout = {
+            storage: [
+                { slot: '2', type: 't_mapping(t_uint256,t_mapping(t_address,t_uint256))', astId: 1, label: 'claims', offset: 0, contract: 'C.sol:C' },
+            ],
+            types: {
+                t_address: { label: 'address', encoding: 'inplace', numberOfBytes: '20' },
+                t_uint256: { label: 'uint256', encoding: 'inplace', numberOfBytes: '32' },
+                't_mapping(t_address,t_uint256)': {
+                    key: 't_address', label: 'mapping(address => uint256)', value: 't_uint256', encoding: 'mapping', numberOfBytes: '32',
+                },
+                't_mapping(t_uint256,t_mapping(t_address,t_uint256))': {
+                    key: 't_uint256', label: 'mapping(uint256 => mapping(address => uint256))',
+                    value: 't_mapping(t_address,t_uint256)', encoding: 'mapping', numberOfBytes: '32',
+                },
+            },
+        };
+        const inner = keccak256(AbiCoder.defaultAbiCoder().encode(['uint256', 'uint256'], [outerKey, 2n]));
+        const slotSource = '0x' + spender.slice(2).padStart(64, '0') + inner.slice(2);
+        const result = resolveStorageSlot(slotSource, layout, ['0x7']);
+        assert.equal(result.variableName, 'claims');
+        assert.equal(result.baseSlot, 2);
+        assert.equal(result.keys?.length, 2);
+        assert.equal(result.keys[0].type, 'uint256');
+        assert.equal(result.keys[0].value, '7');
+        assert.ok(result.keys[1].value.toLowerCase().includes(spender.slice(2)));
+    });
+
     it('detects uint256 keys when leading bytes are non-zero', () => {
         const slotSource =
             '0x0000000000000000000000000000000000000000000000000000000000000042' +

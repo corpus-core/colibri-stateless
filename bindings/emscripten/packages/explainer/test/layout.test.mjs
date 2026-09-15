@@ -145,6 +145,72 @@ contract B { uint256 public y; uint256 public z; }`;
         assert.equal(layout, null);
     });
 
+    it('includes interfaces used only as state-variable types', async () => {
+        const source = `pragma solidity ^0.8.0;
+interface IRouter {
+    function weth() external view returns (address);
+}
+contract Token {
+    mapping(address => mapping(address => uint256)) private _allowances;
+    IRouter private router;
+    address public pair;
+}`;
+
+        const layout = await extractStorageLayout(
+            { 'Token.sol': { content: source } },
+            'Token',
+        );
+
+        assert.ok(layout);
+        const names = layout.storage.map(s => s.label);
+        assert.deepEqual(names, ['_allowances', 'router', 'pair']);
+        assert.equal(layout.storage.find(s => s.label === '_allowances').slot, '0');
+    });
+
+    it('includes sibling contracts used only as state-variable types', async () => {
+        const source = `pragma solidity ^0.8.0;
+contract Pair {
+    address public token0;
+    address public token1;
+}
+contract Token {
+    mapping(address => uint256) public balances;
+    Pair public pair;
+}`;
+
+        const layout = await extractStorageLayout(
+            { 'Token.sol': { content: source } },
+            'Token',
+        );
+
+        assert.ok(layout);
+        const names = layout.storage.map(s => s.label);
+        assert.deepEqual(names, ['balances', 'pair']);
+        assert.equal(layout.storage.find(s => s.label === 'balances').slot, '0');
+        assert.equal(layout.storage.find(s => s.label === 'pair').slot, '1');
+    });
+
+    it('does not mix an unrelated sibling contract into the target layout', async () => {
+        const source = `pragma solidity ^0.8.0;
+contract Extra {
+    uint256 public extraVal;
+    mapping(address => uint256) public extraMap;
+}
+contract Token {
+    uint256 public tokenVal;
+}`;
+
+        const layout = await extractStorageLayout(
+            { 'Token.sol': { content: source } },
+            'Token',
+        );
+
+        assert.ok(layout);
+        const names = layout.storage.map(s => s.label);
+        assert.deepEqual(names, ['tokenVal']);
+        assert.equal(layout.storage[0].slot, '0');
+    });
+
     it('handles old-style uint -> uint256 normalization', async () => {
         const source = `pragma solidity ^0.4.18;
 contract Test {

@@ -432,9 +432,13 @@ function formatSourceContext(result: SimulationResult, context: EnrichedContext,
     // Total character budget for embedded source code. Lower this for local
     // models with a small context window via `config.maxSourceChars`.
     let totalBudget = maxSourceChars && maxSourceChars > 0 ? maxSourceChars : DEFAULT_MAX_SOURCE_CHARS;
-    // Per-file cap stays proportional to the overall budget so a single large
-    // file cannot consume the entire context.
-    const perFileCap = Math.max(500, Math.floor(totalBudget * 0.3));
+    const fileCount = countSourceFiles(context, contractsNeedingSource);
+    // A single file gets the full budget (the old 30% cap cut MCGA-style
+    // tokens in the middle of Ownable and dropped the state variables).
+    // Multiple files share the budget evenly.
+    const perFileCap = fileCount <= 1
+        ? totalBudget
+        : Math.max(1, Math.floor(totalBudget / fileCount));
 
     for (const addr of contractsNeedingSource) {
         if (totalBudget <= 0) break;
@@ -447,8 +451,8 @@ function formatSourceContext(result: SimulationResult, context: EnrichedContext,
                 if (totalBudget <= 0) break;
                 const content = sanitizeSourceForPrompt(source.content);
                 if (!content) continue;
-                const maxLen = Math.min(content.length, totalBudget, perFileCap);
-                const truncated = content.length > maxLen ? content.slice(0, maxLen) + '\n... (truncated)' : content;
+                const maxLen = Math.min(totalBudget, perFileCap);
+                const truncated = windowSourceForPrompt(content, maxLen);
                 totalBudget -= truncated.length;
                 const safeName = safeSourceFilename(filename);
                 lines.push(
@@ -459,6 +463,59 @@ function formatSourceContext(result: SimulationResult, context: EnrichedContext,
     }
 
     return lines.join('\n');
+}
+
+/**
+ * Count source files that would be embedded for the given contracts.
+ *
+ * @param context - Enrichment context
+ * @param addresses - Contracts that still need source in the prompt
+ * @return Number of source files
+ */
+function countSourceFiles(context: EnrichedContext, addresses: Set<string>): number {
+    let n = 0;
+    for (const addr of addresses) {
+        const sources = context.contracts.get(addr)?.sources;
+        if (sources) n += Object.keys(sources).length;
+    }
+    return n;
+}
+
+/**
+ * Index of the last `contract` / `abstract contract` definition, or `-1`.
+ *
+ * @param content - Sanitized Solidity source
+ * @return Start offset of the last contract definition
+ */
+function lastContractStart(content: string): number {
+    const re = /^[ \t]*(?:abstract[ \t]+)?contract[ \t]+[A-Za-z_$]/gm;
+    let last = -1;
+    let match: RegExpExecArray | null;
+    while ((match = re.exec(content)) !== null) {
+        last = match.index;
+    }
+    return last;
+}
+
+/**
+ * Fit source into `maxLen`. When truncating, keep a window that starts at the
+ * last `contract` definition so inherited helpers (Ownable, SafeMath) are
+ * dropped before the state variables of the implementation contract.
+ *
+ * @param content - Sanitized Solidity source
+ * @param maxLen - Maximum characters to keep
+ * @return Windowed source, with truncation markers when shortened
+ */
+function windowSourceForPrompt(content: string, maxLen: number): string {
+    if (maxLen <= 0) return '';
+    if (content.length <= maxLen) return content;
+
+    const prefer = lastContractStart(content);
+    const start = prefer >= 0 ? prefer : 0;
+    const chunk = content.slice(start, start + maxLen);
+    const prefix = start > 0 ? '... (truncated)\n' : '';
+    const suffix = start + maxLen < content.length ? '\n... (truncated)' : '';
+    return prefix + chunk + suffix;
 }
 
 function languageName(code: string): string {
