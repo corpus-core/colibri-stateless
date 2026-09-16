@@ -62,7 +62,8 @@
       ],
       "prover": [
         "https://sepolia.colibri-proof.tech",
-        "https://sepolia1.colibri-proof.tech"
+        "https://sepolia1.colibri-proof.tech",
+        "https://sepolia.colimind.com"
       ]
     },
     {
@@ -90,7 +91,8 @@
       ],
       "prover": [
         "https://gnosis.colibri-proof.tech",
-        "https://gnosis1.colibri-proof.tech"
+        "https://gnosis1.colibri-proof.tech",
+        "https://gnosis.colimind.com"
       ]
     },
     {
