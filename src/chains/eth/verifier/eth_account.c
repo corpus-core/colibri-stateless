@@ -215,6 +215,8 @@ INTERNAL c4_status_t eth_resolve_account_codes(verify_ctx_t* ctx, call_account_t
         ac->flags |= ACCOUNT_HAS_CODE | ACCOUNT_FREE_CODE;
         continue;
       }
+      log_warn("Rejected cached bytecode at %s: keccak mismatch (got 0x%x, expected 0x%x, len %d)",
+               (char*) buf.data.data, bytes(got_hash, 32), bytes(ac->code_hash, 32), data.data.len);
       buffer_free(&data);
     }
 
