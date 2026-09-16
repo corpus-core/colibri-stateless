@@ -16,6 +16,13 @@ extern "C" {
 #include <stddef.h>
 #include <stdint.h>
 
+/**
+ * BN254 (Alt-BN128) curve arithmetic and pairings for Ethereum precompiles and ZK verification.
+ *
+ * Two backends: portable intx implementation (`bn254.c`) or MCL when `USE_MCL=ON`.
+ * Point encodings follow Ethereum precompile layout for G1/G2 import/export helpers.
+ */
+
 #ifdef USE_MCL
 #include <mcl/bn_c384_256.h>
 
@@ -76,6 +83,8 @@ typedef struct {
 /**
  * @brief Initializes the BN254 library constants (modulus, generator, etc.).
  * Must be called before any other function. Safe to call multiple times.
+ *
+ * With `USE_MCL`, initializes MCL curve SNARK1; otherwise loads the field modulus into intx.
  */
 void bn254_init(void);
 

@@ -2,6 +2,12 @@
  * Copyright (c) 2025 corpus.core
  *
  * SPDX-License-Identifier: MIT
+ *
+ * colibri-signer: polls a Colibri server for checkpoint roots to sign, verifies them
+ * against Beacon API / Checkpointz, submits EIP-191 signatures via REST, and optionally
+ * writes node_exporter textfile metrics and a simple status file for monitoring.
+ *
+ * CLI usage is documented in `usage()` and `src/chains/eth/cp_signer/README.md`.
  */
 
 #include "../../../../libs/curl/http.h"
@@ -23,6 +29,7 @@
 #include <unistd.h>
 #endif
 
+/** Cross-platform sleep used between signer loop iterations. */
 static void c4_sleep_seconds(unsigned int seconds) {
 #ifdef _WIN32
   // Sleep() expects milliseconds.
@@ -32,6 +39,7 @@ static void c4_sleep_seconds(unsigned int seconds) {
 #endif
 }
 
+/** Writes `content` plus newline to `status_file` (best-effort; ignored when path empty). */
 static void c4_write_status_file(const char* status_file, const char* content) {
   if (!status_file || !*status_file) return;
   FILE* f = fopen(status_file, "wb");
@@ -43,6 +51,7 @@ static void c4_write_status_file(const char* status_file, const char* content) {
   fclose(f);
 }
 
+/** Escapes `in` for use inside a Prometheus label value in `out`. */
 static void c4_prom_escape_label(char* out, size_t out_cap, const char* in) {
   if (!out || out_cap == 0) return;
   if (!in) {
@@ -66,6 +75,7 @@ static void c4_prom_escape_label(char* out, size_t out_cap, const char* in) {
   out[o] = 0;
 }
 
+/** Parses a single Prometheus sample line `metric_name{label} value` into `*out`. */
 static void c4_parse_metric_value(const char* data, const char* label, const char* metric_name, uint64_t* out) {
   if (!out || !data || !label || !metric_name) return;
   char prefix[512] = {0};
@@ -76,6 +86,7 @@ static void c4_parse_metric_value(const char* data, const char* label, const cha
   *out = strtoull(p, NULL, 10);
 }
 
+/** Atomically writes Prometheus textfile metrics for the signer (`.tmp` + rename). */
 static void c4_write_metrics_file(const char* metrics_file,
                                   const char* chain,
                                   uint64_t    last_signed_ts,
@@ -126,6 +137,7 @@ static void c4_write_metrics_file(const char* metrics_file,
   (void) rename(tmp_path, metrics_file);
 }
 
+/** Loads persisted counters from an existing metrics textfile (survives process restart). */
 static bool c4_load_metrics_file(const char* metrics_file,
                                  const char* chain,
                                  uint64_t*   out_last_signed_ts,
@@ -161,6 +173,7 @@ static bool c4_load_metrics_file(const char* metrics_file,
   return true;
 }
 
+/** Writes `ok` status, optionally with a `warn:` line for non-fatal conditions. */
 static void c4_write_status_ok(const char* status_file, const char* warn) {
   if (!status_file || !*status_file) return;
   if (warn && *warn) {
@@ -174,6 +187,7 @@ static void c4_write_status_ok(const char* status_file, const char* warn) {
   }
 }
 
+/** Writes `error` status (first line `error`, optional detail on following lines). */
 static void c4_write_status_error(const char* status_file, const char* err) {
   if (!status_file || !*status_file) return;
   if (err && *err) {
@@ -187,6 +201,7 @@ static void c4_write_status_error(const char* status_file, const char* err) {
   }
 }
 
+/** Copies up to `out_cap-1` printable ASCII from `in` (non-printable → `.`). */
 static void c4_snip_ascii(char* out, size_t out_cap, const uint8_t* in, size_t in_len) {
   if (!out || out_cap == 0) return;
   size_t n = in_len < (out_cap - 1) ? in_len : (out_cap - 1);
@@ -197,6 +212,7 @@ static void c4_snip_ascii(char* out, size_t out_cap, const uint8_t* in, size_t i
   out[n] = 0;
 }
 
+/** Prints CLI help to stderr. */
 static void usage(const char* argv0) {
   fprintf(stderr,
           "Usage: %s --server <base_url> (--key 0x.. | --key-file <path>) [--checkpointz <url>] [--beacon-api <url>] [--status-file <path>] [--metrics-file <path>] [--chain <name>] [--max-idle <seconds>] [--once]\n"
@@ -210,6 +226,11 @@ static void usage(const char* argv0) {
           argv0);
 }
 
+/**
+ * Parses a 32-byte hex private key into `out_sk`.
+ *
+ * @return `true` if exactly 32 bytes were decoded
+ */
 static bool read_key_hex(const char* hex, bytes32_t out_sk) {
   if (!hex) return false;
   memset(out_sk, 0, 32);
@@ -217,6 +238,7 @@ static bool read_key_hex(const char* hex, bytes32_t out_sk) {
   return n == 32;
 }
 
+/** Reads hex key material from a file (whitespace trimmed). */
 static bool read_key_file(const char* path, bytes32_t out_sk) {
   bytes_t content = bytes_read((char*) path);
   if (!content.data) return false;
@@ -234,6 +256,7 @@ static bool read_key_file(const char* path, bytes32_t out_sk) {
   return ok;
 }
 
+/** Derives Ethereum address from `sk` via sign/recover on a fixed domain-separated digest. */
 static bool derive_address_from_sk(const bytes32_t sk, address_t out_addr) {
   // Derive address via sign+recover on a fixed digest.
   bytes32_t digest = {0};
@@ -253,6 +276,7 @@ static bool derive_address_from_sk(const bytes32_t sk, address_t out_addr) {
   return !bytes_all_zero(bytes(out_addr, 20));
 }
 
+/** Appends a JSON string literal with minimal escaping to `out`. */
 static void append_json_escaped_string(buffer_t* out, const char* s) {
   buffer_add_chars(out, "\"");
   for (const char* p = s; *p; p++) {
@@ -267,6 +291,7 @@ static void append_json_escaped_string(buffer_t* out, const char* s) {
   buffer_add_chars(out, "\"");
 }
 
+/** Overrides libcurl node lists when `--checkpointz` / `--beacon-api` are passed on the CLI. */
 static void maybe_set_curl_nodes_from_args(const char** checkpointz_urls, int checkpointz_count, const char** beacon_urls, int beacon_count) {
   if (checkpointz_count == 0 && beacon_count == 0) return;
 
@@ -295,6 +320,7 @@ static void maybe_set_curl_nodes_from_args(const char** checkpointz_urls, int ch
   buffer_free(&cfg);
 }
 
+/** Concatenates `base` and `path_and_query` with a single `/` separator; returns heap string. */
 static char* join_url(const char* base, const char* path_and_query) {
   buffer_t buf = {0};
   if (!base || !path_and_query) return NULL;
@@ -317,6 +343,12 @@ static char* join_url(const char* base, const char* path_and_query) {
   return (char*) buf.data.data; // caller owns
 }
 
+/**
+ * Performs one synchronous HTTP GET via libcurl and parses JSON into `*out_json`.
+ *
+ * @param url_owned heap URL string (ownership transferred to curl state)
+ * @return `false` on transport or parse failure
+ */
 static bool fetch_json_one(data_request_type_t type, char* url_owned, json_t* out_json) {
   c4_state_t      state = {0};
   data_request_t* req   = (data_request_t*) safe_calloc(1, sizeof(data_request_t));
@@ -343,6 +375,7 @@ static bool fetch_json_one(data_request_type_t type, char* url_owned, json_t* ou
   return out_json->type != JSON_TYPE_INVALID;
 }
 
+/** Returns whether Checkpointz reports the canonical root at `slot` equals `expected_root`. */
 static bool checkpoint_root_matches_slot(uint64_t slot, const bytes32_t expected_root) {
   buffer_t url = {0};
   bprintf(&url, "eth/v1/beacon/blocks/%l/root", slot);
@@ -367,6 +400,7 @@ static bool checkpoint_root_matches_slot(uint64_t slot, const bytes32_t expected
   return ok;
 }
 
+/** Returns whether the beacon header for `root` is marked finalized and canonical. */
 static bool checkpoint_is_finalized_by_header_root(const bytes32_t root) {
   buffer_t url = {0};
   bprintf(&url, "eth/v1/beacon/headers/0x%x", bytes(root, 32));
@@ -395,6 +429,7 @@ static bool checkpoint_is_finalized_by_header_root(const bytes32_t root) {
   return finalized && canonical && root_match;
 }
 
+/** Fallback finality check using checkpointz `eth/v2/beacon/blocks/{slot}` finalized flag. */
 static bool checkpoint_is_finalized_by_slot(uint64_t slot) {
   buffer_t url = {0};
   bprintf(&url, "eth/v2/beacon/blocks/%l", slot);

@@ -1,6 +1,9 @@
 /*
  * Copyright (c) 2025 corpus.core
  * SPDX-License-Identifier: MIT
+ *
+ * Portable BN254 implementation (intx field arithmetic, Jacobian G1, optimal ate pairing).
+ * Built when `USE_MCL` is off; see `bn254_mcl.c` for the MCL backend.
  */
 
 #include "bn254.h"

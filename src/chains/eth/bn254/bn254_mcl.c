@@ -1,6 +1,8 @@
 /*
  * Copyright (c) 2025 corpus.core
  * SPDX-License-Identifier: MIT
+ *
+ * BN254 backend using MCL (`mclBn_*`, curve SNARK1 / Alt-BN128). Selected when `USE_MCL=ON`.
  */
 
 #ifdef USE_MCL
@@ -22,15 +24,17 @@ void bn254_init(void) {
   }
 }
 
-// Helpers to convert byte arrays to MCL elements
+/** Loads a 32-byte big-endian field element into `fp` (reduced mod p). */
 static void set_fp_be(mclBnFp* fp, const uint8_t* bytes) {
   mclBnFp_setBigEndianMod(fp, bytes, 32);
 }
 
+/** Loads a 32-byte big-endian scalar into `fr` (reduced mod r). */
 static void set_fr_be(mclBnFr* fr, const uint8_t* bytes) {
   mclBnFr_setBigEndianMod(fr, bytes, 32);
 }
 
+/** Returns whether all bytes in `bytes[0..len)` are zero (G1/G2 infinity encoding). */
 static bool is_zero_bytes(const uint8_t* bytes, size_t len) {
   for (size_t i = 0; i < len; i++) {
     if (bytes[i] != 0) return false;
