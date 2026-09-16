@@ -32,6 +32,18 @@ int         c4_save_config_file(const char* updates);
 
 static char tmpdir[512];
 
+/** Clear env vars that load_config_file may set (e.g. from /usr/local/etc/colibri/server.conf). */
+static void unset_server_config_env(void) {
+  unsetenv("BEACON");
+  unsetenv("RPC");
+  unsetenv("CHECKPOINTZ");
+  unsetenv("PROVER");
+  unsetenv("V2_PROVER");
+  unsetenv("CHAIN_ID");
+  unsetenv("LOG_LEVEL");
+  unsetenv("WEB_UI_ENABLED");
+}
+
 static void make_tmpdir(void) {
 #ifdef _WIN32
   const char* base = getenv("TEMP");
@@ -56,6 +68,7 @@ static char* write_file(const char* dir, const char* name, const char* content) 
 
 void setUp(void) {
   make_tmpdir();
+  unset_server_config_env();
   unsetenv("C4_TEST_INT");
   unsetenv("C4_TEST_U64");
   unsetenv("PORT");
@@ -66,6 +79,7 @@ void setUp(void) {
 }
 
 void tearDown(void) {
+  unset_server_config_env();
   unsetenv("C4_TEST_INT");
   unsetenv("C4_TEST_U64");
   unsetenv("PORT");
@@ -90,6 +104,7 @@ void test_configure_help_no_exit(void) {
   FILE* f         = freopen(help_path, "w", stderr);
   TEST_ASSERT_NOT_NULL(f);
 
+  // c4_configure only treats argv[1] as --help; do not put other flags first.
   char* argv[] = {"prog", "--help"};
   c4_configure(2, argv);
 
@@ -117,8 +132,10 @@ void test_configure_help_no_exit(void) {
 // Test 2: Env vs Arg precedence
 void test_configure_env_vs_arg_precedence(void) {
   setenv("HOST", "1.2.3.4", 1);
-  char* argv[] = {"prog", "--host", "0.0.0.0"};
-  c4_configure(3, argv);
+  char* cfg_path = write_file(tmpdir, "empty.conf", "# empty\n");
+  TEST_ASSERT_NOT_NULL(cfg_path);
+  char* argv[] = {"prog", "--config", cfg_path, "--host", "0.0.0.0"};
+  c4_configure(5, argv);
   TEST_ASSERT_NOT_NULL(http_server.host);
   TEST_ASSERT_EQUAL_STRING("0.0.0.0", http_server.host);
   unsetenv("HOST");
