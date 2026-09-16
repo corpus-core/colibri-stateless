@@ -26,6 +26,7 @@
 #include "el_header.h"
 #include "eth_account.h"
 #include "eth_verify.h"
+#include "logger.h"
 #include "plugin.h"
 #include "state.h"
 #include "state_overrides.h"
@@ -265,9 +266,16 @@ bytes_t call_account_get_code(evmone_context_t* ctx, const address_t address) {
       sbprintf(tmp, "code_%x", bytes(acc->code_hash, 32));
       buffer_t data = {0};
       if (cache.get && cache.get(tmp, &data)) {
-        acc->code = data.data;
-        acc->flags |= ACCOUNT_HAS_CODE | ACCOUNT_FREE_CODE;
-        return acc->code;
+        bytes32_t got_hash = {0};
+        keccak(data.data, got_hash); // reject cache entries that do not match code_hash
+        if (memcmp(got_hash, acc->code_hash, 32) == 0) {
+          acc->code = data.data;
+          acc->flags |= ACCOUNT_HAS_CODE | ACCOUNT_FREE_CODE;
+          return acc->code;
+        }
+        log_warn("Rejected cached bytecode at %s: keccak mismatch (got 0x%x, expected 0x%x, len %d)",
+                 tmp, bytes(got_hash, 32), bytes(acc->code_hash, 32), data.data.len);
+        buffer_free(&data);
       }
     }
   }

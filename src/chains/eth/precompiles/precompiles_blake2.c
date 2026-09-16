@@ -52,7 +52,16 @@ static const uint64_t blake2b_IV[8] = {
     G(r, 7, v[3], v[4], v[9], v[14]);  \
   } while (0)
 
-static pre_result_t pre_blake2f(bytes_t input, buffer_t* output, uint64_t* gas_used) {
+/**
+ * EIP-152 BLAKE2F compression.
+ *
+ * @param input 213-byte precompile input (`rounds || h || m || t || f`).
+ * @param output Buffer that receives the 64-byte state on success.
+ * @param gas_used Set to `rounds` on success, or `gas_limit` when the call is out of gas.
+ * @param gas_limit Remaining EVM gas. The compression loop is skipped when `rounds` exceeds it.
+ * @return `PRE_SUCCESS`, `PRE_INVALID_INPUT`, or `PRE_OUT_OF_GAS`.
+ */
+static pre_result_t pre_blake2f(bytes_t input, buffer_t* output, uint64_t* gas_used, uint64_t gas_limit) {
   if (input.len != 213) return PRE_INVALID_INPUT;
 
   // Parse input
@@ -80,7 +89,12 @@ static pre_result_t pre_blake2f(bytes_t input, buffer_t* output, uint64_t* gas_u
   uint8_t f_flag = input.data[212];
   if (f_flag != 0 && f_flag != 1) return PRE_INVALID_INPUT;
 
-  // Gas calculation
+  // EIP-152: gas cost is exactly `rounds`. Refuse before the compression loop
+  // so a huge attacker-chosen round count cannot burn CPU.
+  if ((uint64_t) rounds > gas_limit) {
+    *gas_used = gas_limit;
+    return PRE_OUT_OF_GAS;
+  }
   *gas_used = rounds;
 
   // Initialize working vector v

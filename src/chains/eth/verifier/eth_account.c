@@ -208,9 +208,16 @@ INTERNAL c4_status_t eth_resolve_account_codes(verify_ctx_t* ctx, call_account_t
     buffer_reset(&buf);
     buffer_t data = {0};
     if (cache.get && cache.get(bprintf(&buf, "code_%x", bytes(ac->code_hash, 32)), &data)) {
-      ac->code = data.data;
-      ac->flags |= ACCOUNT_HAS_CODE | ACCOUNT_FREE_CODE;
-      continue;
+      bytes32_t got_hash = {0};
+      keccak(data.data, got_hash); // reject cache entries that do not match code_hash
+      if (memcmp(got_hash, ac->code_hash, 32) == 0) {
+        ac->code = data.data;
+        ac->flags |= ACCOUNT_HAS_CODE | ACCOUNT_FREE_CODE;
+        continue;
+      }
+      log_warn("Rejected cached bytecode at %s: keccak mismatch (got 0x%x, expected 0x%x, len %d)",
+               (char*) buf.data.data, bytes(got_hash, 32), bytes(ac->code_hash, 32), data.data.len);
+      buffer_free(&data);
     }
 
     c4_status_t fetch_status = eth_fetch_account_code(ctx, ac);

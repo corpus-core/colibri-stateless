@@ -9,7 +9,8 @@
 #include <string.h>
 
 // ECADD (0x06)
-pre_result_t pre_ec_add(bytes_t input, buffer_t* output, uint64_t* gas_used) {
+pre_result_t pre_ec_add(bytes_t input, buffer_t* output, uint64_t* gas_used, uint64_t gas_limit) {
+  (void) gas_limit;
   *gas_used = 150;
 
   // Input must be 128 bytes (x1, y1, x2, y2)
@@ -35,7 +36,8 @@ pre_result_t pre_ec_add(bytes_t input, buffer_t* output, uint64_t* gas_used) {
 }
 
 // Scalar multiplication on the BN128 curve: s * (x,y) = (x',y')
-pre_result_t pre_ec_mul(bytes_t input, buffer_t* output, uint64_t* gas_used) {
+pre_result_t pre_ec_mul(bytes_t input, buffer_t* output, uint64_t* gas_used, uint64_t gas_limit) {
+  (void) gas_limit;
   *gas_used = 6000; // Gas cost of EC mul operation (EIP-1108)
 
   // Input: x, y, scalar (96 bytes minimum effectively, usually padded)

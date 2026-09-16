@@ -140,7 +140,7 @@ void test_precompile_ecrecover() {
   buffer_t output   = {0};
   uint64_t gas_used = 0;
 
-  pre_result_t result = eth_execute_precompile(addr, input, &output, &gas_used);
+  pre_result_t result = eth_execute_precompile(addr, input, &output, UINT64_MAX, &gas_used);
 
   TEST_ASSERT_EQUAL(PRE_SUCCESS, result);
   TEST_ASSERT_EQUAL(32, output.data.len); // Returns 32 bytes (12 zeros + 20 byte address)
@@ -172,7 +172,7 @@ void test_precompile_ecrecover_invalid_input() {
   buffer_t output   = {0};
   uint64_t gas_used = 0;
 
-  pre_result_t result = eth_execute_precompile(addr, input, &output, &gas_used);
+  pre_result_t result = eth_execute_precompile(addr, input, &output, UINT64_MAX, &gas_used);
 
   TEST_ASSERT_EQUAL(PRE_SUCCESS, result);
   TEST_ASSERT_EQUAL(3000, gas_used);
@@ -192,7 +192,7 @@ void test_precompile_ecrecover_short_input() {
   buffer_t output   = {0};
   uint64_t gas_used = 0;
 
-  pre_result_t result = eth_execute_precompile(addr, input, &output, &gas_used);
+  pre_result_t result = eth_execute_precompile(addr, input, &output, UINT64_MAX, &gas_used);
 
   TEST_ASSERT_EQUAL(PRE_SUCCESS, result);
   TEST_ASSERT_EQUAL(3000, gas_used);
@@ -212,7 +212,7 @@ void test_precompile_sha256() {
   buffer_t output   = {0};
   uint64_t gas_used = 0;
 
-  pre_result_t result = eth_execute_precompile(addr, input, &output, &gas_used);
+  pre_result_t result = eth_execute_precompile(addr, input, &output, UINT64_MAX, &gas_used);
 
   TEST_ASSERT_EQUAL(PRE_SUCCESS, result);
   TEST_ASSERT_EQUAL(32, output.data.len);
@@ -235,7 +235,7 @@ void test_precompile_ripemd160() {
   buffer_t output   = {0};
   uint64_t gas_used = 0;
 
-  pre_result_t result = eth_execute_precompile(addr, input, &output, &gas_used);
+  pre_result_t result = eth_execute_precompile(addr, input, &output, UINT64_MAX, &gas_used);
 
   TEST_ASSERT_EQUAL(PRE_SUCCESS, result);
   TEST_ASSERT_EQUAL(20, output.data.len); // Returns 20 bytes (RIPEMD-160 hash)
@@ -258,11 +258,29 @@ void test_precompile_identity() {
   buffer_t output   = {0};
   uint64_t gas_used = 0;
 
-  pre_result_t result = eth_execute_precompile(addr, input, &output, &gas_used);
+  pre_result_t result = eth_execute_precompile(addr, input, &output, UINT64_MAX, &gas_used);
 
   TEST_ASSERT_EQUAL(PRE_SUCCESS, result);
   TEST_ASSERT_EQUAL(5, output.data.len);
   TEST_ASSERT_EQUAL_MEMORY(input.data, output.data.data, 5);
+
+  free(input.data);
+  buffer_free(&output);
+}
+
+void test_precompile_identity_out_of_gas() {
+  uint8_t addr[20];
+  make_precompile_address(0x04, addr);
+
+  bytes_t  input    = hex_to_bytes_alloc("48656c6c6f"); // "Hello" costs 15 + 3 = 18 gas
+  buffer_t output   = {0};
+  uint64_t gas_used = 0;
+
+  pre_result_t result = eth_execute_precompile(addr, input, &output, 17, &gas_used);
+
+  TEST_ASSERT_EQUAL(PRE_OUT_OF_GAS, result);
+  TEST_ASSERT_EQUAL(17, gas_used);
+  TEST_ASSERT_EQUAL(0, output.data.len);
 
   free(input.data);
   buffer_free(&output);
@@ -297,7 +315,7 @@ void test_precompile_modexp() {
   buffer_t output   = {0};
   uint64_t gas_used = 0;
 
-  pre_result_t result = eth_execute_precompile(addr, input, &output, &gas_used);
+  pre_result_t result = eth_execute_precompile(addr, input, &output, UINT64_MAX, &gas_used);
 
   // Modexp may not be fully implemented
   if (result == PRE_SUCCESS) {
@@ -322,7 +340,7 @@ void test_precompile_ecpairing_invalid() {
   buffer_t output   = {0};
   uint64_t gas_used = 0;
 
-  pre_result_t result = eth_execute_precompile(addr, input, &output, &gas_used);
+  pre_result_t result = eth_execute_precompile(addr, input, &output, UINT64_MAX, &gas_used);
 
   // Just ensure it doesn't crash - implementation may vary
   TEST_ASSERT_TRUE(result != 255); // Any valid pre_result_t value is fine
@@ -379,7 +397,7 @@ void test_precompile_ecpairing_valid() {
   buffer_t output   = {0};
   uint64_t gas_used = 0;
 
-  pre_result_t result = eth_execute_precompile(addr, input, &output, &gas_used);
+  pre_result_t result = eth_execute_precompile(addr, input, &output, UINT64_MAX, &gas_used);
 
   TEST_ASSERT_EQUAL(PRE_SUCCESS, result);
   TEST_ASSERT_EQUAL(32, output.data.len);
@@ -457,7 +475,7 @@ void test_precompile_ecpairing_bilinearity() {
 
   bytes_t input = {.data = input_buf, .len = 576};
 
-  pre_result_t result = eth_execute_precompile(addr, input, &output, &gas_used);
+  pre_result_t result = eth_execute_precompile(addr, input, &output, UINT64_MAX, &gas_used);
 
   TEST_ASSERT_EQUAL(PRE_SUCCESS, result);
   TEST_ASSERT_EQUAL(32, output.data.len);
@@ -505,7 +523,7 @@ void test_precompile_point_evaluation_valid() {
   bytes_t      input    = bytes(input_data, sizeof(input_data));
   buffer_t     output   = {0};
   uint64_t     gas_used = 0;
-  pre_result_t res      = eth_execute_precompile(addr, input, &output, &gas_used);
+  pre_result_t res      = eth_execute_precompile(addr, input, &output, UINT64_MAX, &gas_used);
 
   TEST_ASSERT_EQUAL(PRE_SUCCESS, res);
   TEST_ASSERT_EQUAL_UINT64(50000, gas_used);
@@ -525,7 +543,7 @@ void test_precompile_point_evaluation_invalid() {
     bytes_t      input      = bytes(in_bad, sizeof(in_bad));
     buffer_t     output     = {0};
     uint64_t     gas_used   = 0;
-    pre_result_t res        = eth_execute_precompile(addr, input, &output, &gas_used);
+    pre_result_t res        = eth_execute_precompile(addr, input, &output, UINT64_MAX, &gas_used);
     TEST_ASSERT_EQUAL(PRE_INVALID_INPUT, res);
     buffer_free(&output);
   }
@@ -538,7 +556,7 @@ void test_precompile_point_evaluation_invalid() {
     bytes_t      input    = bytes(in, sizeof(in));
     buffer_t     output   = {0};
     uint64_t     gas_used = 0;
-    pre_result_t res      = eth_execute_precompile(addr, input, &output, &gas_used);
+    pre_result_t res      = eth_execute_precompile(addr, input, &output, UINT64_MAX, &gas_used);
     TEST_ASSERT_EQUAL(PRE_INVALID_INPUT, res);
     buffer_free(&output);
   }
@@ -567,7 +585,7 @@ void test_precompile_blake2f() {
   buffer_t output   = {0};
   uint64_t gas_used = 0;
 
-  pre_result_t result = eth_execute_precompile(addr, input, &output, &gas_used);
+  pre_result_t result = eth_execute_precompile(addr, input, &output, UINT64_MAX, &gas_used);
 
   TEST_ASSERT_EQUAL(PRE_SUCCESS, result);
   TEST_ASSERT_EQUAL(64, output.data.len);
@@ -590,8 +608,58 @@ void test_precompile_blake2f_invalid() {
   bytes_t      input    = bytes(in, sizeof(in));
   buffer_t     output   = {0};
   uint64_t     gas_used = 0;
-  pre_result_t result   = eth_execute_precompile(addr, input, &output, &gas_used);
+  pre_result_t result   = eth_execute_precompile(addr, input, &output, UINT64_MAX, &gas_used);
   TEST_ASSERT_EQUAL(PRE_INVALID_INPUT, result);
+  buffer_free(&output);
+}
+
+void test_precompile_blake2f_out_of_gas() {
+  uint8_t addr[20];
+  make_precompile_address(0x09, addr);
+
+  const char* input_hex =
+      "000f4240"
+      "48c9bdf267e6096a3ba7ca8485ae67bb2bf894fe72f36e3cf1361d5f3af54fa5d182e6ad7f520e511f6c3e2b8c68059b6bbd41fbabd9831f79217e1319cde05b"
+      "6162630000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      "03000000000000000000000000000000"
+      "01";
+
+  bytes_t  input    = hex_to_bytes_alloc(input_hex);
+  buffer_t output   = {0};
+  uint64_t gas_used = 0;
+
+  pre_result_t result = eth_execute_precompile(addr, input, &output, 12, &gas_used);
+
+  TEST_ASSERT_EQUAL(PRE_OUT_OF_GAS, result);
+  TEST_ASSERT_EQUAL(12, gas_used);
+  TEST_ASSERT_EQUAL(0, output.data.len);
+
+  free(input.data);
+  buffer_free(&output);
+}
+
+void test_precompile_blake2f_exact_gas() {
+  uint8_t addr[20];
+  make_precompile_address(0x09, addr);
+
+  const char* input_hex =
+      "0000000c"
+      "48c9bdf267e6096a3ba7ca8485ae67bb2bf894fe72f36e3cf1361d5f3af54fa5d182e6ad7f520e511f6c3e2b8c68059b6bbd41fbabd9831f79217e1319cde05b"
+      "6162630000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      "03000000000000000000000000000000"
+      "01";
+
+  bytes_t  input    = hex_to_bytes_alloc(input_hex);
+  buffer_t output   = {0};
+  uint64_t gas_used = 0;
+
+  pre_result_t result = eth_execute_precompile(addr, input, &output, 12, &gas_used);
+
+  TEST_ASSERT_EQUAL(PRE_SUCCESS, result);
+  TEST_ASSERT_EQUAL(12, gas_used);
+  TEST_ASSERT_EQUAL(64, output.data.len);
+
+  free(input.data);
   buffer_free(&output);
 }
 
@@ -614,7 +682,7 @@ void test_precompile_ecadd() {
   buffer_t output   = {0};
   uint64_t gas_used = 0;
 
-  pre_result_t result = eth_execute_precompile(addr, input, &output, &gas_used);
+  pre_result_t result = eth_execute_precompile(addr, input, &output, UINT64_MAX, &gas_used);
 
   TEST_ASSERT_EQUAL(PRE_SUCCESS, result);
   TEST_ASSERT_EQUAL(64, output.data.len);
@@ -656,7 +724,7 @@ void test_precompile_ecmul() {
   buffer_t output   = {0};
   uint64_t gas_used = 0;
 
-  pre_result_t result = eth_execute_precompile(addr, input, &output, &gas_used);
+  pre_result_t result = eth_execute_precompile(addr, input, &output, UINT64_MAX, &gas_used);
 
   TEST_ASSERT_EQUAL(PRE_SUCCESS, result);
   TEST_ASSERT_EQUAL(64, output.data.len);
@@ -681,7 +749,7 @@ void test_precompile_bls_g1add_infinity() {
   bytes_t      input    = bytes(in, sizeof(in));
   buffer_t     output   = {0};
   uint64_t     gas_used = 0;
-  pre_result_t res      = eth_execute_precompile(addr, input, &output, &gas_used);
+  pre_result_t res      = eth_execute_precompile(addr, input, &output, UINT64_MAX, &gas_used);
   TEST_ASSERT_EQUAL(PRE_SUCCESS, res);
   TEST_ASSERT_EQUAL(128, output.data.len);
   // Infinity encoded as zeros
@@ -697,7 +765,7 @@ void test_precompile_bls_g2add_infinity() {
   bytes_t      input    = bytes(in, sizeof(in));
   buffer_t     output   = {0};
   uint64_t     gas_used = 0;
-  pre_result_t res      = eth_execute_precompile(addr, input, &output, &gas_used);
+  pre_result_t res      = eth_execute_precompile(addr, input, &output, UINT64_MAX, &gas_used);
   TEST_ASSERT_EQUAL(PRE_SUCCESS, res);
   TEST_ASSERT_EQUAL(256, output.data.len);
   for (int i = 0; i < 256; i++) TEST_ASSERT_EQUAL_UINT8(0, output.data.data[i]);
@@ -798,7 +866,7 @@ static void run_bls_add_success_vector(uint8_t precompile, const char* input_hex
   buffer_t output   = {0};
   uint64_t gas_used = 0;
 
-  pre_result_t res = eth_execute_precompile(addr, input, &output, &gas_used);
+  pre_result_t res = eth_execute_precompile(addr, input, &output, UINT64_MAX, &gas_used);
   TEST_ASSERT_EQUAL(PRE_SUCCESS, res);
   TEST_ASSERT_EQUAL_UINT64(expected_gas, gas_used);
   TEST_ASSERT_EQUAL((int) expected.len, (int) output.data.len);
@@ -845,7 +913,7 @@ void test_precompile_bls_g1msm_wrong_order_rejected() {
   bytes_t  input    = hex_to_bytes_alloc(input_hex);
   buffer_t output   = {0};
   uint64_t gas_used = 0;
-  pre_result_t res  = eth_execute_precompile(addr, input, &output, &gas_used);
+  pre_result_t res  = eth_execute_precompile(addr, input, &output, UINT64_MAX, &gas_used);
   TEST_ASSERT_EQUAL(PRE_INVALID_INPUT, res);
 
   free(input.data);
@@ -859,7 +927,7 @@ static void run_precompile_reject(uint8_t precompile, const char* input_hex) {
   bytes_t      input    = hex_to_bytes_alloc(input_hex);
   buffer_t     output   = {0};
   uint64_t     gas_used = 0;
-  pre_result_t res      = eth_execute_precompile(addr, input, &output, &gas_used);
+  pre_result_t res      = eth_execute_precompile(addr, input, &output, UINT64_MAX, &gas_used);
   TEST_ASSERT_EQUAL(PRE_INVALID_INPUT, res);
   free(input.data);
   buffer_free(&output);
@@ -937,7 +1005,7 @@ void test_precompile_bls_pairing_empty() {
   bytes_t      input    = {.data = NULL, .len = 0};
   buffer_t     output   = {0};
   uint64_t     gas_used = 0;
-  pre_result_t res      = eth_execute_precompile(addr, input, &output, &gas_used);
+  pre_result_t res      = eth_execute_precompile(addr, input, &output, UINT64_MAX, &gas_used);
   TEST_ASSERT_EQUAL(PRE_SUCCESS, res);
   TEST_ASSERT_EQUAL(32, output.data.len);
   // Expect 1
@@ -954,7 +1022,7 @@ void test_precompile_bls_map_fp_to_g1_zero() {
   bytes_t      input    = bytes(in, sizeof(in));
   buffer_t     output   = {0};
   uint64_t     gas_used = 0;
-  pre_result_t res      = eth_execute_precompile(addr, input, &output, &gas_used);
+  pre_result_t res      = eth_execute_precompile(addr, input, &output, UINT64_MAX, &gas_used);
   TEST_ASSERT_EQUAL(PRE_SUCCESS, res);
   TEST_ASSERT_EQUAL(128, output.data.len);
   buffer_free(&output);
@@ -968,7 +1036,7 @@ void test_precompile_bls_map_fp2_to_g2_zero() {
   bytes_t      input    = bytes(in, sizeof(in));
   buffer_t     output   = {0};
   uint64_t     gas_used = 0;
-  pre_result_t res      = eth_execute_precompile(addr, input, &output, &gas_used);
+  pre_result_t res      = eth_execute_precompile(addr, input, &output, UINT64_MAX, &gas_used);
   TEST_ASSERT_EQUAL(PRE_SUCCESS, res);
   TEST_ASSERT_EQUAL(256, output.data.len);
   buffer_free(&output);
@@ -982,7 +1050,7 @@ void test_precompile_bls_g1msm_zero() {
   bytes_t      input    = bytes(in, sizeof(in));
   buffer_t     output   = {0};
   uint64_t     gas_used = 0;
-  pre_result_t res      = eth_execute_precompile(addr, input, &output, &gas_used);
+  pre_result_t res      = eth_execute_precompile(addr, input, &output, UINT64_MAX, &gas_used);
   TEST_ASSERT_EQUAL(PRE_SUCCESS, res);
   TEST_ASSERT_EQUAL(128, output.data.len);
   for (int i = 0; i < 128; i++) TEST_ASSERT_EQUAL_UINT8(0, output.data.data[i]);
@@ -999,7 +1067,7 @@ void test_precompile_bls_g2msm_zero() {
   bytes_t      input    = bytes(in, sizeof(in));
   buffer_t     output   = {0};
   uint64_t     gas_used = 0;
-  pre_result_t res      = eth_execute_precompile(addr, input, &output, &gas_used);
+  pre_result_t res      = eth_execute_precompile(addr, input, &output, UINT64_MAX, &gas_used);
   TEST_ASSERT_EQUAL(PRE_SUCCESS, res);
   TEST_ASSERT_EQUAL(256, output.data.len);
   for (int i = 0; i < 256; i++) TEST_ASSERT_EQUAL_UINT8(0, output.data.data[i]);
@@ -1042,7 +1110,7 @@ void test_precompile_bls_fp_max_canonical_accepted() {
   bytes_t      input    = hex_to_bytes_alloc(BLS_FP_MAX_CANONICAL);
   buffer_t     output   = {0};
   uint64_t     gas_used = 0;
-  pre_result_t res      = eth_execute_precompile(addr, input, &output, &gas_used);
+  pre_result_t res      = eth_execute_precompile(addr, input, &output, UINT64_MAX, &gas_used);
   TEST_ASSERT_EQUAL(PRE_SUCCESS, res);
   TEST_ASSERT_EQUAL_UINT64(5500, gas_used);
   TEST_ASSERT_EQUAL(128, output.data.len);
@@ -1097,7 +1165,7 @@ void test_precompile_p256verify_ok() {
   uint64_t gas_used = 0;
   bytes_t  input    = bytes((uint8_t*) p256_ok_input, sizeof(p256_ok_input));
   make_precompile_address_0x100(addr);
-  pre_result_t res = eth_execute_precompile(addr, input, &output, &gas_used);
+  pre_result_t res = eth_execute_precompile(addr, input, &output, UINT64_MAX, &gas_used);
   TEST_ASSERT_EQUAL(PRE_SUCCESS, res);
   TEST_ASSERT_EQUAL_UINT64(6900, gas_used);
   TEST_ASSERT_EQUAL(32, output.data.len);
@@ -1115,7 +1183,7 @@ void test_precompile_p256verify_wrong_hash() {
   buf[0] ^= 0xff;
   bytes_t input = bytes(buf, sizeof(buf));
   make_precompile_address_0x100(addr);
-  pre_result_t res = eth_execute_precompile(addr, input, &output, &gas_used);
+  pre_result_t res = eth_execute_precompile(addr, input, &output, UINT64_MAX, &gas_used);
   TEST_ASSERT_EQUAL(PRE_SUCCESS, res);
   TEST_ASSERT_EQUAL_UINT64(6900, gas_used);
   TEST_ASSERT_EQUAL(0, output.data.len);
@@ -1128,7 +1196,7 @@ void test_precompile_p256verify_wrong_len_159() {
   uint64_t gas_used = 0;
   bytes_t  input    = bytes((uint8_t*) p256_ok_input, 159);
   make_precompile_address_0x100(addr);
-  pre_result_t res = eth_execute_precompile(addr, input, &output, &gas_used);
+  pre_result_t res = eth_execute_precompile(addr, input, &output, UINT64_MAX, &gas_used);
   TEST_ASSERT_EQUAL(PRE_SUCCESS, res);
   TEST_ASSERT_EQUAL_UINT64(6900, gas_used);
   TEST_ASSERT_EQUAL(0, output.data.len);
@@ -1144,7 +1212,7 @@ void test_precompile_p256verify_wrong_len_161() {
   buf[160]      = 0;
   bytes_t input = bytes(buf, sizeof(buf));
   make_precompile_address_0x100(addr);
-  pre_result_t res = eth_execute_precompile(addr, input, &output, &gas_used);
+  pre_result_t res = eth_execute_precompile(addr, input, &output, UINT64_MAX, &gas_used);
   TEST_ASSERT_EQUAL(PRE_SUCCESS, res);
   TEST_ASSERT_EQUAL_UINT64(6900, gas_used);
   TEST_ASSERT_EQUAL(0, output.data.len);
@@ -1162,7 +1230,7 @@ void test_precompile_p256verify_off_curve_pubkey() {
   buf[96 + 63]  = 2;
   bytes_t input = bytes(buf, sizeof(buf));
   make_precompile_address_0x100(addr);
-  pre_result_t res = eth_execute_precompile(addr, input, &output, &gas_used);
+  pre_result_t res = eth_execute_precompile(addr, input, &output, UINT64_MAX, &gas_used);
   TEST_ASSERT_EQUAL(PRE_SUCCESS, res);
   TEST_ASSERT_EQUAL_UINT64(6900, gas_used);
   TEST_ASSERT_EQUAL(0, output.data.len);
@@ -1177,7 +1245,7 @@ void test_precompile_p256verify_invalid_address_0101() {
   memset(addr, 0, 20);
   addr[18]         = 0x01;
   addr[19]         = 0x01;
-  pre_result_t res = eth_execute_precompile(addr, input, &output, &gas_used);
+  pre_result_t res = eth_execute_precompile(addr, input, &output, UINT64_MAX, &gas_used);
   TEST_ASSERT_EQUAL(PRE_INVALID_ADDRESS, res);
   buffer_free(&output);
 }
@@ -1190,7 +1258,7 @@ void test_precompile_p256verify_invalid_address_0200() {
   memset(addr, 0, 20);
   addr[18]         = 0x02;
   addr[19]         = 0x00;
-  pre_result_t res = eth_execute_precompile(addr, input, &output, &gas_used);
+  pre_result_t res = eth_execute_precompile(addr, input, &output, UINT64_MAX, &gas_used);
   TEST_ASSERT_EQUAL(PRE_INVALID_ADDRESS, res);
   buffer_free(&output);
 }
@@ -1202,6 +1270,7 @@ int main(void) {
   RUN_TEST(test_precompile_sha256);
   RUN_TEST(test_precompile_ripemd160);
   RUN_TEST(test_precompile_identity);
+  RUN_TEST(test_precompile_identity_out_of_gas);
   RUN_TEST(test_precompile_ecrecover);
   RUN_TEST(test_precompile_ecrecover_invalid_input);
   RUN_TEST(test_precompile_ecrecover_short_input);
@@ -1250,6 +1319,8 @@ int main(void) {
   // EIP-152 Blake2f
   RUN_TEST(test_precompile_blake2f);
   RUN_TEST(test_precompile_blake2f_invalid);
+  RUN_TEST(test_precompile_blake2f_out_of_gas);
+  RUN_TEST(test_precompile_blake2f_exact_gas);
 
   // EIP-7951 P256VERIFY (0x100)
   RUN_TEST(test_precompile_p256verify_ok);

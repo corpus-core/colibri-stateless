@@ -332,7 +332,13 @@ For production deployments, consider:
 
 ### Web UI Access
 
-The configuration endpoints (`/config` and `/config.html`) are **disabled by default** for security reasons. Only enable them on trusted networks using:
+The configuration endpoints (`/config`, `/config.html`, `/api/restart`) are **disabled by default**. `WEB_UI_ENABLED=1` (or `-u`) turns them on with **no authentication, no CSRF protection, and no origin check**.
+
+This UI is currently unused in typical deployments. Enable it only on trusted localhost, or behind an authenticating reverse proxy, and only if you accept the residual risk:
+
+- Any client that can reach the bind address can read and rewrite configuration (RPC/beacon URLs, TLS settings) and force `exit(0)` via `POST /api/restart`.
+- String parameter values are written into the config file as `KEY=value` lines. A value containing a newline can inject extra config keys, including ones the UI otherwise refuses to update (e.g. `WITNESS_KEY`).
+- There is no `CONFIG_API_KEY` (or similar) in the server; do not assume one exists.
 
 ```bash
 # Environment variable

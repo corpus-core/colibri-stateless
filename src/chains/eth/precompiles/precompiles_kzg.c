@@ -167,7 +167,8 @@ static inline void be_write_u32(uint8_t out[32], uint32_t v) {
   out[31] = (uint8_t) (v & 0xff);
 }
 
-static pre_result_t pre_point_evaluation(bytes_t input, buffer_t* output, uint64_t* gas_used) {
+static pre_result_t pre_point_evaluation(bytes_t input, buffer_t* output, uint64_t* gas_used, uint64_t gas_limit) {
+  (void) gas_limit;
   *gas_used = 50000;
   if (input.len != 192) return PRE_INVALID_INPUT;
 

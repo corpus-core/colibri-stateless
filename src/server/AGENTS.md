@@ -83,7 +83,7 @@ The prover cache (`PROVER_CACHE=ON`) has two levels:
 | `handle_health.c` | `GET /health` -- health check with statistics |
 | `handle_metrics.c` | `GET /metrics` -- Prometheus metrics export |
 | `handle_openapi.c` | `GET /openapi.yaml` -- OpenAPI 3.1.0 spec |
-| `handle_config.c` | Configuration management (requires `WEB_UI_ENABLED`) |
+| `handle_config.c` | Configuration management (requires `WEB_UI_ENABLED`; no auth — localhost/proxy only) |
 | `cache.c` | Internal proof/request caching |
 
 ### Subdirectories

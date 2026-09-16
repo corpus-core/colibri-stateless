@@ -26,6 +26,8 @@
 #include "sync_committee.h"
 #include "version.h"
 #include <emscripten.h>
+#include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
@@ -154,6 +156,7 @@ void EMSCRIPTEN_KEEPALIVE c4w_req_free(data_request_t* client_update) {
 }
 
 uint8_t* EMSCRIPTEN_KEEPALIVE c4w_buffer_alloc(buffer_t* buf, size_t len) {
+  if (len == SIZE_MAX) return NULL;
   buffer_grow(buf, len + 1);
   buf->data.len = len;
   return buf->data.data;

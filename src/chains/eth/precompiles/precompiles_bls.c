@@ -121,7 +121,8 @@ static inline void write_g2_affine(const blst_p2_affine* in, uint8_t out[256], b
 }
 
 // 0x0b: G1ADD
-static pre_result_t pre_bls12_g1add(bytes_t input, buffer_t* output, uint64_t* gas_used) {
+static pre_result_t pre_bls12_g1add(bytes_t input, buffer_t* output, uint64_t* gas_used, uint64_t gas_limit) {
+  (void) gas_limit;
   *gas_used = 375;
   if (input.len != 256) return PRE_INVALID_INPUT;
 
@@ -166,7 +167,8 @@ static pre_result_t pre_bls12_g1add(bytes_t input, buffer_t* output, uint64_t* g
 }
 
 // 0x0d: G2ADD
-static pre_result_t pre_bls12_g2add(bytes_t input, buffer_t* output, uint64_t* gas_used) {
+static pre_result_t pre_bls12_g2add(bytes_t input, buffer_t* output, uint64_t* gas_used, uint64_t gas_limit) {
+  (void) gas_limit;
   *gas_used = 600;
   if (input.len != 512) return PRE_INVALID_INPUT;
 
@@ -235,7 +237,8 @@ static inline uint32_t msm_discount_factor(uint32_t k) {
 }
 
 // 0x0c: G1MSM
-static pre_result_t pre_bls12_g1msm(bytes_t input, buffer_t* output, uint64_t* gas_used) {
+static pre_result_t pre_bls12_g1msm(bytes_t input, buffer_t* output, uint64_t* gas_used, uint64_t gas_limit) {
+  (void) gas_limit;
   const uint32_t LEN_PER_PAIR = 160; // 32 (scalar) + 128 (point)
   if (input.len < LEN_PER_PAIR || (input.len % LEN_PER_PAIR) != 0) return PRE_INVALID_INPUT;
   uint32_t k = (uint32_t) (input.len / LEN_PER_PAIR);
@@ -305,7 +308,8 @@ static pre_result_t pre_bls12_g1msm(bytes_t input, buffer_t* output, uint64_t* g
 }
 
 // 0x0e: G2MSM
-static pre_result_t pre_bls12_g2msm(bytes_t input, buffer_t* output, uint64_t* gas_used) {
+static pre_result_t pre_bls12_g2msm(bytes_t input, buffer_t* output, uint64_t* gas_used, uint64_t gas_limit) {
+  (void) gas_limit;
   const uint32_t LEN_PER_PAIR = 288; // 32 (scalar) + 256 (point)
   if (input.len < LEN_PER_PAIR || (input.len % LEN_PER_PAIR) != 0) return PRE_INVALID_INPUT;
   uint32_t k = (uint32_t) (input.len / LEN_PER_PAIR);
@@ -368,7 +372,8 @@ static pre_result_t pre_bls12_g2msm(bytes_t input, buffer_t* output, uint64_t* g
 }
 
 // 0x0f: Pairing check
-static pre_result_t pre_bls12_pairing_check(bytes_t input, buffer_t* output, uint64_t* gas_used) {
+static pre_result_t pre_bls12_pairing_check(bytes_t input, buffer_t* output, uint64_t* gas_used, uint64_t gas_limit) {
+  (void) gas_limit;
   const uint32_t LEN_PER_PAIR = 384; // 128 (G1) + 256 (G2)
   if ((input.len % LEN_PER_PAIR) != 0) return PRE_INVALID_INPUT;
   uint32_t k = (uint32_t) (input.len / LEN_PER_PAIR);
@@ -436,7 +441,8 @@ static pre_result_t pre_bls12_pairing_check(bytes_t input, buffer_t* output, uin
 }
 
 // 0x10: MAP FP -> G1
-static pre_result_t pre_bls12_map_fp_to_g1(bytes_t input, buffer_t* output, uint64_t* gas_used) {
+static pre_result_t pre_bls12_map_fp_to_g1(bytes_t input, buffer_t* output, uint64_t* gas_used, uint64_t gas_limit) {
+  (void) gas_limit;
   *gas_used = 5500;
   if (input.len != 64) return PRE_INVALID_INPUT;
   blst_fp u;
@@ -454,7 +460,8 @@ static pre_result_t pre_bls12_map_fp_to_g1(bytes_t input, buffer_t* output, uint
 }
 
 // 0x11: MAP FP2 -> G2
-static pre_result_t pre_bls12_map_fp2_to_g2(bytes_t input, buffer_t* output, uint64_t* gas_used) {
+static pre_result_t pre_bls12_map_fp2_to_g2(bytes_t input, buffer_t* output, uint64_t* gas_used, uint64_t gas_limit) {
+  (void) gas_limit;
   *gas_used = 23800;
   if (input.len != 128) return PRE_INVALID_INPUT;
   blst_fp2 u;

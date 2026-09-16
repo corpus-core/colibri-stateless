@@ -42,7 +42,7 @@
 #include "intx_c_api.h"
 #endif
 
-typedef pre_result_t (*precompile_func_t)(bytes_t input, buffer_t* output, uint64_t* gas_used);
+typedef pre_result_t (*precompile_func_t)(bytes_t input, buffer_t* output, uint64_t* gas_used, uint64_t gas_limit);
 
 #define PRECOMPILE_FN_COUNT 20 // Updated count based on new array size (0x13 + 1)
 #define data_word_size(x)   ((x + 31) / 32)
@@ -61,7 +61,8 @@ typedef pre_result_t (*precompile_func_t)(bytes_t input, buffer_t* output, uint6
 // EIP-152 Blake2f precompile
 #include "precompiles_blake2.c"
 
-static pre_result_t pre_ecrecover(bytes_t input, buffer_t* output, uint64_t* gas_used) {
+static pre_result_t pre_ecrecover(bytes_t input, buffer_t* output, uint64_t* gas_used, uint64_t gas_limit) {
+  (void) gas_limit;
   *gas_used = 3000;
   if (input.len != 128) return PRE_SUCCESS;
   bytes_t hash       = bytes_slice(input, 0, 32);
@@ -80,7 +81,8 @@ static pre_result_t pre_ecrecover(bytes_t input, buffer_t* output, uint64_t* gas
   return PRE_SUCCESS;
 }
 
-static pre_result_t pre_sha256(bytes_t input, buffer_t* output, uint64_t* gas_used) {
+static pre_result_t pre_sha256(bytes_t input, buffer_t* output, uint64_t* gas_used, uint64_t gas_limit) {
+  (void) gas_limit;
   buffer_reset(output);
   buffer_append(output, bytes(NULL, 32));
   sha256(input, output->data.data);
@@ -88,7 +90,8 @@ static pre_result_t pre_sha256(bytes_t input, buffer_t* output, uint64_t* gas_us
   return PRE_SUCCESS;
 }
 #ifdef PRECOMPILED_RIPEMD160
-static pre_result_t pre_ripemd160(bytes_t input, buffer_t* output, uint64_t* gas_used) {
+static pre_result_t pre_ripemd160(bytes_t input, buffer_t* output, uint64_t* gas_used, uint64_t gas_limit) {
+  (void) gas_limit;
   buffer_reset(output);
   buffer_append(output, bytes(NULL, 20));
   ripemd160(input.data, input.len, output->data.data);
@@ -96,7 +99,8 @@ static pre_result_t pre_ripemd160(bytes_t input, buffer_t* output, uint64_t* gas
   return PRE_SUCCESS;
 }
 #endif
-static pre_result_t pre_identity(bytes_t input, buffer_t* output, uint64_t* gas_used) {
+static pre_result_t pre_identity(bytes_t input, buffer_t* output, uint64_t* gas_used, uint64_t gas_limit) {
+  (void) gas_limit;
   buffer_reset(output);
   buffer_append(output, input);
   *gas_used = 15 + 3 * data_word_size(input.len);
@@ -117,7 +121,8 @@ static pre_result_t pre_identity(bytes_t input, buffer_t* output, uint64_t* gas_
  * validates the public key (on-curve, not identity), checks `r, s ∈ [1,n-1]`,
  * rejects `R == ∞`, and compares `r ≡ R.x (mod n)`.
  */
-static pre_result_t pre_p256verify(bytes_t input, buffer_t* output, uint64_t* gas_used) {
+static pre_result_t pre_p256verify(bytes_t input, buffer_t* output, uint64_t* gas_used, uint64_t gas_limit) {
+  (void) gas_limit;
   *gas_used = 6900;
   buffer_reset(output);
   if (input.len != 160) return PRE_SUCCESS;
@@ -204,7 +209,8 @@ static uint64_t calculate_gas_for_modexp(uint32_t l_base, uint32_t l_exp, uint32
   return dynamic_gas;
 }
 
-static pre_result_t pre_modexp(bytes_t input, buffer_t* output, uint64_t* gas_used) {
+static pre_result_t pre_modexp(bytes_t input, buffer_t* output, uint64_t* gas_used, uint64_t gas_limit) {
+  (void) gas_limit;
   uint32_t l_base = (uint32_t) bytes_as_be(bytes_slice(input, 24, 8));
   uint32_t l_exp  = (uint32_t) bytes_as_be(bytes_slice(input, 32 + 24, 8));
   uint32_t l_mod  = (uint32_t) bytes_as_be(bytes_slice(input, 64 + 24, 8));
@@ -293,14 +299,28 @@ bool eth_is_precompile_address(const uint8_t* address) {
   return false;
 }
 
-pre_result_t eth_execute_precompile(const uint8_t* address, const bytes_t input, buffer_t* output, uint64_t* gas_used) {
+pre_result_t eth_execute_precompile(const uint8_t* address, const bytes_t input, buffer_t* output, uint64_t gas_limit, uint64_t* gas_used) {
+  uint64_t discarded_gas = 0;
+  if (!gas_used) gas_used = &discarded_gas;
+  *gas_used = 0;
   if (!bytes_all_zero(bytes(address, 18))) return PRE_INVALID_ADDRESS;
+
+  pre_result_t result;
   if (address[18] == 0x00) {
     if (address[19] == 0 || address[19] > PRECOMPILE_FN_COUNT) return PRE_INVALID_ADDRESS;
     precompile_func_t fn = precompile_fn[address[19] - 1];
     if (fn == NULL) return PRE_NOT_SUPPORTED;
-    return fn(input, output, gas_used);
+    result = fn(input, output, gas_used, gas_limit);
   }
-  if (address[18] == 0x01 && address[19] == 0x00) return pre_p256verify(input, output, gas_used);
-  return PRE_INVALID_ADDRESS;
+  else if (address[18] == 0x01 && address[19] == 0x00)
+    result = pre_p256verify(input, output, gas_used, gas_limit);
+  else
+    return PRE_INVALID_ADDRESS;
+
+  if (result == PRE_SUCCESS && *gas_used > gas_limit) {
+    buffer_reset(output);
+    *gas_used = gas_limit;
+    return PRE_OUT_OF_GAS;
+  }
+  return result;
 }
