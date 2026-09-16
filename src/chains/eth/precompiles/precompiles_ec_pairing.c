@@ -9,7 +9,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-static pre_result_t pre_ec_pairing(bytes_t input, buffer_t* output, uint64_t* gas_used) {
+static pre_result_t pre_ec_pairing(bytes_t input, buffer_t* output, uint64_t* gas_used, uint64_t gas_limit) {
+  (void) gas_limit;
   if (input.len % 192 != 0) {
     return PRE_INVALID_INPUT;
   }

@@ -49,35 +49,22 @@ typedef enum {
 } pre_result_t;
 
 /**
- * @brief Executes an Ethereum precompile contract with an unlimited gas budget.
- *
- * Equivalent to `eth_execute_precompile_ex(..., UINT64_MAX, gas_used)`. Intended for
- * unit tests and callers that have already bounded the work themselves.
- *
- * @param address The address of the precompile (20 bytes). Standard precompiles use only the last byte (`0x01`–`0x11`) with the leading bytes zero; EIP-7951 `P256VERIFY` uses `0x0000…0100` (bytes `address[18]==0x01`, `address[19]==0x00`).
- * @param input The input data for the precompile call.
- * @param output Pointer to a buffer where the output will be written. The buffer data will be allocated/resized.
- * @param gas_used Pointer to a uint64_t where the consumed gas cost will be written.
- * @return PRE_SUCCESS on success, or an error code indicating the failure reason.
- */
-pre_result_t eth_execute_precompile(const uint8_t* address, const bytes_t input, buffer_t* output, uint64_t* gas_used);
-
-/**
- * @brief Executes an Ethereum precompile, refusing work that would exceed `gas_limit`.
+ * @brief Executes an Ethereum precompile contract.
  *
  * For EIP-152 Blake2f the round count is compared to `gas_limit` **before** the
  * compression loop, so a huge attacker-chosen `rounds` cannot burn CPU. Other
  * precompiles still run first; if their reported cost exceeds `gas_limit` the
- * output is discarded and `PRE_OUT_OF_GAS` is returned.
+ * output is discarded and `PRE_OUT_OF_GAS` is returned. Pass `UINT64_MAX` for
+ * an unlimited budget (typical for unit tests).
  *
- * @param address The address of the precompile (20 bytes). Same encoding as `eth_execute_precompile`.
+ * @param address The address of the precompile (20 bytes). Standard precompiles use only the last byte (`0x01`–`0x11`) with the leading bytes zero; EIP-7951 `P256VERIFY` uses `0x0000…0100` (bytes `address[18]==0x01`, `address[19]==0x00`).
  * @param input The input data for the precompile call.
- * @param output Pointer to a buffer where the output will be written. Cleared on `PRE_OUT_OF_GAS`.
+ * @param output Pointer to a buffer where the output will be written. The buffer data will be allocated/resized. Cleared on `PRE_OUT_OF_GAS`.
  * @param gas_limit Remaining gas of the calling EVM frame. `UINT64_MAX` means unlimited.
  * @param gas_used Pointer written with the gas cost on success, or `gas_limit` on out-of-gas.
  * @return PRE_SUCCESS, PRE_OUT_OF_GAS, or another `pre_result_t` error.
  */
-pre_result_t eth_execute_precompile_ex(const uint8_t* address, const bytes_t input, buffer_t* output, uint64_t gas_limit, uint64_t* gas_used);
+pre_result_t eth_execute_precompile(const uint8_t* address, const bytes_t input, buffer_t* output, uint64_t gas_limit, uint64_t* gas_used);
 
 /**
  * @brief Tests whether `address` (20 bytes) is recognised as an Ethereum precompile address.

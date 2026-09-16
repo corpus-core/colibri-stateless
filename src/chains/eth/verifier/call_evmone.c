@@ -427,7 +427,7 @@ static void host_call(void* context, const struct evmone_message* msg, const uin
     buffer_t     output     = {0};
     uint64_t     gas_used   = 0;
     uint64_t     gas_limit  = msg->gas > 0 ? (uint64_t) msg->gas : 0;
-    pre_result_t pre_result = eth_execute_precompile_ex(msg->code_address.bytes, bytes(msg->input_data, msg->input_size), &output, gas_limit, &gas_used);
+    pre_result_t pre_result = eth_execute_precompile(msg->code_address.bytes, bytes(msg->input_data, msg->input_size), &output, gas_limit, &gas_used);
     result->output_data     = output.data.data;
     result->output_size     = output.data.len;
     result->gas_refund      = 0;
@@ -862,7 +862,7 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
     buffer_t     output         = {0};
     uint64_t     precompile_gas = 0;
     uint64_t     gas_limit      = message.gas > 0 ? (uint64_t) message.gas : 0;
-    pre_result_t pre_result     = eth_execute_precompile_ex(to, bytes(message.input_data, message.input_size), &output, gas_limit, &precompile_gas);
+    pre_result_t pre_result     = eth_execute_precompile(to, bytes(message.input_data, message.input_size), &output, gas_limit, &precompile_gas);
     buffer_free(&buffer);
     evm->call_result = output.data;
     switch (pre_result) {
