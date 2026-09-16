@@ -17,10 +17,12 @@ object DefaultChains {
         BigInteger.valueOf(11155111L) -> arrayOf(
                 "https://sepolia.colibri-proof.tech",
                 "https://sepolia1.colibri-proof.tech",
+                "https://sepolia.colimind.com",
             )
         BigInteger.valueOf(100L) -> arrayOf(
                 "https://gnosis.colibri-proof.tech",
                 "https://gnosis1.colibri-proof.tech",
+                "https://gnosis.colimind.com",
             )
         BigInteger.valueOf(10200L) -> arrayOf("https://chiado.colibri-proof.tech")
         BigInteger("7091047534") -> arrayOf("https://plataberget.colibri-proof.tech")

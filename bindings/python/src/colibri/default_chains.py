@@ -15,10 +15,12 @@ _PROVERS = {
     11155111: [
         "https://sepolia.colibri-proof.tech",
         "https://sepolia1.colibri-proof.tech",
+        "https://sepolia.colimind.com",
     ],  # sepolia
     100: [
         "https://gnosis.colibri-proof.tech",
         "https://gnosis1.colibri-proof.tech",
+        "https://gnosis.colimind.com",
     ],  # gnosis
     10200: ["https://chiado.colibri-proof.tech"],  # chiado
     7091047534: ["https://plataberget.colibri-proof.tech"],  # plataberget

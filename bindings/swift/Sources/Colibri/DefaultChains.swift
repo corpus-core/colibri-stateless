@@ -16,11 +16,13 @@ enum DefaultChains {
             return [
                 "https://sepolia.colibri-proof.tech",
                 "https://sepolia1.colibri-proof.tech",
+                "https://sepolia.colimind.com",
             ]
         case 100:
             return [
                 "https://gnosis.colibri-proof.tech",
                 "https://gnosis1.colibri-proof.tech",
+                "https://gnosis.colimind.com",
             ]
         case 10200:
             return ["https://chiado.colibri-proof.tech"]

@@ -46,7 +46,7 @@ export const default_config: {
       "https://sepolia.colibri-proof.tech/consensus",
       "https://ethereum-sepolia-beacon-api.publicnode.com",
     ],
-    prover: ["https://sepolia.colibri-proof.tech", "https://sepolia1.colibri-proof.tech"],
+    prover: ["https://sepolia.colibri-proof.tech", "https://sepolia1.colibri-proof.tech", "https://sepolia.colimind.com"],
     checkpointz: [
       "https://checkpoint-sync.sepolia.ethpandaops.io",
       "https://beaconstate-sepolia.chainsafe.io",
@@ -66,7 +66,7 @@ export const default_config: {
       "https://rpc-gbc.gnosischain.com",
       "https://gnosis-beacon-api.publicnode.com",
     ],
-    prover: ["https://gnosis.colibri-proof.tech", "https://gnosis1.colibri-proof.tech"],
+    prover: ["https://gnosis.colibri-proof.tech", "https://gnosis1.colibri-proof.tech", "https://gnosis.colimind.com"],
     checkpointz: [
       "https://checkpoint.gnosischain.com",
     ],

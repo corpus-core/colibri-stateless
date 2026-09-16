@@ -25,10 +25,12 @@ pub fn default_provers(chain_id: u64) -> Vec<String> {
         SEPOLIA => vec![
             "https://sepolia.colibri-proof.tech".into(),
             "https://sepolia1.colibri-proof.tech".into(),
+            "https://sepolia.colimind.com".into(),
         ],
         GNOSIS => vec![
             "https://gnosis.colibri-proof.tech".into(),
             "https://gnosis1.colibri-proof.tech".into(),
+            "https://gnosis.colimind.com".into(),
         ],
         CHIADO => vec!["https://chiado.colibri-proof.tech".into()],
         PLATABERGET => vec!["https://plataberget.colibri-proof.tech".into()],
