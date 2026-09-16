@@ -28,6 +28,12 @@
 #include "nist256p1.h"
 #include "precompiles.h"
 
+/**
+ * Core precompile dispatch: `precompiles_basic.c` includes optional implementation
+ * translation units (`precompiles_ec.c`, `precompiles_bls.c`, …) and exposes
+ * `eth_execute_precompile` / `eth_is_precompile_address`.
+ */
+
 #if defined(__clang__) || defined(__GNUC__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
@@ -44,6 +50,7 @@
 
 typedef pre_result_t (*precompile_func_t)(bytes_t input, buffer_t* output, uint64_t* gas_used, uint64_t gas_limit);
 
+/** Number of classic low-byte precompile slots (`address[19]` in `0x01..PRECOMPILE_FN_COUNT`). */
 #define PRECOMPILE_FN_COUNT 20 // Updated count based on new array size (0x13 + 1)
 #define data_word_size(x)   ((x + 31) / 32)
 
@@ -61,6 +68,7 @@ typedef pre_result_t (*precompile_func_t)(bytes_t input, buffer_t* output, uint6
 // EIP-152 Blake2f precompile
 #include "precompiles_blake2.c"
 
+/** EIP-2 `ECRECOVER` (0x01): 128-byte input, 3000 gas, 32-byte address or empty. */
 static pre_result_t pre_ecrecover(bytes_t input, buffer_t* output, uint64_t* gas_used, uint64_t gas_limit) {
   (void) gas_limit;
   *gas_used = 3000;
@@ -81,6 +89,7 @@ static pre_result_t pre_ecrecover(bytes_t input, buffer_t* output, uint64_t* gas
   return PRE_SUCCESS;
 }
 
+/** SHA-256 (0x02): dynamic gas `60 + 12 * words(input)`. */
 static pre_result_t pre_sha256(bytes_t input, buffer_t* output, uint64_t* gas_used, uint64_t gas_limit) {
   (void) gas_limit;
   buffer_reset(output);
@@ -90,6 +99,7 @@ static pre_result_t pre_sha256(bytes_t input, buffer_t* output, uint64_t* gas_us
   return PRE_SUCCESS;
 }
 #ifdef PRECOMPILED_RIPEMD160
+/** RIPEMD-160 (0x03): dynamic gas `600 + 120 * words(input)`. */
 static pre_result_t pre_ripemd160(bytes_t input, buffer_t* output, uint64_t* gas_used, uint64_t gas_limit) {
   (void) gas_limit;
   buffer_reset(output);
@@ -99,6 +109,7 @@ static pre_result_t pre_ripemd160(bytes_t input, buffer_t* output, uint64_t* gas
   return PRE_SUCCESS;
 }
 #endif
+/** Identity / data copy (0x04): gas `15 + 3 * words(input)`. */
 static pre_result_t pre_identity(bytes_t input, buffer_t* output, uint64_t* gas_used, uint64_t gas_limit) {
   (void) gas_limit;
   buffer_reset(output);
@@ -148,6 +159,7 @@ static pre_result_t pre_p256verify(bytes_t input, buffer_t* output, uint64_t* ga
 
 #ifdef INTX
 
+/** EIP-7883 modular exponentiation gas (used by `pre_modexp`). */
 static uint64_t calculate_gas_for_modexp(uint32_t l_base, uint32_t l_exp, uint32_t l_mod, bytes_t b_exp) {
 
   uint64_t max_len = l_base > l_mod ? l_base : l_mod;
@@ -209,6 +221,7 @@ static uint64_t calculate_gas_for_modexp(uint32_t l_base, uint32_t l_exp, uint32
   return dynamic_gas;
 }
 
+/** EIP-198 `MODEXP` (0x05): header `base_len || exp_len || mod_len` plus payloads. */
 static pre_result_t pre_modexp(bytes_t input, buffer_t* output, uint64_t* gas_used, uint64_t gas_limit) {
   (void) gas_limit;
   uint32_t l_base = (uint32_t) bytes_as_be(bytes_slice(input, 24, 8));
@@ -256,6 +269,7 @@ static pre_result_t pre_modexp(bytes_t input, buffer_t* output, uint64_t* gas_us
 }
 #endif
 
+/** Dispatch table indexed by `address[19] - 1` for `address[18]==0`. NULL → `PRE_NOT_SUPPORTED`. */
 const precompile_func_t precompile_fn[] = {
     pre_ecrecover, // 0x01
     pre_sha256,    // 0x02

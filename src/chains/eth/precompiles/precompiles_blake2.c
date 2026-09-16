@@ -2,6 +2,8 @@
  * Copyright (c) 2025 corpus.core
  *
  * SPDX-License-Identifier: MIT
+ *
+ * EIP-152 BLAKE2 F compression precompile (0x09). Included from `precompiles_basic.c`.
  */
 
 #include "blake2_common.h"

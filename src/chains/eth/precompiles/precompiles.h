@@ -38,6 +38,13 @@ extern "C" {
 #include <stdlib.h>
 #include <string.h>
 
+/**
+ * Ethereum precompile implementations used by `eth_call` / evmone (`eth_execute_precompile`).
+ *
+ * Optional CMake flags (`PRECOMPILED_BN128`, `PRECOMPILED_KZG`, `PRECOMPILED_RIPEMD160`, …)
+ * control which entries in the dispatch table are non-NULL; missing builds return `PRE_NOT_SUPPORTED`.
+ */
+
 typedef enum {
   PRE_SUCCESS         = 0, ///< Execution successful
   PRE_ERROR           = 1, ///< General error (e.g., internal failure)
@@ -75,14 +82,18 @@ pre_result_t eth_execute_precompile(const uint8_t* address, const bytes_t input,
  *
  * Returns `true` even for entries whose implementation may be compiled out (e.g. KZG/BN128);
  * in that case `eth_execute_precompile` will return `PRE_NOT_SUPPORTED` rather than dispatching.
+ *
+ * @param address 20-byte account address (only low bytes matter; see bullets above)
+ * @return `true` if the address is in the recognised precompile range
  */
 bool eth_is_precompile_address(const uint8_t* address);
 
 /**
  * Inject the trusted-setup G2^tau point (compressed, 96 bytes) for the KZG precompile.
  * Allows runtime provisioning (e.g., in WASM) when not embedded at build time.
+ *
  * @param comp96 96-byte compressed G2^tau (tau^1) in big-endian format
- * @return true on success
+ * @return `true` on success
  */
 bool precompiles_kzg_set_trusted_setup_g2_tau(const uint8_t* comp96);
 

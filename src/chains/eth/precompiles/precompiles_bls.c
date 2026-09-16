@@ -31,6 +31,11 @@
 #include <stdint.h>
 #include <string.h>
 
+/**
+ * EIP-2537 BLS12-381 precompiles (0x0b–0x11): G1/G2 add/MSM, pairing check, hash-to-curve.
+ * Point encoding: 64-byte big-endian Fp limbs per coordinate (see comments below).
+ */
+
 // EIP-2537 uses 64-byte big endian limbs per Fp element
 // G1 point: 128 bytes (X[64] || Y[64])
 // G2 point: 256 bytes (X.c0[64] || X.c1[64] || Y.c0[64] || Y.c1[64])

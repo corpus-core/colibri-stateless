@@ -167,6 +167,14 @@ static inline void be_write_u32(uint8_t out[32], uint32_t v) {
   out[31] = (uint8_t) (v & 0xff);
 }
 
+/**
+ * EIP-4844 point evaluation precompile (0x0a).
+ *
+ * Validates KZG proof against embedded or runtime `G2^tau`; see file header for layout.
+ * Gas: 50000. Success output: 64 bytes (FIELD_ELEMENTS_PER_BLOB || BLS_MODULUS).
+ *
+ * @param gas_used set to 50000
+ */
 static pre_result_t pre_point_evaluation(bytes_t input, buffer_t* output, uint64_t* gas_used, uint64_t gas_limit) {
   (void) gas_limit;
   *gas_used = 50000;

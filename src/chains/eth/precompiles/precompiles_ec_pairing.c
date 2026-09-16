@@ -1,6 +1,9 @@
 /*
  * Copyright (c) 2025 corpus.core
  * SPDX-License-Identifier: MIT
+ *
+ * EIP-197 BN128 pairing check (address 0x08). Input is a concatenation of 192-byte
+ * `(G1 || G2_eth)` pairs; output is 32-byte boolean (last byte 0 or 1).
  */
 
 #include "../bn254/bn254.h"
@@ -9,6 +12,13 @@
 #include <stdlib.h>
 #include <string.h>
 
+/**
+ * @brief BN128 pairing product check (`precompile` 0x08).
+ *
+ * Gas: `45000 + 34000 * num_pairs`. Returns `PRE_INVALID_INPUT` when `input.len % 192 != 0`.
+ *
+ * @param gas_used computed pairing gas on success
+ */
 static pre_result_t pre_ec_pairing(bytes_t input, buffer_t* output, uint64_t* gas_used, uint64_t gas_limit) {
   (void) gas_limit;
   if (input.len % 192 != 0) {

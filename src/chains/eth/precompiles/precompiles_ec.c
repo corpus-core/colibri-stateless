@@ -1,6 +1,9 @@
 /*
  * Copyright (c) 2025 corpus.core
  * SPDX-License-Identifier: MIT
+ *
+ * EIP-196/197 BN128 precompiles (`ECADD` 0x06, `ECMUL` 0x07). Included from `precompiles_basic.c`
+ * when `PRECOMPILED_BN128` is enabled.
  */
 
 #include "../bn254/bn254.h"
@@ -9,6 +12,14 @@
 #include <string.h>
 
 // ECADD (0x06)
+/**
+ * @brief BN128 G1 point addition (EIP-196, address 0x06).
+ *
+ * Input must be 128 bytes (x1, y1, x2, y2); shorter input is zero-padded.
+ * Gas: 150. Output: 64-byte affine G1 point.
+ *
+ * @param gas_used set to 150 on success
+ */
 pre_result_t pre_ec_add(bytes_t input, buffer_t* output, uint64_t* gas_used, uint64_t gas_limit) {
   (void) gas_limit;
   *gas_used = 150;
@@ -36,6 +47,17 @@ pre_result_t pre_ec_add(bytes_t input, buffer_t* output, uint64_t* gas_used, uin
 }
 
 // Scalar multiplication on the BN128 curve: s * (x,y) = (x',y')
+/**
+ * @brief BN128 G1 scalar multiplication (EIP-196, address 0x07).
+ *
+ * Input: x, y, scalar (96 bytes minimum effectively, usually padded)
+ * If input < 96 bytes, treated as zero padded?
+ * Standard says input is padded to 96 bytes (32x3) if shorter.
+ *
+ * Gas cost of EC mul operation (EIP-1108): 6000.
+ *
+ * @param gas_used set to 6000 on success
+ */
 pre_result_t pre_ec_mul(bytes_t input, buffer_t* output, uint64_t* gas_used, uint64_t gas_limit) {
   (void) gas_limit;
   *gas_used = 6000; // Gas cost of EC mul operation (EIP-1108)
