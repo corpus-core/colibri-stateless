@@ -3,6 +3,9 @@
 
 #include "server.h"
 
+/**
+ * Ethereum-specific HTTP server settings (env / `server.conf` / CLI via `eth_configure`).
+ */
 typedef struct {
   int   stream_beacon_events;
   char* period_store;
@@ -20,6 +23,7 @@ typedef struct {
 
 extern eth_config_t eth_config;
 
+/** Registers Ethereum server env/CLI parameters and applies them to `eth_config`. */
 void eth_configure();
 
 #endif

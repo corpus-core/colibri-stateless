@@ -13,50 +13,56 @@
 extern "C" {
 #endif
 
-// Forward declaration of the memcached client structure
 typedef struct mc_s mc_t;
 
 /**
- * Callback function type for memcached operations.
- * @param data User-provided context data
- * @param value Retrieved value (NULL if not found or error)
- * @param value_len Length of the value
+ * Completion callback for asynchronous memcached GET.
+ *
+ * @param data user context passed to `memcache_get`
+ * @param value retrieved value (NULL if missing or error)
+ * @param value_len length of `value` in bytes
  */
 typedef void (*memcache_cb)(void* data, char* value, size_t value_len);
 
 /**
- * Create a new memcached client.
- * @param pool_size Number of connection pool size
- * @return Newly created memcached client or NULL on error
+ * Creates a libmemcached-backed client with a connection pool.
+ *
+ * @param pool_size number of connections in the pool
+ * @param host memcached host name
+ * @param port memcached port
+ * @return client handle, or NULL on allocation/configuration failure
  */
 mc_t* memcache_new(unsigned int pool_size, const char* host, int port);
 
 /**
- * Free the memcached client and its resources.
- * @param client_p Pointer to the memcached client pointer
+ * Frees a memcached client and clears `*client_p`.
+ *
+ * @param client_p pointer to client pointer (set to NULL on success)
  */
 void memcache_free(mc_t** client_p);
 
 /**
- * Get a value from memcached.
- * @param client The memcached client
- * @param key The key to get
- * @param keylen Length of the key
- * @param data User-provided context data that will be passed to the callback
- * @param cb Callback function to be called on completion
- * @return 0 on success, or an error code
+ * Asynchronously reads a key from memcached (invokes `cb` on the libuv thread pool).
+ *
+ * @param client memcached client
+ * @param key key bytes
+ * @param keylen length of `key`
+ * @param data user context for `cb`
+ * @param cb completion callback
+ * @return `0` if the request was queued, non-zero error code otherwise
  */
 int memcache_get(mc_t* client, char* key, size_t keylen, void* data, memcache_cb cb);
 
 /**
- * Set a value in memcached.
- * @param client The memcached client
- * @param key The key to set
- * @param keylen Length of the key
- * @param value The value to set
- * @param value_len Length of the value
- * @param ttl Time-to-live in seconds
- * @return 0 on success, or an error code
+ * Stores a value in memcached with a TTL.
+ *
+ * @param client memcached client
+ * @param key key bytes
+ * @param keylen length of `key`
+ * @param value value bytes
+ * @param value_len length of `value`
+ * @param ttl expiration in seconds
+ * @return `0` on success, non-zero error code otherwise
  */
 int memcache_set(mc_t* client, char* key, size_t keylen, char* value, size_t value_len,
                  uint32_t ttl);

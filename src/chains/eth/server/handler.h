@@ -4,26 +4,31 @@
 #include "server/server.h"
 #include "util/json.h"
 
-// Helper macro to check if this handler should be active for the given server
+/** No-op return unless `server->chain_id` is Ethereum. */
 #define ETH_HANDLER_CHECK(server)                                                 \
   do {                                                                            \
     if (!(server) || c4_chain_type((server)->chain_id) != C4_CHAIN_TYPE_ETHEREUM) \
       return;                                                                     \
   } while (0)
 
-// Helper macro for functions that return a value
+/** Like `ETH_HANDLER_CHECK` but returns `default_return` for non-Ethereum chains. */
 #define ETH_HANDLER_CHECK_RETURN(server, default_return)                          \
   do {                                                                            \
     if (!(server) || c4_chain_type((server)->chain_id) != C4_CHAIN_TYPE_ETHEREUM) \
       return (default_return);                                                    \
   } while (0)
 
-// Ethereum-specific HTTP handlers, now part of the eth module
+/** Ethereum chain proxy routes (`/eth/...` passthrough where configured). */
 bool c4_proxy(client_t* client);
+/** Beacon light-client bootstrap/update HTTP handlers backed by period store. */
 bool c4_handle_lcu(client_t* client);
+/** Internal handler: fetch LCU SSZ for period store backfill. */
 bool c4_handle_lcu_updates(single_request_t* r);
+/** Serves checkpoint / historical summary artifacts from period store. */
 bool c4_handle_checkpoints(client_t* client);
+/** PAP transaction cache HTTP API (testing / tooling). */
 bool c4_handle_tx_cache(client_t* client);
+/** `GET /proof/...` delegated block proof shortcut. */
 bool c4_handle_proof_get_request(client_t* client);
 
 /**
@@ -38,14 +43,16 @@ bool c4_handle_proof_get_request(client_t* client);
  */
 void c4_eth_block_cache_control(char* out, size_t cap, const char* block, chain_id_t chain_id);
 
-// Ethereum-specific background service functions
+/** Period store hook: persist block root/header on beacon head event. */
 void c4_handle_new_head(json_t head);
+/** Period store hook: advance backfill on finalized checkpoint event. */
 void c4_handle_finalized_checkpoint(json_t checkpoint);
+/** Starts SSE subscription to configured beacon nodes (background). */
 void c4_watch_beacon_events();
+/** Stops beacon SSE watcher and releases resources. */
 void c4_stop_beacon_watcher();
 
 #ifdef TEST
-// Test helpers for beacon watcher
 void c4_test_set_beacon_watcher_url(const char* url);
 void c4_test_set_beacon_watcher_no_reconnect(bool disable);
 void c4_watch_beacon_events(void);

@@ -32,6 +32,7 @@ typedef struct {
   bytes32_t parent_root;
 } block_t;
 
+/** Schedules verification of all block files needed for historical proofs. */
 void     c4_ps_schedule_verify_all_blocks_for_historical();
 /**
  * Verifies `blocks.ssz` of `target_period` against `historical_root.json` of
@@ -44,10 +45,25 @@ void     c4_ps_schedule_verify_all_blocks_for_historical();
  * @param target_period completed period to verify (usually `H-1`)
  */
 void     c4_ps_schedule_verify_period(uint64_t hist_period, uint64_t target_period);
+
+/** Returns whether initial period backfill has finished. */
 bool     c4_ps_backfill_done();
+
+/** Returns the slot where backfill started (for metrics/tests). */
 uint64_t c4_ps_backfill_start_slot();
+
+/**
+ * Persists a beacon block into the period store and optionally triggers backfill.
+ *
+ * @param block block metadata and header bytes
+ * @param run_backfill non-zero to schedule gap fill after write
+ */
 void     c4_ps_set_block(block_t* block, bool run_backfill);
+
+/** Returns whether `{period}/{filename}` exists under the period store root. */
 bool     c4_ps_file_exists(uint64_t period, const char* filename);
+
+/** Schedules async fetch of LCU SSZ for `period` from the beacon API. */
 void     c4_ps_schedule_fetch_lcu(uint64_t period);
 /**
  * Kicks off a self-build for `period` (Gloas fork only) and persists the
@@ -64,8 +80,14 @@ void     c4_ps_schedule_fetch_lcu(uint64_t period);
  * @param period the sync-committee period to build the LCU for.
  */
 void     c4_ps_build_lcu(uint64_t period);
+
+/** Schedules fetch of `historical_root.json` for `period`. */
 void     c4_ps_schedule_fetch_historical_root(uint64_t period);
+
+/** Creates `{period}/` under the store root if missing; returns allocated path string (caller frees). */
 char*    c4_ps_ensure_period_dir(uint64_t period);
+
+/** Builds ZK sync proof artifacts for `period` when ZK prover key is configured. */
 void     c4_build_zk_sync_proof_data(uint64_t period);
 
 // ---- Blocks root verification marker (`C4_PS_BLOCKS_ROOT_BIN`) ----

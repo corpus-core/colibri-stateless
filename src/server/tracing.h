@@ -42,10 +42,31 @@ bool tracing_is_enabled(void);
  * @return span or NULL when disabled/not sampled
  */
 trace_span_t* tracing_start_root(const char* name);
+
+/**
+ * Starts a root span continuing an incoming b3 trace context.
+ *
+ * @param name span name
+ * @param trace_id_hex 32-hex-char trace id (may be NULL)
+ * @param parent_span_id_hex 16-hex-char parent span id (may be NULL)
+ * @param sampled `-1` unknown, `0` force off, `1` force on
+ * @return span or NULL when disabled
+ */
 trace_span_t* tracing_start_root_with_b3(const char* name, const char* trace_id_hex, const char* parent_span_id_hex, int sampled);
-// Start a root span unconditionally (ignores sampling rate)
+
+/**
+ * Starts a root span ignoring the global sample rate (always recorded when tracing enabled).
+ *
+ * @param name span name
+ * @return span or NULL when tracing disabled
+ */
 trace_span_t* tracing_start_root_forced(const char* name);
-// Try to consume one debug trace token for the current minute window (rate limiting forced debug traces)
+
+/**
+ * Consumes one debug-trace quota token for the current minute (rate-limits forced debug traces).
+ *
+ * @return `true` if a token was available
+ */
 bool tracing_debug_quota_try_consume(void);
 
 /**
@@ -55,7 +76,15 @@ bool tracing_debug_quota_try_consume(void);
  * @return span or NULL when disabled/not sampled (propagates parent's sampled decision)
  */
 trace_span_t* tracing_start_child(trace_span_t* parent, const char* name);
-// Start a child span with explicit start timestamp (Unix epoch ms)
+
+/**
+ * Starts a child span with an explicit start timestamp.
+ *
+ * @param parent parent span
+ * @param name span name
+ * @param start_unix_ms Unix epoch milliseconds for span start
+ * @return child span or NULL when disabled
+ */
 trace_span_t* tracing_start_child_at(trace_span_t* parent, const char* name, uint64_t start_unix_ms);
 
 /**
@@ -77,7 +106,13 @@ void tracing_span_tag_json(trace_span_t* span, const char* key, const char* valu
  * Safe to call with NULL span (no-op). Spans must be finished exactly once.
  */
 void tracing_finish(trace_span_t* span);
-// Finish span with explicit end timestamp (Unix epoch ms)
+
+/**
+ * Finishes a span with an explicit end timestamp.
+ *
+ * @param span span to finish (may be NULL)
+ * @param end_unix_ms Unix epoch milliseconds for span end
+ */
 void tracing_finish_at(trace_span_t* span, uint64_t end_unix_ms);
 
 /**

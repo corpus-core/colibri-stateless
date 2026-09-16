@@ -265,14 +265,19 @@ typedef struct {
   // Tracing level (default: minimal)
   int trace_level; // trace_level_t
 } client_t;
+
+/**
+ * HTTP route handler: return `true` if the handler consumed the request.
+ *
+ * @param client parsed request and connection state
+ * @return `true` if handled (response may be async), `false` to try the next registered handler
+ */
 typedef bool (*http_handler)(client_t*);
 
 typedef struct request_t request_t;
 typedef void (*http_client_cb)(request_t*);
 typedef void (*http_request_cb)(client_t*, void* data, data_request_t*);
 typedef void (*handle_stored_data_cb)(void* u_ptr, uint64_t period, bytes_t data, const char* error);
-
-// Struktur für jede aktive Anfrage
 typedef struct {
   char*              url;
   data_request_t*    req;
@@ -325,10 +330,37 @@ typedef enum {
   C4_RESPONSE_ERROR_METHOD_NOT_SUPPORTED = 3  // Method not supported by this server, exclude for this method
 } c4_response_type_t;
 
+/**
+ * Runs the prover state machine for an in-flight HTTP request (may schedule libcurl or worker thread).
+ *
+ * @param req active request wrapping `prover_ctx_t` and outbound HTTP attempts
+ */
 void c4_prover_handle_request(request_t* req);
+
+/**
+ * Dispatches pending `data_request_t` entries from `state` through the libcurl multi interface.
+ *
+ * @param req parent request tracking completion
+ * @param state prover/verifier state with linked pending requests
+ */
 void c4_start_curl_requests(request_t* req, c4_state_t* state);
+
+/**
+ * Returns whether failed outbound attempts should be retried with another backend.
+ *
+ * @param req request whose attempts and error classification are inspected
+ * @return `true` if a retry should be attempted
+ */
 bool c4_check_retry_request(request_t* req);
+
+/**
+ * Initializes the libcurl multi handle and periodic upkeep timer on the libuv loop.
+ *
+ * @param timer libuv timer handle used for curl socket polling
+ */
 void c4_init_curl(uv_timer_t* timer);
+
+/** Tears down libcurl multi state (call on server shutdown). */
 void c4_cleanup_curl();
 
 /**
@@ -359,7 +391,23 @@ void c4_curl_ssl_options(c4_curl_ssl_options_t* out);
  * @param easy libcurl easy handle
  */
 void c4_curl_configure_ssl(CURL* easy);
+
+/**
+ * libuv connection callback: accepts a TCP client and starts llhttp parsing.
+ *
+ * @param server listening stream handle
+ * @param status libuv accept status (`0` on success)
+ */
 void c4_on_new_connection(uv_stream_t* server, int status);
+
+/**
+ * Sends an HTTP response with a copied body (see `c4_http_respond_ex` with no extra headers).
+ *
+ * @param client connected client
+ * @param status HTTP status code
+ * @param content_type `Content-Type` header value
+ * @param body response payload (copied)
+ */
 void c4_http_respond(client_t* client, int status, char* content_type, bytes_t body);
 /**
  * Like `c4_http_respond`, but allows the caller to inject additional response headers.
@@ -398,20 +446,45 @@ void c4_http_respond_ex(client_t* client, int status, char* content_type, bytes_
  * @param extra_headers additional CRLF-terminated header lines, or `NULL_BYTES` for none (copied)
  */
 void c4_http_respond_take(client_t* client, int status, char* content_type, bytes_t body, bytes_t extra_headers);
-void c4_write_error_response(client_t* client, int status, const char* error);
-void c4_http_server_on_close_callback(uv_handle_t* handle); // Cleanup callback for closing client connections
-void c4_register_http_handler(http_handler handler);
-void c4_add_request(client_t* client, data_request_t* req, void* data, http_request_cb cb);
 
-// Config parameter registry (for dynamic Web-UI)
+/**
+ * Sends a JSON or plain-text error body and closes the keep-alive cycle for this request.
+ *
+ * @param client connected client
+ * @param status HTTP status code (4xx/5xx)
+ * @param error human-readable error string (not escaped; must be safe for logs)
+ */
+void c4_write_error_response(client_t* client, int status, const char* error);
+
+/** libuv close callback that frees `client_t` and associated parse buffers. */
+void c4_http_server_on_close_callback(uv_handle_t* handle);
+
+/**
+ * Registers an HTTP handler tried in FIFO order until one returns `true`.
+ *
+ * @param handler callback invoked for each incoming request on a connection
+ */
+void c4_register_http_handler(http_handler handler);
+
+/**
+ * Starts an async prover/verifier flow tied to the HTTP client (proof, verify, or RPC bridge).
+ *
+ * @param client HTTP client that will receive the final response
+ * @param req initial pending data request (copied into prover state)
+ * @param data opaque pointer passed to `cb`
+ * @param cb invoked when the prover finishes or needs more HTTP fetches
+ */
+void c4_add_request(client_t* client, data_request_t* req, void* data, http_request_cb cb);
 
 typedef bool (*call_handler)(single_request_t*);
 
-const config_param_t* c4_get_config_params(int* count);
-const char*           c4_get_config_file_path();
-int                   c4_save_config_file(const char* updates);
-// Handlers
+// Config parameter registry: see `configure.h` (`c4_get_config_params`, `c4_get_config_file_path`, `c4_save_config_file`).
+
+// HTTP route handlers (return `true` when the request path/method matches).
+
+/** `POST /verify` — verify an SSZ proof and return JSON result. */
 bool c4_handle_verify_request(client_t* client);
+/** `POST /proof` — generate a proof (may use worker thread). */
 bool c4_handle_proof_request(client_t* client);
 /**
  * Shared dispatch for direct `/proof` requests (POST and GET variants).
@@ -461,68 +534,195 @@ void c4_proof_request_dispatch(client_t* client, char* method_str, char* params_
  *         `false` if `version >= 3.0.0` and the caller should continue with the local prover.
  */
 bool           c4_try_forward_legacy_proof(client_t* client, uint32_t version, const char* sub_path);
+/** `GET /health` — liveness and statistics JSON. */
 bool           c4_handle_status(client_t* client);
+/** `GET /metrics` — Prometheus text exposition. */
 bool           c4_handle_metrics(client_t* client);
+/** `GET /config` — read config (requires `web_ui_enabled`). */
 bool           c4_handle_get_config(client_t* client);
+/** `POST /config` — patch config keys (requires `web_ui_enabled`). */
 bool           c4_handle_post_config(client_t* client);
+/** `POST /restart` — graceful shutdown for process manager restart. */
 bool           c4_handle_restart_server(client_t* client);
+/** `GET /` or static config UI (requires `web_ui_enabled`). */
 bool           c4_handle_config_ui(client_t* client);
+/** `GET /openapi.yaml` — OpenAPI 3.1 specification. */
 bool           c4_handle_openapi(client_t* client);
+/** `GET /version` — build/version metadata. */
 bool           c4_handle_version(client_t* client);
+/** `POST /rpc` — JSON-RPC with optional verification. */
 bool           c4_handle_unverified_rpc_request(client_t* client);
+
+/**
+ * Parses a decimal unsigned integer query parameter from a URL query string.
+ *
+ * @param query full query string (without leading `?`)
+ * @param param parameter name to find
+ * @return parsed value, or `0` if missing or invalid
+ */
 uint64_t       c4_get_query(char* query, char* param);
+
+/**
+ * Dispatches `C4_DATA_TYPE_INTERN` requests to registered internal call handlers.
+ *
+ * @param r single outbound attempt wrapping the internal request
+ */
 void           c4_handle_internal_request(single_request_t* r);
+
+/**
+ * Returns the global backend list for RPC, Beacon, Checkpointz, or prover nodes.
+ *
+ * @param type request type determining which configured URL list is used
+ * @return static list owned by the server (do not free)
+ */
 server_list_t* c4_get_server_list(data_request_type_t type);
+
+/**
+ * Returns proxy override lists from the current `request_t` when present, else the global list.
+ *
+ * @param type request type (RPC or Beacon for proxy mode)
+ * @param req optional request carrying per-client proxy lists
+ * @return list to use for server selection (do not free unless it is a proxy list owned by `req`)
+ */
 server_list_t* c4_get_effective_server_list(data_request_type_t type, request_t* req);
+
+/**
+ * Frees URLs, health stats, and client-type arrays allocated by `c4_parse_server_config`.
+ *
+ * @param list list constructed for proxy mode or tests (not the static global lists)
+ */
 void           c4_free_server_list(server_list_t* list);
+
+/**
+ * Records request latency/size metrics for Prometheus and tracing aggregates.
+ *
+ * @param type backend type (RPC, Beacon, …)
+ * @param method JSON-RPC method name or path fragment (may be NULL)
+ * @param size response bytes
+ * @param duration wall time in milliseconds
+ * @param success whether the attempt succeeded
+ * @param cached whether the response came from memcached
+ */
 void           c4_metrics_add_request(data_request_type_t type, const char* method, uint64_t size, uint64_t duration, bool success, bool cached);
+
+/**
+ * Extracts a short display name from a backend URL (host part, without scheme).
+ *
+ * @param url full URL string
+ * @return pointer into `url` or static buffer (valid until next call)
+ */
 const char*    c4_extract_server_name(const char* url);
-// Load balancing functions
+
+/**
+ * Selects a backend index using health, weights, and optional client-type preference.
+ *
+ * @param servers backend list
+ * @param exclude_mask bitmask of indices to skip (bit `i` excludes server `i`)
+ * @param preferred_client_type bitmask of acceptable beacon/RPC client types (`0` = any)
+ * @return server index, or `-1` if none available
+ */
 int c4_select_best_server(server_list_t* servers, uint32_t exclude_mask, uint32_t preferred_client_type);
+
+/**
+ * Like `c4_select_best_server` but prefers nodes that support `method` and optional block availability.
+ *
+ * @param servers backend list
+ * @param exclude_mask bitmask of indices to skip
+ * @param preferred_client_type client-type bitmask
+ * @param method JSON-RPC method name (may be NULL)
+ * @param requested_block block number for archive-aware routing
+ * @param has_block whether `requested_block` is meaningful
+ * @return server index, or `-1` if none available
+ */
 int c4_select_best_server_for_method(server_list_t* servers, uint32_t exclude_mask, uint32_t preferred_client_type, const char* method, uint64_t requested_block, bool has_block);
 
-// Method support tracking functions
+/** Records that `method` is not supported by the given backend (sticky exclusion for routing). */
 void c4_mark_method_unsupported(server_list_t* servers, int server_index, const char* method);
+/** Returns whether `method` has not been marked unsupported on this backend. */
 bool c4_is_method_supported(server_list_t* servers, int server_index, const char* method);
+/** Frees the unsupported-method linked list on a health struct. */
 void c4_cleanup_method_support(server_health_t* health);
+/** Updates EWMA latency and failure counters after an attempt completes. */
 void c4_update_server_health(server_list_t* servers, int server_index, uint64_t response_time, bool success);
+/** Recomputes load-balancing weights from health stats (call after batch updates). */
 void c4_calculate_server_weights(server_list_t* servers);
+/** Returns whether health stats should be reset after long idle periods. */
 bool c4_should_reset_health_stats(server_list_t* servers);
+/** Resets per-server health counters while keeping URL lists. */
 void c4_reset_server_health_stats(server_list_t* servers);
+/** Returns whether any server outside `exclude_mask` is healthy enough to use. */
 bool c4_has_available_servers(server_list_t* servers, uint32_t exclude_mask);
+/** Attempts to mark recently failed servers healthy again after cooldown. */
 void c4_attempt_server_recovery(server_list_t* servers);
 
-// Concurrency hooks for request lifecycle
+/**
+ * Increments inflight count if under the dynamic concurrency cap (optional overflow slots).
+ *
+ * @return `false` if the server is saturated and the caller should pick another backend or wait
+ */
 bool c4_on_request_start(server_list_t* servers, int idx, bool allow_overflow);
+
+/**
+ * Updates AIMD concurrency, method stats, and health after an HTTP attempt finishes.
+ *
+ * @param cls response classification from `c4_classify_response`
+ * @param http_code HTTP status from libcurl
+ * @param method JSON-RPC method name (may be NULL)
+ * @param method_context optional disambiguator for metrics (may be NULL)
+ */
 void c4_on_request_end(server_list_t* servers, int idx, uint64_t resp_time_ms,
                        bool success, c4_response_type_t cls, long http_code,
                        const char* method, const char* method_context);
+
+/** Marks a backend (and optionally a method) as recently rate-limited (HTTP 429). */
 void c4_signal_rate_limited(server_list_t* servers, int idx, const char* method);
 
-// Server configuration and client type detection functions
+/**
+ * Parses a comma-separated URL list into `list` (allocates urls and health arrays).
+ *
+ * @param list output list (must be zeroed before first use)
+ * @param servers comma-separated URLs (modified in place for tokenization)
+ */
 void                 c4_parse_server_config(server_list_t* list, char* servers);
+/** Probes backends to detect beacon/RPC client types (`web3_clientVersion`, node metadata). */
 void                 c4_detect_server_client_types(server_list_t* servers, data_request_type_t type);
+/** Marks RPC nodes as pruned when transaction history is limited. */
 void                 c4_detect_archive_status(server_list_t* servers);
+/** Parses client version JSON into a `beacon_client_type_t` or RPC client bitmask. */
 beacon_client_type_t c4_parse_client_version_response(const char* response, data_request_type_t type);
+/** Finds or creates per-method EWMA stats on a server health entry. */
 method_stats_t*      c4_find_method_stats(server_health_t* h, const char* method);
+/** Returns whether the node is treated as archive for `method` (not pruned / supports history). */
 bool                 c4_is_verified_archive(server_health_t* h, const char* method);
+/** Maps a client-type bitmask to a display name for logs/metrics. */
 const char*          c4_client_type_to_name(beacon_client_type_t client_type, http_server_t* http_server);
+/** Starts periodic `eth_blockNumber` polling on RPC backends. */
 bool                 c4_start_rpc_head_poller(server_list_t* servers);
+/** Stops the RPC head poller timer. */
 void                 c4_stop_rpc_head_poller(void);
 
-// handle client type adjustments
+/** Applies beacon-client-specific URL tweaks (path suffixes, API versions). Caller frees returned string if different from input. */
 char*                   c4_request_fix_url(char* url, single_request_t* r, beacon_client_type_t client_type);
+/** Adjusts SSZ/JSON encoding expectations per beacon client. */
 data_request_encoding_t c4_request_fix_encoding(data_request_encoding_t encoding, single_request_t* r, beacon_client_type_t client_type);
+/** Normalizes beacon API response bytes (e.g. client-specific wrappers). */
 bytes_t                 c4_request_fix_response(bytes_t response, single_request_t* r, beacon_client_type_t client_type);
+/**
+ * Classifies an HTTP response for retry routing and metrics.
+ *
+ * @param servers_opt optional list for marking method unsupported (`NULL` to skip)
+ */
 c4_response_type_t      c4_classify_response(long http_code, const char* url, bytes_t response_body, data_request_t* req,
                                              server_list_t* servers_opt);
+/** Heuristic: JSON-RPC / REST response indicates missing block or resource. */
 bool                    c4_error_indicates_not_found(long http_code, data_request_t* req, bytes_t response_body);
 
-// Internal call handlers
+/** Registers a handler for `C4_DATA_TYPE_INTERN` paths (see `c4_handle_internal_request`). */
 void c4_register_internal_handler(call_handler handler);
+/** Completes an internal call and resumes the prover with the response set on `r->req`. */
 void c4_internal_call_finish(single_request_t* r);
 
-// Server storage functions
+/** Initializes period store, memcached client, and related server-side caches. */
 void c4_init_server_storage();
 
 // Server control functions for testing
@@ -540,9 +740,20 @@ typedef struct {
   int         port;
 } server_instance_t;
 
+/**
+ * Binds TCP, registers signal handlers, and starts libuv timers (curl, metrics, graceful shutdown).
+ *
+ * @param instance server instance struct (zeroed before first use)
+ * @param port listen port (overrides config when `> 0`)
+ * @return `0` on success, negative libuv error code on failure
+ */
 int  c4_server_start(server_instance_t* instance, int port);
+
+/** Stops accept, drains connections, and closes handles (non-blocking; completes on loop iterations). */
 void c4_server_stop(server_instance_t* instance);
-void c4_server_run_once(server_instance_t* instance); // For tests: non-blocking event loop iteration
+
+/** Runs one libuv loop iteration (for unit tests; does not block indefinitely). */
+void c4_server_run_once(server_instance_t* instance);
 
 #ifdef TEST
 // Test hook for URL rewriting (file:// mocking)
