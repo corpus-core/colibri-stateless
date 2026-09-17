@@ -1,2 +1,5 @@
 dist/
 node_modules/
+# Remote solc JS binaries cached under a fixture's C4_STATE_DIR.
+test/data/**/solc/
+test/data/_replay_unit/

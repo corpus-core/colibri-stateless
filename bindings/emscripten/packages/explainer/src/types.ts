@@ -48,7 +48,8 @@ export interface TraceEntry {
     output?: string;
     value?: string;
     type?: string;
-    traceAddress?: number[];
+    /** Path of child indices. JSON may use numbers or hex strings (`"0x0"`). */
+    traceAddress?: Array<number | string>;
     subtraces?: string;
 }
 

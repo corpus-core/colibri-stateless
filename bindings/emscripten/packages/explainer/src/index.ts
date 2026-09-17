@@ -74,8 +74,9 @@ export { compileAndVerify, loadCompiler, getBundledCompiler, hashRuntimeBytecode
 export { extractStorageLayout } from './layout.js';
 export {
     getDefaultCache, get_default_cache, cacheGet, cacheSet, getCacheDirectory,
-    sanitizeKey, sourcifyCompilationKey, sourcifyMetadataKey,
+    sanitizeKey, sourcifyCompilationKey, sourcifyMetadataKey, layoutCacheKey,
     cacheGetCompilation, cacheSetCompilation, cacheGetMetadata, cacheSetMetadata,
+    cacheGetLayout, cacheSetLayout,
 } from './cache.js';
 
 import type { SimulationResult, TxParams, ExplainerConfig, EnhancedSimulationResult } from './types.js';

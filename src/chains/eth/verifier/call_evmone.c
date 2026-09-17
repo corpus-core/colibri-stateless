@@ -379,12 +379,28 @@ static evmone_context_t* context_root(evmone_context_t* ctx) {
   return ctx;
 }
 
+/**
+ * Allocate a nested trace entry for `msg` and prepend it to the root list.
+ *
+ * `to` is `code_address` for DELEGATECALL/CALLCODE (implementation) and
+ * `destination` otherwise. `from` is always EVMC `sender` (msg.sender).
+ *
+ * @param ctx - Current (parent) execution context; owns subtrace numbering
+ * @param msg - EVMC message for this child call
+ * @return The new entry (also linked at the root of the trace list)
+ */
 static trace_entry_t* create_trace_entry(evmone_context_t* ctx, const struct evmone_message* msg) {
   trace_entry_t* entry = safe_calloc(1, sizeof(trace_entry_t));
   entry->type          = (msg->kind == CALL_KIND_CALL && msg->is_static) ? TRACE_STATICCALL : (uint8_t) msg->kind;
   entry->gas           = (uint64_t) msg->gas;
   memcpy(entry->from, msg->sender.bytes, 20);
-  memcpy(entry->to, msg->destination.bytes, 20);
+  // DELEGATECALL/CALLCODE keep destination as the storage context (the proxy)
+  // and put the bytecode account in code_address. Traces report that code
+  // address as `to` so the parent CALL's `to` (via traceAddress) is the proxy.
+  if (msg->kind == CALL_KIND_DELEGATECALL || msg->kind == CALL_KIND_CALLCODE)
+    memcpy(entry->to, msg->code_address.bytes, 20);
+  else
+    memcpy(entry->to, msg->destination.bytes, 20);
   memcpy(entry->value, msg->value.bytes, 32);
   if (msg->input_data && msg->input_size)
     entry->input = bytes_dup(bytes(msg->input_data, msg->input_size));

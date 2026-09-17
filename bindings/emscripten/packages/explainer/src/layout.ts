@@ -67,8 +67,8 @@ export async function extractStorageLayout(
     const parseStarted = Date.now();
     const parser = await import('@solidity-parser/parser');
 
-    const structs: string[] = [];
-    const enums: string[] = [];
+    const structs = new Map<string, StructSkeleton>();
+    const enums = new Map<string, string>();
     const contracts = new Map<string, ContractSkeleton>();
     let lastContractName = '';
 
@@ -82,10 +82,10 @@ export async function extractStorageLayout(
 
         for (const node of ast.children as ASTNode[]) {
             if (node.type === 'StructDefinition' && !node.isContractPart) {
-                structs.push(emitStruct(node));
+                rememberStruct(structs, node);
             }
             if (node.type === 'EnumDefinition' && !node.isContractPart) {
-                enums.push(emitEnum(node));
+                rememberType(enums, node.name, emitEnum(node));
             }
             if (node.type === 'ContractDefinition') {
                 const skeleton = extractContractSkeleton(node);
@@ -93,8 +93,8 @@ export async function extractStorageLayout(
                 lastContractName = skeleton.name;
 
                 for (const sub of node.subNodes as ASTNode[]) {
-                    if (sub.type === 'StructDefinition') structs.push(emitStruct(sub));
-                    if (sub.type === 'EnumDefinition') enums.push(emitEnum(sub));
+                    if (sub.type === 'StructDefinition') rememberStruct(structs, sub);
+                    if (sub.type === 'EnumDefinition') rememberType(enums, sub.name, emitEnum(sub));
                 }
             }
         }
@@ -107,8 +107,79 @@ export async function extractStorageLayout(
     const target = contractName || lastContractName;
     if (!target || !contracts.has(target)) return null;
 
-    const skeleton = buildSkeletonSource(target, contracts, structs, enums);
+    const skeleton = buildSkeletonSource(
+        target, contracts, orderStructs(structs), [...enums.values()],
+    );
     return compileSkeleton(skeleton, target);
+}
+
+interface StructSkeleton {
+    source: string;
+    deps: string[];
+}
+
+/**
+ * Keep the first definition of a flattened struct or enum. Duplicate names
+ * appear when the same OpenZeppelin file is present twice (upgradeable +
+ * non-upgradeable).
+ *
+ * @param types - Name → skeleton source
+ * @param name - Type identifier
+ * @param source - Emitted Solidity
+ */
+function rememberType(types: Map<string, string>, name: string, source: string): void {
+    const key = assertIdentifier(name);
+    if (!types.has(key)) types.set(key, source);
+}
+
+/**
+ * Record a struct once, including names of other user-defined types it
+ * references so emission can be ordered.
+ *
+ * @param structs - Name → skeleton + dependencies
+ * @param node - Parser struct node
+ */
+function rememberStruct(structs: Map<string, StructSkeleton>, node: ASTNode): void {
+    const key = assertIdentifier(node.name);
+    if (structs.has(key)) return;
+    const deps = new Set<string>();
+    for (const member of node.members || []) {
+        collectNamedTypeRefs(member.typeName, deps);
+    }
+    structs.set(key, { source: emitStruct(node), deps: [...deps] });
+}
+
+/**
+ * Emit structs so that referenced types appear first (`LimitConfig` before
+ * `Storage { LimitConfig limitConfig; }`).
+ *
+ * @param structs - Collected struct skeletons
+ * @return Solidity struct definitions in dependency order
+ */
+function orderStructs(structs: Map<string, StructSkeleton>): string[] {
+    const remaining = new Set(structs.keys());
+    const out: string[] = [];
+
+    while (remaining.size > 0) {
+        const ready = [...remaining].filter(name => {
+            const info = structs.get(name);
+            if (!info) return true;
+            return info.deps.every(dep => dep === name || !remaining.has(dep));
+        });
+        if (ready.length === 0) {
+            for (const name of remaining) {
+                const info = structs.get(name);
+                if (info) out.push(info.source);
+            }
+            break;
+        }
+        for (const name of ready) {
+            const info = structs.get(name);
+            if (info) out.push(info.source);
+            remaining.delete(name);
+        }
+    }
+    return out;
 }
 
 function extractContractSkeleton(node: ASTNode): ContractSkeleton {
@@ -126,8 +197,7 @@ function extractContractSkeleton(node: ASTNode): ContractSkeleton {
         const typeName = emitType(v.typeName);
         if (!typeName) continue;
 
-        const visibility = v.visibility || 'internal';
-        stateVars.push(`    ${typeName} ${visibility} ${assertIdentifier(v.name)};`);
+        stateVars.push(`    ${typeName} ${emitVisibility(v.visibility)} ${assertIdentifier(v.name)};`);
     }
 
     const kind: ContractSkeleton['kind'] = node.kind === 'library' ? 'library'
@@ -137,6 +207,23 @@ function extractContractSkeleton(node: ASTNode): ContractSkeleton {
     return { name: assertIdentifier(node.name), kind, bases, stateVars };
 }
 
+const STATE_VAR_VISIBILITIES = new Set(['public', 'private', 'internal']);
+
+/**
+ * Map a parser visibility to a Solidity state-variable specifier.
+ *
+ * `@solidity-parser/parser` reports omitted visibility as `"default"`, which is
+ * a reserved keyword and not valid syntax. Solidity's default for state
+ * variables is `internal`.
+ *
+ * @param raw - Parser `visibility` field
+ * @return `public`, `private`, or `internal`
+ */
+function emitVisibility(raw?: string): string {
+    if (raw && STATE_VAR_VISIBILITIES.has(raw)) return raw;
+    return 'internal';
+}
+
 function emitType(typeNode: ASTNode): string {
     if (!typeNode) return '';
 
@@ -144,7 +231,7 @@ function emitType(typeNode: ASTNode): string {
         case 'ElementaryTypeName':
             return normalizeElementaryType(typeNode.name);
         case 'UserDefinedTypeName':
-            return typeNode.namePath || typeNode.name || '';
+            return flattenUserDefinedType(rawUserDefinedName(typeNode));
         case 'ArrayTypeName': {
             const base = emitType(typeNode.baseTypeName);
             if (!base) return '';
@@ -159,6 +246,53 @@ function emitType(typeNode: ASTNode): string {
         }
         default:
             return '';
+    }
+}
+
+function rawUserDefinedName(typeNode: ASTNode): string {
+    const path = typeNode.namePath;
+    if (typeof path === 'string' && path) return path;
+    if (Array.isArray(path) && path.length) return path.map(String).join('.');
+    if (typeof typeNode.name === 'string' && typeNode.name) return typeNode.name;
+    return '';
+}
+
+/**
+ * Skeleton structs are file-scope, so `RateLimit.Storage` becomes `Storage`.
+ *
+ * @param raw - Parser `namePath` (`Library.Type` or a bare identifier)
+ * @return Last identifier segment, or empty if invalid
+ */
+function flattenUserDefinedType(raw: string): string {
+    if (!raw) return '';
+    const last = raw.includes('.') ? raw.slice(raw.lastIndexOf('.') + 1) : raw;
+    if (!SOLIDITY_IDENTIFIER_RE.test(last) || last.length > 128) return '';
+    return last;
+}
+
+/**
+ * Collect flattened user-defined type names referenced by a type node.
+ *
+ * @param typeNode - Parser type AST
+ * @param into - Destination set
+ */
+function collectNamedTypeRefs(typeNode: ASTNode | undefined, into: Set<string>): void {
+    if (!typeNode) return;
+    switch (typeNode.type) {
+        case 'UserDefinedTypeName': {
+            const name = flattenUserDefinedType(rawUserDefinedName(typeNode));
+            if (name) into.add(name);
+            return;
+        }
+        case 'ArrayTypeName':
+            collectNamedTypeRefs(typeNode.baseTypeName, into);
+            return;
+        case 'Mapping':
+            collectNamedTypeRefs(typeNode.keyType, into);
+            collectNamedTypeRefs(typeNode.valueType, into);
+            return;
+        default:
+            return;
     }
 }
 
@@ -189,8 +323,8 @@ function buildSkeletonSource(
 ): string {
     const lines: string[] = ['// SPDX-License-Identifier: MIT', 'pragma solidity >=0.8.0;', ''];
 
-    for (const s of structs) lines.push(s, '');
     for (const e of enums) lines.push(e, '');
+    for (const s of structs) lines.push(s, '');
 
     const emitted = new Set<string>();
     // Interfaces/libraries first so contract-typed state vars (e.g. `IUniswapV2Router02`)
@@ -265,17 +399,25 @@ async function compileSkeleton(
     let output: Record<string, unknown>;
     try {
         output = JSON.parse(compiler.compile(input));
-    } catch {
-        explainerLog('debug', 'skeleton compile failed', { scope: 'layout', contract: contractName });
+    } catch (err) {
+        explainerLog('warn', 'skeleton compile failed', {
+            scope: 'layout',
+            contract: contractName,
+            error: err instanceof Error ? err.message : String(err),
+        });
         return null;
     }
     explainerLog('debug', 'skeleton compiled', { scope: 'layout', contract: contractName, ms: elapsedMs(started) });
 
-    const errors = output.errors as Array<{ severity: string; message: string }> | undefined;
-    const firstError = errors?.find(e => e.severity === 'error');
-    if (firstError) {
-        explainerLog('debug', 'skeleton compile errors', {
-            scope: 'layout', contract: contractName, error: firstError.message,
+    const errors = output.errors as Array<{ severity: string; message?: string; formattedMessage?: string }> | undefined;
+    const compileErrors = errors?.filter(e => e.severity === 'error') ?? [];
+    if (compileErrors.length > 0) {
+        const first = compileErrors[0];
+        explainerLog('warn', 'skeleton compile errors', {
+            scope: 'layout',
+            contract: contractName,
+            error: first.formattedMessage ?? first.message,
+            count: compileErrors.length,
         });
         return null;
     }

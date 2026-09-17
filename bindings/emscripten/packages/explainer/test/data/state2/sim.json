@@ -1,0 +1,172 @@
+{
+    "gasUsed": "0xd2e8",
+    "logs": [
+        {
+            "name": "Transfer",
+            "inputs": [
+                {
+                    "name": "from",
+                    "type": "address",
+                    "value": "0x9e0d578c884768227881b9aa0bd633f62a569bc1"
+                },
+                {
+                    "name": "to",
+                    "type": "address",
+                    "value": "0x4dc9d8184e15f23f68e0356920a7f2a5f7a1f080"
+                },
+                {
+                    "name": "value",
+                    "type": "uint256",
+                    "value": "0x0"
+                }
+            ],
+            "raw": {
+                "address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+                "data": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                "topics": [
+                    "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+                    "0x0000000000000000000000009e0d578c884768227881b9aa0bd633f62a569bc1",
+                    "0x0000000000000000000000004dc9d8184e15f23f68e0356920a7f2a5f7a1f080"
+                ]
+            }
+        }
+    ],
+    "status": "0x1",
+    "returnValue": "0x",
+    "trace": [
+        {
+            "type": "CALL",
+            "from": "0x4dc9d8184e15f23f68e0356920a7f2a5f7a1f080",
+            "to": "0x9e0d578c884768227881b9aa0bd633f62a569bc1",
+            "input": "0xb8dc491b000000000000000000000000a0b86991c6218b36c1d19d4a2e9eb0ce3606eb480000000000000000000000004dc9d8184e15f23f68e0356920a7f2a5f7a1f080",
+            "output": "0x",
+            "value": "0x0",
+            "traceAddress": [],
+            "subtraces": "0x1",
+            "gas": "0x1234f",
+            "gasUsed": "0xd2e8"
+        },
+        {
+            "type": "DELEGATECALL",
+            "from": "0x9e0d578c884768227881b9aa0bd633f62a569bc1",
+            "to": "0xba8d0ceb2cba93a3e281a853059ec9262411dc13",
+            "input": "0xb8dc491b000000000000000000000000a0b86991c6218b36c1d19d4a2e9eb0ce3606eb480000000000000000000000004dc9d8184e15f23f68e0356920a7f2a5f7a1f080",
+            "output": "0x",
+            "value": "0x0",
+            "traceAddress": [
+                0
+            ],
+            "subtraces": "0x2",
+            "gas": "0xb88e",
+            "gasUsed": "0x6af6"
+        },
+        {
+            "type": "STATICCALL",
+            "from": "0x9e0d578c884768227881b9aa0bd633f62a569bc1",
+            "to": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+            "input": "0x70a082310000000000000000000000009e0d578c884768227881b9aa0bd633f62a569bc1",
+            "output": "0x0000000000000000000000000000000000000000000000000000000000000000",
+            "value": "0x0",
+            "traceAddress": [
+                0,
+                0
+            ],
+            "subtraces": "0x1",
+            "gas": "0x98ea",
+            "gasUsed": "0x266f"
+        },
+        {
+            "type": "DELEGATECALL",
+            "from": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+            "to": "0x43506849d7c04f9138d1a2050bbf3a0c054402dd",
+            "input": "0x70a082310000000000000000000000009e0d578c884768227881b9aa0bd633f62a569bc1",
+            "output": "0x",
+            "value": "0x0",
+            "traceAddress": [
+                0,
+                0,
+                0
+            ],
+            "subtraces": "0x0",
+            "gas": "0x7aae",
+            "gasUsed": "0x9f9"
+        },
+        {
+            "type": "CALL",
+            "from": "0x9e0d578c884768227881b9aa0bd633f62a569bc1",
+            "to": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+            "input": "0xa9059cbb0000000000000000000000004dc9d8184e15f23f68e0356920a7f2a5f7a1f0800000000000000000000000000000000000000000000000000000000000000000",
+            "output": "0x0000000000000000000000000000000000000000000000000000000000000001",
+            "value": "0x0",
+            "traceAddress": [
+                0,
+                1
+            ],
+            "subtraces": "0x1",
+            "gas": "0x718a",
+            "gasUsed": "0x24ec"
+        },
+        {
+            "type": "DELEGATECALL",
+            "from": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+            "to": "0x43506849d7c04f9138d1a2050bbf3a0c054402dd",
+            "input": "0xa9059cbb0000000000000000000000004dc9d8184e15f23f68e0356920a7f2a5f7a1f0800000000000000000000000000000000000000000000000000000000000000000",
+            "output": "0x",
+            "value": "0x0",
+            "traceAddress": [
+                0,
+                1,
+                0
+            ],
+            "subtraces": "0x0",
+            "gas": "0x6ce7",
+            "gasUsed": "0x21d7"
+        }
+    ],
+    "stateChanges": [
+        {
+            "address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+            "storage": [
+                {
+                    "slot": "0x86c1743f58436ead1c2531f29c1cdcb9b8975ca5bbc70dbf1d079b7cff7745f5",
+                    "previousValue": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                    "newValue": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                    "slotSource": "0x0000000000000000000000009e0d578c884768227881b9aa0bd633f62a569bc10000000000000000000000000000000000000000000000000000000000000009"
+                },
+                {
+                    "slot": "0x04d7ba9dbcc75c054e1dfdb33441f32cba96f67d4fdece86bd8d6751cb447e37",
+                    "previousValue": "0x0000000000000000000000000000000000000000000000000000000002faf080",
+                    "newValue": "0x0000000000000000000000000000000000000000000000000000000002faf080",
+                    "slotSource": "0x0000000000000000000000004dc9d8184e15f23f68e0356920a7f2a5f7a1f0800000000000000000000000000000000000000000000000000000000000000009"
+                }
+            ]
+        }
+    ],
+    "accessList": [
+        {
+            "address": "0x9e0d578c884768227881b9aa0bd633f62a569bc1",
+            "storageKeys": [
+                "0x0000000000000000000000000000000000000000000000000000000000000000",
+                "0x0000000000000000000000000000000000000000000000000000000000000001",
+                "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc"
+            ],
+            "codeHash": "0x0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+            "address": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+            "storageKeys": [
+                "0x0000000000000000000000000000000000000000000000000000000000000001",
+                "0x04d7ba9dbcc75c054e1dfdb33441f32cba96f67d4fdece86bd8d6751cb447e37",
+                "0x10d6a54a4754c8869d6886b5f5d7fbfa5b4522237ea5c60d11bc4e7a1ff9390b",
+                "0x7050c9e0f4ca769c69bd3a8ef740bc37934f8e2c036e5a723fd8ee048ed3f8c3",
+                "0x86c1743f58436ead1c2531f29c1cdcb9b8975ca5bbc70dbf1d079b7cff7745f5"
+            ],
+            "codeHash": "0xd80d4b7c890cb9d6a4893e6b52bc34b56b25335cb13716e0d1d31383e6b41505"
+        },
+        {
+            "address": "0x43506849d7c04f9138d1a2050bbf3a0c054402dd",
+            "storageKeys": [],
+            "codeHash": "0xcdfb7d322961af3acae7a8f7ee8b69c205b36f576cc5b077f170c7eb8ecbe3ea"
+        }
+    ]
+}

@@ -5,6 +5,7 @@ import {
     sourcifyCompilationKey, sourcifyMetadataKey, getCacheDirectory,
     cacheGetCompilation, cacheSetCompilation,
     cacheGetMetadata, cacheSetMetadata,
+    layoutCacheKey, cacheGetLayout, cacheSetLayout,
 } from '../dist/cache.js';
 
 describe('get_default_cache', () => {
@@ -84,6 +85,7 @@ describe('cacheGet / cacheSet', () => {
 describe('sanitizeKey / sourcify keys', () => {
     it('accepts verified-contract and sourcify prefixes', () => {
         assert.equal(sanitizeKey('c4x_0xdeadbeef'), 'c4x_0xdeadbeef');
+        assert.equal(sanitizeKey('c4l_0x' + 'ab'.repeat(32)), 'c4l_0x' + 'ab'.repeat(32));
         assert.equal(
             sanitizeKey('c4s_1_0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2'),
             'c4s_1_0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
@@ -96,7 +98,10 @@ describe('sanitizeKey / sourcify keys', () => {
 
     it('rejects path traversal and unknown prefixes', () => {
         assert.throws(() => sanitizeKey('c4s_1_../etc/passwd'));
-        assert.throws(() => sanitizeKey('c4x_../x'));
+        assert.throws(() => sanitizeKey('c4l_../x'));
+        assert.throws(() => sanitizeKey('c4l_deadbeef'));
+        assert.throws(() => sanitizeKey('c4l_0xgg'));
+        assert.throws(() => sanitizeKey('c4l_0xabc/../../tmp'));
         assert.throws(() => sanitizeKey('c4s_1_0x../aabb'));
         assert.throws(() => sanitizeKey('c4s_1_0xabc/../etc/passwd'));
         assert.throws(() => sanitizeKey('c4m_1_0xabc\\x'));
@@ -174,6 +179,75 @@ describe('cacheGetMetadata / cacheSetMetadata', () => {
         const addr = '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2';
         store.set('c4m_1_' + addr, 'not json {{');
         assert.equal(await cacheGetMetadata(cache, 1, addr), null);
+    });
+});
+
+describe('cacheGetLayout / cacheSetLayout', () => {
+    const sourcesA = { 'A.sol': { content: 'contract A { uint256 public x; }' } };
+    const sourcesB = { 'A.sol': { content: 'contract A { uint256 public y; }' } };
+    const layout = {
+        storage: [{ slot: '0', type: 't_uint256', astId: 1, label: 'x', offset: 0, contract: 'A.sol:A' }],
+        types: { t_uint256: { label: 'uint256', encoding: 'inplace', numberOfBytes: '32' } },
+    };
+
+    function memoryCache() {
+        const store = new Map();
+        return {
+            store,
+            get: async (key) => store.get(key) ?? null,
+            set: async (key, value) => { store.set(key, value); },
+        };
+    }
+
+    it('roundtrips a storage layout and keys by sources fingerprint', async () => {
+        const cache = memoryCache();
+        assert.equal(await cacheGetLayout(cache, sourcesA, 'A'), null);
+
+        await cacheSetLayout(cache, sourcesA, 'A', layout);
+        assert.deepEqual(await cacheGetLayout(cache, sourcesA, 'A'), layout);
+
+        const keys = [...cache.store.keys()];
+        assert.equal(keys.length, 1);
+        assert.match(keys[0], /^c4l_0x[0-9a-f]{64}$/);
+
+        assert.equal(await cacheGetLayout(cache, sourcesB, 'A'), null);
+        assert.equal(await cacheGetLayout(cache, sourcesA, 'B'), null);
+        assert.notEqual(layoutCacheKey(sourcesA, 'A'), layoutCacheKey(sourcesB, 'A'));
+        assert.notEqual(layoutCacheKey(sourcesA, 'A'), layoutCacheKey(sourcesA, 'B'));
+        assert.equal(layoutCacheKey(sourcesA, 'A'), layoutCacheKey({ 'A.sol': sourcesA['A.sol'] }, 'A'));
+        assert.equal(layoutCacheKey(sourcesA), layoutCacheKey(sourcesA, ''));
+        assert.equal(layoutCacheKey(sourcesA, undefined), layoutCacheKey(sourcesA, ''));
+
+        const unordered = { 'Z.sol': { content: 'z' }, 'A.sol': { content: 'a' } };
+        const ordered = { 'A.sol': { content: 'a' }, 'Z.sol': { content: 'z' } };
+        assert.equal(layoutCacheKey(unordered, 'A'), layoutCacheKey(ordered, 'A'));
+    });
+
+    it('returns null for corrupted or invalid layout entries', async () => {
+        const cache = memoryCache();
+        const key = layoutCacheKey(sourcesA, 'A');
+        await cache.set(key, 'not json {{');
+        assert.equal(await cacheGetLayout(cache, sourcesA, 'A'), null);
+
+        await cache.set(key, JSON.stringify({ empty: true }));
+        assert.equal(await cacheGetLayout(cache, sourcesA, 'A'), null);
+        await cache.set(key, JSON.stringify({ storage: 'not-an-array' }));
+        assert.equal(await cacheGetLayout(cache, sourcesA, 'A'), null);
+        await cache.set(key, 'null');
+        assert.equal(await cacheGetLayout(cache, sourcesA, 'A'), null);
+    });
+
+    it('does not persist a layout without a storage array', async () => {
+        const cache = memoryCache();
+        await cacheSetLayout(cache, sourcesA, 'A', { types: {} });
+        await cacheSetLayout(cache, sourcesA, 'A', { storage: null });
+        await cacheSetLayout(cache, sourcesA, 'A', { storage: {} });
+        assert.equal(cache.store.size, 0);
+        assert.equal(await cacheGetLayout(cache, sourcesA, 'A'), null);
+
+        await cacheSetLayout(cache, sourcesA, 'A', { storage: [], types: {} });
+        assert.equal(cache.store.size, 1);
+        assert.deepEqual(await cacheGetLayout(cache, sourcesA, 'A'), { storage: [], types: {} });
     });
 });
 

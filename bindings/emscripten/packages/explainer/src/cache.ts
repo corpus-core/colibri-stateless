@@ -21,17 +21,22 @@
  * SPDX-License-Identifier: MIT
  */
 
-import type { CompilationInput, ContractCache, ContractMetadata, VerifiedContract } from './types.js';
+import type { CompilationInput, ContractCache, ContractMetadata, SolidityStorageLayout, VerifiedContract } from './types.js';
+import { keccak256, toUtf8Bytes } from 'ethers';
 
 const CACHE_PREFIX = 'c4x_';
 
 /**
  * Allowed persistent cache filenames.
  * - `c4x_0x{hex}` — verified contract by codeHash
+ * - `c4l_0x{hex}` — skeleton storage layout by sources fingerprint
  * - `c4s_{chainId}_{address}` — Sourcify compilation input (or miss marker)
  * - `c4m_{chainId}_{address}` — Sourcify metadata (or miss marker)
  */
-const SAFE_KEY_RE = /^(?:c4x_0x[0-9a-fA-F]{1,64}|c4[sm]_\d+_0x[0-9a-fA-F]{1,40})$/;
+const SAFE_KEY_RE = /^(?:c4[xl]_0x[0-9a-fA-F]{1,64}|c4[sm]_\d+_0x[0-9a-fA-F]{1,40})$/;
+
+/** Bump to invalidate checked-in skeleton layouts after extractor changes. */
+const LAYOUT_CACHE_VERSION = 1;
 
 const ADDRESS_RE = /^0x[0-9a-f]{1,40}$/;
 const MISS_MARKER = '{"empty":true}';
@@ -108,6 +113,25 @@ export function sourcifyCompilationKey(chainId: number, address: string): string
  */
 export function sourcifyMetadataKey(chainId: number, address: string): string | null {
     return sourcifyKey('c4m', chainId, address);
+}
+
+/**
+ * Cache key for a skeleton storage layout. Hash of canonical sources +
+ * contract name so two addresses with the same files share an entry, and a
+ * Sourcify source update misses.
+ *
+ * @param sources - Solidity sources as `{ file: { content } }`
+ * @param contractName - Target contract, if known
+ * @return Safe `c4l_0x…` key, or `null` if the fingerprint cannot be hashed
+ */
+export function layoutCacheKey(
+    sources: Record<string, { content: string }>,
+    contractName?: string,
+): string | null {
+    const files = Object.keys(sources).sort().map(name => [name, sources[name]?.content ?? '']);
+    const payload = JSON.stringify({ v: LAYOUT_CACHE_VERSION, n: contractName ?? '', files });
+    const key = `c4l_${keccak256(toUtf8Bytes(payload))}`;
+    return SAFE_KEY_RE.test(key) ? key : null;
 }
 
 /**
@@ -311,6 +335,59 @@ export async function cacheSetMetadata(
     if (!key) return;
     try {
         await cache.set(key, value === 'empty' ? MISS_MARKER : JSON.stringify(value));
+    } catch { /* quota */ }
+}
+
+function isCachedStorageLayout(val: unknown): val is SolidityStorageLayout {
+    if (!val || typeof val !== 'object') return false;
+    return Array.isArray((val as Record<string, unknown>).storage);
+}
+
+/**
+ * Read a cached skeleton storage layout.
+ *
+ * @param cache - Cache backend
+ * @param sources - Solidity sources used to build the skeleton
+ * @param contractName - Target contract, if known
+ * @return Layout on hit, or `null` on miss / corruption
+ */
+export async function cacheGetLayout(
+    cache: ContractCache,
+    sources: Record<string, { content: string }>,
+    contractName?: string,
+): Promise<SolidityStorageLayout | null> {
+    const key = layoutCacheKey(sources, contractName);
+    if (!key) return null;
+    const raw = await cache.get(key);
+    if (!raw) return null;
+    try {
+        const parsed = JSON.parse(raw);
+        return isCachedStorageLayout(parsed) ? parsed : null;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Persist a skeleton storage layout. Failed extractions (`null`) are not
+ * stored so a later extractor fix can retry.
+ *
+ * @param cache - Cache backend
+ * @param sources - Solidity sources used to build the skeleton
+ * @param contractName - Target contract, if known
+ * @param layout - solc storage layout
+ */
+export async function cacheSetLayout(
+    cache: ContractCache,
+    sources: Record<string, { content: string }>,
+    contractName: string | undefined,
+    layout: SolidityStorageLayout,
+): Promise<void> {
+    if (!isCachedStorageLayout(layout)) return;
+    const key = layoutCacheKey(sources, contractName);
+    if (!key) return;
+    try {
+        await cache.set(key, JSON.stringify(layout));
     } catch { /* quota */ }
 }
 

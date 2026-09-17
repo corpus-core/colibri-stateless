@@ -1,0 +1,111 @@
+{
+  "gasUsed": "0x12119",
+  "logs": [
+    {
+      "name": "Transfer",
+      "inputs": [
+        {
+          "name": "from",
+          "type": "address",
+          "value": "0x016606acc6b0cfe537acc221e3bf1bb44b4049ee"
+        },
+        {
+          "name": "to",
+          "type": "address",
+          "value": "0xf966921c6a34f895d54809b5ad17b546bde1a88a"
+        },
+        {
+          "name": "value",
+          "type": "uint256",
+          "value": "0xa2a15d09519be00000"
+        }
+      ],
+      "raw": {
+        "address": "0x8e870d67f660d95d5be530380d0ec0bd388289e1",
+        "data": "0x0000000000000000000000000000000000000000000000a2a15d09519be00000",
+        "topics": [
+          "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+          "0x000000000000000000000000016606acc6b0cfe537acc221e3bf1bb44b4049ee",
+          "0x000000000000000000000000f966921c6a34f895d54809b5ad17b546bde1a88a"
+        ]
+      }
+    }
+  ],
+  "status": "0x1",
+  "returnValue": "0x",
+  "trace": [
+    {
+      "from": "0x3fc88c70eea175b21d985947451093db984cabb7",
+      "gas": "0x989680",
+      "gasUsed": "0x0",
+      "input": "0x23b872dd000000000000000000000000016606acc6b0cfe537acc221e3bf1bb44b4049ee000000000000000000000000f966921c6a34f895d54809b5ad17b546bde1a88a0000000000000000000000000000000000000000000000a2a15d09519be00000",
+      "output": "0x",
+      "subtraces": "0x0",
+      "to": "0x8e870d67f660d95d5be530380d0ec0bd388289e1",
+      "traceAddress": [],
+      "type": "CALL",
+      "value": "0x0"
+    },
+    {
+      "from": "0x3fc88c70eea175b21d985947451093db984cabb7",
+      "gas": "0x961849",
+      "gasUsed": "0xcb1d",
+      "input": "0x23b872dd000000000000000000000000016606acc6b0cfe537acc221e3bf1bb44b4049ee000000000000000000000000f966921c6a34f895d54809b5ad17b546bde1a88a0000000000000000000000000000000000000000000000a2a15d09519be00000",
+      "output": "0x0000000000000000000000000000000000000000000000000000000000000001",
+      "subtraces": "0x1",
+      "to": "0xf459ff5ec7d1f371cb34754bda5fe5fce2c9054d",
+      "traceAddress": [
+        "0x0"
+      ],
+      "type": "DELEGATECALL",
+      "value": "0x0"
+    }
+  ],
+  "stateChanges": [
+    {
+      "address": "0x8e870d67f660d95d5be530380d0ec0bd388289e1",
+      "storage": [
+        {
+          "slot": "0x68ce2166e8407a260f7e8667d5edd3672ef1638359f7fc96a99b41898dfb0da2",
+          "previousValue": "0x000000000000000000000000000000000000000000000285c91245c1787951e0",
+          "newValue": "0x0000000000000000000000000000000000000000000001e327b53c6fdc9951e0",
+          "slotSource": "0x000000000000000000000000016606acc6b0cfe537acc221e3bf1bb44b4049ee0000000000000000000000000000000000000000000000000000000000000001"
+        },
+        {
+          "slot": "0x88fa3695535bcfe04f0b2a0b04554afbe6924484d9472a5a367d7e83997a9a10",
+          "previousValue": "0x0000000000000000000000000000000000000000000000000000000000000000",
+          "newValue": "0x0000000000000000000000000000000000000000000000a2a15d09519be00000",
+          "slotSource": "0x000000000000000000000000f966921c6a34f895d54809b5ad17b546bde1a88a0000000000000000000000000000000000000000000000000000000000000001"
+        },
+        {
+          "slot": "0xe030992dd4e1585215e3d27fcb05d69ed7abb7cc029fdfe3a55761ce69fe036c",
+          "previousValue": "0xfffffffffffffffffffffffffffffffffffffffffffff9b90c51d6810870ffff",
+          "newValue": "0xfffffffffffffffffffffffffffffffffffffffffffff9166af4cd2f6c90ffff",
+          "slotSource": "0x0000000000000000000000003fc88c70eea175b21d985947451093db984cabb71d3c60c7897c688c34963b8e72f212479b1cbb71588caec477c70ac636a5b7f8"
+        }
+      ]
+    }
+  ],
+  "accessList": [
+    {
+      "address": "0x8e870d67f660d95d5be530380d0ec0bd388289e1",
+      "storageKeys": [
+        "0x0000000000000000000000000000000000000000000000000000000000000004",
+        "0x10d6a54a4754c8869d6886b5f5d7fbfa5b4522237ea5c60d11bc4e7a1ff9390b",
+        "0x68ce2166e8407a260f7e8667d5edd3672ef1638359f7fc96a99b41898dfb0da2",
+        "0x7050c9e0f4ca769c69bd3a8ef740bc37934f8e2c036e5a723fd8ee048ed3f8c3",
+        "0x88fa3695535bcfe04f0b2a0b04554afbe6924484d9472a5a367d7e83997a9a10",
+        "0x8a874515ba53d725ea5d029257a40ed082f30abe2840629dd5d747b013964927",
+        "0xaf3334ec66b1e3c05d6d942a6571803f286816d7ff2b4088ab481b2acdc2de0a",
+        "0xe030992dd4e1585215e3d27fcb05d69ed7abb7cc029fdfe3a55761ce69fe036c",
+        "0xf92054b76f761eae6c0734e69a13a9ce3f171b4c10ce51e7853488e71d4b688d"
+      ],
+      "codeHash": "0x12456dd0c26b487f7eb9cb5528fe2b99a952e4fb0ba975029daa761d5ebb540c"
+    },
+    {
+      "address": "0xf459ff5ec7d1f371cb34754bda5fe5fce2c9054d",
+      "storageKeys": [],
+      "codeHash": "0x6aa87736c49a9509f3635978ac73d03c6bf74d9ba95af8f37beca955d8cbcd08"
+    }
+  ]
+}

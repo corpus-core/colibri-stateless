@@ -23,7 +23,7 @@
 
 import type {
     SimulationResult, TxParams, EnrichedContext, ContractMetadata,
-    DecodedCall, DecodedEvent, DecodedError, ResolvedSlot,
+    DecodedCall, DecodedEvent, DecodedError, ResolvedSlot, TraceEntry,
     EnhancedSimulationResult, EnhancedLog, EnhancedTraceEntry, EnhancedContractStateChange,
     ContractCache, VerifiedContract, AccessListEntry, ContractStateChange,
 } from './types.js';
@@ -32,7 +32,7 @@ import { decodeFunctionCall, decodeEventLog, decodeRevertData } from './decoder.
 import { resolveStorageSlot, resolveDirectSlot } from './storage.js';
 import { compileAndVerify } from './compiler.js';
 import { extractStorageLayout } from './layout.js';
-import { cacheGet, cacheSet, getDefaultCache } from './cache.js';
+import { cacheGet, cacheSet, cacheGetLayout, cacheSetLayout, getDefaultCache } from './cache.js';
 import { elapsedMs, explainerLog } from './log.js';
 
 /**
@@ -42,7 +42,7 @@ import { elapsedMs, explainerLog } from './log.js';
  * 1. Skip EOAs (`EMPTY_CODE_HASH` in `accessList`)
  * 2. Cache lookup by `codeHash` (from `accessList`)
  * 3. Fetch source from Sourcify (cached by chainId+address, including 404 misses),
- *    compile + verify bytecode, extract layout via skeleton
+ *    compile + verify bytecode, extract layout via skeleton (cached by sources fingerprint)
  * 4. Best-effort Sourcify fallback when no `codeHash` is available
  *
  * @param result - Simulation result from C-core
@@ -65,17 +65,19 @@ export async function enrichSimulation(
     });
     const started = Date.now();
     const contracts = await fetchAllContracts(addresses, chainId, codeHashes, eoas, cache, options?.sourcifyBaseUrl);
+    const implementations = buildProxyImplementations(result.trace);
     explainerLog('info', 'enrich done', {
         scope: 'enrich',
         ms: elapsedMs(started),
         addresses: addresses.length,
         withAbi: [...contracts.values()].filter(c => !!c.abi).length,
+        proxies: implementations.size,
     });
-    const decodedCall = decodeMainCall(txParams, contracts);
-    const decodedError = decodeRevertError(result, txParams, contracts);
-    const decodedTrace = decodeTraceEntries(result.trace, contracts);
-    const decodedEvents = decodeEventLogs(result.logs, contracts);
-    const resolvedStorage = resolveAllStorage(result, contracts);
+    const decodedCall = decodeMainCall(txParams, contracts, result.accessList, implementations);
+    const decodedError = decodeRevertError(result, txParams, contracts, implementations);
+    const decodedTrace = decodeTraceEntries(result.trace, contracts, result.accessList, implementations);
+    const decodedEvents = decodeEventLogs(result.logs, contracts, implementations);
+    const resolvedStorage = resolveAllStorage(result, contracts, implementations);
 
     return { contracts, decodedCall, decodedError, resolvedStorage, decodedTrace, decodedEvents };
 }
@@ -123,6 +125,12 @@ function collectAddresses(result: SimulationResult, txParams: TxParams): string[
     if (result.logs) {
         for (const log of result.logs) {
             if (log.raw?.address) set.add(log.raw.address.toLowerCase());
+        }
+    }
+
+    if (result.accessList) {
+        for (const entry of result.accessList) {
+            if (entry.address) set.add(entry.address.toLowerCase());
         }
     }
 
@@ -238,16 +246,33 @@ async function resolveFromSourcify(
     let storageLayout = null;
     if (comp.sources) {
         const layoutStarted = Date.now();
-        try {
-            storageLayout = await extractStorageLayout(comp.sources, comp.contractName ?? undefined) ?? null;
-        } catch { /* parser or compiler failure -- proceed without layout */ }
-        explainerLog('debug', 'storage layout', {
-            scope: 'enrich',
-            address: addr,
-            ms: elapsedMs(layoutStarted),
-            ok: !!storageLayout,
-            files: Object.keys(comp.sources).length,
-        });
+        const cachedLayout = await cacheGetLayout(cache, comp.sources, comp.contractName ?? undefined);
+        if (cachedLayout) {
+            storageLayout = cachedLayout;
+            explainerLog('debug', 'storage layout cache hit', {
+                scope: 'enrich', address: addr, ms: elapsedMs(layoutStarted),
+            });
+        } else {
+            try {
+                storageLayout = await extractStorageLayout(comp.sources, comp.contractName ?? undefined) ?? null;
+            } catch (err) {
+                explainerLog('warn', 'storage layout extract failed', {
+                    scope: 'enrich',
+                    address: addr,
+                    error: err instanceof Error ? err.message : String(err),
+                });
+            }
+            if (storageLayout) {
+                await cacheSetLayout(cache, comp.sources, comp.contractName ?? undefined, storageLayout);
+            }
+            explainerLog('debug', 'storage layout', {
+                scope: 'enrich',
+                address: addr,
+                ms: elapsedMs(layoutStarted),
+                ok: !!storageLayout,
+                files: Object.keys(comp.sources).length,
+            });
+        }
     }
 
     if (codeHash && comp.sources && comp.stdJsonInput && comp.compilerVersion) {
@@ -290,61 +315,272 @@ async function resolveFromSourcify(
     return { abi: comp.abi, sources: comp.sources, storageLayout };
 }
 
+/**
+ * True for call kinds that execute foreign bytecode in the current storage
+ * context (`DELEGATECALL`, `CALLCODE`).
+ *
+ * @param type - Trace `type` string
+ * @return Whether the frame is delegate-like
+ */
+function isDelegateLike(type?: string): boolean {
+    if (!type) return false;
+    const t = type.toUpperCase();
+    return t === 'DELEGATECALL' || t === 'CALLCODE';
+}
+
+/**
+ * Normalize a single `traceAddress` index from JSON (number or hex string).
+ *
+ * @param value - Index as number, decimal string, or `0x…` hex
+ * @return Non-negative integer index, or `-1` if unparseable
+ */
+function normalizeTraceIndex(value: number | string): number {
+    if (typeof value === 'number' && Number.isFinite(value) && value >= 0) return value;
+    const raw = String(value).trim();
+    const n = raw.startsWith('0x') || raw.startsWith('0X') ? parseInt(raw, 16) : Number(raw);
+    return Number.isFinite(n) && n >= 0 ? n : -1;
+}
+
+/**
+ * Canonical path key for a trace entry (`""` for the root, `"0/1"` for nested).
+ *
+ * @param traceAddress - Child-index path from the simulation JSON
+ * @return Slash-joined index string
+ */
+function tracePathKey(traceAddress?: Array<number | string>): string {
+    if (!traceAddress?.length) return '';
+    return traceAddress.map(normalizeTraceIndex).join('/');
+}
+
+/**
+ * Map each proxy (parent CALL `to`) to the implementation it DELEGATECALLs.
+ *
+ * A DELEGATECALL's `from` is msg.sender and `to` is the code address, so the
+ * proxy is the parent frame's `to`, found via `traceAddress`. Nested
+ * DELEGATECALLs (libraries) do not overwrite the first mapping.
+ *
+ * @param trace - Simulation call trace
+ * @return Lowercase proxy address → lowercase implementation address
+ */
+export function buildProxyImplementations(trace?: TraceEntry[]): Map<string, string> {
+    const map = new Map<string, string>();
+    if (!trace?.length) return map;
+
+    const byPath = new Map<string, TraceEntry>();
+    for (const entry of trace) {
+        byPath.set(tracePathKey(entry.traceAddress), entry);
+    }
+
+    for (const entry of trace) {
+        if (!isDelegateLike(entry.type) || !entry.to) continue;
+        const path = entry.traceAddress ?? [];
+        if (!path.length) continue;
+
+        const parentKey = tracePathKey(path.slice(0, -1));
+        const parent = byPath.get(parentKey);
+        if (!parent?.to || isDelegateLike(parent.type)) continue;
+
+        const proxy = parent.to.toLowerCase();
+        const impl = entry.to.toLowerCase();
+        if (proxy === impl || map.has(proxy)) continue;
+        map.set(proxy, impl);
+    }
+    return map;
+}
+
+/**
+ * Decode calldata against a preferred address, then its DELEGATECALL
+ * implementation, then every access-list ABI.
+ *
+ * @param data - Calldata (selector + ABI-encoded args)
+ * @param preferredAddress - Address to try first (`tx.to` / trace `to`)
+ * @param contracts - Resolved metadata keyed by lowercase address
+ * @param accessList - Simulation access list (unstructured fallback)
+ * @param implementations - Proxy → implementation from the trace
+ * @return Decoded call, or `null` if no ABI recognized the selector
+ */
+function decodeCallWithFallback(
+    data: string,
+    preferredAddress: string | undefined,
+    contracts: Map<string, ContractMetadata>,
+    accessList?: AccessListEntry[],
+    implementations?: Map<string, string>,
+): DecodedCall | null {
+    const tried = new Set<string>();
+
+    const tryAddress = (address?: string): DecodedCall | null => {
+        if (!address) return null;
+        const addr = address.toLowerCase();
+        if (tried.has(addr)) return null;
+        tried.add(addr);
+        const abi = contracts.get(addr)?.abi;
+        if (!abi) return null;
+        return decodeFunctionCall(abi, data);
+    };
+
+    const preferred = tryAddress(preferredAddress);
+    if (preferred) return preferred;
+
+    if (preferredAddress && implementations) {
+        const mapped = tryAddress(implementations.get(preferredAddress.toLowerCase()));
+        if (mapped) return mapped;
+    }
+
+    if (accessList) {
+        for (const entry of accessList) {
+            const decoded = tryAddress(entry.address);
+            if (decoded) return decoded;
+        }
+    }
+    return null;
+}
+
+/**
+ * Decode the top-level transaction call. Tries `txParams.to`, then the
+ * DELEGATECALL implementation, then access-list ABIs.
+ *
+ * @param txParams - Original transaction parameters
+ * @param contracts - Resolved contract metadata
+ * @param accessList - Simulation access list for unstructured fallback
+ * @param implementations - Proxy → implementation from the trace
+ * @return Decoded call, or `undefined` if no ABI matched
+ */
 function decodeMainCall(
     txParams: TxParams,
     contracts: Map<string, ContractMetadata>,
+    accessList?: AccessListEntry[],
+    implementations?: Map<string, string>,
 ): DecodedCall | undefined {
-    if (!txParams.to || !txParams.data || txParams.data.length < 10) return undefined;
-
-    const meta = contracts.get(txParams.to.toLowerCase());
-    if (!meta?.abi) return undefined;
-
-    return decodeFunctionCall(meta.abi, txParams.data) ?? undefined;
+    if (!txParams.data || txParams.data.length < 10) return undefined;
+    return decodeCallWithFallback(txParams.data, txParams.to, contracts, accessList, implementations) ?? undefined;
 }
 
+/**
+ * Decode a revert payload. Tries `txParams.to`, then the mapped implementation.
+ *
+ * @param result - Simulation result
+ * @param txParams - Original transaction parameters
+ * @param contracts - Resolved contract metadata
+ * @param implementations - Proxy → implementation from the trace
+ * @return Decoded error, or `undefined` on success / unknown payload
+ */
 function decodeRevertError(
     result: SimulationResult,
     txParams: TxParams,
     contracts: Map<string, ContractMetadata>,
+    implementations?: Map<string, string>,
 ): DecodedError | undefined {
     if (result.status === '0x1') return undefined;
     if (!result.returnValue || result.returnValue === '0x') return undefined;
 
-    const abi = txParams.to ? contracts.get(txParams.to.toLowerCase())?.abi ?? undefined : undefined;
-    return decodeRevertData(result.returnValue, abi) ?? undefined;
+    const tryAbi = (addr?: string): DecodedError | undefined => {
+        if (!addr) return undefined;
+        const abi = contracts.get(addr.toLowerCase())?.abi ?? undefined;
+        return decodeRevertData(result.returnValue, abi) ?? undefined;
+    };
+
+    const fromTo = tryAbi(txParams.to);
+    if (fromTo) return fromTo;
+    if (txParams.to && implementations) {
+        const fromImpl = tryAbi(implementations.get(txParams.to.toLowerCase()));
+        if (fromImpl) return fromImpl;
+    }
+    return decodeRevertData(result.returnValue, undefined) ?? undefined;
 }
 
+/**
+ * Decode each trace entry. Prefers the frame `to`, then a mapped implementation,
+ * then access-list ABIs.
+ *
+ * @param trace - Simulation call trace
+ * @param contracts - Resolved contract metadata
+ * @param accessList - Simulation access list for unstructured fallback
+ * @param implementations - Proxy → implementation from the trace
+ * @return Per-entry decoded call or `null`
+ */
 function decodeTraceEntries(
     trace: SimulationResult['trace'],
     contracts: Map<string, ContractMetadata>,
+    accessList?: AccessListEntry[],
+    implementations?: Map<string, string>,
 ): (DecodedCall | null)[] {
     if (!trace) return [];
 
     return trace.map(t => {
-        if (!t.to || !t.input || t.input.length < 10) return null;
-
-        const meta = contracts.get(t.to.toLowerCase());
-        if (!meta?.abi) return null;
-
-        return decodeFunctionCall(meta.abi, t.input);
+        if (!t.input || t.input.length < 10) return null;
+        return decodeCallWithFallback(t.input, t.to, contracts, accessList, implementations);
     });
 }
 
+/**
+ * Decode a log against a preferred address, then its DELEGATECALL
+ * implementation, then every fetched contract ABI.
+ *
+ * @param log - Raw log topics and data
+ * @param preferredAddress - Emitter address (`log.raw.address`, the proxy)
+ * @param contracts - Resolved metadata keyed by lowercase address
+ * @param implementations - Proxy → implementation from the trace
+ * @return Decoded event, or `null` if no ABI recognized the topic
+ */
+function decodeEventWithFallback(
+    log: { topics: string[]; data: string },
+    preferredAddress: string | undefined,
+    contracts: Map<string, ContractMetadata>,
+    implementations?: Map<string, string>,
+): DecodedEvent | null {
+    const tried = new Set<string>();
+
+    const tryAddress = (address?: string): DecodedEvent | null => {
+        if (!address) return null;
+        const addr = address.toLowerCase();
+        if (tried.has(addr)) return null;
+        tried.add(addr);
+        const abi = contracts.get(addr)?.abi;
+        if (!abi) return null;
+        return decodeEventLog(abi, log);
+    };
+
+    const preferred = tryAddress(preferredAddress);
+    if (preferred) return preferred;
+
+    if (preferredAddress && implementations) {
+        const mapped = tryAddress(implementations.get(preferredAddress.toLowerCase()));
+        if (mapped) return mapped;
+    }
+
+    for (const addr of contracts.keys()) {
+        const decoded = tryAddress(addr);
+        if (decoded) return decoded;
+    }
+    return null;
+}
+
+/**
+ * Decode each log. Prefers `raw.address`, then a mapped implementation ABI,
+ * then every fetched contract ABI. Logs already named by the C-core are skipped.
+ *
+ * @param logs - Simulation logs
+ * @param contracts - Resolved contract metadata
+ * @param implementations - Proxy → implementation from the trace
+ * @return Per-log decoded event or `null`
+ */
 function decodeEventLogs(
     logs: SimulationResult['logs'],
     contracts: Map<string, ContractMetadata>,
+    implementations?: Map<string, string>,
 ): (DecodedEvent | null)[] {
     if (!logs) return [];
 
     return logs.map(log => {
         if (log.name && log.inputs) return null;
+        if (!log.raw?.topics?.length) return null;
 
-        if (!log.raw?.address || !log.raw.topics?.length) return null;
-
-        const meta = contracts.get(log.raw.address.toLowerCase());
-        if (!meta?.abi) return null;
-
-        return decodeEventLog(meta.abi, { topics: log.raw.topics, data: log.raw.data });
+        return decodeEventWithFallback(
+            { topics: log.raw.topics, data: log.raw.data ?? '0x' },
+            log.raw.address,
+            contracts,
+            implementations,
+        );
     });
 }
 
@@ -395,6 +631,7 @@ export function toEnhancedResult(
 function resolveAllStorage(
     result: SimulationResult,
     contracts: Map<string, ContractMetadata>,
+    implementations?: Map<string, string>,
 ): Map<string, ResolvedSlot[]> {
     const resolved = new Map<string, ResolvedSlot[]>();
 
@@ -402,8 +639,9 @@ function resolveAllStorage(
 
     for (const change of result.stateChanges) {
         const addr = change.address.toLowerCase();
-        const meta = contracts.get(addr);
-        const layout = meta?.storageLayout ?? null;
+        const implAddr = implementations?.get(addr);
+        const implLayout = implAddr ? contracts.get(implAddr)?.storageLayout : undefined;
+        const layout = implLayout ?? contracts.get(addr)?.storageLayout ?? null;
 
         if (!change.storage) {
             resolved.set(addr, []);
