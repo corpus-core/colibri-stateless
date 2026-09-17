@@ -41,7 +41,8 @@ typedef enum {
   C4_FORK_ELECTRA   = 5,
   C4_FORK_FULU      = 6,
   C4_FORK_GLOAS     = 7,
-  C4_FORK_MAX       = C4_FORK_GLOAS, // last regular fork; bump when adding the next
+  C4_FORK_HEZE      = 8,
+  C4_FORK_MAX       = C4_FORK_HEZE, // last regular fork; bump when adding the next
 
   C4_FORK_INVALID = -1
 } fork_id_t;

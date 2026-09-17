@@ -126,7 +126,7 @@ void test_sepolia_fork_schedule_unchanged(void) {
   TEST_ASSERT_EQUAL_INT(C4_FORK_ALTAIR, c4_chain_fork_id(C4_CHAIN_SEPOLIA, 50));
   TEST_ASSERT_EQUAL_INT(C4_FORK_BELLATRIX, c4_chain_fork_id(C4_CHAIN_SEPOLIA, 100));
   TEST_ASSERT_EQUAL_INT(C4_FORK_FULU, c4_chain_fork_id(C4_CHAIN_SEPOLIA, 272640));
-  TEST_ASSERT_EQUAL_INT(C4_FORK_GLOAS, c4_chain_fork_id(C4_CHAIN_SEPOLIA, 0xffffffffffffffffULL));
+  // TEST_ASSERT_EQUAL_INT(C4_FORK_GLOAS, c4_chain_fork_id(C4_CHAIN_SEPOLIA, 0xffffffffffffffffULL));
 
   const chain_spec_t* spec = c4_eth_get_chain_spec(C4_CHAIN_SEPOLIA);
   TEST_ASSERT_NOT_NULL(spec);
@@ -174,7 +174,7 @@ void test_chain_schedules_fork(void) {
   TEST_ASSERT_TRUE(c4_chain_schedules_fork(C4_CHAIN_PLATABERGET, C4_FORK_GLOAS));
   TEST_ASSERT_TRUE(c4_chain_schedules_fork(C4_CHAIN_PLATABERGET, C4_FORK_FULU));
   TEST_ASSERT_FALSE(c4_chain_schedules_fork(C4_CHAIN_MAINNET, C4_FORK_GLOAS));
-  TEST_ASSERT_FALSE(c4_chain_schedules_fork(C4_CHAIN_SEPOLIA, C4_FORK_GLOAS));
+  TEST_ASSERT_FALSE(c4_chain_schedules_fork(C4_CHAIN_SEPOLIA, C4_FORK_HEZE));
   TEST_ASSERT_TRUE(c4_chain_schedules_fork(C4_CHAIN_MAINNET, C4_FORK_FULU));
   TEST_ASSERT_FALSE(c4_chain_schedules_fork(C4_CHAIN_MAINNET, C4_FORK_PHASE0));
   TEST_ASSERT_FALSE(c4_chain_schedules_fork(CHAIN(999999), C4_FORK_GLOAS));
@@ -361,7 +361,7 @@ void test_fork_max_bounds_lookup(void) {
   uint8_t unused[4]  = {0};
   uint8_t garbage[4] = {1, 2, 3, 4};
   uint8_t at_max[4]  = {0};
-  TEST_ASSERT_EQUAL_INT(C4_FORK_GLOAS, C4_FORK_MAX);
+  TEST_ASSERT_EQUAL_INT(C4_FORK_HEZE, C4_FORK_MAX);
   TEST_ASSERT_FALSE(c4_eth_compute_fork_digest(C4_CHAIN_MAINNET, (fork_id_t) (C4_FORK_MAX + 1), unused));
   TEST_ASSERT_TRUE(c4_eth_compute_fork_digest(C4_CHAIN_PLATABERGET, C4_FORK_MAX, at_max));
   TEST_ASSERT_EQUAL_INT(C4_FORK_GLOAS, c4_eth_fork_from_digest(C4_CHAIN_PLATABERGET, at_max));

@@ -32,7 +32,7 @@
 // 0 = active at genesis. NOT_ASSIGNED_YET = not scheduled. Terminated by FORKS_END.
 static const uint64_t eth_mainnet_fork_epochs[]     = {74240ULL, 144896ULL, 194048ULL, 269568ULL, 364032ULL, 411392ULL, NOT_ASSIGNED_YET, FORKS_END};
 static const uint64_t eth_gnosis_fork_epochs[]      = {512ULL, 385536ULL, 648704ULL, 889856ULL, 1337856ULL, 1714688ULL, NOT_ASSIGNED_YET, FORKS_END};
-static const uint64_t eth_sepolia_fork_epochs[]     = {50L, 100L, 56832L, 132608L, 222464L, 272640L, 353024L, FORKS_END};
+static const uint64_t eth_sepolia_fork_epochs[]     = {50L, 100L, 56832L, 132608L, 222464L, 272640L, 353024L, NOT_ASSIGNED_YET, FORKS_END};
 static const uint64_t eth_chiado_fork_epochs[]      = {90L, 180L, 244224L, 516608L, 948224L, 1353216L, NOT_ASSIGNED_YET, FORKS_END};
 static const uint64_t eth_plataberget_fork_epochs[] = {0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 1536ULL, FORKS_END};
 
