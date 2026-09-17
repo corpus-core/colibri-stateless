@@ -1,0 +1,92 @@
+{
+    "gasUsed": "0xca0a",
+    "logs": [
+        {
+            "name": "Approval",
+            "inputs": [
+                {
+                    "name": "owner",
+                    "type": "address",
+                    "value": "0xdd841b061df441f85b506ab076dc8d431f29aa78"
+                },
+                {
+                    "name": "spender",
+                    "type": "address",
+                    "value": "0x40aa958dd87fc8305b97f2ba922cddca374bcd7f"
+                },
+                {
+                    "name": "value",
+                    "type": "uint256",
+                    "value": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+                }
+            ],
+            "raw": {
+                "address": "0x0fe906e030a44ef24ca8c7dc7b7c53a6c4f00ce9",
+                "data": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+                "topics": [
+                    "0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925",
+                    "0x000000000000000000000000dd841b061df441f85b506ab076dc8d431f29aa78",
+                    "0x00000000000000000000000040aa958dd87fc8305b97f2ba922cddca374bcd7f"
+                ]
+            }
+        }
+    ],
+    "status": "0x1",
+    "returnValue": "0x0000000000000000000000000000000000000000000000000000000000000001",
+    "trace": [
+        {
+            "type": "CALL",
+            "from": "0xdd841b061df441f85b506ab076dc8d431f29aa78",
+            "to": "0x0fe906e030a44ef24ca8c7dc7b7c53a6c4f00ce9",
+            "input": "0x095ea7b300000000000000000000000040aa958dd87fc8305b97f2ba922cddca374bcd7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "output": "0x0000000000000000000000000000000000000000000000000000000000000001",
+            "value": "0x0",
+            "traceAddress": [],
+            "subtraces": "0x1",
+            "gas": "0x11adb",
+            "gasUsed": "0xca0a"
+        },
+        {
+            "type": "DELEGATECALL",
+            "from": "0x0fe906e030a44ef24ca8c7dc7b7c53a6c4f00ce9",
+            "to": "0x23db508559ca053eee7f21b94dac803353560b4f",
+            "input": "0x095ea7b300000000000000000000000040aa958dd87fc8305b97f2ba922cddca374bcd7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "output": "0x",
+            "value": "0x0",
+            "traceAddress": [
+                0
+            ],
+            "subtraces": "0x0",
+            "gas": "0xaf34",
+            "gasUsed": "0x6104"
+        }
+    ],
+    "stateChanges": [
+        {
+            "address": "0x0fe906e030a44ef24ca8c7dc7b7c53a6c4f00ce9",
+            "storage": [
+                {
+                    "slot": "0x3332880ed6e0689b0e4b11050f64a0503378714beef690155763d978bc29efc8",
+                    "previousValue": "0x0000000000000000000000000000000000000000000000000000000000000000",
+                    "newValue": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+                    "slotSource": "0x00000000000000000000000040aa958dd87fc8305b97f2ba922cddca374bcd7f5e4181428caff080bde4da95038c4058ae4e30f6464e98b546131c24bd9beee5"
+                }
+            ]
+        }
+    ],
+    "accessList": [
+        {
+            "address": "0x0fe906e030a44ef24ca8c7dc7b7c53a6c4f00ce9",
+            "storageKeys": [
+                "0x3332880ed6e0689b0e4b11050f64a0503378714beef690155763d978bc29efc8",
+                "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc"
+            ],
+            "codeHash": "0x055f90d52d0dc151b24f319a39db8b83a164b9134415a5e9d37daa5b9fb88147"
+        },
+        {
+            "address": "0x23db508559ca053eee7f21b94dac803353560b4f",
+            "storageKeys": [],
+            "codeHash": "0x011cc2a3bd5ead7555b9cdb8e41a479ca841bfd59d54c7294bc710f2090d81c0"
+        }
+    ]
+}

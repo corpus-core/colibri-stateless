@@ -354,4 +354,31 @@ contract Token {
         assert.equal(layout.storage[0].label, 'data');
         assert.equal(layout.storage[0].slot, '0');
     });
+
+    it('maps ERC-7201 namespaced ERC20Storage members onto the location slot', async () => {
+        const location = '0x52c63247e1f47db19d5ce0460030c497f067ca4cebf71ba98eeadabe20bace00';
+        const source = `pragma solidity ^0.8.20;
+abstract contract ERC20Upgradeable {
+    struct ERC20Storage {
+        mapping(address account => uint256) _balances;
+        mapping(address account => mapping(address spender => uint256)) _allowances;
+        uint256 _totalSupply;
+        string _name;
+        string _symbol;
+    }
+    bytes32 private constant ERC20StorageLocation = ${location};
+}
+contract Token is ERC20Upgradeable {}`;
+
+        const layout = await extractStorageLayout({ 'Token.sol': { content: source } }, 'Token');
+        assert.ok(layout);
+        const labels = layout.storage.map(s => s.label);
+        assert.ok(labels.includes('_balances'));
+        assert.ok(labels.includes('_allowances'));
+        const allowances = layout.storage.find(s => s.label === '_allowances');
+        assert.equal(allowances.slot, (BigInt(location) + 1n).toString());
+        const typeInfo = layout.types[allowances.type];
+        assert.equal(typeInfo.encoding, 'mapping');
+        assert.ok(layout.types[typeInfo.value]?.encoding === 'mapping');
+    });
 });

@@ -36,7 +36,7 @@ const CACHE_PREFIX = 'c4x_';
 const SAFE_KEY_RE = /^(?:c4[xl]_0x[0-9a-fA-F]{1,64}|c4[sm]_\d+_0x[0-9a-fA-F]{1,40})$/;
 
 /** Bump to invalidate checked-in skeleton layouts after extractor changes. */
-const LAYOUT_CACHE_VERSION = 1;
+const LAYOUT_CACHE_VERSION = 2;
 
 const ADDRESS_RE = /^0x[0-9a-f]{1,40}$/;
 const MISS_MARKER = '{"empty":true}';

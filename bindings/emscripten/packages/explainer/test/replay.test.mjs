@@ -279,5 +279,17 @@ describe('replay', { concurrency: false }, () => {
         it('decodes nested USDC proxy events, calls and named storage', { timeout: 300_000 }, async () => {
             await assertEnrichedFixture('state2/sim.json', 1, 4, 2);
         });
+
+        // TransparentUpgradeableProxy 0x0fe9… DELEGATECALLs 0x23db…. Unlimited
+        // approve + Approval; the allowance write on the proxy must use the
+        // implementation storage layout (`allowances[owner][spender]`).
+        it('decodes proxy approve events, calls and named allowance storage', { timeout: 300_000 }, async () => {
+            await assertEnrichedFixture(
+                'state3/0x0b2f75efd752f219b7758d4479110e9eb54260dc89164eb2b69c24b73b96acba_sim.json',
+                1,
+                2,
+                1,
+            );
+        });
     });
 });

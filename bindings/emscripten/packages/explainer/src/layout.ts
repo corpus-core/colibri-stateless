@@ -21,7 +21,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-import type { SolidityStorageLayout } from './types.js';
+import type { SolidityStorageEntry, SolidityStorageLayout, SolidityStorageType } from './types.js';
 import { getBundledCompiler } from './compiler.js';
 import { elapsedMs, explainerLog } from './log.js';
 
@@ -70,6 +70,7 @@ export async function extractStorageLayout(
     const structs = new Map<string, StructSkeleton>();
     const enums = new Map<string, string>();
     const contracts = new Map<string, ContractSkeleton>();
+    const locationConstants = new Map<string, bigint>();
     let lastContractName = '';
 
     for (const [, source] of Object.entries(sources)) {
@@ -95,6 +96,7 @@ export async function extractStorageLayout(
                 for (const sub of node.subNodes as ASTNode[]) {
                     if (sub.type === 'StructDefinition') rememberStruct(structs, sub);
                     if (sub.type === 'EnumDefinition') rememberType(enums, sub.name, emitEnum(sub));
+                    rememberLocationConstant(locationConstants, sub);
                 }
             }
         }
@@ -110,12 +112,15 @@ export async function extractStorageLayout(
     const skeleton = buildSkeletonSource(
         target, contracts, orderStructs(structs), [...enums.values()],
     );
-    return compileSkeleton(skeleton, target);
+    const compiled = await compileSkeleton(skeleton, target);
+    const namespaced = buildNamespacedLayout(structs, locationConstants);
+    return mergeLayouts(compiled, namespaced);
 }
 
 interface StructSkeleton {
     source: string;
     deps: string[];
+    members: ASTNode[];
 }
 
 /**
@@ -146,7 +151,28 @@ function rememberStruct(structs: Map<string, StructSkeleton>, node: ASTNode): vo
     for (const member of node.members || []) {
         collectNamedTypeRefs(member.typeName, deps);
     }
-    structs.set(key, { source: emitStruct(node), deps: [...deps] });
+    structs.set(key, {
+        source: emitStruct(node),
+        deps: [...deps],
+        members: (node.members || []).filter((m: ASTNode) => m?.name && m.typeName),
+    });
+}
+
+/**
+ * Record `bytes32 constant FooStorageLocation = 0x…32` for ERC-7201 namespaces.
+ *
+ * @param constants - Constant name → slot
+ * @param node - Contract sub-node
+ */
+function rememberLocationConstant(constants: Map<string, bigint>, node: ASTNode): void {
+    if (node.type !== 'StateVariableDeclaration') return;
+    const variable = node.variables?.[0];
+    if (!variable?.isDeclaredConst || !variable.name) return;
+    if (variable.typeName?.name !== 'bytes32') return;
+    const raw = variable.expression?.number;
+    if (typeof raw !== 'string' || !/^0x[0-9a-fA-F]{64}$/i.test(raw)) return;
+    const name = assertIdentifier(variable.name);
+    if (!constants.has(name)) constants.set(name, BigInt(raw));
 }
 
 /**
@@ -313,6 +339,225 @@ function emitStruct(node: ASTNode): string {
 function emitEnum(node: ASTNode): string {
     const values = (node.members || []).map((m: ASTNode) => assertIdentifier(m.name)).join(', ');
     return `enum ${assertIdentifier(node.name)} { ${values} }`;
+}
+
+/**
+ * Merge a compiled skeleton layout with ERC-7201 namespaced struct fields.
+ *
+ * @param compiled - solc layout, or `null` if the skeleton failed
+ * @param namespaced - Synthesized layout from `FooStorageLocation` constants
+ * @return Combined layout, or `null` when both sides are empty
+ */
+function mergeLayouts(
+    compiled: SolidityStorageLayout | null,
+    namespaced: SolidityStorageLayout | null,
+): SolidityStorageLayout | null {
+    if (!compiled?.storage?.length) return namespaced;
+    if (!namespaced?.storage?.length) return compiled;
+    return {
+        storage: [...compiled.storage, ...namespaced.storage],
+        types: { ...(compiled.types ?? {}), ...(namespaced.types ?? {}) },
+    };
+}
+
+/**
+ * Turn ERC-7201 structs (`bytes32 constant FooStorageLocation = 0x…`) into
+ * layout entries at `location + memberSlot`.
+ *
+ * @param structs - Parsed structs
+ * @param constants - bytes32 location constants
+ * @return Layout, or `null` when nothing matched
+ */
+function buildNamespacedLayout(
+    structs: Map<string, StructSkeleton>,
+    constants: Map<string, bigint>,
+): SolidityStorageLayout | null {
+    const storage: SolidityStorageEntry[] = [];
+    const types: Record<string, SolidityStorageType> = {};
+
+    for (const [constName, base] of constants) {
+        if (!constName.endsWith('Location')) continue;
+        const structName = constName.slice(0, -'Location'.length);
+        const skeleton = structs.get(structName);
+        if (!skeleton?.members.length) continue;
+        appendNamespacedMembers(skeleton.members, structName, base, storage, types);
+    }
+
+    return storage.length ? { storage, types } : null;
+}
+
+/**
+ * Append packed struct members starting at `baseSlot`.
+ *
+ * @param members - Parser struct members
+ * @param contract - Struct name (layout `contract` field)
+ * @param baseSlot - ERC-7201 namespace slot
+ * @param storage - Destination entries
+ * @param types - Destination type map
+ */
+function appendNamespacedMembers(
+    members: ASTNode[],
+    contract: string,
+    baseSlot: bigint,
+    storage: SolidityStorageEntry[],
+    types: Record<string, SolidityStorageType>,
+): void {
+    let slot = 0n;
+    let offset = 0;
+
+    for (const member of members) {
+        const typeId = synthesizeType(member.typeName, types);
+        if (!typeId) continue;
+        const info = types[typeId];
+        if (!info) continue;
+
+        const bytes = Number(info.numberOfBytes) || 32;
+        const fullSlot = info.encoding === 'mapping' || info.encoding === 'bytes'
+            || info.encoding === 'dynamic_array' || bytes >= 32;
+
+        if (fullSlot) {
+            if (offset > 0) {
+                slot += 1n;
+                offset = 0;
+            }
+            storage.push({
+                slot: (baseSlot + slot).toString(),
+                type: typeId,
+                astId: 0,
+                label: member.name,
+                offset: 0,
+                contract,
+            });
+            slot += 1n;
+            continue;
+        }
+
+        if (offset + bytes > 32) {
+            slot += 1n;
+            offset = 0;
+        }
+        storage.push({
+            slot: (baseSlot + slot).toString(),
+            type: typeId,
+            astId: 0,
+            label: member.name,
+            offset,
+            contract,
+        });
+        offset += bytes;
+        if (offset >= 32) {
+            slot += 1n;
+            offset = 0;
+        }
+    }
+}
+
+/**
+ * Assign a solc-like type id and record it in `types`.
+ *
+ * @param typeNode - Parser type AST
+ * @param types - Type map to extend
+ * @return Type id, or empty if the type cannot be represented
+ */
+function synthesizeType(typeNode: ASTNode | undefined, types: Record<string, SolidityStorageType>): string {
+    if (!typeNode) return '';
+
+    switch (typeNode.type) {
+        case 'ElementaryTypeName': {
+            const name = normalizeElementaryType(typeNode.name);
+            const id = `t_${name}`;
+            if (!types[id]) types[id] = elementaryTypeInfo(name);
+            return id;
+        }
+        case 'Mapping': {
+            const key = synthesizeType(typeNode.keyType, types);
+            const value = synthesizeType(typeNode.valueType, types);
+            if (!key || !value) return '';
+            const id = `t_mapping(${key},${value})`;
+            if (!types[id]) {
+                const keyLabel = types[key]?.label ?? key;
+                const valueLabel = types[value]?.label ?? value;
+                types[id] = {
+                    label: `mapping(${keyLabel} => ${valueLabel})`,
+                    encoding: 'mapping',
+                    numberOfBytes: '32',
+                    key,
+                    value,
+                };
+            }
+            return id;
+        }
+        case 'ArrayTypeName': {
+            const base = synthesizeType(typeNode.baseTypeName, types);
+            if (!base) return '';
+            const len = typeNode.length?.number;
+            if (len) {
+                const id = `t_array(${base})${len}`;
+                const baseBytes = Number(types[base]?.numberOfBytes) || 32;
+                if (!types[id]) {
+                    types[id] = {
+                        label: `${types[base]?.label ?? base}[${len}]`,
+                        encoding: 'inplace',
+                        numberOfBytes: String(baseBytes * Number(len)),
+                        base,
+                    };
+                }
+                return id;
+            }
+            const id = `t_array(${base})dyn`;
+            if (!types[id]) {
+                types[id] = {
+                    label: `${types[base]?.label ?? base}[]`,
+                    encoding: 'dynamic_array',
+                    numberOfBytes: '32',
+                    base,
+                };
+            }
+            return id;
+        }
+        case 'UserDefinedTypeName': {
+            const name = flattenUserDefinedType(rawUserDefinedName(typeNode));
+            if (!name) return '';
+            const id = `t_user_${name}`;
+            if (!types[id]) {
+                types[id] = { label: name, encoding: 'inplace', numberOfBytes: '20' };
+            }
+            return id;
+        }
+        default:
+            return '';
+    }
+}
+
+/**
+ * solc-style type metadata for an elementary Solidity type.
+ *
+ * @param name - Normalized type name (`uint256`, `address`, …)
+ * @return Type descriptor
+ */
+function elementaryTypeInfo(name: string): SolidityStorageType {
+    if (name === 'string' || name === 'bytes') {
+        return { label: name, encoding: 'bytes', numberOfBytes: '32' };
+    }
+    if (name === 'address') {
+        return { label: 'address', encoding: 'inplace', numberOfBytes: '20' };
+    }
+    if (name === 'bool') {
+        return { label: 'bool', encoding: 'inplace', numberOfBytes: '1' };
+    }
+    const uintMatch = /^uint(\d+)$/.exec(name);
+    if (uintMatch) {
+        return { label: name, encoding: 'inplace', numberOfBytes: String(Number(uintMatch[1]) / 8) };
+    }
+    const intMatch = /^int(\d+)$/.exec(name);
+    if (intMatch) {
+        return { label: name, encoding: 'inplace', numberOfBytes: String(Number(intMatch[1]) / 8) };
+    }
+    const bytesMatch = /^bytes(\d+)$/.exec(name);
+    if (bytesMatch) {
+        return { label: name, encoding: 'inplace', numberOfBytes: bytesMatch[1] };
+    }
+    return { label: name, encoding: 'inplace', numberOfBytes: '32' };
 }
 
 function buildSkeletonSource(
