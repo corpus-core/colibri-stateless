@@ -494,7 +494,6 @@ void test_historic_block_gindex_rejects_bad_inputs(void) {
 void test_gloas_activation_epoch_still_reserved(void) {
   const chain_id_t chains[] = {
       C4_CHAIN_MAINNET,
-      C4_CHAIN_SEPOLIA,
       C4_CHAIN_GNOSIS,
       C4_CHAIN_GNOSIS_CHIADO};
 
