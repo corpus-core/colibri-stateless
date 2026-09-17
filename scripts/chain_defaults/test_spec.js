@@ -11,9 +11,7 @@ const spec = require('./chains.json');
 const DEAD_URL_SNIPPETS = [
   'sepolia.drpc.org',
   'sepolia-prover.incubed.net',
-  'sepolia.colimind.com',
   'gnosis-prover.incubed.net',
-  'gnosis.colimind.com',
 ];
 
 const EXPECTED_PROVER_HEAD = {

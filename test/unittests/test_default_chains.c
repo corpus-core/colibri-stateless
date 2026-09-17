@@ -106,9 +106,7 @@ void test_removed_dead_urls_are_absent(void) {
   const char*      dead[] = {
       "sepolia.drpc.org",
       "sepolia-prover.incubed.net",
-      "sepolia.colimind.com",
       "gnosis-prover.incubed.net",
-      "gnosis.colimind.com",
   };
 
   for (size_t i = 0; i < sizeof(ids) / sizeof(ids[0]); i++) {

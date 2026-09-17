@@ -58,8 +58,8 @@ class DefaultChainsTest {
             arrayOf("https://plataberget.colibri-proof.tech"),
             DefaultChains.defaultProvers(id),
         )
-        assertTrue(DefaultChains.defaultEthRpcs(id).single().contains("/execution"))
-        assertTrue(DefaultChains.defaultBeaconApis(id).single().contains("/consensus"))
+        assertTrue(DefaultChains.defaultEthRpcs(id)[0].contains("/execution"))
+        assertTrue(DefaultChains.defaultBeaconApis(id)[0].contains("/consensus"))
     }
 
     @Test

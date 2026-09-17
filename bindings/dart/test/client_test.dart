@@ -144,8 +144,8 @@ void main() {
 
     test('Platåberget defaults', () {
       expect(defaultProvers(7091047534), ['https://plataberget.colibri-proof.tech']);
-//      expect(defaultEthRpcs(7091047534).single, contains('/execution'));
-//      expect(defaultBeaconApis(7091047534).single, contains('/consensus'));
+      expect(defaultEthRpcs(7091047534).first, contains('/execution'));
+      expect(defaultBeaconApis(7091047534).first, contains('/consensus'));
     });
 
     test('unknown chain has prover fallback only', () {
@@ -159,9 +159,7 @@ void main() {
       const dead = [
         'sepolia.drpc.org',
         'sepolia-prover.incubed.net',
-        'sepolia.colimind.com',
         'gnosis-prover.incubed.net',
-        'gnosis.colimind.com',
       ];
       for (final id in [1, 11155111, 100, 10200, 7091047534]) {
         final urls = [

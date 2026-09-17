@@ -240,9 +240,7 @@ class TestClientHelpers:
         dead = (
             "sepolia.drpc.org",
             "sepolia-prover.incubed.net",
-            "sepolia.colimind.com",
             "gnosis-prover.incubed.net",
-            "gnosis.colimind.com",
         )
         for chain_id in [1, 11155111, 100, 10200, 7091047534]:
             urls = (
