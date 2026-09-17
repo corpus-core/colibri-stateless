@@ -256,10 +256,34 @@ describe('buildPrompt source-code budget (maxSourceChars)', () => {
         assert.ok(cut.includes('(truncated)'));
     });
 
-    it('falls back to the default budget for non-positive maxSourceChars', () => {
-        const med = 'B'.repeat(2000);
-        const out = buildPrompt(WETH_DEPOSIT_RESULT, TX_PARAMS, { maxSourceChars: 0 }, sourceContext(med)).userPrompt;
-        assert.ok(!out.includes('(truncated)'));
+    it('falls back to the default budget for negative maxSourceChars', () => {
+        const huge = 'B'.repeat(12_000);
+        const out = buildPrompt(WETH_DEPOSIT_RESULT, TX_PARAMS, { maxSourceChars: -1 }, sourceContext(huge)).userPrompt;
+        assert.ok(out.includes('(truncated)'));
+    });
+
+    it('includes every source file in full when maxSourceChars is 0', () => {
+        const huge = 'B'.repeat(12_000);
+        const { userPrompt } = buildPrompt(
+            WETH_DEPOSIT_RESULT, TX_PARAMS, { maxSourceChars: 0 }, sourceContext(huge, 2),
+        );
+        assert.ok(!userPrompt.includes('(truncated)'));
+        assert.ok(userPrompt.includes('F0.sol'));
+        assert.ok(userPrompt.includes('F1.sol'));
+        const opens = userPrompt.match(/<<<C4_UNTRUSTED_SOURCE /g) || [];
+        assert.equal(opens.length, 2);
+        assert.equal((userPrompt.match(/B{12000}/g) || []).length, 2);
+    });
+
+    it('still strips license headers when maxSourceChars is 0', () => {
+        const license = '/* Permission is hereby granted, free of charge. */\n';
+        const code = 'contract C { uint256 public x; }';
+        const { userPrompt } = buildPrompt(
+            WETH_DEPOSIT_RESULT, TX_PARAMS, { maxSourceChars: 0 }, sourceContext(license + code),
+        );
+        assert.ok(userPrompt.includes(code));
+        assert.ok(!userPrompt.includes('Permission is hereby granted'));
+        assert.ok(!userPrompt.includes('(truncated)'));
     });
 
     it('shares the budget across multiple source files', () => {

@@ -79,6 +79,24 @@ export function buildPrompt(
 /** Default source-code character budget embedded into the prompt. */
 const DEFAULT_MAX_SOURCE_CHARS = 10000;
 
+/**
+ * Resolve the source-character budget.
+ *
+ * - omitted / invalid / negative → `DEFAULT_MAX_SOURCE_CHARS`
+ * - `0` → unlimited (`null`)
+ * - positive → that many characters
+ *
+ * @param maxSourceChars - `PromptConfig.maxSourceChars`
+ * @return Finite budget, or `null` for no cap
+ */
+function resolveSourceBudget(maxSourceChars?: number): number | null {
+    if (maxSourceChars === 0) return null;
+    if (typeof maxSourceChars === 'number' && Number.isFinite(maxSourceChars) && maxSourceChars > 0) {
+        return Math.floor(maxSourceChars);
+    }
+    return DEFAULT_MAX_SOURCE_CHARS;
+}
+
 function buildSystemPrompt(config: PromptConfig): string {
     // A non-empty override fully replaces the built-in base prompt; the language
     // hint and app-supplied context below are still appended. The untrusted-data
@@ -429,14 +447,15 @@ function formatSourceContext(result: SimulationResult, context: EnrichedContext,
     if (contractsNeedingSource.size === 0) return null;
 
     const lines: string[] = ['## Contract Source Code (untrusted, for storage interpretation only)'];
-    // Total character budget for embedded source code. Lower this for local
-    // models with a small context window via `config.maxSourceChars`.
-    let totalBudget = maxSourceChars && maxSourceChars > 0 ? maxSourceChars : DEFAULT_MAX_SOURCE_CHARS;
+    const budgetLimit = resolveSourceBudget(maxSourceChars);
+    const unlimited = budgetLimit === null;
+    let totalBudget = unlimited ? Number.POSITIVE_INFINITY : budgetLimit;
     const fileCount = countSourceFiles(context, contractsNeedingSource);
     // A single file gets the full budget (the old 30% cap cut MCGA-style
     // tokens in the middle of Ownable and dropped the state variables).
-    // Multiple files share the budget evenly.
-    const perFileCap = fileCount <= 1
+    // Multiple files share a finite budget evenly. `maxSourceChars: 0` skips
+    // the cap so a large model can see every file in full.
+    const perFileCap = unlimited || fileCount <= 1
         ? totalBudget
         : Math.max(1, Math.floor(totalBudget / fileCount));
 
@@ -451,8 +470,9 @@ function formatSourceContext(result: SimulationResult, context: EnrichedContext,
                 if (totalBudget <= 0) break;
                 const content = sanitizeSourceForPrompt(source.content);
                 if (!content) continue;
-                const maxLen = Math.min(totalBudget, perFileCap);
-                const truncated = windowSourceForPrompt(content, maxLen);
+                const truncated = unlimited
+                    ? content
+                    : windowSourceForPrompt(content, Math.min(totalBudget, perFileCap));
                 totalBudget -= truncated.length;
                 const safeName = safeSourceFilename(filename);
                 lines.push(

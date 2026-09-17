@@ -49,7 +49,7 @@ const explanation = await explainSimulation(result, tx, {
   baseUrl: 'http://...',    // Custom endpoint (required for Ollama)
   language: 'de',           // Response language (default: English)
   maxTokens: 1024,          // Max response tokens
-  maxSourceChars: 10000,    // Source-code budget embedded in the prompt
+  maxSourceChars: 10000,    // Source-code budget (0 = no cap, license headers still stripped)
 
   // App-specific context appended to the system prompt
   systemPromptInclude: 'This is a DeFi wallet. Focus on user-facing financial impact.'
@@ -90,7 +90,7 @@ const explanation = await explainSimulation(result, tx, {
   chainId: 1,
   // Many prebuilt models default to a 4096-token context. Either raise it...
   contextWindowSize: 8192,
-  // ...and/or shrink the embedded source-code budget (default 10000 chars).
+  // ...and/or set the embedded source-code budget (default 10000 chars; 0 = no cap).
   maxSourceChars: 4000,
   // Progress for the one-time model download (cached afterwards).
   onModelProgress: ({ progress, text }) => console.log(`${Math.round(progress * 100)}% ${text}`),

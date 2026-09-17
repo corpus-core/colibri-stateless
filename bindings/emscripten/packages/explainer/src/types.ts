@@ -129,8 +129,10 @@ export interface PromptConfig {
     /** Desired response language as ISO 639-1 code (e.g. `"de"`, `"es"`). Default: English. */
     language?: string;
     /**
-     * Maximum number of source-code characters embedded into the prompt.
-     * Lower this for local models with a small context window. Default: `10000`.
+     * Maximum number of source-code characters embedded into the prompt
+     * (after license-header stripping). Lower this for local models with a
+     * small context window. `0` disables the cap and includes every source
+     * file in full. Default: `10000`.
      */
     maxSourceChars?: number;
 }
