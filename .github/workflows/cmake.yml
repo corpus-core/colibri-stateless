@@ -6,6 +6,18 @@ on:
   workflow_call:  # Called by main-ci.yml workflow
 
 jobs:
+  chain-defaults:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Check generated chain defaults
+        run: node scripts/chain_defaults/generate.js --check
+      - name: Check chain-defaults spec invariants
+        run: node scripts/chain_defaults/test_spec.js
+
   build-embedded:
     runs-on: ubuntu-latest
 
