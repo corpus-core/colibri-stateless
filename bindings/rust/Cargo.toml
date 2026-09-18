@@ -31,18 +31,29 @@ libc = "0.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 tokio = { version = "1", default-features = false, features = ["rt", "sync", "macros", "time"] }
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 thiserror = "2"
 futures = { version = "0.3", default-features = false, features = ["std", "async-await"] }
 async-trait = "0.1"
+
+# `reqwest` (and its transitive hyper / rustls stack) do not build for
+# `wasm32-wasip1` / any other wasm target: TLS, DNS and I/O are not
+# available under WASI. Restrict the built-in HTTP transport to native
+# targets; on wasm the caller must supply their own `RequestHandler`.
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 
 [build-dependencies]
 cmake = "0.1"
 
 [dev-dependencies]
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 tempfile = "3"
 serial_test = "3"
+
+# `rt-multi-thread` is a native-only tokio feature. Tests and examples
+# that need it are gated via `#[cfg(not(target_family = "wasm"))]` (or
+# excluded from the wasm test run entirely).
+[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 
 [[example]]
 name = "rpc"

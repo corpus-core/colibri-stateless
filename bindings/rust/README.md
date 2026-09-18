@@ -86,7 +86,8 @@ static archive. Where that archive comes from depends on your build:
   `colibri-native-<target>.tar.gz` from the GitHub Release matching
   the crate version. Supported targets: `x86_64-unknown-linux-gnu`,
   `aarch64-apple-darwin`, `x86_64-apple-darwin`,
-  `x86_64-pc-windows-msvc`.
+  `x86_64-pc-windows-msvc`, `wasm32-wasip1` (WASI Preview 1, see
+  [WebAssembly (wasm32-wasip1)](#webassembly-wasm32-wasip1) below).
 - **Monorepo checkout** -- `build.rs` shells out to CMake and links
   the just-built archives. Requires CMake ≥ 3.20 and a C compiler. The
   CMake tree is placed in `build-rust/<target>/` at the repository
@@ -99,6 +100,113 @@ static archive. Where that archive comes from depends on your build:
   or cross-compilation targets not covered by the Release matrix.
 - **docs.rs** -- the native build is skipped (`DOCS_RS` env var);
   only the API docs are produced.
+
+## WebAssembly (wasm32-wasip1)
+
+The crate compiles for `wasm32-wasip1` (WASI Preview 1) via the
+[wasi-sdk][wasi-sdk] toolchain. Verifier and prover state machines
+run inside the sandbox; TLS, DNS and sockets are not available under
+WASI, so the built-in `reqwest` transport is **not** compiled for
+wasm. Wasm hosts must therefore always supply their own
+[`RequestHandler`][request-handler] -- without one, every pending
+request is answered with an error.
+
+- **crates.io**: the release asset `colibri-native-wasm32-wasip1.tar.gz`
+  ships the static archives plus `libc++.a` / `libc++abi.a`; `wasi-libc`
+  itself comes from `rustc`'s wasm sysroot. Nothing extra is needed
+  on the consumer side.
+- **Monorepo checkout**: set `WASI_SDK_PATH` to an unpacked
+  [wasi-sdk][wasi-sdk] release (>= 22) so `build.rs` can pick up the
+  `wasi-sdk-p1.cmake` toolchain file.
+- **Runtime**: use `tokio` with `flavor = "current_thread"` (wasm has
+  no `rt-multi-thread` feature). Prefer `MemoryStorage`; `FileStorage`
+  only works under runtimes that mount host directories via preopens
+  (`wasmtime --dir=<host>::<guest>`).
+
+```rust,ignore
+use async_trait::async_trait;
+use colibri_stateless::{
+    Colibri, ColibriError, DataRequest, Encoding, HttpError, HttpMethod,
+    MemoryStorage, RequestHandler, RequestType, MAINNET,
+};
+use serde_json::json;
+use std::sync::Arc;
+
+/// HTTP transport supplied by the wasm host (e.g. a WASI import or the
+/// `wasi:http` component). Replace with whatever your runtime offers.
+async fn host_fetch(method: &str, url: &str, accept: &str, body: Option<&[u8]>)
+    -> Result<Vec<u8>, String>
+{
+    todo!("call into the host")
+}
+
+struct WasiHandler {
+    eth_rpcs: Vec<String>,
+    beacon_apis: Vec<String>,
+    provers: Vec<String>,
+}
+
+#[async_trait]
+impl RequestHandler for WasiHandler {
+    async fn handle(&self, req: &DataRequest) -> Result<Vec<u8>, ColibriError> {
+        // The C core emits one of EthRpc / BeaconApi / Prover /
+        // Checkpointz; other variants are handled internally.
+        let servers = match req.request_type {
+            RequestType::EthRpc => &self.eth_rpcs,
+            RequestType::BeaconApi | RequestType::Checkpointz => &self.beacon_apis,
+            _ => &self.provers,
+        };
+        let base = servers.iter().enumerate()
+            .find(|(i, _)| req.exclude_mask & (1u32 << i) == 0)
+            .map(|(_, s)| s)
+            .ok_or_else(|| HttpError::new("no server left"))?;
+        let url = format!("{}/{}", base.trim_end_matches('/'),
+            req.url.trim_start_matches('/'));
+        let accept = match req.encoding {
+            Encoding::Json => "application/json",
+            Encoding::Ssz => "application/octet-stream",
+        };
+        let body = req.payload.as_ref().map(serde_json::to_vec).transpose()?;
+        let method = match req.method {
+            HttpMethod::Get => "GET",
+            HttpMethod::Post => "POST",
+            HttpMethod::Put => "PUT",
+            HttpMethod::Delete => "DELETE",
+        };
+        host_fetch(method, &url, accept, body.as_deref())
+            .await
+            .map_err(|e| HttpError::full(e, 0, url).into())
+    }
+}
+
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), ColibriError> {
+    let client = Colibri::builder(MAINNET)
+        .provers(vec!["https://mainnet.colibri-proof.tech".to_string()])
+        .storage(MemoryStorage::new())
+        .request_handler(Arc::new(WasiHandler {
+            eth_rpcs: vec![],
+            beacon_apis: vec![],
+            provers: vec!["https://mainnet.colibri-proof.tech".to_string()],
+        }))
+        .build();
+
+    let block = client.rpc("eth_blockNumber", &json!([])).await?;
+    println!("verified block: {block}");
+    Ok(())
+}
+```
+
+Build and run:
+
+```bash
+rustup target add wasm32-wasip1
+cargo build --release --target wasm32-wasip1
+wasmtime target/wasm32-wasip1/release/app.wasm
+```
+
+[wasi-sdk]: https://github.com/WebAssembly/wasi-sdk
+[request-handler]: https://docs.rs/colibri-stateless/latest/colibri_stateless/trait.RequestHandler.html
 
 ## Testing against shared fixtures
 
