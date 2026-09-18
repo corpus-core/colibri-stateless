@@ -490,10 +490,7 @@ fn link_wasip1_cxx_runtime() {
     };
     let dst_dir = PathBuf::from(out_dir).join("wasi-cxx");
     if let Err(e) = fs::create_dir_all(&dst_dir) {
-        eprintln!(
-            "cargo:warning=Could not create {}: {e}",
-            dst_dir.display()
-        );
+        eprintln!("cargo:warning=Could not create {}: {e}", dst_dir.display());
         return;
     }
     for lib in ["libc++.a", "libc++abi.a"] {
