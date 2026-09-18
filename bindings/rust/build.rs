@@ -461,27 +461,54 @@ fn pick_wasip1_toolchain(sdk: &Path) -> PathBuf {
 }
 
 /// Tell rustc where to find the C++ runtime for the wasm32-wasip1
-/// target. evmone requires libc++/libc++abi; wasi-libc itself comes from
-/// the rustc sysroot and does not need to be declared here.
+/// target. evmone requires libc++/libc++abi; wasi-libc itself comes
+/// from rustc's own wasi sysroot and MUST NOT be shadowed by the
+/// wasi-sdk copy (rustc's crt1-command.o and libstd are compiled
+/// against very specific wasi-libc symbol versions -- see e.g.
+/// `__wasi_init_tp`, `pthread_join`, `pthread_detach`; if rust-lld
+/// resolves `-l c` against the wasi-sdk archive first, the mismatch
+/// surfaces as "undefined symbol" errors at link time).
 ///
-/// Two paths exist:
-///
-/// - **Dev / CI build** (`WASI_SDK_PATH` set): add the SDK's
-///   wasi-sysroot lib dir and link `c++` / `c++abi` explicitly.
-/// - **Prebuilt archive** (`WASI_SDK_PATH` unset): `libc++.a` and
-///   `libc++abi.a` are shipped alongside the Colibri static libraries
-///   inside `lib/` and are already picked up by
-///   `link_setup_from_dir()`; re-declaring them here would emit
-///   duplicate `-lc++`/`-lc++abi` directives, so we skip.
+/// The prebuilt release asset therefore ships `libc++.a` and
+/// `libc++abi.a` inside `lib/` next to the Colibri archives and no
+/// extra work is needed here. In dev mode we do the equivalent by
+/// copying just those two archives into `OUT_DIR/wasi-cxx/` and
+/// adding *only* that scratch directory to the rustc link search
+/// path.
 fn link_wasip1_cxx_runtime() {
     let Ok(sdk) = env::var("WASI_SDK_PATH") else {
         return;
     };
-    let lib_dir = PathBuf::from(sdk).join("share/wasi-sysroot/lib/wasm32-wasip1");
-    if !lib_dir.exists() {
+    let src_dir = PathBuf::from(sdk).join("share/wasi-sysroot/lib/wasm32-wasip1");
+    if !src_dir.exists() {
         return;
     }
-    println!("cargo:rustc-link-search=native={}", lib_dir.display());
+    let Some(out_dir) = env::var_os("OUT_DIR") else {
+        // Should never happen inside a Cargo build script, but bail
+        // out cleanly if it does.
+        return;
+    };
+    let dst_dir = PathBuf::from(out_dir).join("wasi-cxx");
+    if let Err(e) = fs::create_dir_all(&dst_dir) {
+        eprintln!(
+            "cargo:warning=Could not create {}: {e}",
+            dst_dir.display()
+        );
+        return;
+    }
+    for lib in ["libc++.a", "libc++abi.a"] {
+        let src = src_dir.join(lib);
+        let dst = dst_dir.join(lib);
+        if let Err(e) = fs::copy(&src, &dst) {
+            eprintln!(
+                "cargo:warning=Could not copy {} -> {}: {e}",
+                src.display(),
+                dst.display()
+            );
+            return;
+        }
+    }
+    println!("cargo:rustc-link-search=native={}", dst_dir.display());
     println!("cargo:rustc-link-lib=static=c++");
     println!("cargo:rustc-link-lib=static=c++abi");
 }
