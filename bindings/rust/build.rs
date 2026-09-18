@@ -123,6 +123,22 @@ fn resolve_link_setup(manifest_dir: &Path, target: &str) -> LinkSetup {
         return setup;
     }
 
+    // WebAssembly targets are not supported by the native distribution:
+    // no prebuilt release assets exist and the C core cannot be linked
+    // against rustc's wasm targets (different ABI / no libc). Fail early
+    // with a pointer to the supported alternative.
+    if target.starts_with("wasm32") || target.starts_with("wasm64") {
+        panic!(
+            "colibri-stateless: WebAssembly targets ({target}) are not supported.\n\
+             \n\
+             For browser / wasm environments use the JS/TS binding instead:\n\
+             https://www.npmjs.com/package/@corpus-core/colibri-stateless\n\
+             \n\
+             If you have static archives built for your wasm target (e.g.\n\
+             via wasi-sdk), point COLIBRI_LIB_DIR at them to override this."
+        );
+    }
+
     let repo_root = manifest_dir
         .parent()
         .and_then(Path::parent)
