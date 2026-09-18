@@ -32,7 +32,21 @@
 //! For running the shared integration tests against `test/data`, see
 //! the `testing` module (enabled by default in `cargo test`).
 //!
+//! # WebAssembly (`wasm32-wasip1`)
+//!
+//! The crate compiles for `wasm32-wasip1` via the [wasi-sdk][wasi-sdk]
+//! toolchain. The built-in `reqwest` transport is gated on
+//! `cfg(not(target_family = "wasm"))` (hyper / rustls do not build for
+//! wasm), so on wasm the host **must** supply a [`RequestHandler`] via
+//! [`ColibriBuilder::request_handler`]. Use `tokio` with `flavor =
+//! "current_thread"` (there is no `rt-multi-thread` feature for wasm)
+//! and prefer [`MemoryStorage`]. See the "WebAssembly" section of the
+//! [Rust bindings guide][guide] for a complete `RequestHandler`
+//! example.
+//!
 //! [repo]: https://github.com/corpus-core/colibri-stateless
+//! [wasi-sdk]: https://github.com/WebAssembly/wasi-sdk
+//! [guide]: https://corpus-core.gitbook.io/specification-colibri-stateless/developer-guide/bindings/rust
 
 #![warn(missing_docs)]
 #![allow(clippy::needless_doctest_main)]

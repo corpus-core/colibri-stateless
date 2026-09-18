@@ -14,9 +14,11 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
 use futures::future::join_all;
+#[cfg(not(target_family = "wasm"))]
 use reqwest::Client as HttpClient;
 use serde_json::Value as JsonValue;
 
+#[cfg(not(target_family = "wasm"))]
 use super::helpers::get_current_version_number;
 use super::prover::Prover;
 use super::request::{set_error as req_set_error, set_response as req_set_response};
@@ -25,9 +27,12 @@ use super::verifier::Verifier;
 use crate::storage::{register_storage, FileStorage, MemoryStorage, Storage};
 use crate::types::{
     default_beacon_apis, default_checkpointz, default_eth_rpcs, default_provers, ColibriError,
-    DataRequest, Encoding, HttpMethod, PrivacyMode, ProverMode, RequestType, RevertError, RpcError,
-    Status, MAINNET,
+    DataRequest, PrivacyMode, ProverMode, RevertError, RpcError, Status, MAINNET,
 };
+// Endpoint routing / body encoding is only used by the built-in HTTP
+// transport, which is native-only (see the wasm gate on `execute_http`).
+#[cfg(not(target_family = "wasm"))]
+use crate::types::{Encoding, HttpMethod, RequestType};
 
 /// Configuration for a [`Colibri`] client -- endpoint lists, prover
 /// flags and freshness policy. Construct via [`Colibri::builder`].
@@ -146,6 +151,7 @@ pub struct ColibriBuilder {
     config: ColibriConfig,
     storage: Option<Box<dyn Storage>>,
     request_handler: Option<Arc<dyn RequestHandler>>,
+    #[cfg(not(target_family = "wasm"))]
     http_client: Option<HttpClient>,
 }
 
@@ -155,6 +161,7 @@ impl ColibriBuilder {
             config: ColibriConfig::new(chain_id),
             storage: None,
             request_handler: None,
+            #[cfg(not(target_family = "wasm"))]
             http_client: None,
         }
     }
@@ -266,6 +273,12 @@ impl ColibriBuilder {
     /// Provide a pre-configured `reqwest` client (e.g. with custom TLS,
     /// proxies, or connection pooling). When omitted, a plain client
     /// with the configured `request_timeout` is used.
+    ///
+    /// Not available on `wasm*` targets: `reqwest` (hyper / rustls)
+    /// cannot be compiled for wasm, so wasm hosts must supply their
+    /// own [`RequestHandler`] via
+    /// [`request_handler`](ColibriBuilder::request_handler).
+    #[cfg(not(target_family = "wasm"))]
     pub fn http_client(mut self, client: HttpClient) -> Self {
         self.http_client = Some(client);
         self
@@ -273,6 +286,7 @@ impl ColibriBuilder {
 
     /// Consume the builder and return the [`Colibri`].
     pub fn build(self) -> Colibri {
+        #[cfg(not(target_family = "wasm"))]
         let http = self.http_client.unwrap_or_else(|| {
             HttpClient::builder()
                 .timeout(self.config.request_timeout)
@@ -291,6 +305,7 @@ impl ColibriBuilder {
 
         Colibri {
             config: self.config,
+            #[cfg(not(target_family = "wasm"))]
             http,
             request_handler: self.request_handler,
         }
@@ -314,10 +329,12 @@ fn register_boxed_storage(storage: Box<dyn Storage>) {
 }
 
 /// High-level Colibri client. Cheap to `clone` once constructed
-/// (backed by an `Arc<HttpClient>`).
+/// (backed by an `Arc<HttpClient>` on native, and just the shared
+/// `Arc<dyn RequestHandler>` on wasm targets).
 #[derive(Clone)]
 pub struct Colibri {
     config: ColibriConfig,
+    #[cfg(not(target_family = "wasm"))]
     http: HttpClient,
     request_handler: Option<Arc<dyn RequestHandler>>,
 }
@@ -482,7 +499,9 @@ impl Colibri {
             tokio::time::sleep(Duration::from_millis(req.delay as u64)).await;
         }
 
-        // Injected mock handler wins -- used by the testing module.
+        // Injected mock / user-supplied handler wins -- used by the
+        // testing module and mandatory on wasm targets (no built-in
+        // HTTP transport there).
         //
         // Safety: `req.req_ptr` originates from a `pending` status
         // returned by the very context we are still executing (see
@@ -499,26 +518,50 @@ impl Colibri {
             return;
         }
 
-        let servers = self.pick_servers(req, use_prover_fallback);
-        if servers.is_empty() {
+        // No handler -> fall back to the built-in reqwest transport on
+        // native targets. wasm targets have no default transport and
+        // must always supply a `RequestHandler`.
+        #[cfg(not(target_family = "wasm"))]
+        {
+            let servers = self.pick_servers(req, use_prover_fallback);
+            if servers.is_empty() {
+                unsafe {
+                    let _ = req_set_error(
+                        req.req_ptr,
+                        &format!("no servers configured for {:?}", req.request_type),
+                        0,
+                    );
+                }
+                return;
+            }
+
+            match self.execute_http(req, &servers).await {
+                Ok((bytes, node_index)) => unsafe {
+                    req_set_response(req.req_ptr, &bytes, node_index)
+                },
+                Err(err) => unsafe {
+                    let _ = req_set_error(req.req_ptr, &err.to_string(), 0);
+                },
+            }
+        }
+        #[cfg(target_family = "wasm")]
+        {
+            // `use_prover_fallback` is only consumed by `pick_servers`,
+            // which lives on native. Keep it referenced here so the
+            // shared `handle_requests` signature stays cfg-agnostic.
+            let _ = use_prover_fallback;
             unsafe {
                 let _ = req_set_error(
                     req.req_ptr,
-                    &format!("no servers configured for {:?}", req.request_type),
+                    "colibri-stateless: no built-in HTTP transport on wasm targets; \
+                     configure a RequestHandler via ColibriBuilder::request_handler()",
                     0,
                 );
             }
-            return;
-        }
-
-        match self.execute_http(req, &servers).await {
-            Ok((bytes, node_index)) => unsafe { req_set_response(req.req_ptr, &bytes, node_index) },
-            Err(err) => unsafe {
-                let _ = req_set_error(req.req_ptr, &err.to_string(), 0);
-            },
         }
     }
 
+    #[cfg(not(target_family = "wasm"))]
     fn pick_servers(&self, req: &DataRequest, use_prover_fallback: bool) -> Vec<String> {
         match req.request_type {
             RequestType::Checkpointz => {
@@ -548,6 +591,7 @@ impl Colibri {
         }
     }
 
+    #[cfg(not(target_family = "wasm"))]
     async fn execute_http(
         &self,
         req: &DataRequest,
@@ -635,6 +679,7 @@ impl Colibri {
     }
 }
 
+#[cfg(not(target_family = "wasm"))]
 fn is_get_proof(req: &DataRequest) -> bool {
     matches!(
         req.payload.as_ref().and_then(|p| p.get("method")),

@@ -10,7 +10,9 @@
 use colibri_stateless::{Colibri, ColibriError, MemoryStorage, MAINNET};
 use serde_json::json;
 
-#[tokio::main]
+// `current_thread` keeps the example portable across native and wasm
+// targets (wasm has no `rt-multi-thread` feature).
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), ColibriError> {
     let client = Colibri::builder(MAINNET)
         .storage(MemoryStorage::new())
