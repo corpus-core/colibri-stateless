@@ -75,11 +75,20 @@ variables, optional source snippets), so a mid-size model is enough:
 
 | Model | VRAM (~4-bit) | Notes |
 | --- | --- | --- |
-| `Llama-3.2-3B` / `Qwen2.5-Coder-3B` | ~2.3-3 GB | Lower usable bound |
-| `Qwen2.5-Coder-7B-Instruct` | ~5-6 GB | Best quality, code-tuned (default) |
+| `colibri-tsa-4b` | ~4.4 GB (32k context) | Fine-tuned on explainer prompts (default) |
+| `Llama-3.2-3B` / `Qwen2.5-Coder-3B` | ~2.3-3 GB | Generic, lower usable bound |
+| `Qwen2.5-Coder-7B-Instruct` | ~5-6 GB | Generic, code-tuned |
 
-If a small context window (many prebuilt models default to 4096 tokens) is
-exceeded, lower **Max source chars** and/or raise the **Context window** field.
+The fine-tuned entries come from `TSA_EXPLAINER_MODELS` in the explainer
+package and appear first in the dropdown; selecting one prefills **Context
+window** with the value the model was packaged for. Their weights are loaded,
+in this order, from `?modelUrl=<base>` (explicit override, e.g. a locally
+converted model served by `tsa_train.py serve`), from the same origin at
+`/models/<model_id>/<weights_version>/` when a model server is deployed behind
+the playground's reverse proxy (probed once on page load), or from the record's
+Hugging Face URL. Prebuilt models default to
+4096 tokens: if that is exceeded, lower **Max source chars** and/or raise the
+**Context window** field.
 
 ## License
 

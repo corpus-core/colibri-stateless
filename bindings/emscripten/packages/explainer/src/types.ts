@@ -168,6 +168,25 @@ export interface LLMProviderConfig {
      * core package stays free of a hard dependency on `@mlc-ai/web-llm`.
      */
     webllmEngine?: unknown;
+    /**
+     * Complete WebLLM `AppConfig` (`{ model_list: ModelRecord[], ... }`) to use
+     * instead of the default (prebuilt models + `TSA_EXPLAINER_MODELS`). Only
+     * used by the `webllm` provider when it creates the engine itself.
+     */
+    webllmAppConfig?: unknown;
+    /**
+     * Custom WebLLM model records (`ModelRecord[]`) that replace
+     * `TSA_EXPLAINER_MODELS` when the provider builds its app config, e.g. a
+     * fine-tune served from `http://localhost:8787/` before it is published.
+     * Ignored when `webllmAppConfig` is given. Only used by the `webllm` provider.
+     */
+    webllmModelRecords?: unknown[];
+    /**
+     * Force the WebLLM "no thinking" mode on or off (`extra_body.enable_thinking`).
+     * Default: on for the fine-tuned explainer models and prebuilt Qwen3 /
+     * Qwen3.5, off otherwise. Only used by the `webllm` provider.
+     */
+    disableThinking?: boolean;
 }
 
 export interface ExplainerConfig extends PromptConfig, LLMProviderConfig {

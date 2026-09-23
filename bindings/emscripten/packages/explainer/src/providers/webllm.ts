@@ -24,11 +24,88 @@
 import type { LLMProvider, LLMProviderConfig, ModelProgress } from '../types.js';
 
 /**
- * Default WebLLM model. A code-tuned 7B model that produces solid Solidity
- * explanations but needs a WebGPU device with roughly 5-6 GB of free VRAM.
- * For lower-end devices use a 3B model such as `Llama-3.2-3B-Instruct-q4f16_1-MLC`.
+ * A WebLLM `ModelRecord` (the shape `@mlc-ai/web-llm` expects in
+ * `appConfig.model_list`) plus display metadata used by UIs.
+ *
+ * `model_lib` may be a bare file name; it is then resolved against the
+ * installed WebLLM's `modelLibURLPrefix + modelVersion`, exactly like the
+ * prebuilt entries. That keeps our weights on the model library the runtime
+ * ships with instead of pinning a URL that goes stale on the next npm bump.
  */
-export const DEFAULT_WEBLLM_MODEL = 'Qwen2.5-Coder-7B-Instruct-q4f16_1-MLC';
+export interface WebLLMModelRecord {
+    /** URL of the MLC weight directory (Hugging Face repo). */
+    model: string;
+    /** Identifier passed to `CreateMLCEngine`. */
+    model_id: string;
+    /** WASM model library: absolute URL or file name under the prebuilt prefix. */
+    model_lib: string;
+    vram_required_MB?: number;
+    low_resource_required?: boolean;
+    overrides?: { context_window_size?: number };
+    /** Approximate weight download in GB, for menus. */
+    download_gb?: number;
+    /** Human-readable label for menus. */
+    label?: string;
+    /**
+     * Version directory of the weights on a self-hosted model server
+     * (`<server>/<model_id>/<weights_version>/`). Bumped whenever new weights
+     * are published, because browsers cache shards by URL.
+     */
+    weights_version?: string;
+    /**
+     * The base model reasons in a `<think>` block by default. When `true`, the
+     * provider asks WebLLM to emit an empty thinking block so the answer is
+     * returned directly, matching how the fine-tune was trained.
+     */
+    disable_thinking?: boolean;
+}
+
+/**
+ * Models fine-tuned by corpus-core for the explainer task (Qwen3.5 family,
+ * `q4f16_1`, converted with MLC and hosted on Hugging Face). They reuse the
+ * prebuilt model libraries of the corresponding base models, so no custom
+ * WASM is needed. The 4B variant is the default; larger variants are added
+ * here once they are published.
+ */
+export const TSA_EXPLAINER_MODELS: readonly WebLLMModelRecord[] = [
+    {
+        model: 'https://huggingface.co/corpus-core/colibri-tsa-4b-q4f16_1-MLC',
+        model_id: 'colibri-tsa-4b-q4f16_1-MLC',
+        model_lib: 'Qwen3.5-4B-q4f16_1_cs1k-webgpu.wasm',
+        // ~2.4 GB weights + ~1 GB KV cache at 32k (8 attention layers, 4 KV heads).
+        vram_required_MB: 4400,
+        low_resource_required: false,
+        overrides: { context_window_size: 32768 },
+        download_gb: 2.4,
+        label: 'Colibri TSA 4B (Qwen3.5, fine-tuned)',
+        weights_version: 'v1',
+        disable_thinking: true,
+    },
+];
+
+/**
+ * Default WebLLM model: the corpus-core fine-tune of Qwen3.5-4B (~2.4 GB
+ * download, ~4.4 GB VRAM incl. a 32k context). It was trained on exactly the
+ * prompts this package builds. Prebuilt generic models such as
+ * `Qwen2.5-Coder-7B-Instruct-q4f16_1-MLC` still work as alternatives.
+ */
+export const DEFAULT_WEBLLM_MODEL = TSA_EXPLAINER_MODELS[0].model_id;
+
+/**
+ * Whether generation for `modelId` should suppress the model's thinking
+ * block. True for our fine-tunes (flagged in the record) and for prebuilt
+ * Qwen3 / Qwen3.5 models, which otherwise spend the token budget on
+ * `<think>` before answering.
+ *
+ * @param modelId - WebLLM model id
+ * @param records - Custom records to consult (default: `TSA_EXPLAINER_MODELS`)
+ * @return `true` when `extra_body.enable_thinking: false` should be sent
+ */
+export function shouldDisableThinking(modelId: string, records: readonly WebLLMModelRecord[] = TSA_EXPLAINER_MODELS): boolean {
+    const rec = records.find((r) => r.model_id === modelId);
+    if (rec && rec.disable_thinking !== undefined) return rec.disable_thinking;
+    return /^Qwen3(\.\d+)?-/i.test(modelId);
+}
 
 // Minimal structural typings for the subset of the `@mlc-ai/web-llm` API we use.
 // Kept local so the package compiles even when the optional dependency is absent.
@@ -48,12 +125,65 @@ interface MLCEngineLike {
     };
 }
 
+interface AppConfigLike {
+    model_list: WebLLMModelRecord[];
+    [key: string]: unknown;
+}
+
 interface WebLLMModule {
     CreateMLCEngine(
         modelId: string,
-        engineConfig?: { initProgressCallback?: (report: { progress?: number; text?: string }) => void },
+        engineConfig?: {
+            appConfig?: AppConfigLike;
+            initProgressCallback?: (report: { progress?: number; text?: string }) => void;
+        },
         chatOpts?: { context_window_size?: number },
     ): Promise<MLCEngineLike>;
+    prebuiltAppConfig?: AppConfigLike;
+    modelLibURLPrefix?: string;
+    modelVersion?: string;
+}
+
+/**
+ * Resolve `model_lib` file names against the runtime's prebuilt library
+ * location. Absolute URLs pass through unchanged.
+ *
+ * @param record - Model record, possibly with a bare `model_lib` file name
+ * @param webllm - Loaded `@mlc-ai/web-llm` module (for prefix + version)
+ * @return Record whose `model_lib` is an absolute URL
+ */
+export function resolveModelRecord(
+    record: WebLLMModelRecord,
+    webllm: { modelLibURLPrefix?: string; modelVersion?: string },
+): WebLLMModelRecord {
+    if (/^https?:\/\//i.test(record.model_lib)) return record;
+    const prefix = webllm.modelLibURLPrefix;
+    const version = webllm.modelVersion;
+    if (!prefix || !version) {
+        throw new Error(
+            `Cannot resolve model library "${record.model_lib}" for ${record.model_id}: the installed @mlc-ai/web-llm exposes no modelLibURLPrefix/modelVersion.`,
+        );
+    }
+    return { ...record, model_lib: `${prefix}${version}/${record.model_lib}` };
+}
+
+/**
+ * Build the `appConfig` handed to `CreateMLCEngine`: the runtime's prebuilt
+ * list plus our fine-tuned records (resolved). Custom records win over
+ * prebuilt entries with the same `model_id`.
+ *
+ * @param webllm - Loaded `@mlc-ai/web-llm` module
+ * @param extra - Records to append (default: `TSA_EXPLAINER_MODELS`)
+ * @return App config with the merged model list
+ */
+export function buildAppConfig(webllm: WebLLMModule, extra: readonly WebLLMModelRecord[] = TSA_EXPLAINER_MODELS): AppConfigLike {
+    const base = webllm.prebuiltAppConfig ?? { model_list: [] };
+    const resolved = extra.map((r) => resolveModelRecord(r, webllm));
+    const custom = new Set(resolved.map((r) => r.model_id));
+    return {
+        ...base,
+        model_list: [...base.model_list.filter((r) => !custom.has(r.model_id)), ...resolved],
+    };
 }
 
 /**
@@ -77,6 +207,9 @@ export class WebLLMProvider implements LLMProvider {
     private onProgress?: (progress: ModelProgress) => void;
     private onToken?: (delta: string, full: string) => void;
     private injectedEngine?: MLCEngineLike;
+    private appConfig?: AppConfigLike;
+    private modelRecords?: WebLLMModelRecord[];
+    private disableThinking: boolean;
 
     constructor(config: LLMProviderConfig) {
         this.model = config.model || DEFAULT_WEBLLM_MODEL;
@@ -86,6 +219,9 @@ export class WebLLMProvider implements LLMProvider {
         this.onProgress = config.onModelProgress;
         this.onToken = config.onToken;
         this.injectedEngine = config.webllmEngine as MLCEngineLike | undefined;
+        this.appConfig = config.webllmAppConfig as AppConfigLike | undefined;
+        this.modelRecords = config.webllmModelRecords as WebLLMModelRecord[] | undefined;
+        this.disableThinking = config.disableThinking ?? shouldDisableThinking(this.model, this.modelRecords ?? TSA_EXPLAINER_MODELS);
     }
 
     async complete(systemPrompt: string, userPrompt: string): Promise<string> {
@@ -94,6 +230,10 @@ export class WebLLMProvider implements LLMProvider {
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt },
         ];
+        // WebLLM prefixes the reply with an empty `<think>\n\n</think>\n\n`
+        // block when `enable_thinking` is false; the fine-tunes were trained
+        // with exactly that prefix (Qwen3.5 chat template, non-thinking).
+        const extra = this.disableThinking ? { extra_body: { enable_thinking: false } } : {};
 
         // Stream token-by-token when a callback is provided so callers can render
         // the answer live (generation can take 10-20s on consumer hardware).
@@ -103,6 +243,7 @@ export class WebLLMProvider implements LLMProvider {
                 max_tokens: this.maxTokens,
                 temperature: this.temperature,
                 stream: true,
+                ...extra,
             })) as AsyncIterable<ChatCompletionChunkLike>;
 
             let full = '';
@@ -121,6 +262,7 @@ export class WebLLMProvider implements LLMProvider {
             messages,
             max_tokens: this.maxTokens,
             temperature: this.temperature,
+            ...extra,
         })) as ChatCompletionLike;
 
         const content = res.choices?.[0]?.message?.content;
@@ -170,12 +312,16 @@ export class WebLLMProvider implements LLMProvider {
             );
         }
 
-        const engineConfig = this.onProgress
-            ? {
-                initProgressCallback: (report: { progress?: number; text?: string }) =>
-                    this.onProgress!({ progress: report.progress ?? 0, text: report.text ?? '' }),
-            }
-            : undefined;
+        // Always pass an app config: the prebuilt list alone does not know our
+        // fine-tuned records. A caller-supplied `webllmAppConfig` replaces it;
+        // `webllmModelRecords` swaps only the custom records (local test weights).
+        const engineConfig: NonNullable<Parameters<WebLLMModule['CreateMLCEngine']>[1]> = {
+            appConfig: this.appConfig ?? buildAppConfig(webllm, this.modelRecords ?? TSA_EXPLAINER_MODELS),
+        };
+        if (this.onProgress) {
+            engineConfig.initProgressCallback = (report: { progress?: number; text?: string }) =>
+                this.onProgress!({ progress: report.progress ?? 0, text: report.text ?? '' });
+        }
 
         const chatOpts = this.contextWindowSize ? { context_window_size: this.contextWindowSize } : undefined;
 

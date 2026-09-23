@@ -5,6 +5,10 @@ import {
     explainSimulation,
     WebLLMProvider,
     DEFAULT_WEBLLM_MODEL,
+    TSA_EXPLAINER_MODELS,
+    shouldDisableThinking,
+    resolveModelRecord,
+    buildAppConfig,
 } from '../dist/index.js';
 import { WETH_DEPOSIT_RESULT, TX_PARAMS } from './fixtures.mjs';
 
@@ -34,8 +38,75 @@ describe('createProvider (webllm)', () => {
         assert.equal(typeof provider.complete, 'function');
     });
 
-    it('exposes a sensible default model id', () => {
-        assert.equal(DEFAULT_WEBLLM_MODEL, 'Qwen2.5-Coder-7B-Instruct-q4f16_1-MLC');
+    it('defaults to the fine-tuned explainer model', () => {
+        assert.equal(DEFAULT_WEBLLM_MODEL, 'colibri-tsa-4b-q4f16_1-MLC');
+        assert.equal(TSA_EXPLAINER_MODELS[0].model_id, DEFAULT_WEBLLM_MODEL);
+    });
+});
+
+describe('fine-tuned model records', () => {
+    it('every record is complete and reuses a prebuilt Qwen3.5 model library', () => {
+        for (const rec of TSA_EXPLAINER_MODELS) {
+            assert.match(rec.model, /^https:\/\/huggingface\.co\/corpus-core\//);
+            assert.match(rec.model_id, /^colibri-tsa-/);
+            assert.match(rec.model_lib, /^Qwen3\.5-\d+B-q4f16_1_cs1k-webgpu\.wasm$/);
+            assert.ok(rec.vram_required_MB > 0);
+            assert.ok(rec.overrides.context_window_size >= 8192);
+            assert.equal(rec.disable_thinking, true);
+            // Used as a URL path segment by self-hosted model servers.
+            assert.match(rec.weights_version, /^v\d+$/);
+        }
+    });
+
+    it('resolveModelRecord builds the library URL from the runtime prefix and keeps absolute URLs', () => {
+        const webllm = { modelLibURLPrefix: 'https://libs.example/', modelVersion: 'v0_2_84/base' };
+        const out = resolveModelRecord(TSA_EXPLAINER_MODELS[0], webllm);
+        assert.equal(out.model_lib, 'https://libs.example/v0_2_84/base/Qwen3.5-4B-q4f16_1_cs1k-webgpu.wasm');
+        // The source record is not mutated.
+        assert.equal(TSA_EXPLAINER_MODELS[0].model_lib, 'Qwen3.5-4B-q4f16_1_cs1k-webgpu.wasm');
+        const abs = resolveModelRecord({ ...out, model_lib: 'https://cdn.example/x.wasm' }, webllm);
+        assert.equal(abs.model_lib, 'https://cdn.example/x.wasm');
+        assert.throws(() => resolveModelRecord(TSA_EXPLAINER_MODELS[0], {}), /modelLibURLPrefix/);
+    });
+
+    it('buildAppConfig appends resolved records after the prebuilt list and overrides duplicates', () => {
+        const webllm = {
+            modelLibURLPrefix: 'https://libs.example/',
+            modelVersion: 'v1',
+            prebuiltAppConfig: {
+                cacheBackend: 'cache',
+                model_list: [
+                    { model: 'a', model_id: 'Prebuilt-A', model_lib: 'https://x/a.wasm' },
+                    { model: 'stale', model_id: 'colibri-tsa-4b-q4f16_1-MLC', model_lib: 'https://x/old.wasm' },
+                ],
+            },
+        };
+        const cfg = buildAppConfig(webllm);
+        assert.equal(cfg.cacheBackend, 'cache');
+        assert.deepEqual(cfg.model_list.map((r) => r.model_id), ['Prebuilt-A', 'colibri-tsa-4b-q4f16_1-MLC']);
+        assert.equal(cfg.model_list[1].model, TSA_EXPLAINER_MODELS[0].model);
+        assert.equal(cfg.model_list[1].model_lib, 'https://libs.example/v1/Qwen3.5-4B-q4f16_1_cs1k-webgpu.wasm');
+        // Works without a prebuilt list too.
+        assert.equal(buildAppConfig({ modelLibURLPrefix: 'p/', modelVersion: 'v' }).model_list.length, TSA_EXPLAINER_MODELS.length);
+    });
+
+    it('resolveModelRecord leaves a local weight URL untouched (WebLLM appends resolve/main/ itself)', () => {
+        const local = { ...TSA_EXPLAINER_MODELS[0], model: 'http://localhost:8787/' };
+        const out = resolveModelRecord(local, { modelLibURLPrefix: 'p/', modelVersion: 'v' });
+        assert.equal(out.model, 'http://localhost:8787/');
+        assert.equal(out.model_lib, 'p/v/Qwen3.5-4B-q4f16_1_cs1k-webgpu.wasm');
+        // Custom records replace the built-in ones in the app config.
+        const cfg = buildAppConfig({ modelLibURLPrefix: 'p/', modelVersion: 'v', prebuiltAppConfig: { model_list: [] } }, [local]);
+        assert.deepEqual(cfg.model_list.map((r) => r.model), ['http://localhost:8787/']);
+    });
+
+    it('shouldDisableThinking is on for fine-tunes and prebuilt Qwen3.x, off for others', () => {
+        assert.equal(shouldDisableThinking('colibri-tsa-4b-q4f16_1-MLC'), true);
+        assert.equal(shouldDisableThinking('Qwen3-4B-q4f16_1-MLC'), true);
+        assert.equal(shouldDisableThinking('Qwen3.5-9B-q4f16_1-MLC'), true);
+        assert.equal(shouldDisableThinking('Qwen2.5-Coder-7B-Instruct-q4f16_1-MLC'), false);
+        assert.equal(shouldDisableThinking('Llama-3.2-3B-Instruct-q4f16_1-MLC'), false);
+        assert.equal(shouldDisableThinking('custom', [{ model: 'm', model_id: 'custom', model_lib: 'l', disable_thinking: false }]), false);
     });
 });
 
@@ -55,6 +126,18 @@ describe('WebLLMProvider.complete', () => {
         ]);
         assert.equal(req.temperature, 0.5);
         assert.equal(req.max_tokens, 256);
+        // Default model is a Qwen3.5 fine-tune: thinking is switched off.
+        assert.deepEqual(req.extra_body, { enable_thinking: false });
+    });
+
+    it('sends no extra_body for models that do not think, and honours disableThinking', async () => {
+        const engine = makeFakeEngine('ok');
+        await new WebLLMProvider({ webllmEngine: engine, model: 'Llama-3.2-3B-Instruct-q4f16_1-MLC' }).complete('s', 'u');
+        assert.equal('extra_body' in engine.calls[0], false);
+        await new WebLLMProvider({ webllmEngine: engine, model: 'Llama-3.2-3B-Instruct-q4f16_1-MLC', disableThinking: true }).complete('s', 'u');
+        assert.deepEqual(engine.calls[1].extra_body, { enable_thinking: false });
+        await new WebLLMProvider({ webllmEngine: engine, disableThinking: false }).complete('s', 'u');
+        assert.equal('extra_body' in engine.calls[2], false);
     });
 
     it('throws on an empty engine response', async () => {

@@ -9,6 +9,7 @@ import {
     labelAddress,
     hexToBigInt,
     DEFAULT_SYSTEM_PROMPT,
+    TSA_EXPLAINER_MODELS,
 } from '@corpus-core/colibri-explainer';
 import type {
     ExplainerConfig,
@@ -24,27 +25,80 @@ import DOMPurify from 'dompurify';
 
 // -- Model catalogs per provider --------------------------------------------
 
+// Prebuilt WebLLM models offered as generic alternatives to the fine-tunes.
+// Approximate one-time download size (q4f16_1 weights) is shown in the
+// dropdown so users can gauge the download before selecting.
+const PREBUILT_WEBLLM_MODELS: { id: string; size: string }[] = [
+    { id: 'Qwen2.5-Coder-7B-Instruct-q4f16_1-MLC', size: '~4.7 GB' },
+    { id: 'Qwen2.5-Coder-3B-Instruct-q4f16_1-MLC', size: '~2.0 GB' },
+    { id: 'Llama-3.2-3B-Instruct-q4f16_1-MLC', size: '~1.9 GB' },
+    { id: 'Llama-3.2-1B-Instruct-q4f16_1-MLC', size: '~0.9 GB' },
+];
+
+// Fine-tuned explainer models first (they were trained on exactly these
+// prompts), then the prebuilt fallbacks.
 const MODELS: Record<LLMProviderType, string[]> = {
     webllm: [
-        'Qwen2.5-Coder-7B-Instruct-q4f16_1-MLC',
-        'Qwen2.5-Coder-3B-Instruct-q4f16_1-MLC',
-        'Llama-3.2-3B-Instruct-q4f16_1-MLC',
-        'Llama-3.2-1B-Instruct-q4f16_1-MLC',
+        ...TSA_EXPLAINER_MODELS.map((r) => r.model_id),
+        ...PREBUILT_WEBLLM_MODELS.map((m) => m.id),
     ],
     openai: ['gpt-4o-mini', 'gpt-4o'],
     anthropic: ['claude-sonnet-4-20250514', 'claude-3-5-haiku-latest'],
     ollama: ['qwen2.5-coder', 'llama3.1'],
 };
 
-// Approximate one-time download size per local WebLLM model (q4f16_1 weights),
-// shown in the dropdown so users can gauge the download before selecting. These
-// are rounded approximations derived from the MLC model sizes.
-const WEBLLM_MODEL_SIZE: Record<string, string> = {
-    'Qwen2.5-Coder-7B-Instruct-q4f16_1-MLC': '~4.7 GB',
-    'Qwen2.5-Coder-3B-Instruct-q4f16_1-MLC': '~2.0 GB',
-    'Llama-3.2-3B-Instruct-q4f16_1-MLC': '~1.9 GB',
-    'Llama-3.2-1B-Instruct-q4f16_1-MLC': '~0.9 GB',
-};
+const WEBLLM_MODEL_SIZE: Record<string, string> = Object.fromEntries([
+    ...TSA_EXPLAINER_MODELS.map((r) => [r.model_id, r.download_gb ? `~${r.download_gb.toFixed(1)} GB` : '']),
+    ...PREBUILT_WEBLLM_MODELS.map((m) => [m.id, m.size]),
+]);
+
+// Where the fine-tuned weights come from, in order of precedence:
+//   1. `?modelUrl=http://localhost:8787/` - explicit override, e.g. a freshly
+//      converted model served by `tsa_train.py serve`.
+//   2. Same-origin `/models/<model_id>/<weights_version>/` - the self-hosted
+//      model server behind the deployment's reverse proxy (probed once).
+//   3. The record's default URL (Hugging Face).
+// Model ids and WASM libraries never change; only the weight location does.
+const LOCAL_MODEL_URL = new URLSearchParams(window.location.search).get('modelUrl') || '';
+const SAME_ORIGIN_MODELS_PATH = '/models/';
+
+type ModelRecord = (typeof TSA_EXPLAINER_MODELS)[number];
+let resolvedModelRecords: Promise<ModelRecord[] | undefined> | undefined;
+
+function sameOriginModelUrl(record: ModelRecord): string {
+    return `${window.location.origin}${SAME_ORIGIN_MODELS_PATH}${record.model_id}/${record.weights_version ?? 'v1'}/`;
+}
+
+async function probe(url: string): Promise<boolean> {
+    try {
+        const res = await fetch(url, { method: 'HEAD', cache: 'no-store' });
+        return res.ok;
+    } catch {
+        return false;
+    }
+}
+
+function webllmModelRecords(): Promise<ModelRecord[] | undefined> {
+    if (!resolvedModelRecords) {
+        resolvedModelRecords = (async () => {
+            if (LOCAL_MODEL_URL) return TSA_EXPLAINER_MODELS.map((r) => ({ ...r, model: LOCAL_MODEL_URL }));
+            const records = await Promise.all(TSA_EXPLAINER_MODELS.map(async (r) => {
+                const base = sameOriginModelUrl(r);
+                return (await probe(`${base}mlc-chat-config.json`)) ? { ...r, model: base } : r;
+            }));
+            return records.some((r, i) => r !== TSA_EXPLAINER_MODELS[i]) ? records : undefined;
+        })();
+    }
+    return resolvedModelRecords;
+}
+
+// Context window the fine-tuned records ship with; prebuilt models fall back
+// to WebLLM's default (usually 4096) unless the user fills the field.
+const WEBLLM_MODEL_CONTEXT: Record<string, number> = Object.fromEntries(
+    TSA_EXPLAINER_MODELS
+        .filter((r) => r.overrides?.context_window_size)
+        .map((r) => [r.model_id, r.overrides!.context_window_size!]),
+);
 
 // -- Tiny DOM helpers --------------------------------------------------------
 
@@ -151,12 +205,27 @@ function populateModels(): void {
     }
 
     const isLocal = provider === 'webllm';
+    if (isLocal) syncContextWindow();
     const isCloudKeyed = provider === 'openai' || provider === 'anthropic';
     const needsBaseUrl = provider === 'ollama' || isCloudKeyed;
     show('apikey-wrap', isCloudKeyed);
     show('baseurl-wrap', needsBaseUrl);
     show('apikey-row', isCloudKeyed || needsBaseUrl);
     show('contextWindow-wrap', isLocal);
+}
+
+/**
+ * Prefill the context-window field with the value the selected fine-tuned
+ * record ships with, and clear it for prebuilt models so WebLLM's own default
+ * applies. A value the user typed for the current model is left alone.
+ */
+let contextWindowAutoValue = '';
+function syncContextWindow(): void {
+    const input = $('contextWindow') as HTMLInputElement;
+    if (input.value && input.value !== contextWindowAutoValue) return;
+    const model = ($('model') as HTMLSelectElement).value;
+    contextWindowAutoValue = WEBLLM_MODEL_CONTEXT[model] ? String(WEBLLM_MODEL_CONTEXT[model]) : '';
+    input.value = contextWindowAutoValue;
 }
 
 // The oblivious-node option only applies to PAP, so it is hidden unless privacy
@@ -256,7 +325,7 @@ function readTxFromJson(): TxParams {
     return tx;
 }
 
-function buildExplainerConfig(useEnrichment: boolean, chainId: number): ExplainerConfig {
+async function buildExplainerConfig(useEnrichment: boolean, chainId: number): Promise<ExplainerConfig> {
     const provider = ($('provider') as HTMLSelectElement).value as LLMProviderType;
     const model = ($('model') as HTMLSelectElement).value;
     const apiKey = ($('apiKey') as HTMLInputElement).value.trim();
@@ -278,6 +347,8 @@ function buildExplainerConfig(useEnrichment: boolean, chainId: number): Explaine
     if (systemPrompt) config.systemPrompt = systemPrompt;
     if (provider === 'webllm') {
         if (ctx) config.contextWindowSize = ctx;
+        const records = await webllmModelRecords();
+        if (records) config.webllmModelRecords = [...records];
         config.onModelProgress = ({ progress, text }) => setProgress(progress, text);
         // Render the answer live as the local model streams it. Once tokens
         // arrive the download/load is finished, so the progress bar can go away.
@@ -325,7 +396,7 @@ async function run(): Promise<void> {
 
         const tx =
             inputMode === 'object' ? readTxFromObject() : inputMode === 'json' ? readTxFromJson() : readTxFromRaw();
-        const config = buildExplainerConfig(useEnrichment, chainId);
+        const config = await buildExplainerConfig(useEnrichment, chainId);
 
         // Step 1 + 2: verified local simulation.
         setStatus('Running colibri_simulateTransaction (verified)...');
@@ -516,6 +587,9 @@ function init(): void {
     populateModels();
     updatePrivacyVisibility();
     $('provider').addEventListener('change', populateModels);
+    $('model').addEventListener('change', () => {
+        if (($('provider') as HTMLSelectElement).value === 'webllm') syncContextWindow();
+    });
     $('privacy').addEventListener('change', updatePrivacyVisibility);
     // Load the built-in base prompt into the textarea as an editable template.
     $('load-default-prompt').addEventListener('click', (e) => {
@@ -526,6 +600,15 @@ function init(): void {
 
     if (typeof navigator !== 'undefined' && !(navigator as { gpu?: unknown }).gpu) {
         setStatus('Note: WebGPU not detected - the local provider will not work in this browser.');
+    } else if (LOCAL_MODEL_URL) {
+        setStatus(`Fine-tuned model weights are loaded from ${LOCAL_MODEL_URL} (modelUrl override).`);
+    } else {
+        // Probe the same-origin model server early so the first run does not
+        // pay for it and the user sees where the weights come from.
+        void webllmModelRecords().then((records) => {
+            const local = records?.filter((r, i) => r !== TSA_EXPLAINER_MODELS[i]) ?? [];
+            if (local.length) setStatus(`Fine-tuned model weights are served from ${window.location.origin}${SAME_ORIGIN_MODELS_PATH} (${local.map((r) => r.model_id).join(', ')}).`);
+        });
     }
 }
 

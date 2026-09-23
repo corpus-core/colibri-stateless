@@ -84,12 +84,15 @@ the local provider.
 ```typescript
 const explanation = await explainSimulation(result, tx, {
   provider: 'webllm',
-  // Code-tuned 7B model (~5-6 GB VRAM). Use 'Llama-3.2-3B-Instruct-q4f16_1-MLC'
-  // (~2.3 GB) for lower-end devices. Defaults to Qwen2.5-Coder-7B if omitted.
-  model: 'Qwen2.5-Coder-7B-Instruct-q4f16_1-MLC',
+  // Default: the corpus-core fine-tune of Qwen3.5-4B (~2.4 GB download,
+  // ~4.4 GB VRAM with its 32k context). Prebuilt generic models such as
+  // 'Qwen2.5-Coder-7B-Instruct-q4f16_1-MLC' (~5-6 GB) or
+  // 'Llama-3.2-3B-Instruct-q4f16_1-MLC' (~2.3 GB) can be passed instead.
+  model: 'colibri-tsa-4b-q4f16_1-MLC',
   chainId: 1,
-  // Many prebuilt models default to a 4096-token context. Either raise it...
-  contextWindowSize: 8192,
+  // Prebuilt models default to a 4096-token context; the fine-tunes ship
+  // with 32768 via their model record. Override here if needed...
+  contextWindowSize: 32768,
   // ...and/or set the embedded source-code budget (default 10000 chars; 0 = no cap).
   maxSourceChars: 4000,
   // Progress for the one-time model download (cached afterwards).
@@ -99,6 +102,23 @@ const explanation = await explainSimulation(result, tx, {
 
 The model is downloaded once and cached by the browser. To reuse an
 already-initialized engine across calls, pass it via `webllmEngine`.
+
+### Fine-tuned explainer models
+
+`TSA_EXPLAINER_MODELS` lists the models corpus-core fine-tuned on the exact
+prompts this package builds (Qwen3.5 family, MLC `q4f16_1`, hosted on Hugging
+Face). They reuse the prebuilt WebLLM model libraries of their base models, so
+the provider only has to register the weight URLs: it merges the records into
+`prebuiltAppConfig.model_list` when it creates the engine. Each record carries
+`vram_required_MB`, `download_gb` and `overrides.context_window_size` for UIs.
+
+Qwen3 / Qwen3.5 models reason in a `<think>` block by default. The provider
+sends `extra_body.enable_thinking: false` for the fine-tunes and for prebuilt
+Qwen3.x ids (`shouldDisableThinking`), which is also how the fine-tunes were
+trained. Use `disableThinking` to override, `webllmModelRecords` to swap the
+fine-tuned records (e.g. weights served from `http://localhost:8787/` before
+they are published), and `webllmAppConfig` to supply a complete custom
+`AppConfig`.
 
 ## Architecture
 
