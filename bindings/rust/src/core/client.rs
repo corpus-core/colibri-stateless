@@ -19,20 +19,21 @@ use reqwest::Client as HttpClient;
 use serde_json::Value as JsonValue;
 
 #[cfg(not(target_family = "wasm"))]
-use super::helpers::get_current_version_number;
+use super::fetch::FetchRequest;
+use super::fetch::{DynFetcher, FetchRequestHandler};
 use super::prover::Prover;
 use super::request::{set_error as req_set_error, set_response as req_set_response};
 use super::rpc::{set_checkpoint, RpcCtx};
 use super::verifier::Verifier;
-use crate::storage::{register_storage, FileStorage, MemoryStorage, Storage};
+#[cfg(not(target_family = "wasm"))]
+use crate::storage::FileStorage;
+use crate::storage::{register_storage, MemoryStorage, Storage};
+#[cfg(not(target_family = "wasm"))]
+use crate::types::HttpMethod;
 use crate::types::{
     default_beacon_apis, default_checkpointz, default_eth_rpcs, default_provers, ColibriError,
     DataRequest, PrivacyMode, ProverMode, RevertError, RpcError, Status, MAINNET,
 };
-// Endpoint routing / body encoding is only used by the built-in HTTP
-// transport, which is native-only (see the wasm gate on `execute_http`).
-#[cfg(not(target_family = "wasm"))]
-use crate::types::{Encoding, HttpMethod, RequestType};
 
 /// Configuration for a [`Colibri`] client -- endpoint lists, prover
 /// flags and freshness policy. Construct via [`Colibri::builder`].
@@ -139,11 +140,33 @@ impl ColibriConfig {
 /// module to serve fixtures from disk). Implementors return the
 /// response payload as bytes -- errors are turned into
 /// `c4_req_set_error` calls.
+///
+/// Wasm hosts that only need to supply an HTTP transport (and want
+/// Colibri's endpoint routing) should prefer
+/// [`FetchRequestHandler`] / [`ColibriBuilder::http_fetch`] over a
+/// full custom implementation.
 #[async_trait]
 pub trait RequestHandler: Send + Sync {
     /// Serve the given request. Returning `Err` triggers
     /// `c4_req_set_error(req_ptr, ...)`.
     async fn handle(&self, request: &DataRequest) -> Result<Vec<u8>, ColibriError>;
+
+    /// Like [`handle`], with the host's Beacon-API → prover fallback
+    /// hint (`true` for [`Colibri::rpc`] / [`Colibri::verify_proof`],
+    /// `false` for [`Colibri::create_proof`]).
+    ///
+    /// Returns `(body, node_index)` so the C core can set
+    /// `exclude_mask` on retry (`1 << node_index`). The default
+    /// forwards to [`handle`] and reports `node_index = 0`.
+    /// [`FetchRequestHandler`] returns the index of the server that
+    /// succeeded.
+    async fn handle_with_fallback(
+        &self,
+        request: &DataRequest,
+        _use_prover_fallback: bool,
+    ) -> Result<(Vec<u8>, u16), ColibriError> {
+        self.handle(request).await.map(|bytes| (bytes, 0))
+    }
 }
 
 /// Fluent builder for [`Colibri`].
@@ -151,6 +174,7 @@ pub struct ColibriBuilder {
     config: ColibriConfig,
     storage: Option<Box<dyn Storage>>,
     request_handler: Option<Arc<dyn RequestHandler>>,
+    http_fetch: Option<DynFetcher>,
     #[cfg(not(target_family = "wasm"))]
     http_client: Option<HttpClient>,
 }
@@ -161,6 +185,7 @@ impl ColibriBuilder {
             config: ColibriConfig::new(chain_id),
             storage: None,
             request_handler: None,
+            http_fetch: None,
             #[cfg(not(target_family = "wasm"))]
             http_client: None,
         }
@@ -265,9 +290,46 @@ impl ColibriBuilder {
         self
     }
     /// Inject a mock request handler (used by
-    /// `bindings/rust/src/testing.rs`).
+    /// `bindings/rust/src/testing.rs`). A custom handler **wins** over
+    /// [`http_fetch`](Self::http_fetch) and over the native `reqwest`
+    /// transport.
     pub fn request_handler(mut self, handler: Arc<dyn RequestHandler>) -> Self {
         self.request_handler = Some(handler);
+        self
+    }
+
+    /// Supply only the HTTP byte transport. Colibri keeps endpoint
+    /// selection, URL joining, `exclude_mask` retries and header
+    /// policy -- `fetch` is invoked once per server attempt with a
+    /// fully prepared [`super::FetchRequest`].
+    ///
+    /// This is the default-shaped handler for wasm hosts (WASI has no
+    /// sockets). On native it overrides the built-in `reqwest`
+    /// client. A full [`request_handler`](Self::request_handler) still
+    /// takes precedence when both are set.
+    ///
+    /// The closure owns the HTTP round-trip:
+    ///
+    /// - Return `Ok(body)` only for a successful (2xx) response.
+    ///   4xx/5xx must be `Err`, otherwise Colibri treats an error
+    ///   page as proof / RPC payload.
+    /// - Timeouts, TLS and redirects are the host's job;
+    ///   [`ColibriConfig::request_timeout`] is **not** applied.
+    ///
+    /// ```ignore
+    /// Colibri::builder(1)
+    ///     .provers(["https://mainnet.colibri-proof.tech"])
+    ///     .http_fetch(|req| async move {
+    ///         host_http(req.method.as_str(), &req.url, &req.headers(), req.body).await
+    ///     })
+    ///     .build();
+    /// ```
+    pub fn http_fetch<F, Fut>(mut self, fetch: F) -> Self
+    where
+        F: Fn(super::FetchRequest) -> Fut + Send + Sync + 'static,
+        Fut: std::future::Future<Output = Result<Vec<u8>, ColibriError>> + Send + 'static,
+    {
+        self.http_fetch = Some(Arc::new(move |req| Box::pin(fetch(req))));
         self
     }
     /// Provide a pre-configured `reqwest` client (e.g. with custom TLS,
@@ -275,8 +337,9 @@ impl ColibriBuilder {
     /// with the configured `request_timeout` is used.
     ///
     /// Not available on `wasm*` targets: `reqwest` (hyper / rustls)
-    /// cannot be compiled for wasm, so wasm hosts must supply their
-    /// own [`RequestHandler`] via
+    /// cannot be compiled for wasm, so wasm hosts must supply
+    /// [`http_fetch`](ColibriBuilder::http_fetch) or a
+    /// [`RequestHandler`] via
     /// [`request_handler`](ColibriBuilder::request_handler).
     #[cfg(not(target_family = "wasm"))]
     pub fn http_client(mut self, client: HttpClient) -> Self {
@@ -296,18 +359,38 @@ impl ColibriBuilder {
 
         let storage: Box<dyn Storage> = match self.storage {
             Some(s) => s,
-            None => match FileStorage::new(None) {
-                Ok(fs) => Box::new(fs),
-                Err(_) => Box::new(MemoryStorage::new()),
-            },
+            None => {
+                // WASI Preview 1 has no guaranteed filesystem; skip the
+                // FileStorage probe and go straight to in-memory.
+                #[cfg(target_family = "wasm")]
+                {
+                    Box::new(MemoryStorage::new())
+                }
+                #[cfg(not(target_family = "wasm"))]
+                {
+                    match FileStorage::new(None) {
+                        Ok(fs) => Box::new(fs),
+                        Err(_) => Box::new(MemoryStorage::new()),
+                    }
+                }
+            }
         };
         register_boxed_storage(storage);
+
+        let request_handler = match (self.request_handler, self.http_fetch) {
+            (Some(handler), _) => Some(handler),
+            (None, Some(fetch)) => Some(Arc::new(FetchRequestHandler::from_fetcher(
+                self.config.clone(),
+                fetch,
+            )) as Arc<dyn RequestHandler>),
+            (None, None) => None,
+        };
 
         Colibri {
             config: self.config,
             #[cfg(not(target_family = "wasm"))]
             http,
-            request_handler: self.request_handler,
+            request_handler,
         }
     }
 }
@@ -500,8 +583,8 @@ impl Colibri {
         }
 
         // Injected mock / user-supplied handler wins -- used by the
-        // testing module and mandatory on wasm targets (no built-in
-        // HTTP transport there).
+        // testing module, by `http_fetch`, and as the wasm transport
+        // (no built-in reqwest there).
         //
         // Safety: `req.req_ptr` originates from a `pending` status
         // returned by the very context we are still executing (see
@@ -509,8 +592,10 @@ impl Colibri {
         // valid until the next `execute_json_status` call, which is
         // strictly after this fanout completes.
         if let Some(handler) = self.request_handler.as_ref() {
-            match handler.handle(req).await {
-                Ok(bytes) => unsafe { req_set_response(req.req_ptr, &bytes, 0) },
+            match handler.handle_with_fallback(req, use_prover_fallback).await {
+                Ok((bytes, node_index)) => unsafe {
+                    req_set_response(req.req_ptr, &bytes, node_index)
+                },
                 Err(err) => unsafe {
                     let _ = req_set_error(req.req_ptr, &err.to_string(), 0);
                 },
@@ -520,10 +605,10 @@ impl Colibri {
 
         // No handler -> fall back to the built-in reqwest transport on
         // native targets. wasm targets have no default transport and
-        // must always supply a `RequestHandler`.
+        // need `http_fetch` or a `RequestHandler`.
         #[cfg(not(target_family = "wasm"))]
         {
-            let servers = self.pick_servers(req, use_prover_fallback);
+            let servers = self.config.pick_servers(req, use_prover_fallback);
             if servers.is_empty() {
                 unsafe {
                     let _ = req_set_error(
@@ -546,48 +631,15 @@ impl Colibri {
         }
         #[cfg(target_family = "wasm")]
         {
-            // `use_prover_fallback` is only consumed by `pick_servers`,
-            // which lives on native. Keep it referenced here so the
-            // shared `handle_requests` signature stays cfg-agnostic.
             let _ = use_prover_fallback;
             unsafe {
                 let _ = req_set_error(
                     req.req_ptr,
                     "colibri-stateless: no built-in HTTP transport on wasm targets; \
-                     configure a RequestHandler via ColibriBuilder::request_handler()",
+                     configure ColibriBuilder::http_fetch() or a RequestHandler",
                     0,
                 );
             }
-        }
-    }
-
-    #[cfg(not(target_family = "wasm"))]
-    fn pick_servers(&self, req: &DataRequest, use_prover_fallback: bool) -> Vec<String> {
-        match req.request_type {
-            RequestType::Checkpointz => {
-                let mut v = self.config.checkpointz.clone();
-                v.extend(self.config.beacon_apis.iter().cloned());
-                v
-            }
-            RequestType::Prover => self.config.provers.clone(),
-            RequestType::BeaconApi => {
-                if use_prover_fallback && !self.config.provers.is_empty() {
-                    self.config.provers.clone()
-                } else {
-                    self.config.beacon_apis.clone()
-                }
-            }
-            RequestType::EthRpc => {
-                if is_get_proof(req) && !self.config.oblivious_nodes.is_empty() {
-                    self.config.oblivious_nodes.clone()
-                } else {
-                    self.config.eth_rpcs.clone()
-                }
-            }
-            // `intern`, `cache`, `rest_api` -- fall back to the generic
-            // eth_rpc list; the C core does not normally emit these to
-            // the host.
-            _ => self.config.eth_rpcs.clone(),
         }
     }
 
@@ -608,47 +660,19 @@ impl Colibri {
             if req.exclude_mask & (1u32 << i) != 0 {
                 continue;
             }
-            let url = if req.url.is_empty() {
-                server.trim_end_matches('/').to_string()
-            } else {
-                format!(
-                    "{}/{}",
-                    server.trim_end_matches('/'),
-                    req.url.trim_start_matches('/')
-                )
-            };
-
-            let mut builder = match req.method {
+            let attempt = FetchRequest::from_data_request(server, req)?;
+            let url = attempt.url.clone();
+            let mut builder = match attempt.method {
                 HttpMethod::Get => self.http.get(&url),
                 HttpMethod::Post => self.http.post(&url),
                 HttpMethod::Put => self.http.put(&url),
                 HttpMethod::Delete => self.http.delete(&url),
             };
-
-            builder = builder.header(
-                reqwest::header::ACCEPT,
-                match req.encoding {
-                    Encoding::Json => "application/json",
-                    Encoding::Ssz => "application/octet-stream",
-                },
-            );
-            if req.ttl > 0 {
-                builder = builder.header(
-                    reqwest::header::CACHE_CONTROL,
-                    format!("max-age={}", req.ttl),
-                );
+            for (name, value) in attempt.headers() {
+                builder = builder.header(name, value);
             }
-            if req.request_type == RequestType::Prover {
-                // Hint to the prover that the caller supports the
-                // current wire format.
-                builder =
-                    builder.header("Colibri-Version", get_current_version_number().to_string());
-            }
-
-            if let Some(payload) = req.payload.as_ref() {
-                builder = builder
-                    .header(reqwest::header::CONTENT_TYPE, "application/json")
-                    .json(payload);
+            if let Some(body) = attempt.body {
+                builder = builder.body(body);
             }
 
             match builder.send().await {
@@ -677,12 +701,4 @@ impl Colibri {
 
         Err(last_error.unwrap_or_else(|| crate::types::HttpError::new("all servers failed").into()))
     }
-}
-
-#[cfg(not(target_family = "wasm"))]
-fn is_get_proof(req: &DataRequest) -> bool {
-    matches!(
-        req.payload.as_ref().and_then(|p| p.get("method")),
-        Some(JsonValue::String(m)) if m == "eth_getProof"
-    )
 }

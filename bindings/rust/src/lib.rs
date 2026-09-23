@@ -37,12 +37,12 @@
 //! The crate compiles for `wasm32-wasip1` via the [wasi-sdk][wasi-sdk]
 //! toolchain. The built-in `reqwest` transport is gated on
 //! `cfg(not(target_family = "wasm"))` (hyper / rustls do not build for
-//! wasm), so on wasm the host **must** supply a [`RequestHandler`] via
-//! [`ColibriBuilder::request_handler`]. Use `tokio` with `flavor =
-//! "current_thread"` (there is no `rt-multi-thread` feature for wasm)
-//! and prefer [`MemoryStorage`]. See the "WebAssembly" section of the
-//! [Rust bindings guide][guide] for a complete `RequestHandler`
-//! example.
+//! wasm). On wasm, call [`ColibriBuilder::http_fetch`] with a host
+//! HTTP function -- Colibri keeps endpoint routing -- or supply a full
+//! [`RequestHandler`]. Use `tokio` with `flavor = "current_thread"`
+//! (there is no `rt-multi-thread` feature for wasm); storage defaults
+//! to [`MemoryStorage`]. See the "WebAssembly" section of the
+//! [Rust bindings guide][guide] for a complete example.
 //!
 //! [repo]: https://github.com/corpus-core/colibri-stateless
 //! [wasi-sdk]: https://github.com/WebAssembly/wasi-sdk
@@ -58,9 +58,9 @@ pub mod testing;
 pub mod types;
 
 pub use core::{
-    get_current_version_number, get_method_support, get_method_type, req_set_error,
-    req_set_response, reset_caches, Colibri, ColibriBuilder, ColibriConfig, Prover, RequestHandler,
-    RpcCtx, Verifier,
+    get_current_version_number, get_method_support, get_method_type, join_url, req_set_error,
+    req_set_response, reset_caches, Colibri, ColibriBuilder, ColibriConfig, FetchRequest,
+    FetchRequestHandler, Prover, RequestHandler, RpcCtx, Verifier,
 };
 pub use storage::{
     default_storage, register_storage, register_storage_at, DefaultStorage, FileStorage,

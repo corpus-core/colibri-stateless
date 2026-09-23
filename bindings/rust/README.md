@@ -69,7 +69,7 @@ let balance = client
 | **Verified RPC** | `eth_call`, `eth_getBalance`, `eth_getLogs`, `eth_getProof`, `eth_getTransactionReceipt`, etc. |
 | **Multiple modes** | `Local`, `Remote`, `Hybrid`, `Proxy` proof strategies |
 | **Pluggable storage** | In-memory, file-system, or a custom `Storage` impl |
-| **Pluggable transport** | Default `reqwest` handler, or your own `RequestHandler` |
+| **Pluggable transport** | Default `reqwest` (native), `http_fetch` (wasm), or a full `RequestHandler` |
 | **PAP privacy** | Optional Pragmatic Adaptive Privacy mode (experimental) |
 | **Shared fixtures** | Replays the monorepo `test/data/*` corpus via `colibri_stateless::testing` |
 
@@ -107,9 +107,12 @@ The crate compiles for `wasm32-wasip1` (WASI Preview 1) via the
 [wasi-sdk][wasi-sdk] toolchain. Verifier and prover state machines
 run inside the sandbox; TLS, DNS and sockets are not available under
 WASI, so the built-in `reqwest` transport is **not** compiled for
-wasm. Wasm hosts must therefore always supply their own
-[`RequestHandler`][request-handler] -- without one, every pending
-request is answered with an error.
+wasm. Call [`ColibriBuilder::http_fetch`][http-fetch] with a host HTTP
+function -- Colibri keeps endpoint routing, URL joining and retries --
+or supply a full [`RequestHandler`][request-handler] to override
+everything. Without either, every pending request is answered with an
+error. Return `Ok(body)` from `http_fetch` only for HTTP 2xx; timeouts
+are the host's job.
 
 - **crates.io**: the release asset `colibri-native-wasm32-wasip1.tar.gz`
   ships the static archives plus `libc++.a` / `libc++abi.a`; `wasi-libc`
@@ -119,76 +122,39 @@ request is answered with an error.
   [wasi-sdk][wasi-sdk] release (>= 22) so `build.rs` can pick up the
   `wasi-sdk-p1.cmake` toolchain file.
 - **Runtime**: use `tokio` with `flavor = "current_thread"` (wasm has
-  no `rt-multi-thread` feature). Prefer `MemoryStorage`; `FileStorage`
-  only works under runtimes that mount host directories via preopens
-  (`wasmtime --dir=<host>::<guest>`).
+  no `rt-multi-thread` feature). Storage defaults to `MemoryStorage`;
+  `FileStorage` only works under runtimes that mount host directories
+  via preopens (`wasmtime --dir=<host>::<guest>`).
 
 ```rust,ignore
-use async_trait::async_trait;
-use colibri_stateless::{
-    Colibri, ColibriError, DataRequest, Encoding, HttpError, HttpMethod,
-    MemoryStorage, RequestHandler, RequestType, MAINNET,
-};
+use colibri_stateless::{Colibri, ColibriError, HttpError, MAINNET};
 use serde_json::json;
-use std::sync::Arc;
 
 /// HTTP transport supplied by the wasm host (e.g. a WASI import or the
 /// `wasi:http` component). Replace with whatever your runtime offers.
-async fn host_fetch(method: &str, url: &str, accept: &str, body: Option<&[u8]>)
-    -> Result<Vec<u8>, String>
-{
-    todo!("call into the host")
-}
-
-struct WasiHandler {
-    eth_rpcs: Vec<String>,
-    beacon_apis: Vec<String>,
-    provers: Vec<String>,
-}
-
-#[async_trait]
-impl RequestHandler for WasiHandler {
-    async fn handle(&self, req: &DataRequest) -> Result<Vec<u8>, ColibriError> {
-        // The C core emits one of EthRpc / BeaconApi / Prover /
-        // Checkpointz; other variants are handled internally.
-        let servers = match req.request_type {
-            RequestType::EthRpc => &self.eth_rpcs,
-            RequestType::BeaconApi | RequestType::Checkpointz => &self.beacon_apis,
-            _ => &self.provers,
-        };
-        let base = servers.iter().enumerate()
-            .find(|(i, _)| req.exclude_mask & (1u32 << i) == 0)
-            .map(|(_, s)| s)
-            .ok_or_else(|| HttpError::new("no server left"))?;
-        let url = format!("{}/{}", base.trim_end_matches('/'),
-            req.url.trim_start_matches('/'));
-        let accept = match req.encoding {
-            Encoding::Json => "application/json",
-            Encoding::Ssz => "application/octet-stream",
-        };
-        let body = req.payload.as_ref().map(serde_json::to_vec).transpose()?;
-        let method = match req.method {
-            HttpMethod::Get => "GET",
-            HttpMethod::Post => "POST",
-            HttpMethod::Put => "PUT",
-            HttpMethod::Delete => "DELETE",
-        };
-        host_fetch(method, &url, accept, body.as_deref())
-            .await
-            .map_err(|e| HttpError::full(e, 0, url).into())
-    }
+async fn host_http(
+    method: &str,
+    url: &str,
+    headers: &[(&str, String)],
+    body: Option<Vec<u8>>,
+) -> Result<Vec<u8>, ColibriError> {
+    let _ = (method, headers, body);
+    Err(HttpError::new(format!("TODO: fetch {url}")).into())
 }
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), ColibriError> {
     let client = Colibri::builder(MAINNET)
         .provers(vec!["https://mainnet.colibri-proof.tech".to_string()])
-        .storage(MemoryStorage::new())
-        .request_handler(Arc::new(WasiHandler {
-            eth_rpcs: vec![],
-            beacon_apis: vec![],
-            provers: vec!["https://mainnet.colibri-proof.tech".to_string()],
-        }))
+        .http_fetch(|req| async move {
+            host_http(
+                req.method.as_str(),
+                &req.url,
+                &req.headers(),
+                req.body,
+            )
+            .await
+        })
         .build();
 
     let block = client.rpc("eth_blockNumber", &json!([])).await?;
@@ -207,6 +173,7 @@ wasmtime target/wasm32-wasip1/release/app.wasm
 
 [wasi-sdk]: https://github.com/WebAssembly/wasi-sdk
 [request-handler]: https://docs.rs/colibri-stateless/latest/colibri_stateless/trait.RequestHandler.html
+[http-fetch]: https://docs.rs/colibri-stateless/latest/colibri_stateless/struct.ColibriBuilder.html#method.http_fetch
 
 ## Testing against shared fixtures
 
