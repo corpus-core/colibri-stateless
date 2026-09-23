@@ -108,8 +108,27 @@ function $<T extends HTMLElement = HTMLElement>(id: string): T {
     return el as T;
 }
 
-type InputMode = 'object' | 'json' | 'raw';
+type InputMode = 'object' | 'json' | 'raw' | 'samples';
 let inputMode: InputMode = 'object';
+
+/** One entry from `/traces/latest.json`. `meta` matches the Tx Object fields. */
+interface SampleTx {
+    txhash: string;
+    /** Selector hex today; a decoded signature once the trace index is updated. */
+    function: string;
+    contract: string;
+    meta: { from?: string; to?: string; input?: string; value?: string };
+    path: string;
+}
+
+const TRACES_INDEX = '/traces/latest.json';
+const TX_HASH_RE = /^0x[0-9a-fA-F]{64}$/;
+
+let samples: SampleTx[] = [];
+let selectedSampleHash = '';
+let samplesLoaded = false;
+let samplesLoading = false;
+let samplesRequest = 0;
 
 function setStatus(text: string): void {
     $('status').textContent = text;
@@ -243,8 +262,17 @@ function bindTabs(): void {
             show('mode-object', inputMode === 'object');
             show('mode-json', inputMode === 'json');
             show('mode-raw', inputMode === 'raw');
+            show('mode-samples', inputMode === 'samples');
+            syncInputModeChrome();
+            if (inputMode === 'samples' && !samplesLoaded && !samplesLoading) void loadSamples();
         });
     }
+}
+
+function syncInputModeChrome(): void {
+    const samples = inputMode === 'samples';
+    $('step-sim-label').textContent = samples ? 'Recorded trace loaded' : 'Tx locally simulated';
+    $('run').textContent = samples ? 'Explain' : 'Simulate & Explain';
 }
 
 // -- Transaction parsing -----------------------------------------------------
@@ -325,6 +353,282 @@ function readTxFromJson(): TxParams {
     return tx;
 }
 
+// -- Recorded sample traces --------------------------------------------------
+
+/** `0x` + 6 hex chars, four dots, then the last 6 hex chars. */
+function shortenTxHash(hash: string): string {
+    if (!TX_HASH_RE.test(hash)) return hash;
+    return `${hash.slice(0, 8)}....${hash.slice(-6)}`;
+}
+
+/**
+ * Relative path under `/traces`. Rejects absolute URLs and `..` so a poisoned
+ * index cannot make the page fetch an arbitrary origin.
+ */
+function isSafeTracePath(path: string): boolean {
+    if (!path || path.length > 512) return false;
+    if (path.startsWith('/') || path.includes('\\') || path.includes('..') || path.includes('//')) return false;
+    // Function names may land in a path segment (`transfer(address,uint256)`).
+    return /^[A-Za-z0-9._/(),-]+$/.test(path);
+}
+
+function stringField(value: unknown): string | undefined {
+    return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function parseSamples(value: unknown): SampleTx[] {
+    if (!Array.isArray(value)) throw new Error('Sample index is not a list of transactions.');
+    const out: SampleTx[] = [];
+    for (const item of value) {
+        if (!item || typeof item !== 'object') continue;
+        const rec = item as Record<string, unknown>;
+        const txhash = typeof rec.txhash === 'string' ? rec.txhash : '';
+        const path = typeof rec.path === 'string' ? rec.path : '';
+        if (!TX_HASH_RE.test(txhash) || !isSafeTracePath(path)) continue;
+        const metaRaw = rec.meta && typeof rec.meta === 'object' ? rec.meta as Record<string, unknown> : {};
+        out.push({
+            txhash,
+            function: typeof rec.function === 'string' ? rec.function : '',
+            contract: typeof rec.contract === 'string' ? rec.contract.trim() : '',
+            meta: {
+                from: stringField(metaRaw.from),
+                to: stringField(metaRaw.to),
+                input: stringField(metaRaw.input),
+                value: stringField(metaRaw.value),
+            },
+            path,
+        });
+    }
+    if (value.length > 0 && out.length === 0) {
+        throw new Error('Sample index did not contain any usable transactions.');
+    }
+    return out;
+}
+
+function selectedSample(): SampleTx | undefined {
+    return samples.find((sample) => sample.txhash === selectedSampleHash);
+}
+
+/** Map a sample's `meta` onto the same fields the Tx Object tab edits. */
+function txFromSample(sample: SampleTx): TxParams {
+    const to = sample.meta.to?.trim() ?? '';
+    if (!to) throw new Error('Selected sample has no "to" address.');
+    const tx: TxParams = { to };
+    const from = sample.meta.from?.trim();
+    const value = sample.meta.value?.trim();
+    const data = sample.meta.input?.trim();
+    if (from) tx.from = from;
+    if (value) tx.value = normalizeHexValue(value);
+    if (data) tx.data = data;
+    return tx;
+}
+
+function isSimulationResult(value: unknown): value is SimulationResult {
+    if (!value || typeof value !== 'object') return false;
+    const rec = value as Record<string, unknown>;
+    return typeof rec.gasUsed === 'string'
+        && typeof rec.status === 'string'
+        && typeof rec.returnValue === 'string'
+        && Array.isArray(rec.logs);
+}
+
+async function fetchSampleSimulation(path: string): Promise<SimulationResult> {
+    if (!isSafeTracePath(path)) throw new Error('Sample trace path is not a relative path under /traces.');
+    const url = '/traces/' + path.split('/').map((part) => encodeURIComponent(part)).join('/');
+    const res = await fetch(url, { cache: 'no-store' });
+    if (!res.ok) throw new Error(`Failed to load recorded trace (${res.status}).`);
+    const body: unknown = await res.json();
+    if (!isSimulationResult(body)) throw new Error('Recorded trace is not a colibri_simulateTransaction result.');
+    return body;
+}
+
+function renderSampleFields(): void {
+    const sample = selectedSample();
+    show('sample-fields', !!sample);
+    if (!sample) return;
+    const link = $('sample-txhash') as HTMLAnchorElement;
+    link.textContent = sample.txhash;
+    link.href = TX_HASH_RE.test(sample.txhash) ? `https://etherscan.io/tx/${sample.txhash}` : '#';
+    $('sample-txhash-copy').textContent = 'Copy';
+    ($('sample-to') as HTMLInputElement).value = sample.meta.to ?? '';
+    ($('sample-from') as HTMLInputElement).value = sample.meta.from ?? '';
+    ($('sample-value') as HTMLInputElement).value = sample.meta.value ?? '';
+    ($('sample-data') as HTMLTextAreaElement).value = sample.meta.input ?? '';
+}
+
+let copyResetTimer = 0;
+
+function flashCopyButton(label: string): void {
+    const button = $('sample-txhash-copy');
+    button.textContent = label;
+    window.clearTimeout(copyResetTimer);
+    copyResetTimer = window.setTimeout(() => {
+        if (button.textContent === label) button.textContent = 'Copy';
+    }, 1500);
+}
+
+/**
+ * Copy text from a click handler. The async Clipboard API is tried first; some
+ * browsers reject it, so a selected textarea plus `execCommand` is the fallback.
+ */
+function copyText(text: string): Promise<void> {
+    const viaClipboard = navigator.clipboard?.writeText(text);
+    if (viaClipboard) {
+        return viaClipboard.catch(() => copyTextFallback(text));
+    }
+    return copyTextFallback(text);
+}
+
+function copyTextFallback(text: string): Promise<void> {
+    const area = document.createElement('textarea');
+    area.value = text;
+    area.setAttribute('readonly', '');
+    area.style.position = 'fixed';
+    area.style.top = '0';
+    area.style.left = '0';
+    area.style.opacity = '0';
+    document.body.appendChild(area);
+    area.focus();
+    area.select();
+    const ok = document.execCommand('copy');
+    area.remove();
+    return ok ? Promise.resolve() : Promise.reject(new Error('copy failed'));
+}
+
+function bindSampleHashCopy(): void {
+    $('sample-txhash-copy').addEventListener('click', () => {
+        const hash = $('sample-txhash').textContent?.trim() ?? '';
+        if (!TX_HASH_RE.test(hash)) return;
+        void copyText(hash).then(
+            () => flashCopyButton('Copied'),
+            () => flashCopyButton('Copy failed'),
+        );
+    });
+}
+
+function renderSamples(): void {
+    const list = $('samples-list');
+    const scroll = list.scrollTop;
+    list.replaceChildren();
+    show('samples-list', samples.length > 0);
+    if (samples.length === 0) return;
+
+    const head = document.createElement('div');
+    head.className = 'sample-head';
+    head.setAttribute('aria-hidden', 'true');
+    for (const label of ['Tx hash', 'Contract', 'Function']) {
+        const span = document.createElement('span');
+        span.textContent = label;
+        head.appendChild(span);
+    }
+    list.appendChild(head);
+
+    for (const sample of samples) {
+        const row = document.createElement('button');
+        row.type = 'button';
+        row.className = 'sample-row' + (sample.txhash === selectedSampleHash ? ' selected' : '');
+        row.setAttribute('role', 'option');
+        row.setAttribute('aria-selected', sample.txhash === selectedSampleHash ? 'true' : 'false');
+        row.title = sample.txhash;
+
+        const hash = document.createElement('span');
+        hash.className = 'sample-hash';
+        hash.textContent = shortenTxHash(sample.txhash);
+        row.appendChild(hash);
+
+        const contract = document.createElement('span');
+        contract.className = 'sample-contract';
+        contract.textContent = sample.contract;
+        if (sample.contract) contract.title = sample.contract;
+        row.appendChild(contract);
+
+        const fn = document.createElement('span');
+        fn.className = 'sample-fn';
+        fn.textContent = sample.function;
+        if (sample.function) fn.title = sample.function;
+        row.appendChild(fn);
+
+        row.addEventListener('click', () => {
+            selectedSampleHash = sample.txhash;
+            renderSamples();
+            renderSampleFields();
+        });
+        list.appendChild(row);
+    }
+    list.scrollTop = scroll;
+}
+
+async function loadSamples(): Promise<void> {
+    const request = ++samplesRequest;
+    samplesLoading = true;
+    const refresh = $('samples-refresh') as HTMLButtonElement;
+    refresh.disabled = true;
+    $('samples-status').textContent = 'Loading samples…';
+    try {
+        const res = await fetch(TRACES_INDEX, { cache: 'no-store' });
+        if (!res.ok) throw new Error(`Failed to load samples (${res.status}).`);
+        const body: unknown = await res.json();
+        if (request !== samplesRequest) return;
+        samples = parseSamples(body);
+        samplesLoaded = true;
+        if (selectedSampleHash && !samples.some((sample) => sample.txhash === selectedSampleHash)) {
+            selectedSampleHash = '';
+        }
+        renderSamples();
+        renderSampleFields();
+        $('samples-status').textContent = samples.length
+            ? `${samples.length} recorded transactions.`
+            : 'No recorded transactions.';
+    } catch (err) {
+        if (request !== samplesRequest) return;
+        samplesLoaded = false;
+        $('samples-status').textContent = err instanceof Error ? err.message : String(err);
+    } finally {
+        if (request === samplesRequest) {
+            samplesLoading = false;
+            refresh.disabled = false;
+        }
+    }
+}
+
+function readTransaction(): TxParams {
+    if (inputMode === 'samples') {
+        const sample = selectedSample();
+        if (!sample) throw new Error('Select a sample transaction first.');
+        return txFromSample(sample);
+    }
+    if (inputMode === 'object') return readTxFromObject();
+    if (inputMode === 'json') return readTxFromJson();
+    return readTxFromRaw();
+}
+
+async function simulateLocally(
+    tx: TxParams,
+    chainId: number,
+    rpc: string,
+    prover: string,
+    usePrivacy: boolean,
+): Promise<SimulationResult> {
+    const clientConfig: Record<string, unknown> = { chainId };
+    clientConfig.zk_proof = true;
+    clientConfig.debug = true;
+    clientConfig.skip_wsp_check = true;
+    if (rpc) clientConfig.rpcs = [rpc];
+    if (prover) clientConfig.prover = [prover];
+    if (usePrivacy) {
+        // Pragmatic Adaptive Privacy: hides which account/storage is requested
+        // via a TEE-backed hybrid prover and ZK-verified state proofs.
+        clientConfig.privacy_mode = 'basic';
+        clientConfig.prover_mode = 'hybrid';
+        // Optional: route the privacy-critical eth_getProof requests to a TEE
+        // (ORAM) node so even the requested storage keys are not leaked.
+        const oblivious = ($('oblivious') as HTMLInputElement).value.trim();
+        if (oblivious) clientConfig.oblivious_nodes = [oblivious];
+    }
+    const client = new C4Client(clientConfig);
+    return (await client.rpc('colibri_simulateTransaction', [tx, 'latest'])) as SimulationResult;
+}
+
 async function buildExplainerConfig(useEnrichment: boolean, chainId: number): Promise<ExplainerConfig> {
     const provider = ($('provider') as HTMLSelectElement).value as LLMProviderType;
     const model = ($('model') as HTMLSelectElement).value;
@@ -394,34 +698,29 @@ async function run(): Promise<void> {
         const useEnrichment = ($('enrich') as HTMLInputElement).checked;
         const usePrivacy = ($('privacy') as HTMLInputElement).checked;
 
-        const tx =
-            inputMode === 'object' ? readTxFromObject() : inputMode === 'json' ? readTxFromJson() : readTxFromRaw();
+        const tx = readTransaction();
+        // Capture the path before any await. A refresh while the explainer
+        // config is built must not swap the trace out from under this run.
+        const tracePath = inputMode === 'samples' ? selectedSample()?.path : undefined;
         const config = await buildExplainerConfig(useEnrichment, chainId);
 
-        // Step 1 + 2: verified local simulation.
-        setStatus('Running colibri_simulateTransaction (verified)...');
+        // Step 1 + 2: verified local simulation, or a trace that was already
+        // produced by colibri_simulateTransaction and stored under /traces.
         setStep(1, 'active');
-        const clientConfig: Record<string, unknown> = { chainId };
-        clientConfig.zk_proof = true;
-        clientConfig.debug = true;
-        clientConfig.skip_wsp_check = true;
-        if (rpc) clientConfig.rpcs = [rpc];
-        if (prover) clientConfig.prover = [prover];
-        if (usePrivacy) {
-            // Pragmatic Adaptive Privacy: hides which account/storage is requested
-            // via a TEE-backed hybrid prover and ZK-verified state proofs.
-            clientConfig.privacy_mode = 'basic';
-            clientConfig.prover_mode = 'hybrid';
-            // Optional: route the privacy-critical eth_getProof requests to a TEE
-            // (ORAM) node so even the requested storage keys are not leaked.
-            const oblivious = ($('oblivious') as HTMLInputElement).value.trim();
-            if (oblivious) clientConfig.oblivious_nodes = [oblivious];
+        if (tracePath) {
+            setStatus('Loading recorded simulation...');
+            sim = await fetchSampleSimulation(tracePath);
+        } else if (inputMode === 'samples') {
+            throw new Error('Select a sample transaction first.');
+        } else {
+            setStatus('Running colibri_simulateTransaction (verified)...');
+            sim = await simulateLocally(tx, chainId, rpc, prover, usePrivacy);
         }
-        const client = new C4Client(clientConfig);
-        sim = (await client.rpc('colibri_simulateTransaction', [tx, 'latest'])) as SimulationResult;
         $('sim-json').textContent = JSON.stringify(sim, null, 2);
         setStep(1, 'done');
-        setStep(2, 'done');
+        // The recorded trace is already the simulateTransaction result, so this
+        // browser does not verify consensus or state again.
+        setStep(2, tracePath ? 'skipped' : 'done');
 
         // Step 3: fetch + compile + verify contract sources (Sourcify enrichment).
         if (useEnrichment) {
@@ -597,6 +896,8 @@ function init(): void {
         ($('systemPrompt') as HTMLTextAreaElement).value = DEFAULT_SYSTEM_PROMPT;
     });
     $('run').addEventListener('click', () => void run());
+    $('samples-refresh').addEventListener('click', () => void loadSamples());
+    bindSampleHashCopy();
 
     if (typeof navigator !== 'undefined' && !(navigator as { gpu?: unknown }).gpu) {
         setStatus('Note: WebGPU not detected - the local provider will not work in this browser.');

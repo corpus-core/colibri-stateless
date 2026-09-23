@@ -39,6 +39,16 @@ export default defineConfig({
     },
     server: {
         port: 5173,
+        // Recorded traces are served by the playground host under /traces.
+        // The dev server does not have that directory, so proxy it to the
+        // public playground while keeping the browser request same-origin.
+        proxy: {
+            '/traces': {
+                target: 'https://playground.colibri-proof.tech',
+                changeOrigin: true,
+                secure: true,
+            },
+        },
         fs: {
             // The colibri bundle lives outside the playground package, and the
             // debug build additionally serves its sibling c4w.wasm / DWARF file.
