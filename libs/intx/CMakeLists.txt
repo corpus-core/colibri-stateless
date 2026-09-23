@@ -66,6 +66,15 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
     target_compile_options(intx_wrapper PRIVATE -Wno-deprecated-literal-operator)
 endif()
 
+# wasi-sdk's libc++abi is built with -fno-exceptions, so any `throw`
+# expression instantiated via intx's templated headers would leave
+# `__cxa_allocate_exception` / `__cxa_throw` unresolved at link time.
+# Disable exceptions (and RTTI) for the wrapper on WASI -- the C ABI
+# never propagates exceptions anyway.
+if(CMAKE_SYSTEM_NAME STREQUAL "WASI")
+    target_compile_options(intx_wrapper PRIVATE -fno-exceptions -fno-rtti)
+endif()
+
 # Add compile definitions for Android to help with C++20 compatibility
 if(ANDROID OR CMAKE_SYSTEM_NAME STREQUAL "Android")
     target_compile_definitions(intx_wrapper PRIVATE 

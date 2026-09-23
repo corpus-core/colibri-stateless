@@ -32,6 +32,12 @@ jobs:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             asset: colibri-native-x86_64-pc-windows-msvc.tar.gz
+          # WebAssembly (WASI Preview 1) via wasi-sdk. See issue #371.
+          # `wasi: true` gates the SDK / runtime / test steps below.
+          - os: ubuntu-latest
+            target: wasm32-wasip1
+            asset: colibri-native-wasm32-wasip1.tar.gz
+            wasi: true
 
     runs-on: ${{ matrix.os }}
 
@@ -64,6 +70,36 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake build-essential
+
+      # wasi-sdk provides the wasm32-wasip1 toolchain used by CMake to
+      # cross-compile the C core. Pinned to keep builds reproducible.
+      - name: Install wasi-sdk
+        if: matrix.wasi
+        run: |
+          set -euo pipefail
+          WASI_SDK_VERSION=25
+          curl -fsSL -o /tmp/wasi-sdk.tar.gz \
+            "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-${WASI_SDK_VERSION}/wasi-sdk-${WASI_SDK_VERSION}.0-x86_64-linux.tar.gz"
+          sudo mkdir -p /opt/wasi-sdk
+          sudo tar -xzf /tmp/wasi-sdk.tar.gz --strip-components=1 -C /opt/wasi-sdk
+          echo "WASI_SDK_PATH=/opt/wasi-sdk" >> "$GITHUB_ENV"
+          /opt/wasi-sdk/bin/clang --version
+
+      # wasmtime is used as the test runner via
+      # CARGO_TARGET_WASM32_WASIP1_RUNNER (set on the test step below).
+      # Installed directly from the upstream release archive so we don't
+      # depend on the availability of a third-party GitHub Action tag.
+      - name: Install wasmtime
+        if: matrix.wasi
+        run: |
+          set -euo pipefail
+          WASMTIME_VERSION=v27.0.0
+          curl -fsSL -o /tmp/wasmtime.tar.xz \
+            "https://github.com/bytecodealliance/wasmtime/releases/download/${WASMTIME_VERSION}/wasmtime-${WASMTIME_VERSION}-x86_64-linux.tar.xz"
+          mkdir -p /tmp/wasmtime
+          tar -xf /tmp/wasmtime.tar.xz --strip-components=1 -C /tmp/wasmtime
+          sudo install -m 0755 /tmp/wasmtime/wasmtime /usr/local/bin/wasmtime
+          wasmtime --version
 
       - name: Install Build Dependencies (macOS)
         if: startsWith(matrix.os, 'macos')
@@ -144,15 +180,23 @@ jobs:
           PY
           grep '^version' Cargo.toml
 
+      # Only run fmt/clippy for the native Ubuntu job -- the wasi job
+      # also runs on ubuntu-latest but would otherwise duplicate the
+      # checks (and clippy needs to be gated per target anyway).
       - name: cargo fmt --check
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
         working-directory: bindings/rust
         run: cargo fmt --all -- --check
 
       - name: cargo clippy
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
         working-directory: bindings/rust
         run: cargo clippy --all-targets -- -D warnings
+
+      - name: cargo clippy (wasm32-wasip1)
+        if: matrix.wasi
+        working-directory: bindings/rust
+        run: cargo clippy --all-targets --target ${{ matrix.target }} -- -D warnings
 
       - name: cargo build (release)
         working-directory: bindings/rust
@@ -161,11 +205,25 @@ jobs:
         run: cargo build --release --target ${{ matrix.target }}
 
       - name: cargo test (release)
+        if: '!matrix.wasi'
         working-directory: bindings/rust
         shell: bash
         # `--test-threads=1` -- storage plugin is global; the shipped
         # tests are already `#[serial]`, but this keeps the corpus
         # stable across future test additions.
+        run: cargo test --release --target ${{ matrix.target }} -- --test-threads=1
+
+      # Run the wasm test binaries under wasmtime. The repo root is
+      # mounted so `find_test_data_root()` and `tempfile` can walk /
+      # write inside `test/data/*`. `--test-threads=1` matches the
+      # native test job.
+      - name: cargo test (release, wasm32-wasip1)
+        if: matrix.wasi
+        working-directory: bindings/rust
+        shell: bash
+        env:
+          CARGO_TARGET_WASM32_WASIP1_RUNNER: >-
+            wasmtime run --dir ${{ github.workspace }}::${{ github.workspace }} --
         run: cargo test --release --target ${{ matrix.target }} -- --test-threads=1
 
       - name: Package Native Archive
@@ -194,6 +252,22 @@ jobs:
             echo "libapi.a / libapi_ffi.a not found under native-out/${{ matrix.target }}/lib"
             ls -la native-out/${{ matrix.target }}/lib || true
             exit 1
+          fi
+
+          # wasm32-wasip1 pulls in libc++/libc++abi (evmone is C++); wasi-libc
+          # itself is provided by rustc's sysroot. Ship both archives inside
+          # the release asset so downstream crates can link without needing
+          # the wasi-sdk installed.
+          if [ "${{ matrix.wasi }}" = "true" ]; then
+            SYSROOT_LIB="${WASI_SDK_PATH}/share/wasi-sysroot/lib/wasm32-wasip1"
+            for lib in libc++.a libc++abi.a; do
+              if [ ! -f "$SYSROOT_LIB/$lib" ]; then
+                echo "Expected $lib in $SYSROOT_LIB"
+                ls -la "$SYSROOT_LIB" || true
+                exit 1
+              fi
+              cp "$SYSROOT_LIB/$lib" native-out/${{ matrix.target }}/lib/
+            done
           fi
 
           cp ../../src/api/colibri.h native-out/${{ matrix.target }}/include/

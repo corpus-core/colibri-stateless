@@ -2,10 +2,19 @@
 //!
 //! These do not touch the C core; they exercise the pure-Rust
 //! backends that most downstream users end up using.
+//!
+//! `FileStorage` tests are skipped on wasm targets: `tempfile::tempdir()`
+//! resolves to `/tmp` via `std::env::temp_dir()`, which is not part of
+//! the workspace preopen we pass to `wasmtime` in CI. `FileStorage`
+//! itself is documented as "prefer `MemoryStorage` on wasm" and is
+//! covered by the native matrix entries.
 
+#[cfg(not(target_family = "wasm"))]
 use std::env;
 
-use colibri_stateless::storage::{FileStorage, MemoryStorage, Storage};
+#[cfg(not(target_family = "wasm"))]
+use colibri_stateless::storage::FileStorage;
+use colibri_stateless::storage::{MemoryStorage, Storage};
 
 #[test]
 fn memory_storage_round_trip() {
@@ -35,6 +44,7 @@ fn memory_storage_multiple_keys_independent() {
     assert_eq!(s.get("b").as_deref(), Some(&b"two"[..]));
 }
 
+#[cfg(not(target_family = "wasm"))]
 #[test]
 fn file_storage_round_trip() {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -51,6 +61,7 @@ fn file_storage_round_trip() {
     assert!(s.get("k").is_none());
 }
 
+#[cfg(not(target_family = "wasm"))]
 #[test]
 fn file_storage_sanitises_unsafe_keys() {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -77,6 +88,7 @@ fn file_storage_sanitises_unsafe_keys() {
     }
 }
 
+#[cfg(not(target_family = "wasm"))]
 #[test]
 fn file_storage_survives_path_traversal_attempt() {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -97,6 +109,7 @@ fn file_storage_survives_path_traversal_attempt() {
 /// `FileStorage::new(None)` uses `$C4_STATES_DIR` when set. Kept in
 /// its own test so `env::set_var` cannot leak into the other tests --
 /// the whole crate runs with `--test-threads=1` in CI.
+#[cfg(not(target_family = "wasm"))]
 #[test]
 fn file_storage_honours_c4_states_dir_env() {
     let dir = tempfile::tempdir().expect("tempdir");
