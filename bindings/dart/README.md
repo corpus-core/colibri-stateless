@@ -8,8 +8,8 @@ Current package versions:
 
 | Package | Version |
 |---------|---------|
-| [`colibri_stateless`](pubspec.yaml) | **0.2.0** |
-| [`colibri_flutter`](flutter/colibri_flutter/pubspec.yaml) | **0.2.1** |
+| [`colibri_stateless`](pubspec.yaml) | **3.0.0** (Colibri / npm) |
+| [`colibri_flutter`](flutter/colibri_flutter/pubspec.yaml) | **3.0.0** (same) |
 
 **Verify Ethereum RPC data cryptographically — without running a full node.**
 
@@ -169,25 +169,29 @@ export C4_BUILD_DIR=/path/to/cmake/build
 
 ## Publishing (pub.dev)
 
-Package version is synced with the repository root. The canonical version is in the repo root file **`VERSION`** (same as used for releases). To update the Dart/Flutter package versions from it:
+Package version matches the **Colibri release version** used for npm (`@corpus-core/colibri-stateless`): `C4_VERSION` / `COLIBRI_VERSION`, or the exact git tag on `HEAD` (e.g. `v3.0.0` → `3.0.0`). Same source as the emscripten CI publish step.
+
+Sync checked-in pubspecs (nearest tag if not on an exact tag):
 
 ```bash
 ./scripts/sync_version.sh
+./scripts/sync_version.sh --exact   # require tag or C4_VERSION
 ```
 
-Then publish **colibri_stateless** (from a copy that excludes the Flutter plugin, so the package stays small):
+Publish **colibri_stateless** (temp copy excludes the Flutter plugin; version applied in the copy):
 
 ```bash
-./scripts/publish_colibri_stateless.sh --dry-run   # check
-./scripts/publish_colibri_stateless.sh             # publish
+# on a release tag, or: export C4_VERSION=3.0.0
+./scripts/publish_colibri_stateless.sh --dry-run
+./scripts/publish_colibri_stateless.sh
 ```
 
-To publish **colibri_flutter** (builds native binaries, then publishes):
+Publish **colibri_flutter** (builds natives, then publishes at the same Colibri version; depends on `colibri_stateless: ^<version>`):
 
 ```bash
 cd flutter/colibri_flutter
-./scripts/publish_colibri_flutter.sh --dry-run   # build + check
-./scripts/publish_colibri_flutter.sh             # build + publish
+./scripts/publish_colibri_flutter.sh --dry-run
+./scripts/publish_colibri_flutter.sh
 ```
 
 This script builds the Android `.so` files (requires `ANDROID_NDK_HOME`) and the iOS XCFramework (requires macOS + Xcode), then runs `dart pub publish`. The binaries are **not** checked into git; they are built on demand before each publish.

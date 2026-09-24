@@ -111,8 +111,14 @@ Output locations:
 
 - `android/src/main/jniLibs/<abi>/libcolibri.so`
 - `ios/colibri_flutter/Frameworks/c4_swift.xcframework` (CocoaPods + Swift Package Manager)
-- `macos/Frameworks/libcolibri.dylib` (universal; repo-root script only)
+- `macos/colibri_flutter/Frameworks/libcolibri.dylib` and `libcolibri.xcframework` (CocoaPods + Swift Package Manager)
+- `macos/Frameworks/libcolibri.dylib` (legacy copy; repo-root script)
 - `linux/lib/libcolibri.so` (repo-root script only)
+
+## macOS integration notes
+
+- Dart loads Colibri via `DynamicLibrary.open` on the vendored `libcolibri.dylib` (same as pre-3.0). The dylib must export Dart 3.0 FFI symbols such as `c4_reset_caches` (built via `bindings/dart/force_link.c`).
+- Layout: `macos/colibri_flutter/` holds `Package.swift`, `Sources/` (Swift plugin + `colibri_force_link`), and `Frameworks/libcolibri.xcframework`. The CocoaPods podspec points at the same tree so Flutter’s Swift Package Manager integration no longer warns about missing SPM support.
 
 ## iOS integration notes
 
@@ -122,15 +128,18 @@ Output locations:
 
 ## Publishing (pub.dev)
 
-1. Publish **colibri_stateless** (`0.2.x`) first from `bindings/dart`.
-2. Build binaries and publish in one step:
+Version is the **Colibri release version** (same as npm): exact git tag or `C4_VERSION` / `COLIBRI_VERSION` (see `bindings/dart/scripts/colibri_version.sh`).
+
+1. Publish **colibri_stateless** at that version first (`bindings/dart/scripts/publish_colibri_stateless.sh`).
+2. Build binaries and publish this plugin at the **same** version:
 
 ```bash
+# on a release tag, or: export C4_VERSION=3.0.0
 ./scripts/publish_colibri_flutter.sh --dry-run   # build + check
 ./scripts/publish_colibri_flutter.sh             # build + publish
 ```
 
-The publish script calls `build_native_libs.sh --all`, verifies the binaries exist, then publishes from an isolated temp copy (so monorepo `.gitignore` / parent `.pubignore` do not hide `pubspec.yaml` or the native binaries).
+The publish script calls `build_native_libs.sh --all`, verifies the binaries exist, sets `version` / `colibri_stateless: ^<version>`, then publishes from an isolated temp copy (so monorepo `.gitignore` / parent `.pubignore` do not hide `pubspec.yaml` or the native binaries).
 
 3. **Repository verification:** pub.dev expects the [repository](pubspec.yaml) URL to clone to a repo that contains a `pubspec.yaml` with `name: colibri_flutter` at root. This package lives in a monorepo subdirectory, so to pass that check either:
    - **Option A:** Create a mirror repo (e.g. `corpus-core/colibri-flutter`) with this directory's contents at root. Push the mirror, set `repository: https://github.com/corpus-core/colibri-flutter` in [pubspec.yaml](pubspec.yaml), then publish.

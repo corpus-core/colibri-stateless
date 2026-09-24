@@ -78,14 +78,17 @@ bindings/dart/**/assets/.env
 # Flutter plugin pre-built native binaries (built in CI / locally before publish)
 bindings/dart/flutter/colibri_flutter/android/src/main/jniLibs/
 bindings/dart/flutter/colibri_flutter/ios/colibri_flutter/Frameworks/c4_swift.xcframework/
+bindings/dart/flutter/colibri_flutter/macos/colibri_flutter/Frameworks/libcolibri.xcframework/
+bindings/dart/flutter/colibri_flutter/macos/colibri_flutter/Frameworks/libcolibri.dylib
+bindings/dart/flutter/colibri_flutter/macos/Frameworks/libcolibri.dylib
 
 
 audit-workspace/
 .colibri-audit*/
+.gradle/
+
 
 # Live RPC integration request/response dumps (kept only for failed tests)
 bindings/emscripten/test/.rpc-dumps/
-bindings/dart/flutter/colibri_flutter/android/.gradle/9.2.0/fileHashes/fileHashes.bin
-bindings/dart/flutter/colibri_flutter/android/.gradle/9.2.0/fileHashes/fileHashes.lock
-bindings/dart/flutter/colibri_flutter/android/.gradle/buildOutputCleanup/buildOutputCleanup.lock
-bindings/dart/flutter/colibri_flutter/android/.gradle/buildOutputCleanup/buildOutputCleanup.lock
+
+

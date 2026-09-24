@@ -7,11 +7,15 @@ Pod::Spec.new do |s|
   s.license          = { :file => '../LICENSE' }
   s.author           = { 'corpus.core' => 'info@corpuscore.tech' }
   s.source           = { :path => '.' }
-  s.source_files     = 'Classes/**/*'
+  # Shared with Swift Package Manager under macos/colibri_flutter/
+  s.source_files     = 'colibri_flutter/Sources/colibri_flutter/**/*.swift',
+                       'colibri_flutter/Sources/colibri_force_link/**/*.{c,h}'
+  s.public_header_files = 'colibri_flutter/Sources/colibri_force_link/**/*.h'
   s.platform         = :osx, '10.15'
   s.swift_version    = '5.0'
-  s.vendored_libraries = 'Frameworks/libcolibri.dylib'
-  s.preserve_paths   = 'Frameworks/libcolibri.dylib'
+  s.vendored_libraries = 'colibri_flutter/Frameworks/libcolibri.dylib'
+  s.preserve_paths   = 'colibri_flutter/Frameworks/libcolibri.dylib',
+                       'colibri_flutter/Frameworks/libcolibri.xcframework'
   s.dependency 'FlutterMacOS'
   s.xcconfig         = { 'LD_RUNPATH_SEARCH_PATHS' => '@loader_path/../Frameworks' }
   s.pod_target_xcconfig = {

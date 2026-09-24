@@ -1,3 +1,14 @@
+## 3.0.1
+
+- macOS: rebuild universal `libcolibri.dylib` so Dart 3.0 FFI symbols (including `c4_reset_caches`) are exported again.
+- macOS: add Swift Package Manager layout (`macos/colibri_flutter/Package.swift`, force-link target, XCFramework) so Flutter no longer warns about missing SPM support.
+- Publish script: build and verify macOS natives alongside Android/iOS.
+
+## 3.0.0
+
+- Version aligned with the Colibri release / npm package: set from `C4_VERSION` or the git tag (same as `colibri_stateless`).
+- Depends on `colibri_stateless: ^3.0.0`.
+
 ## 0.2.3
 
 - macOS: build the bundled universal `libcolibri.dylib` with the plugin's
