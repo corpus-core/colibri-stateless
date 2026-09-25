@@ -476,9 +476,13 @@ function slotIdentifier(resolved: ResolvedSlot, rawSlot: string): string {
 
 /**
  * Net wei per address as implied by the trace, so we can validate ETH balance
- * changes (issue #381). Only value-carrying frames move ETH: `CALL`,
- * `CALLCODE`, `CREATE`, `CREATE2`. `DELEGATECALL` / `STATICCALL` inherit their
- * value from the caller frame and must not be counted.
+ * changes (issue #381). Counts every frame type except `DELEGATECALL` /
+ * `STATICCALL` (both inherit their value from the caller and must not be
+ * double-counted). Using an exclusion list rather than an inclusion list is
+ * deliberate: unknown / future frame types are counted conservatively so a
+ * mismatched delta triggers the safety-net rather than being silently
+ * accepted. `CALLCODE` transfers value intra-account (`from == to`) and
+ * therefore nets to zero, which is fine.
  *
  * @param result - Simulation result carrying the flat trace list
  * @return Map from lowercase address to net wei (sender debited, receiver credited)
@@ -682,7 +686,8 @@ function formatSourceContext(result: SimulationResult, context: EnrichedContext,
 
     if (contractsNeedingSource.size === 0) return null;
 
-    const lines: string[] = ['## Contract Source Code (untrusted, for storage interpretation only)'];
+    const HEADER = '## Contract Source Code (untrusted, for storage interpretation only)';
+    const lines: string[] = [HEADER];
     const budgetLimit = resolveSourceBudget(maxSourceChars);
     const unlimited = budgetLimit === null;
     let totalBudget = unlimited ? Number.POSITIVE_INFINITY : budgetLimit;
@@ -695,11 +700,14 @@ function formatSourceContext(result: SimulationResult, context: EnrichedContext,
         ? totalBudget
         : Math.max(1, Math.floor(totalBudget / fileCount));
 
+    let embeddedAny = false;
     for (const addr of contractsNeedingSource) {
         if (totalBudget <= 0) break;
         const meta = context.contracts.get(addr)!;
         const label = labelAddress(addr, shortenAddress);
+        const contractHeaderIndex = lines.length;
         lines.push(`\n### ${label}`);
+        let embeddedForThisAddr = false;
 
         if (meta.sources) {
             for (const [filename, source] of Object.entries(meta.sources)) {
@@ -718,9 +726,19 @@ function formatSourceContext(result: SimulationResult, context: EnrichedContext,
                 lines.push(
                     `\`${safeName}\`:\n<<<${SOURCE_BEGIN_TOKEN} filename="${safeName}">>>\n${truncated}\n<<<${SOURCE_END_TOKEN}>>>`,
                 );
+                embeddedForThisAddr = true;
+                embeddedAny = true;
             }
         }
+
+        // Drop the per-contract header when every candidate file was filtered
+        // out (e.g. Sourcify only returned Yul artefacts).
+        if (!embeddedForThisAddr) lines.splice(contractHeaderIndex, 1);
     }
+
+    // Don't emit a lonely `## Contract Source Code` section when nothing
+    // survived the filter -- an empty section is confusing for the model.
+    if (!embeddedAny) return null;
 
     return lines.join('\n');
 }
@@ -737,9 +755,12 @@ function formatSourceContext(result: SimulationResult, context: EnrichedContext,
 function isEmbeddableSource(filename: string, content: string): boolean {
     const name = String(filename ?? '').toLowerCase();
     if (name.endsWith('.yul') || name.endsWith('.bin') || name.endsWith('.abi')) return false;
-    const head = String(content ?? '').trimStart().slice(0, 200);
-    // Yul object header (with or without pragma / SPDX above).
-    if (/^object\s+["']/.test(head)) return false;
+    // Sniff the first 2000 chars for a Yul `object "…" {` header anywhere on
+    // its own line. A leading `// SPDX-License-Identifier: …` or
+    // `pragma solidity` block must not defeat the filter (a `.sol` file with
+    // a Yul body would otherwise be treated as Solidity source).
+    const head = String(content ?? '').slice(0, 2000);
+    if (/(^|\n)\s*object\s+["'][^"']+["']\s*\{/.test(head)) return false;
     if (!name || name.endsWith('.sol')) return true;
     return false;
 }

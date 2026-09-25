@@ -329,6 +329,39 @@ describe('extractPackedValue', () => {
         assert.equal(extractPackedValue('', 0, 4), null);
         assert.equal(extractPackedValue('0x-1', 0, 4), null);
     });
+
+    it('returns null on fractional offset / width instead of throwing (L1)', () => {
+        // Sourcify may hand us `"offset": 2.1` or `"numberOfBytes": "14.5"`
+        // in a corrupted metadata blob. `BigInt(16.8)` throws a `RangeError`;
+        // the extractor must fail closed with `null`.
+        const word = '0x' + '00'.repeat(32);
+        assert.equal(extractPackedValue(word, 2.1, 4), null);
+        assert.equal(extractPackedValue(word, 0, 14.5), null);
+        assert.equal(extractPackedValue(word, Number.NaN, 4), null);
+    });
+});
+
+describe('buildPackedMembers (via resolveDirectSlot)', () => {
+    it('drops layout entries whose offset is fractional (L1)', () => {
+        // Two entries at slot 0 -- one valid, one with a bogus offset from a
+        // corrupted storage layout. The bogus entry must be silently dropped
+        // and must not crash prompt generation with a RangeError.
+        const layout = {
+            storage: [
+                { slot: '0', type: 't_u128', astId: 1, label: 'good', offset: 0, contract: 'C.sol:C' },
+                { slot: '0', type: 't_u128', astId: 2, label: 'evil', offset: 16.5, contract: 'C.sol:C' },
+            ],
+            types: { t_u128: { label: 'uint128', encoding: 'inplace', numberOfBytes: '16' } },
+        };
+        const slot = '0x' + '00'.repeat(32);
+        const resolved = resolveDirectSlot(slot, layout);
+        // Only one packed member survives, so the direct-slot codepath treats
+        // it as a single sub-word (wrapped in `members` because size < 32).
+        assert.equal(resolved.variableName, 'good');
+        assert.ok(resolved.members);
+        assert.equal(resolved.members.length, 1);
+        assert.equal(resolved.members[0].variableName, 'good');
+    });
 });
 
 describe('resolveDirectSlot packed slots', () => {

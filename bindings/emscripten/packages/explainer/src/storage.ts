@@ -312,7 +312,10 @@ export function resolveDirectSlot(
  * @return Extracted value, or `null` when the input cannot be parsed
  */
 export function extractPackedValue(word: string, offset: number, numberOfBytes: number): bigint | null {
-    if (!Number.isFinite(offset) || !Number.isFinite(numberOfBytes)) return null;
+    // Reject non-integer widths / offsets. `Number.isFinite(2.1)` is true but
+    // `BigInt(16.8)` throws a `RangeError`, so a Sourcify-supplied layout with
+    // fractional offsets would otherwise crash the prompt builder.
+    if (!Number.isInteger(offset) || !Number.isInteger(numberOfBytes)) return null;
     if (numberOfBytes <= 0 || numberOfBytes > 32) return null;
     if (offset < 0 || offset + numberOfBytes > 32) return null;
     if (word == null) return null;
@@ -320,15 +323,15 @@ export function extractPackedValue(word: string, offset: number, numberOfBytes: 
     if (!raw || raw.startsWith('[') || raw.startsWith('-') || /^0x-/i.test(raw)) return null;
     const hex = raw.startsWith('0x') || raw.startsWith('0X') ? raw.slice(2) : raw;
     if (!/^[0-9a-fA-F]*$/.test(hex) || hex.length === 0 || hex.length > 64) return null;
-    let big: bigint;
     try {
-        big = BigInt('0x' + hex);
+        const big = BigInt('0x' + hex);
+        const shift = BigInt(offset * 8);
+        const mask = (1n << BigInt(numberOfBytes * 8)) - 1n;
+        return (big >> shift) & mask;
     } catch {
+        // Belt-and-suspenders: any late BigInt conversion failure yields null.
         return null;
     }
-    const shift = BigInt(offset * 8);
-    const mask = (1n << BigInt(numberOfBytes * 8)) - 1n;
-    return (big >> shift) & mask;
 }
 
 /**
@@ -348,9 +351,11 @@ function buildPackedMembers(
     for (const e of entries) {
         const t = layout.types?.[e.type];
         const size = t ? Number(t.numberOfBytes) : NaN;
-        if (!Number.isFinite(size) || size <= 0 || size > 32) continue;
+        // `Number.isInteger` (not `isFinite`) guards against fractional layout
+        // values that would later throw in `BigInt(size * 8)`.
+        if (!Number.isInteger(size) || size <= 0 || size > 32) continue;
         const offset = Number(e.offset);
-        if (!Number.isFinite(offset) || offset < 0 || offset + size > 32) continue;
+        if (!Number.isInteger(offset) || offset < 0 || offset + size > 32) continue;
         members.push({
             variableName: e.label,
             variableType: t?.label ?? e.type,

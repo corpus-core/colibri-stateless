@@ -517,6 +517,30 @@ describe('buildPrompt source-code budget (maxSourceChars)', () => {
         assert.ok(userPrompt.includes('F2.sol'));
     });
 
+    it('skips Yul-body files even when the extension is .sol and SPDX/pragma sit above the object header (L2, issue #382)', () => {
+        // A `.sol` file whose real content is a Yul `object "…" { code { … } }`
+        // block preceded by an SPDX line and a `pragma solidity` directive.
+        // Without the stricter sniff, the file would be embedded and the model
+        // would treat Yul as Solidity storage-layout evidence.
+        const yulWithHeader =
+            '// SPDX-License-Identifier: MIT\n' +
+            'pragma solidity ^0.8.0;\n' +
+            '\n' +
+            'object "TargetContract" { code { let x := 1 } }\n';
+        const { userPrompt } = buildPrompt(
+            WETH_DEPOSIT_RESULT, TX_PARAMS, {}, sourceContext(yulWithHeader),
+        );
+        assert.ok(!userPrompt.includes('object "TargetContract"'),
+            `Yul body must not be embedded, got:\n${userPrompt}`);
+        assert.ok(!userPrompt.includes('let x := 1'),
+            `Yul body must not appear in the prompt, got:\n${userPrompt}`);
+        // The `## Contract Source Code` section is only rendered when at least
+        // one file survives the filter; with only Yul available it must not
+        // appear at all.
+        assert.ok(!userPrompt.includes('## Contract Source Code'),
+            `No source section expected when every candidate is Yul, got:\n${userPrompt}`);
+    });
+
     it('when truncating, keeps the last contract (state vars) over leading helpers', () => {
         const prefix = 'library L { function x() internal pure returns (uint) { return 1; } }\n'.repeat(40);
         const src = `${prefix}contract MCGA { mapping(address => uint256) private _allowances; }`;
