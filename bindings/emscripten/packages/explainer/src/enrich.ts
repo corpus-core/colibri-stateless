@@ -34,6 +34,8 @@ import { compileAndVerify } from './compiler.js';
 import { extractStorageLayout } from './layout.js';
 import { cacheGet, cacheSet, cacheGetLayout, cacheSetLayout, getDefaultCache } from './cache.js';
 import { elapsedMs, explainerLog } from './log.js';
+import { assignRefIds } from './refs.js';
+import { parseExplanation } from './lines.js';
 
 /**
  * Enrich a simulation result with decoded contract metadata.
@@ -188,6 +190,7 @@ function verifiedToMeta(cached: VerifiedContract): ContractMetadata {
         abi: cached.abi,
         sources: cached.sources,
         storageLayout: cached.storageLayout,
+        contractName: cached.contractName || null,
     };
 }
 
@@ -200,7 +203,7 @@ async function resolveContract(
     baseUrl?: string,
 ): Promise<[string, ContractMetadata]> {
     const addr = address.toLowerCase();
-    const empty: ContractMetadata = { abi: null, sources: null, storageLayout: null };
+    const empty: ContractMetadata = { abi: null, sources: null, storageLayout: null, contractName: null };
 
     if (eoas.has(addr)) {
         explainerLog('debug', 'skip EOA', { scope: 'enrich', address: addr });
@@ -286,7 +289,7 @@ async function resolveFromSourcify(
             );
         } catch {
             explainerLog('warn', 'bytecode verify threw', { scope: 'enrich', address: addr });
-            return { abi: comp.abi, sources: comp.sources, storageLayout };
+            return { abi: comp.abi, sources: comp.sources, storageLayout, contractName: comp.contractName };
         }
 
         explainerLog('info', 'bytecode verify', {
@@ -309,10 +312,10 @@ async function resolveFromSourcify(
             await cacheSet(cache, codeHash, verifiedContract);
         }
 
-        return { abi, sources: comp.sources, storageLayout };
+        return { abi, sources: comp.sources, storageLayout, contractName: comp.contractName };
     }
 
-    return { abi: comp.abi, sources: comp.sources, storageLayout };
+    return { abi: comp.abi, sources: comp.sources, storageLayout, contractName: comp.contractName };
 }
 
 /**
@@ -592,29 +595,36 @@ export function toEnhancedResult(
     result: SimulationResult,
     context: EnrichedContext,
     explanation: string,
+    allowedRefs?: Iterable<string>,
 ): EnhancedSimulationResult {
+    const ids = assignRefIds(result);
     const logs: EnhancedLog[] = (result.logs || []).map((log, i) => {
         const decoded = context.decodedEvents?.[i] ?? undefined;
-        return decoded ? { ...log, decoded } : { ...log };
+        return { ...log, id: ids.logIds[i], ...(decoded ? { decoded } : {}) };
     });
 
     const trace: EnhancedTraceEntry[] | undefined = result.trace?.map((t, i) => {
         const decoded = context.decodedTrace?.[i] ?? undefined;
-        return decoded ? { ...t, decoded } : { ...t };
+        return { ...t, id: ids.traceIds[i], ...(decoded ? { decoded } : {}) };
     });
 
-    const stateChanges: EnhancedContractStateChange[] | undefined = result.stateChanges?.map(change => {
+    const stateChanges: EnhancedContractStateChange[] | undefined = result.stateChanges?.map((change, c) => {
         const addr = change.address.toLowerCase();
         const resolvedSlots = context.resolvedStorage?.get(addr);
 
         const storage = change.storage?.map((s, i) => {
             const resolved = resolvedSlots?.[i];
-            return resolved ? { ...s, resolved } : { ...s };
+            return { ...s, id: ids.storageIds[c][i], ...(resolved ? { resolved } : {}) };
         });
 
-        return { address: change.address, storage, balance: change.balance };
+        const balance = change.balance && ids.balanceIds[c]
+            ? { id: ids.balanceIds[c]!, previousValue: change.balance.previousValue, newValue: change.balance.newValue }
+            : undefined;
+
+        return { address: change.address, storage, balance };
     });
 
+    const allowed = allowedRefs ?? [];
     return {
         gasUsed: result.gasUsed,
         status: result.status,
@@ -623,6 +633,8 @@ export function toEnhancedResult(
         stateChanges,
         trace,
         explanation,
+        lines: parseExplanation(explanation, allowed),
+        labels: Object.values(context.labels?.byAddress ?? {}),
         decodedCall: context.decodedCall,
         error: context.decodedError,
     };

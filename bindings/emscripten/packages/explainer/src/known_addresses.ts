@@ -71,6 +71,12 @@ const KNOWN: Record<string, KnownAddress> = {
         description: 'EIP-7002 predeploy. A validator posts a withdrawal request by calling with 56 bytes: `pubkey (48) || amount (8)` and the required fee in `msg.value`. `set` (called by the SYSTEM_ADDRESS at slot start) drains the queue for the block. No ABI, no Solidity source.',
         noAbi: true,
     },
+    '0xfffffffffffffffffffffffffffffffffffffffe': {
+        label: 'EIP-7708 System Address',
+        description: 'EIP-7708 system address. ETH transfer logs are emitted from this address, not from the token or the sender.',
+        noAbi: true,
+    },
+    '0x000000000022d473030f116ddee9f6b43ac78ba3': { label: 'Permit2' },
     '0x0000bbddc7ce488642fb579f8b00f3a590007251': {
         label: 'EIP-7251 Execution-Layer Consolidation Request',
         description: 'EIP-7251 predeploy. A validator posts a consolidation request by calling with 96 bytes: `source_pubkey (48) || target_pubkey (48)` and the required fee in `msg.value`. `set` (called by the SYSTEM_ADDRESS at slot start) drains the queue for the block. No ABI, no Solidity source.',

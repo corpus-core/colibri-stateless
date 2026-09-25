@@ -22,6 +22,9 @@
  */
 
 import type { LLMProvider, LLMProviderConfig, ModelProgress } from '../types.js';
+import { promptRefs } from '../refs.js';
+import { buildLineGrammar, LineStreamParser } from '../lines.js';
+import { explainerLog } from '../log.js';
 
 /**
  * A WebLLM `ModelRecord` (the shape `@mlc-ai/web-llm` expects in
@@ -206,6 +209,9 @@ export class WebLLMProvider implements LLMProvider {
     private contextWindowSize?: number;
     private onProgress?: (progress: ModelProgress) => void;
     private onToken?: (delta: string, full: string) => void;
+    private onLine?: LLMProviderConfig['onLine'];
+    private abortSignal?: AbortSignal;
+    private explainMode: 'user' | 'developer';
     private injectedEngine?: MLCEngineLike;
     private appConfig?: AppConfigLike;
     private modelRecords?: WebLLMModelRecord[];
@@ -218,6 +224,9 @@ export class WebLLMProvider implements LLMProvider {
         this.contextWindowSize = config.contextWindowSize;
         this.onProgress = config.onModelProgress;
         this.onToken = config.onToken;
+        this.onLine = config.onLine;
+        this.abortSignal = config.abortSignal;
+        this.explainMode = config.explainMode === 'user' ? 'user' : 'developer';
         this.injectedEngine = config.webllmEngine as MLCEngineLike | undefined;
         this.appConfig = config.webllmAppConfig as AppConfigLike | undefined;
         this.modelRecords = config.webllmModelRecords as WebLLMModelRecord[] | undefined;
@@ -234,26 +243,47 @@ export class WebLLMProvider implements LLMProvider {
         // block when `enable_thinking` is false; the fine-tunes were trained
         // with exactly that prefix (Qwen3.5 chat template, non-thinking).
         const extra = this.disableThinking ? { extra_body: { enable_thinking: false } } : {};
+        const refs = promptRefs(userPrompt);
+        const grammar = buildLineGrammar(refs, this.explainMode);
+        const responseFormat = grammar ? { response_format: { type: 'grammar', grammar } } : {};
 
         // Stream token-by-token when a callback is provided so callers can render
         // the answer live (generation can take 10-20s on consumer hardware).
-        if (this.onToken) {
+        if (this.onToken || this.onLine) {
             const stream = (await engine.chat.completions.create({
                 messages,
                 max_tokens: this.maxTokens,
                 temperature: this.temperature,
                 stream: true,
                 ...extra,
+                ...responseFormat,
             })) as AsyncIterable<ChatCompletionChunkLike>;
 
+            const parser = new LineStreamParser(refs);
             let full = '';
+            let parsed = 0;
+            let dropped = 0;
+            let unresolved = 0;
             for await (const chunk of stream) {
+                if (this.abortSignal?.aborted) break;
                 const delta = chunk.choices?.[0]?.delta?.content;
-                if (delta) {
-                    full += delta;
-                    this.onToken(delta, full);
+                if (!delta) continue;
+                full += delta;
+                this.onToken?.(delta, full);
+                for (const line of parser.push(delta)) {
+                    if (line.malformed) dropped += 1;
+                    else parsed += 1;
+                    unresolved += line.droppedRefs?.length ?? 0;
+                    this.onLine?.(line);
                 }
             }
+            for (const line of parser.finish()) {
+                if (line.malformed) dropped += 1;
+                else parsed += 1;
+                unresolved += line.droppedRefs?.length ?? 0;
+                this.onLine?.(line);
+            }
+            explainerLog('info', 'explanation lines', { scope: 'webllm', parsed, dropped, unresolved });
             if (!full) throw new Error('WebLLM returned an empty response');
             return full;
         }
@@ -263,6 +293,7 @@ export class WebLLMProvider implements LLMProvider {
             max_tokens: this.maxTokens,
             temperature: this.temperature,
             ...extra,
+            ...responseFormat,
         })) as ChatCompletionLike;
 
         const content = res.choices?.[0]?.message?.content;

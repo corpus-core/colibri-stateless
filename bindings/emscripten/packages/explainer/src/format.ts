@@ -83,6 +83,95 @@ export function formatTokenAmount(rawHex: string, decimals: number): string {
     return fracStr ? `${whole}.${fracStr}` : whole.toString();
 }
 
+/** `type(uint256).max`. Allowance values equal to this are printed as `unlimited`. */
+export const UINT256_MAX = (1n << 256n) - 1n;
+
+/** Fractional digits shown for token amounts. Shared by values and deltas. */
+const AMOUNT_FRAC_DIGITS = 6;
+
+/**
+ * Format a raw integer token amount.
+ *
+ * Decimals unknown → `"<int> raw"`. `type(uint256).max` → `"unlimited"`.
+ * Otherwise the value is scaled and rounded half-up to at most 6 fractional
+ * digits. Trailing zeros are stripped so `0.1` stays `0.1`.
+ *
+ * @param raw - Hex quantity or decimal integer
+ * @param decimals - Token decimals, omitted when unknown
+ * @param symbol - Optional unit appended after the number (`WETH`, `ETH`)
+ * @return Display string
+ */
+export function formatAmount(raw: string | bigint, decimals?: number, symbol?: string): string {
+    const value = typeof raw === 'bigint' ? raw : hexToBigInt(raw);
+    if (value === UINT256_MAX || value === -1n) return 'unlimited';
+    if (decimals == null || decimals < 0) return `${value.toString()} raw`;
+    const text = formatScaled(value, decimals, Math.min(decimals, AMOUNT_FRAC_DIGITS));
+    return symbol ? `${text} ${symbol}` : text;
+}
+
+/**
+ * Format `next - prev` with the same rounding as `formatAmount`.
+ *
+ * @param previous - Raw previous value
+ * @param next - Raw next value
+ * @param decimals - Token decimals, omitted when unknown
+ * @param symbol - Optional unit
+ * @return Signed display string, e.g. `+0.072263 WETH`
+ */
+export function formatAmountDelta(
+    previous: string | bigint,
+    next: string | bigint,
+    decimals?: number,
+    symbol?: string,
+): string {
+    const prev = typeof previous === 'bigint' ? previous : hexToBigInt(previous);
+    const nxt = typeof next === 'bigint' ? next : hexToBigInt(next);
+    if (nxt === UINT256_MAX) return 'unlimited';
+    const delta = nxt - prev;
+    if (delta === 0n) return formatAmount(0n, decimals, symbol);
+    const body = formatAmount(delta < 0n ? -delta : delta, decimals, symbol);
+    return `${delta > 0n ? '+' : '-'}${body}`;
+}
+
+/**
+ * Scale `value` by `decimals` and round half-up to `fracDigits` places.
+ *
+ * @param value - Signed integer in the token's base units
+ * @param decimals - Divisor exponent
+ * @param fracDigits - Fractional digits to keep
+ * @return Decimal string without a unit suffix
+ */
+function formatScaled(value: bigint, decimals: number, fracDigits: number): string {
+    if (value === 0n) return '0';
+    const negative = value < 0n;
+    const abs = negative ? -value : value;
+    const divisor = 10n ** BigInt(decimals);
+    let whole = abs / divisor;
+    const remainder = abs % divisor;
+    if (remainder === 0n) return negative ? `-${whole}` : whole.toString();
+
+    const digits = Math.max(0, fracDigits);
+    const extra = decimals - digits;
+    let scaled: bigint;
+    if (extra <= 0) {
+        scaled = remainder * (10n ** BigInt(-extra));
+    } else {
+        const pow = 10n ** BigInt(extra);
+        const truncated = remainder / pow;
+        const rest = remainder % pow;
+        scaled = truncated + (rest * 2n >= pow ? 1n : 0n);
+    }
+    const fracMax = 10n ** BigInt(digits);
+    if (digits > 0 && scaled >= fracMax) {
+        whole += 1n;
+        scaled -= fracMax;
+    }
+    if (digits === 0 || scaled === 0n) return negative ? `-${whole}` : whole.toString();
+    const fracStr = scaled.toString().padStart(digits, '0').replace(/0+$/, '');
+    const body = fracStr ? `${whole}.${fracStr}` : whole.toString();
+    return negative ? `-${body}` : body;
+}
+
 /** Format a hex gas value as a decimal number with thousand separators. */
 export function formatGas(gasHex: string): string {
     const gas = Number(hexToBigInt(gasHex));

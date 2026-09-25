@@ -692,6 +692,42 @@ details.config[open]>summary::before {
     line-height: 1.6;
 }
 
+.explanation-details {
+    margin-top: 0.75rem;
+}
+
+.explanation-details > summary {
+    cursor: pointer;
+    color: var(--muted);
+}
+
+.line {
+    margin: 0.35rem 0;
+}
+
+.line-kind {
+    display: inline-block;
+    min-width: 5.5rem;
+    margin-right: 0.5rem;
+    font-size: 0.75rem;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+}
+
+.line-risk .line-kind {
+    color: #f0a060;
+}
+
+.line-refs {
+    margin-left: 0.5rem;
+    color: var(--muted);
+    font-size: 0.8rem;
+}
+
+.line a {
+    color: var(--accent, #79c0ff);
+}
+
 /* Markdown rendered from the LLM output */
 .explanation> :first-child {
     margin-top: 0;

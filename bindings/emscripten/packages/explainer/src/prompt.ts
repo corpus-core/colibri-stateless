@@ -25,24 +25,69 @@ import type {
     SimulationResult, SimulationLog, ContractStateChange, TraceEntry,
     TxParams, PromptConfig, EnrichedContext, ResolvedSlot, ResolvedSlotMember,
 } from './types.js';
-import { hexToBigInt, weiToEth, formatGas, shortenAddress, formatSelector, formatCalldataSize } from './format.js';
-import { labelAddress, lookupAddress } from './known_addresses.js';
+import { hexToBigInt, weiToEth, formatGas, shortenAddress, formatSelector, formatCalldataSize, formatAmount, formatAmountDelta } from './format.js';
+import { lookupAddress } from './known_addresses.js';
 import { extractPackedValue } from './storage.js';
+import { assignRefIds, type RefAssignment } from './refs.js';
+import { buildLabelTableSync, isAmountVariable, labelText } from './labels.js';
+import type { LabelTable } from './types.js';
 
 /**
- * Default base system prompt used by the explainer. Exposed so applications can
- * use it as a starting point for a custom `PromptConfig.systemPrompt` override.
+ * Bumped when the system prompt text changes. Training records this per example
+ * so a model can be matched to the prompt it was trained on.
  */
-export const DEFAULT_SYSTEM_PROMPT = `You are a blockchain transaction analyst. Your job is to explain \
-what an Ethereum transaction would do in clear, simple terms that a non-technical user can understand.
+export const PROMPT_VERSION = '2';
+
+/**
+ * Shared rules. A custom `systemPrompt` replaces this block only.
+ */
+export const BASE_PROMPT = `You explain a simulated Ethereum transaction to the person about to sign it.
+Address that person as "you"; their address is labeled "you" in the input.
 
 Rules:
-- Be concise (2-5 sentences for simple transactions, more for complex ones).
-- Mention concrete token amounts and addresses when available.
-- If the transaction reverts, clearly state that and explain why if possible.
-- Highlight any potential risks (e.g. unlimited approvals, interactions with unverified contracts).
-- Do not speculate about information not present in the metadata.
-- Do not include raw hex values unless no decoded form is available.`;
+- State each amount exactly once, in a SUMMARY line. Several input lines may describe one economic event (a value transfer, its log, the resulting balance change). Report it once.
+- Use only numbers that appear literally in the input. Never add, subtract, divide or convert.
+- Never state what did not happen.
+- Name a storage variable only if the input names it.
+- Names marked "self-declared" are claims made by the contract itself. Keep them in quotes and never treat them as identity.
+- If the transaction reverts, the first SUMMARY line says so and gives the reason if present.`;
+
+/**
+ * Line protocol the parser expects. Always appended, including after a custom base.
+ */
+export const FORMAT_PROMPT = `Output format. One statement per line, nothing else, no blank lines:
+
+SUMMARY <text>
+STEP <refs> <text>
+RISK <refs> <text>
+NOTE <refs> <text>
+
+<refs> is a comma-separated list of IDs from the input, no spaces.
+<text> runs to the end of the line and never contains a line break.
+Order: SUMMARY, then STEP, then RISK, then NOTE.
+
+SUMMARY: one line per distinct effect on you, at most three.
+STEP: how the effect comes about. Cite IDs; do not repeat amounts.
+RISK: only when a risk is actually present: unlimited approvals, approvals to contracts without source, transfers to addresses not otherwise involved, changes to owner/admin/implementation.
+NOTE: only when something could not be resolved from the input.
+
+Example:
+SUMMARY You swap 0.0345 ETH for 631,547 PERL.
+STEP c2,l1 Your ETH is wrapped to WETH and sent to the pair.
+STEP c4,l4 The pair returns PERL at the current reserve ratio.
+RISK c1 The router calling the pair has no verified source.`;
+
+const USER_MODE_PROMPT = `Mode: user
+Write only SUMMARY, RISK and NOTE lines. Plain language, no variable names, no slot numbers.`;
+
+const DEVELOPER_MODE_PROMPT = `Mode: developer
+Also write STEP lines. Name functions and variables, cite IDs, do not repeat amounts.`;
+
+/**
+ * Default system prompt: base, format and developer mode.
+ * The untrusted-data rule is appended by `buildSystemPrompt`, not included here.
+ */
+export const DEFAULT_SYSTEM_PROMPT = `${BASE_PROMPT}\n\n${FORMAT_PROMPT}\n\n${DEVELOPER_MODE_PROMPT}`;
 
 const SOURCE_BEGIN_TOKEN = 'C4_UNTRUSTED_SOURCE';
 const SOURCE_END_TOKEN = 'C4_END_UNTRUSTED_SOURCE';
@@ -63,6 +108,10 @@ interpret storage layout and function behaviour.`;
 export interface PromptParts {
     systemPrompt: string;
     userPrompt: string;
+    /** Ids that appear in `userPrompt`, in first-seen order. */
+    refs: string[];
+    /** Labels used to render addresses in `userPrompt`. */
+    labels: LabelTable;
 }
 
 /** Build system and user prompts from simulation result and transaction parameters. */
@@ -73,8 +122,8 @@ export function buildPrompt(
     context?: EnrichedContext,
 ): PromptParts {
     const systemPrompt = buildSystemPrompt(config);
-    const userPrompt = buildUserPrompt(result, txParams, context, config.maxSourceChars);
-    return { systemPrompt, userPrompt };
+    const built = buildUserPrompt(result, txParams, context, config.maxSourceChars);
+    return { systemPrompt, userPrompt: built.text, refs: built.refs, labels: built.labels };
 }
 
 /** Default source-code character budget embedded into the prompt. */
@@ -99,13 +148,15 @@ function resolveSourceBudget(maxSourceChars?: number): number | null {
 }
 
 function buildSystemPrompt(config: PromptConfig): string {
-    // A non-empty override fully replaces the built-in base prompt; the language
-    // hint and app-supplied context below are still appended. The untrusted-data
-    // rule is always last so it wins recency over both.
-    let prompt = config.systemPrompt?.trim() ? config.systemPrompt : DEFAULT_SYSTEM_PROMPT;
+    // A non-empty override replaces only the base block. Format, mode and the
+    // untrusted-data rule are always appended, otherwise the line parser breaks.
+    let prompt = config.systemPrompt?.trim() ? config.systemPrompt.trim() : BASE_PROMPT;
+    prompt += `\n\n${FORMAT_PROMPT}`;
+    prompt += `\n\n${config.explainMode === 'user' ? USER_MODE_PROMPT : DEVELOPER_MODE_PROMPT}`;
 
     if (config.language && config.language !== 'en') {
-        prompt += `\n\nIMPORTANT: Respond in ${languageName(config.language)}.`;
+        const language = languageName(config.language);
+        prompt += `\n\nIMPORTANT: Translate only the <text> of each output line into ${language}. Keep the keywords SUMMARY, STEP, RISK and NOTE, and every ID, unchanged.`;
     }
 
     if (config.systemPromptInclude) {
@@ -116,34 +167,53 @@ function buildSystemPrompt(config: PromptConfig): string {
     return prompt;
 }
 
-function buildUserPrompt(result: SimulationResult, txParams: TxParams, context?: EnrichedContext, maxSourceChars?: number): string {
+interface PromptEnv {
+    label: (address: string) => string;
+    labels: LabelTable;
+    ids: RefAssignment;
+    included: string[];
+}
+
+function buildUserPrompt(
+    result: SimulationResult,
+    txParams: TxParams,
+    context: EnrichedContext | undefined,
+    maxSourceChars?: number,
+): { text: string; refs: string[]; labels: LabelTable } {
+    const labels = context?.labels ?? buildLabelTableSync(result, txParams, context?.contracts);
+    const env: PromptEnv = {
+        label: (address) => labelText(labels, address),
+        labels,
+        ids: assignRefIds(result),
+        included: [],
+    };
     const sections: string[] = [];
 
     const notes = collectAddressNotes(result, txParams);
     if (notes.length) sections.push(notes.join('\n'));
 
-    sections.push(formatTxOverview(result, txParams, context));
+    sections.push(formatTxOverview(result, txParams, context, env));
 
     if (result.logs && result.logs.length > 0) {
-        sections.push(formatEvents(result.logs, context));
+        sections.push(formatEvents(result.logs, context, env));
     }
 
     if (result.stateChanges && result.stateChanges.length > 0) {
-        sections.push(formatStateChanges(result.stateChanges, context, result));
+        sections.push(formatStateChanges(result.stateChanges, context, result, env));
     }
 
     if (result.trace && result.trace.length > 0) {
-        sections.push(formatTrace(result.trace, context));
+        sections.push(formatTrace(result.trace, context, env));
     }
 
     if (context) {
-        const sourceSection = formatSourceContext(result, context, maxSourceChars);
+        const sourceSection = formatSourceContext(result, context, maxSourceChars, env);
         if (sourceSection) sections.push(sourceSection);
     }
 
     sections.push('Please explain what this transaction would do.');
 
-    return sections.join('\n\n');
+    return { text: sections.join('\n\n'), refs: env.included, labels };
 }
 
 /**
@@ -202,10 +272,10 @@ function collectAddressNotes(result: SimulationResult, txParams: TxParams): stri
     return notes;
 }
 
-function formatTxOverview(result: SimulationResult, txParams: TxParams, context?: EnrichedContext): string {
+function formatTxOverview(result: SimulationResult, txParams: TxParams, context: EnrichedContext | undefined, env: PromptEnv): string {
     const status = result.status === '0x1' ? 'SUCCESS' : 'REVERTED';
-    const to = labelAddress(txParams.to, shortenAddress);
-    const from = txParams.from ? labelAddress(txParams.from, shortenAddress) : 'unknown sender';
+    const to = env.label(txParams.to);
+    const from = txParams.from ? env.label(txParams.from) : 'unknown sender';
     const value = txParams.value ? weiToEth(txParams.value) : '0';
     const gas = formatGas(result.gasUsed);
 
@@ -217,7 +287,7 @@ function formatTxOverview(result: SimulationResult, txParams: TxParams, context?
 
     if (context?.decodedCall) {
         const dc = context.decodedCall;
-        const params = dc.params.map(p => `${p.name}=${p.value}`).join(', ');
+        const params = dc.params.map(p => formatCallParam(p, txParams.to, env)).join(', ');
         overview += `- Function: ${dc.name}(${params})\n`;
     } else if (isAddressWithoutAbi(txParams.to, context)) {
         // Issue #382: don't invent a selector for hand-written EVM (predeploys,
@@ -243,25 +313,23 @@ function formatTxOverview(result: SimulationResult, txParams: TxParams, context?
     return overview.trimEnd();
 }
 
-function formatEvents(logs: SimulationLog[], context?: EnrichedContext): string {
+function formatEvents(logs: SimulationLog[], context: EnrichedContext | undefined, env: PromptEnv): string {
     const lines: string[] = ['## Emitted Events'];
 
     for (let i = 0; i < logs.length; i++) {
         const log = logs[i];
-        const contractAddr = log.raw?.address
-            ? labelAddress(log.raw.address, shortenAddress)
-            : 'unknown contract';
-
+        const id = env.ids.logIds[i];
+        env.included.push(id);
+        const contractAddr = log.raw?.address ? env.label(log.raw.address) : 'unknown contract';
+        const emitter = log.raw?.address;
         const decoded = context?.decodedEvents?.[i];
 
         if (decoded) {
-            const params = decoded.params.map(p => formatEventParam(p)).join(', ');
-            lines.push(`${i + 1}. **${decoded.name}** on ${contractAddr}`);
-            lines.push(`   Parameters: ${params}`);
+            const params = decoded.params.map(p => formatEventParam(p, emitter, decoded.name, env)).join(', ');
+            lines.push(`[${id}] ${decoded.name} on ${contractAddr}: ${params}`);
         } else if (log.name && log.inputs) {
-            const params = log.inputs.map(p => formatEventParam(p)).join(', ');
-            lines.push(`${i + 1}. **${log.name}** on ${contractAddr}`);
-            lines.push(`   Parameters: ${params}`);
+            const params = log.inputs.map(p => formatEventParam(p, emitter, log.name, env)).join(', ');
+            lines.push(`[${id}] ${log.name} on ${contractAddr}: ${params}`);
         } else {
             // Issue #382: a LOG0 opcode ("anonymous log") has no topics at all
             // and there is nothing to look up. A log with topics but no ABI
@@ -269,10 +337,9 @@ function formatEvents(logs: SimulationLog[], context?: EnrichedContext): string 
             // for both — that trained the model to distrust every log.
             const topics = log.raw?.topics ?? [];
             if (topics.length === 0) {
-                lines.push(`${i + 1}. Anonymous log (no topics) on ${contractAddr}`);
+                lines.push(`[${id}] Anonymous log (no topics) on ${contractAddr}`);
             } else {
-                lines.push(`${i + 1}. Unrecognized event on ${contractAddr}`);
-                lines.push(`   topic0: ${topics[0]}`);
+                lines.push(`[${id}] Unrecognized event on ${contractAddr}: topic0=${topics[0]}`);
             }
         }
     }
@@ -280,61 +347,94 @@ function formatEvents(logs: SimulationLog[], context?: EnrichedContext): string 
     return lines.join('\n');
 }
 
-function formatEventParam(param: { name: string; type: string; value: string }): string {
-    if (param.type === 'address') {
-        return `${param.name}=${labelAddress(param.value, shortenAddress)}`;
-    }
-    if (param.type.startsWith('uint') || param.type.startsWith('int')) {
-        return `${param.name}=${formatNumericParam(param.value, param.name)}`;
-    }
-    return `${param.name}=${param.value}`;
-}
-
 const AMOUNT_PARAM_NAMES = new Set([
     'value', 'amount', 'wad', 'amount0', 'amount1',
     'amount0In', 'amount1In', 'amount0Out', 'amount1Out',
 ]);
 
-/**
- * Heuristic: if the parameter name suggests a token amount and the value
- * looks large (>= 10^14), format it as ETH-scale (18 decimals).
- */
-function formatNumericParam(hexValue: string, name: string): string {
-    const val = hexToBigInt(hexValue);
-    if (AMOUNT_PARAM_NAMES.has(name) && val >= 10n ** 14n) {
-        return `${weiToEth(hexValue)} (raw: ${val.toString()})`;
+const AMOUNT_EVENTS = new Set(['Transfer', 'Approval', 'Deposit', 'Withdrawal']);
+
+function formatEventParam(
+    param: { name: string; type: string; value: string },
+    emitter: string | undefined,
+    eventName: string | undefined,
+    env: PromptEnv,
+): string {
+    if (param.type === 'address') {
+        return `${param.name}=${env.label(param.value)}`;
     }
-    return val.toString();
+    if ((param.type.startsWith('uint') || param.type.startsWith('int')) && AMOUNT_PARAM_NAMES.has(param.name)) {
+        const scale = eventName != null && AMOUNT_EVENTS.has(eventName);
+        return `${param.name}=${formatTokenValue(param.value, scale ? emitter : undefined, env)}`;
+    }
+    if (param.type.startsWith('uint') || param.type.startsWith('int')) {
+        return `${param.name}=${hexToBigInt(param.value).toString()}`;
+    }
+    return `${param.name}=${param.value}`;
+}
+
+function formatCallParam(
+    param: { name: string; type: string; value: string },
+    token: string | undefined,
+    env: PromptEnv,
+): string {
+    if (param.type === 'address') return `${param.name}=${env.label(param.value)}`;
+    if ((param.type.startsWith('uint') || param.type.startsWith('int')) && AMOUNT_PARAM_NAMES.has(param.name)) {
+        return `${param.name}=${formatTokenValue(param.value, token, env)}`;
+    }
+    return `${param.name}=${param.value}`;
+}
+
+/**
+ * Scale a token amount with the emitter's decimals.
+ * Unknown decimals stay a raw integer labeled `raw`.
+ *
+ * @param hexValue - Raw hex or decimal integer
+ * @param token - Contract whose decimals apply
+ * @param env - Prompt labels
+ * @return Display string
+ */
+function formatTokenValue(hexValue: string, token: string | undefined, env: PromptEnv): string {
+    const meta = token ? env.labels.byAddress[token.toLowerCase()] : undefined;
+    const known = token ? lookupAddress(token) : undefined;
+    const decimals = meta?.decimals ?? known?.decimals;
+    const symbol = meta?.symbol ?? known?.symbol;
+    return formatAmount(hexValue, decimals, symbol);
 }
 
 function formatStateChanges(
     changes: ContractStateChange[],
-    context?: EnrichedContext,
-    result?: SimulationResult,
+    context: EnrichedContext | undefined,
+    result: SimulationResult,
+    env: PromptEnv,
 ): string {
     const lines: string[] = ['## State Changes'];
-    const netByAddress = result ? netEthByAddress(result) : null;
+    const netByAddress = netEthByAddress(result);
 
-    for (const change of changes) {
-        const addr = labelAddress(change.address, shortenAddress);
+    for (let c = 0; c < changes.length; c++) {
+        const change = changes[c];
+        const addr = env.label(change.address);
         const resolvedSlots = context?.resolvedStorage?.get(change.address.toLowerCase());
 
         if (change.balance) {
+            const id = env.ids.balanceIds[c];
             // Issue #381: the SSZ builder sometimes ships previousValue = 0
             // when the pre-simulation snapshot was skipped. Cross-check
             // `new - previous` against the net wei from the trace. When they
             // do not match, drop the balance line and mark it — a plausible
-            // but wrong number is worse than none.
+            // but wrong number is worse than none. The id stays off the prompt.
             const prev = hexToBigInt(change.balance.previousValue);
             const next = hexToBigInt(change.balance.newValue);
             const delta = next - prev;
-            const expected = netByAddress?.get(change.address.toLowerCase());
+            const expected = netByAddress.get(change.address.toLowerCase());
             if (expected != null && delta !== expected) {
-                lines.push(`- ${addr}: NOTE: omitted inconsistent ETH balance change (Δ=${delta.toString()}, trace-net=${expected.toString()})`);
-            } else {
-                const oldBal = weiToEth(change.balance.previousValue);
-                const newBal = weiToEth(change.balance.newValue);
-                lines.push(`- ${addr}: balance ${oldBal} ETH -> ${newBal} ETH`);
+                lines.push(`NOTE: omitted inconsistent ETH balance change for ${addr} (Δ=${delta.toString()}, trace-net=${expected.toString()})`);
+            } else if (id) {
+                env.included.push(id);
+                const oldBal = formatAmount(change.balance.previousValue, 18, 'ETH');
+                const newBal = formatAmount(change.balance.newValue, 18, 'ETH');
+                const signed = formatAmountDelta(change.balance.previousValue, change.balance.newValue, 18, 'ETH');
+                lines.push(`[${id}] ${addr}: balance ${oldBal} -> ${newBal} (${signed})`);
             }
         }
 
@@ -342,9 +442,10 @@ function formatStateChanges(
             for (let i = 0; i < change.storage.length; i++) {
                 const s = change.storage[i];
                 const resolved = resolvedSlots?.[i];
-                for (const line of formatStorageChangeLines(addr, s, resolved, i)) {
-                    lines.push(line);
-                }
+                const id = env.ids.storageIds[c]?.[i] ?? `s${i + 1}`;
+                const slotLines = formatStorageChangeLines(addr, change.address, s, resolved, id, env);
+                if (slotLines.length) env.included.push(id);
+                for (const line of slotLines) lines.push(line);
             }
         }
     }
@@ -366,28 +467,31 @@ function formatStateChanges(
  */
 function formatStorageChangeLines(
     addr: string,
+    token: string,
     s: { slot: string; previousValue: string; newValue: string },
     resolved: ResolvedSlot | undefined,
-    idx: number,
+    id: string,
+    env: PromptEnv,
 ): string[] {
-    const tag = `[s${idx}]`;
+    const tag = `[${id}]`;
 
     if (resolved?.members?.length) {
         const lines: string[] = [];
-        const keyStr = resolved.keys?.map(k => `[${formatKeyValue(k)}]`).join('') ?? '';
+        const keyStr = resolved.keys?.map(k => `[${formatKeyValue(k, env)}]`).join('') ?? '';
         const arrayStr = resolved.arrayIndex !== undefined ? `[${resolved.arrayIndex}]` : '';
         for (const m of resolved.members) {
             const prev = extractPackedValue(s.previousValue, m.offset, m.numberOfBytes);
             const next = extractPackedValue(s.newValue, m.offset, m.numberOfBytes);
             if (prev === null || next === null || prev === next) continue;
             const label = memberLabel(resolved, m, keyStr, arrayStr);
-            lines.push(`- ${tag} ${addr}: ${label} (${m.variableType}): ${formatPackedValue(prev, m)} -> ${formatPackedValue(next, m)}`);
+            const rendered = renderStorageChange(prev, next, m.variableName, m.variableType, token, env);
+            lines.push(`${tag} ${addr}: ${label} (${m.variableType}): ${rendered}`);
         }
         if (lines.length === 0) {
             // Every packed member reads the same value: the raw word changed
             // (e.g. because we could not decode it). Fall back to unresolved
             // so the model does not silently drop the change.
-            lines.push(`- ${tag} ${addr}: slot ${resolved.baseSlot} [unresolved]: ${formatSlotValue(s.previousValue)} -> ${formatSlotValue(s.newValue)}`);
+            lines.push(`${tag} ${addr}: slot ${resolved.baseSlot} [unresolved]: ${formatSlotValue(s.previousValue)} -> ${formatSlotValue(s.newValue)}`);
         }
         return lines;
     }
@@ -398,19 +502,55 @@ function formatStorageChangeLines(
         // Refuse to print a wrong label — fall back to unresolved.
         const singleWidth = singleValueByteWidth(resolved);
         if (singleWidth !== null && (!fitsInBytes(s.previousValue, singleWidth) || !fitsInBytes(s.newValue, singleWidth))) {
-            return [`- ${tag} ${addr}: slot ${slotIdentifier(resolved, s.slot)} [unresolved]: ${formatSlotValue(s.previousValue)} -> ${formatSlotValue(s.newValue)}`];
+            return [`${tag} ${addr}: slot ${slotIdentifier(resolved, s.slot)} [unresolved]: ${formatSlotValue(s.previousValue)} -> ${formatSlotValue(s.newValue)}`];
         }
-        const varLabel = formatResolvedLabel(resolved);
+        const varLabel = formatResolvedLabel(resolved, env);
         const typeHint = resolved.variableType ? ` (${resolved.variableType})` : '';
-        return [`- ${tag} ${addr}: ${varLabel}${typeHint}: ${formatSlotValue(s.previousValue)} -> ${formatSlotValue(s.newValue)}`];
+        const rendered = renderStorageChange(s.previousValue, s.newValue, resolved.variableName, resolved.variableType, token, env);
+        return [`${tag} ${addr}: ${varLabel}${typeHint}: ${rendered}`];
     }
 
     if (resolved && typeof resolved.baseSlot === 'number' && resolved.baseSlot >= 0) {
-        const keyStr = resolved.keys?.map(k => `[${formatKeyValue(k)}]`).join('') || '';
-        return [`- ${tag} ${addr}: slot ${resolved.baseSlot}${keyStr} [unresolved]: ${formatSlotValue(s.previousValue)} -> ${formatSlotValue(s.newValue)}`];
+        const keyStr = resolved.keys?.map(k => `[${formatKeyValue(k, env)}]`).join('') || '';
+        return [`${tag} ${addr}: slot ${resolved.baseSlot}${keyStr} [unresolved]: ${formatSlotValue(s.previousValue)} -> ${formatSlotValue(s.newValue)}`];
     }
 
-    return [`- ${tag} ${addr}: slot ${shortenAddress(s.slot)} [unresolved]: ${formatSlotValue(s.previousValue)} -> ${formatSlotValue(s.newValue)}`];
+    return [`${tag} ${addr}: slot ${shortenAddress(s.slot)} [unresolved]: ${formatSlotValue(s.previousValue)} -> ${formatSlotValue(s.newValue)}`];
+}
+
+function renderStorageChange(
+    previous: string | bigint,
+    next: string | bigint,
+    variableName: string | undefined,
+    variableType: string | undefined,
+    token: string,
+    env: PromptEnv,
+): string {
+    if (variableType === 'address' || variableType === 'bool') {
+        return `${formatPackedDisplay(previous, variableType, env)} -> ${formatPackedDisplay(next, variableType, env)}`;
+    }
+    if (!isAmountVariable(variableName)) {
+        const prevText = typeof previous === 'bigint' ? previous.toString() : formatSlotValue(previous);
+        const nextText = typeof next === 'bigint' ? next.toString() : formatSlotValue(next);
+        return `${prevText} -> ${nextText}`;
+    }
+    const meta = env.labels.byAddress[token.toLowerCase()];
+    const known = lookupAddress(token);
+    const decimals = meta?.decimals ?? known?.decimals;
+    const symbol = meta?.symbol ?? known?.symbol;
+    const prevText = formatAmount(previous, decimals, symbol);
+    const nextText = formatAmount(next, decimals, symbol);
+    const delta = formatAmountDelta(previous, next, decimals, symbol);
+    return `${prevText} -> ${nextText} (${delta})`;
+}
+
+function formatPackedDisplay(value: string | bigint, variableType: string | undefined, env: PromptEnv): string {
+    const n = typeof value === 'bigint' ? value : hexToBigInt(value);
+    if (variableType === 'address') {
+        return env.label('0x' + n.toString(16).padStart(40, '0'));
+    }
+    if (variableType === 'bool') return n === 0n ? 'false' : 'true';
+    return n.toString();
 }
 
 /**
@@ -427,15 +567,6 @@ function memberLabel(resolved: ResolvedSlot, m: ResolvedSlotMember, keyStr: stri
  * address so the model does not need to decode uint160. Everything else falls
  * back to decimal.
  */
-function formatPackedValue(value: bigint, m: ResolvedSlotMember): string {
-    if (m.variableType === 'address' && m.numberOfBytes === 20) {
-        return labelAddress('0x' + value.toString(16).padStart(40, '0'), shortenAddress);
-    }
-    if (m.variableType === 'bool' && m.numberOfBytes === 1) {
-        return value === 0n ? 'false' : 'true';
-    }
-    return value.toString();
-}
 
 /**
  * Number of bytes for a single-entry resolved slot (no packed members).
@@ -507,10 +638,10 @@ function netEthByAddress(result: SimulationResult): Map<string, bigint> {
     return net;
 }
 
-function formatResolvedLabel(resolved: ResolvedSlot): string {
+function formatResolvedLabel(resolved: ResolvedSlot, env: PromptEnv): string {
     let label = resolved.variableName || `slot ${resolved.baseSlot}`;
     if (resolved.keys?.length) {
-        label += resolved.keys.map(k => `[${formatKeyValue(k)}]`).join('');
+        label += resolved.keys.map(k => `[${formatKeyValue(k, env)}]`).join('');
     }
     if (resolved.arrayIndex !== undefined) {
         label += `[${resolved.arrayIndex}]`;
@@ -521,8 +652,8 @@ function formatResolvedLabel(resolved: ResolvedSlot): string {
     return label;
 }
 
-function formatKeyValue(key: { type: string; value: string }): string {
-    if (key.type === 'address') return labelAddress(key.value, shortenAddress);
+function formatKeyValue(key: { type: string; value: string }, env: PromptEnv): string {
+    if (key.type === 'address') return env.label(key.value);
     return key.value;
 }
 
@@ -535,28 +666,30 @@ function formatSlotValue(hex: string): string {
     return val.toString();
 }
 
-function formatTrace(trace: TraceEntry[], context?: EnrichedContext): string {
+function formatTrace(trace: TraceEntry[], context: EnrichedContext | undefined, env: PromptEnv): string {
     const lines: string[] = ['## Call Trace'];
     const limit = Math.min(trace.length, 20);
 
     for (let i = 0; i < limit; i++) {
         const t = trace[i];
-        const from = t.from ? labelAddress(t.from, shortenAddress) : '?';
-        const to = t.to ? labelAddress(t.to, shortenAddress) : '?';
+        const id = env.ids.traceIds[i];
+        env.included.push(id);
+        const from = t.from ? env.label(t.from) : '?';
+        const to = t.to ? env.label(t.to) : '?';
         const callType = t.type || 'CALL';
         const value = t.value && t.value !== '0x0' && t.value !== '0x' ? ` (${weiToEth(t.value)} ETH)` : '';
 
         const decoded = context?.decodedTrace?.[i];
         if (decoded) {
-            const params = decoded.params.map(p => `${p.name}=${p.value}`).join(', ');
-            lines.push(`${i + 1}. ${from} -> ${to}: ${decoded.name}(${params})${value} [${callType}]`);
+            const params = decoded.params.map(p => formatCallParam(p, t.to, env)).join(', ');
+            lines.push(`[${id}] ${from} -> ${to}: ${decoded.name}(${params})${value} [${callType}]`);
         } else if (isAddressWithoutAbi(t.to, context)) {
             const size = formatCalldataSize(t.input);
-            lines.push(`${i + 1}. ${from} -> ${to}: calldata ${size} (no ABI)${value} [${callType}]`);
+            lines.push(`[${id}] ${from} -> ${to}: calldata ${size} (no ABI)${value} [${callType}]`);
         } else {
             const selector = t.input ? formatSelector(t.input) : '';
             const method = selector || callType;
-            lines.push(`${i + 1}. ${from} -> ${to}: ${method}${value}`);
+            lines.push(`[${id}] ${from} -> ${to}: ${method}${value}`);
         }
     }
 
@@ -668,7 +801,7 @@ function isDroppableHeaderComment(text: string): boolean {
  * in `C4_UNTRUSTED_SOURCE` markers; comments are kept except for leading
  * license boilerplate.
  */
-function formatSourceContext(result: SimulationResult, context: EnrichedContext, maxSourceChars?: number): string | null {
+function formatSourceContext(result: SimulationResult, context: EnrichedContext, maxSourceChars: number | undefined, env: PromptEnv): string | null {
     const contractsNeedingSource = new Set<string>();
 
     if (result.stateChanges) {
@@ -704,7 +837,7 @@ function formatSourceContext(result: SimulationResult, context: EnrichedContext,
     for (const addr of contractsNeedingSource) {
         if (totalBudget <= 0) break;
         const meta = context.contracts.get(addr)!;
-        const label = labelAddress(addr, shortenAddress);
+        const label = env.label(addr);
         const contractHeaderIndex = lines.length;
         lines.push(`\n### ${label}`);
         let embeddedForThisAddr = false;
