@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { keccak256, AbiCoder } from 'ethers';
-import { parseSlotSource, resolveStorageSlot, resolveDirectSlot } from '../dist/storage.js';
+import { parseSlotSource, resolveStorageSlot, resolveDirectSlot, extractPackedValue } from '../dist/storage.js';
 import { UNI_STORAGE_LAYOUT } from './fixtures.mjs';
 
 const WETH_SLOT_SOURCE =
@@ -291,6 +291,120 @@ function arrayElementSlot(baseSlot, index, elementSlots = 1n) {
     const slot = arrayStart + BigInt(index) * elementSlots;
     return '0x' + slot.toString(16).padStart(64, '0');
 }
+
+// UniswapV2Pair-style packed slot: three fields sharing one word
+// (uint112 reserve0 @0, uint112 reserve1 @14, uint32 blockTimestampLast @28).
+const PAIR_LAYOUT = {
+    storage: [
+        { slot: '8', type: 't_uint112', astId: 1, label: 'reserve0', offset: 0, contract: 'Pair.sol:Pair' },
+        { slot: '8', type: 't_uint112', astId: 2, label: 'reserve1', offset: 14, contract: 'Pair.sol:Pair' },
+        { slot: '8', type: 't_uint32', astId: 3, label: 'blockTimestampLast', offset: 28, contract: 'Pair.sol:Pair' },
+    ],
+    types: {
+        t_uint112: { label: 'uint112', encoding: 'inplace', numberOfBytes: '14' },
+        t_uint32: { label: 'uint32', encoding: 'inplace', numberOfBytes: '4' },
+    },
+};
+
+describe('extractPackedValue', () => {
+    it('extracts reserve0 / reserve1 / blockTimestampLast from one word', () => {
+        // Compose: reserve0=1, reserve1=2, blockTimestampLast=3 packed into 32 bytes.
+        const word = 0x3n << 224n | 0x2n << 112n | 0x1n;
+        const hex = '0x' + word.toString(16).padStart(64, '0');
+        assert.equal(extractPackedValue(hex, 0, 14), 1n);
+        assert.equal(extractPackedValue(hex, 14, 14), 2n);
+        assert.equal(extractPackedValue(hex, 28, 4), 3n);
+    });
+
+    it('returns null on out-of-range offset or width', () => {
+        assert.equal(extractPackedValue('0x' + '00'.repeat(32), 30, 4), null);
+        assert.equal(extractPackedValue('0x' + '00'.repeat(32), -1, 4), null);
+        assert.equal(extractPackedValue('0x' + '00'.repeat(32), 0, 33), null);
+        assert.equal(extractPackedValue('0x' + '00'.repeat(32), 0, 0), null);
+    });
+
+    it('returns null on garbage input', () => {
+        assert.equal(extractPackedValue('[0x1, 0x2]', 0, 4), null);
+        assert.equal(extractPackedValue('not-hex', 0, 4), null);
+        assert.equal(extractPackedValue('', 0, 4), null);
+        assert.equal(extractPackedValue('0x-1', 0, 4), null);
+    });
+
+    it('returns null on fractional offset / width instead of throwing (L1)', () => {
+        // Sourcify may hand us `"offset": 2.1` or `"numberOfBytes": "14.5"`
+        // in a corrupted metadata blob. `BigInt(16.8)` throws a `RangeError`;
+        // the extractor must fail closed with `null`.
+        const word = '0x' + '00'.repeat(32);
+        assert.equal(extractPackedValue(word, 2.1, 4), null);
+        assert.equal(extractPackedValue(word, 0, 14.5), null);
+        assert.equal(extractPackedValue(word, Number.NaN, 4), null);
+    });
+});
+
+describe('buildPackedMembers (via resolveDirectSlot)', () => {
+    it('drops layout entries whose offset is fractional (L1)', () => {
+        // Two entries at slot 0 -- one valid, one with a bogus offset from a
+        // corrupted storage layout. The bogus entry must be silently dropped
+        // and must not crash prompt generation with a RangeError.
+        const layout = {
+            storage: [
+                { slot: '0', type: 't_u128', astId: 1, label: 'good', offset: 0, contract: 'C.sol:C' },
+                { slot: '0', type: 't_u128', astId: 2, label: 'evil', offset: 16.5, contract: 'C.sol:C' },
+            ],
+            types: { t_u128: { label: 'uint128', encoding: 'inplace', numberOfBytes: '16' } },
+        };
+        const slot = '0x' + '00'.repeat(32);
+        const resolved = resolveDirectSlot(slot, layout);
+        // Only one packed member survives, so the direct-slot codepath treats
+        // it as a single sub-word (wrapped in `members` because size < 32).
+        assert.equal(resolved.variableName, 'good');
+        assert.ok(resolved.members);
+        assert.equal(resolved.members.length, 1);
+        assert.equal(resolved.members[0].variableName, 'good');
+    });
+});
+
+describe('resolveDirectSlot packed slots', () => {
+    it('exposes packed reserve0/reserve1/blockTimestampLast members at slot 8', () => {
+        const slot = '0x' + (8n).toString(16).padStart(64, '0');
+        const result = resolveDirectSlot(slot, PAIR_LAYOUT);
+        assert.equal(result.baseSlot, 8);
+        assert.equal(result.variableName, undefined, 'packed slot must not carry a single variable name');
+        assert.ok(result.members);
+        assert.equal(result.members.length, 3);
+        assert.deepEqual(result.members.map(m => [m.variableName, m.offset, m.numberOfBytes]), [
+            ['reserve0', 0, 14],
+            ['reserve1', 14, 14],
+            ['blockTimestampLast', 28, 4],
+        ]);
+    });
+
+    it('does not fabricate members for a single full-width slot', () => {
+        const result = resolveDirectSlot(
+            '0x0000000000000000000000000000000000000000000000000000000000000000',
+            UNI_STORAGE_LAYOUT,
+        );
+        assert.equal(result.variableName, 'totalSupply');
+        assert.equal(result.members, undefined);
+    });
+
+    it('wraps a single sub-32-byte layout entry in members so the printer knows the width', () => {
+        const layout = {
+            storage: [
+                { slot: '0', type: 't_uint32', astId: 1, label: 'value', offset: 0, contract: 'C.sol:C' },
+            ],
+            types: { t_uint32: { label: 'uint32', encoding: 'inplace', numberOfBytes: '4' } },
+        };
+        const result = resolveDirectSlot(
+            '0x0000000000000000000000000000000000000000000000000000000000000000',
+            layout,
+        );
+        assert.equal(result.variableName, 'value');
+        assert.ok(result.members, 'sub-32-byte entries should carry members for accurate value extraction');
+        assert.equal(result.members.length, 1);
+        assert.equal(result.members[0].numberOfBytes, 4);
+    });
+});
 
 describe('resolveDirectSlot dynamic arrays', () => {
     it('resolves an element of a dynamic uint256 array', () => {

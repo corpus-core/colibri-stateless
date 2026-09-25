@@ -87,6 +87,14 @@ static call_account_t* call_accounts_from_ssz(ssz_ob_t ssz_accounts) {
       memcpy(ca->storage_root, EMPTY_ROOT_HASH, 32);
     }
 
+    // Pre-simulation snapshot: `src_balance` / `src_nonce` back the
+    // `previousValue` fields in the SSZ `stateChanges` output. Initialising
+    // them here (rather than relying on `call_account_reset_accessed`) keeps
+    // the invariant even for accounts that are materialised without going
+    // through the reset path.
+    memcpy(ca->src_balance, ca->balance, 32);
+    ca->src_nonce = ca->nonce;
+
     // The SSZ "code" field is a union: either a byte list (full contract
     // code) or a boolean "code_used" flag (false = no code, true = code
     // exists but was not included in the proof).
