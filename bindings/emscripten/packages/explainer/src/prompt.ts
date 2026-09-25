@@ -23,10 +23,11 @@
 
 import type {
     SimulationResult, SimulationLog, ContractStateChange, TraceEntry,
-    TxParams, PromptConfig, EnrichedContext, ResolvedSlot,
+    TxParams, PromptConfig, EnrichedContext, ResolvedSlot, ResolvedSlotMember,
 } from './types.js';
-import { hexToBigInt, weiToEth, formatGas, shortenAddress, formatSelector } from './format.js';
-import { labelAddress } from './known_addresses.js';
+import { hexToBigInt, weiToEth, formatGas, shortenAddress, formatSelector, formatCalldataSize } from './format.js';
+import { labelAddress, lookupAddress } from './known_addresses.js';
+import { extractPackedValue } from './storage.js';
 
 /**
  * Default base system prompt used by the explainer. Exposed so applications can
@@ -118,6 +119,9 @@ function buildSystemPrompt(config: PromptConfig): string {
 function buildUserPrompt(result: SimulationResult, txParams: TxParams, context?: EnrichedContext, maxSourceChars?: number): string {
     const sections: string[] = [];
 
+    const notes = collectAddressNotes(result, txParams);
+    if (notes.length) sections.push(notes.join('\n'));
+
     sections.push(formatTxOverview(result, txParams, context));
 
     if (result.logs && result.logs.length > 0) {
@@ -125,7 +129,7 @@ function buildUserPrompt(result: SimulationResult, txParams: TxParams, context?:
     }
 
     if (result.stateChanges && result.stateChanges.length > 0) {
-        sections.push(formatStateChanges(result.stateChanges, context));
+        sections.push(formatStateChanges(result.stateChanges, context, result));
     }
 
     if (result.trace && result.trace.length > 0) {
@@ -140,6 +144,62 @@ function buildUserPrompt(result: SimulationResult, txParams: TxParams, context?:
     sections.push('Please explain what this transaction would do.');
 
     return sections.join('\n\n');
+}
+
+/**
+ * `true` when a target address is a known predeploy without ABI or when
+ * enrichment resolved zero ABI entries. Used by the overview and trace
+ * formatters so hand-written EVM inputs are not labelled as Solidity calls
+ * (issue #382).
+ *
+ * @param address - Contract address (checksum or lowercase)
+ * @param context - Enriched context, may be missing entirely
+ * @return `true` if we are sure there is no ABI, `false` if we cannot tell
+ */
+function isAddressWithoutAbi(address: string | undefined, context?: EnrichedContext): boolean {
+    if (!address) return false;
+    const addr = address.toLowerCase();
+    if (lookupAddress(addr)?.noAbi) return true;
+    if (!context) return false;
+    const meta = context.contracts?.get(addr);
+    if (!meta) return false;
+    const abi = meta.abi;
+    return !Array.isArray(abi) || abi.length === 0;
+}
+
+/**
+ * Collect trusted one-line notes for predeploys that appear in this tx. The
+ * notes come from `known_addresses.ts` (curated by us), not from Sourcify, so
+ * they may sit outside the untrusted-source fence.
+ *
+ * @param result - Simulation result
+ * @param txParams - Original transaction parameters
+ * @return `NOTE: …` lines (empty when nothing matched)
+ */
+function collectAddressNotes(result: SimulationResult, txParams: TxParams): string[] {
+    const seen = new Set<string>();
+    const notes: string[] = [];
+    const add = (address?: string): void => {
+        if (!address) return;
+        const addr = address.toLowerCase();
+        if (seen.has(addr)) return;
+        seen.add(addr);
+        const known = lookupAddress(addr);
+        if (!known?.description) return;
+        notes.push(`NOTE: ${known.label} (${shortenAddress(addr)}): ${known.description}`);
+    };
+    add(txParams.to);
+    add(txParams.from);
+    if (result.trace) {
+        for (const t of result.trace) { add(t.from); add(t.to); }
+    }
+    if (result.logs) {
+        for (const log of result.logs) add(log.raw?.address);
+    }
+    if (result.stateChanges) {
+        for (const sc of result.stateChanges) add(sc.address);
+    }
+    return notes;
 }
 
 function formatTxOverview(result: SimulationResult, txParams: TxParams, context?: EnrichedContext): string {
@@ -159,6 +219,10 @@ function formatTxOverview(result: SimulationResult, txParams: TxParams, context?
         const dc = context.decodedCall;
         const params = dc.params.map(p => `${p.name}=${p.value}`).join(', ');
         overview += `- Function: ${dc.name}(${params})\n`;
+    } else if (isAddressWithoutAbi(txParams.to, context)) {
+        // Issue #382: don't invent a selector for hand-written EVM (predeploys,
+        // Yul) — the first 4 bytes of calldata are payload, not a selector.
+        overview += `- Calldata: ${formatCalldataSize(txParams.data)} (no ABI)\n`;
     } else {
         const selector = formatSelector(txParams.data);
         if (selector) overview += `- Function selector: ${selector}\n`;
@@ -199,9 +263,17 @@ function formatEvents(logs: SimulationLog[], context?: EnrichedContext): string 
             lines.push(`${i + 1}. **${log.name}** on ${contractAddr}`);
             lines.push(`   Parameters: ${params}`);
         } else {
-            const topic0 = log.raw?.topics?.[0];
-            lines.push(`${i + 1}. Unknown event on ${contractAddr}`);
-            if (topic0) lines.push(`   Topic: ${shortenAddress(topic0)}`);
+            // Issue #382: a LOG0 opcode ("anonymous log") has no topics at all
+            // and there is nothing to look up. A log with topics but no ABI
+            // match is a different failure mode. Do not print "Unknown event"
+            // for both — that trained the model to distrust every log.
+            const topics = log.raw?.topics ?? [];
+            if (topics.length === 0) {
+                lines.push(`${i + 1}. Anonymous log (no topics) on ${contractAddr}`);
+            } else {
+                lines.push(`${i + 1}. Unrecognized event on ${contractAddr}`);
+                lines.push(`   topic0: ${topics[0]}`);
+            }
         }
     }
 
@@ -235,39 +307,200 @@ function formatNumericParam(hexValue: string, name: string): string {
     return val.toString();
 }
 
-function formatStateChanges(changes: ContractStateChange[], context?: EnrichedContext): string {
+function formatStateChanges(
+    changes: ContractStateChange[],
+    context?: EnrichedContext,
+    result?: SimulationResult,
+): string {
     const lines: string[] = ['## State Changes'];
+    const netByAddress = result ? netEthByAddress(result) : null;
 
     for (const change of changes) {
         const addr = labelAddress(change.address, shortenAddress);
         const resolvedSlots = context?.resolvedStorage?.get(change.address.toLowerCase());
 
         if (change.balance) {
-            const oldBal = weiToEth(change.balance.previousValue);
-            const newBal = weiToEth(change.balance.newValue);
-            lines.push(`- ${addr}: balance ${oldBal} ETH -> ${newBal} ETH`);
+            // Issue #381: the SSZ builder sometimes ships previousValue = 0
+            // when the pre-simulation snapshot was skipped. Cross-check
+            // `new - previous` against the net wei from the trace. When they
+            // do not match, drop the balance line and mark it — a plausible
+            // but wrong number is worse than none.
+            const prev = hexToBigInt(change.balance.previousValue);
+            const next = hexToBigInt(change.balance.newValue);
+            const delta = next - prev;
+            const expected = netByAddress?.get(change.address.toLowerCase());
+            if (expected != null && delta !== expected) {
+                lines.push(`- ${addr}: NOTE: omitted inconsistent ETH balance change (Δ=${delta.toString()}, trace-net=${expected.toString()})`);
+            } else {
+                const oldBal = weiToEth(change.balance.previousValue);
+                const newBal = weiToEth(change.balance.newValue);
+                lines.push(`- ${addr}: balance ${oldBal} ETH -> ${newBal} ETH`);
+            }
         }
 
         if (change.storage) {
             for (let i = 0; i < change.storage.length; i++) {
                 const s = change.storage[i];
                 const resolved = resolvedSlots?.[i];
-
-                if (resolved?.variableName) {
-                    const varLabel = formatResolvedLabel(resolved);
-                    const typeHint = resolved.variableType ? ` (${resolved.variableType})` : '';
-                    lines.push(`- ${addr}: ${varLabel}${typeHint}: ${formatSlotValue(s.previousValue)} -> ${formatSlotValue(s.newValue)}`);
-                } else if (resolved && typeof resolved.baseSlot === 'number' && resolved.baseSlot >= 0) {
-                    const keyStr = resolved.keys?.map(k => `[${formatKeyValue(k)}]`).join('') || '';
-                    lines.push(`- ${addr}: slot ${resolved.baseSlot}${keyStr}: ${formatSlotValue(s.previousValue)} -> ${formatSlotValue(s.newValue)}`);
-                } else {
-                    lines.push(`- ${addr}: ${shortenAddress(s.slot)}: ${formatSlotValue(s.previousValue)} -> ${formatSlotValue(s.newValue)}`);
+                for (const line of formatStorageChangeLines(addr, s, resolved, i)) {
+                    lines.push(line);
                 }
             }
         }
     }
 
     return lines.join('\n');
+}
+
+/**
+ * Render one storage change. When packed members are present, emit one
+ * line per member whose extracted value changed; drop members that did not
+ * move. Each line carries the same `[sN]` change-ID so the reader can tell
+ * that they share one on-chain slot write (issue #380).
+ *
+ * @param addr - Contract address label (`WETH (0xC02a…6Cc2)` or shortened)
+ * @param s - Storage slot change from the simulation result
+ * @param resolved - Enriched slot metadata (may be missing / unresolved)
+ * @param idx - Position of the storage change within the contract's list
+ * @return Prompt lines (usually 1, more for packed slots)
+ */
+function formatStorageChangeLines(
+    addr: string,
+    s: { slot: string; previousValue: string; newValue: string },
+    resolved: ResolvedSlot | undefined,
+    idx: number,
+): string[] {
+    const tag = `[s${idx}]`;
+
+    if (resolved?.members?.length) {
+        const lines: string[] = [];
+        const keyStr = resolved.keys?.map(k => `[${formatKeyValue(k)}]`).join('') ?? '';
+        const arrayStr = resolved.arrayIndex !== undefined ? `[${resolved.arrayIndex}]` : '';
+        for (const m of resolved.members) {
+            const prev = extractPackedValue(s.previousValue, m.offset, m.numberOfBytes);
+            const next = extractPackedValue(s.newValue, m.offset, m.numberOfBytes);
+            if (prev === null || next === null || prev === next) continue;
+            const label = memberLabel(resolved, m, keyStr, arrayStr);
+            lines.push(`- ${tag} ${addr}: ${label} (${m.variableType}): ${formatPackedValue(prev, m)} -> ${formatPackedValue(next, m)}`);
+        }
+        if (lines.length === 0) {
+            // Every packed member reads the same value: the raw word changed
+            // (e.g. because we could not decode it). Fall back to unresolved
+            // so the model does not silently drop the change.
+            lines.push(`- ${tag} ${addr}: slot ${resolved.baseSlot} [unresolved]: ${formatSlotValue(s.previousValue)} -> ${formatSlotValue(s.newValue)}`);
+        }
+        return lines;
+    }
+
+    if (resolved?.variableName) {
+        // Type-width guard (issue #380): a resolved uint112 with a value that
+        // exceeds 112 bits means the layout does not match this on-chain slot.
+        // Refuse to print a wrong label — fall back to unresolved.
+        const singleWidth = singleValueByteWidth(resolved);
+        if (singleWidth !== null && (!fitsInBytes(s.previousValue, singleWidth) || !fitsInBytes(s.newValue, singleWidth))) {
+            return [`- ${tag} ${addr}: slot ${slotIdentifier(resolved, s.slot)} [unresolved]: ${formatSlotValue(s.previousValue)} -> ${formatSlotValue(s.newValue)}`];
+        }
+        const varLabel = formatResolvedLabel(resolved);
+        const typeHint = resolved.variableType ? ` (${resolved.variableType})` : '';
+        return [`- ${tag} ${addr}: ${varLabel}${typeHint}: ${formatSlotValue(s.previousValue)} -> ${formatSlotValue(s.newValue)}`];
+    }
+
+    if (resolved && typeof resolved.baseSlot === 'number' && resolved.baseSlot >= 0) {
+        const keyStr = resolved.keys?.map(k => `[${formatKeyValue(k)}]`).join('') || '';
+        return [`- ${tag} ${addr}: slot ${resolved.baseSlot}${keyStr} [unresolved]: ${formatSlotValue(s.previousValue)} -> ${formatSlotValue(s.newValue)}`];
+    }
+
+    return [`- ${tag} ${addr}: slot ${shortenAddress(s.slot)} [unresolved]: ${formatSlotValue(s.previousValue)} -> ${formatSlotValue(s.newValue)}`];
+}
+
+/**
+ * Compose the full label of one packed member, e.g.
+ * `allowances[owner][spender].amount` or `reserve0`.
+ */
+function memberLabel(resolved: ResolvedSlot, m: ResolvedSlotMember, keyStr: string, arrayStr: string): string {
+    if (!resolved.variableName) return m.variableName;
+    return `${resolved.variableName}${keyStr}${arrayStr}.${m.variableName}`;
+}
+
+/**
+ * Format a packed value. Address (20 bytes, offset 0) is rendered as a hex
+ * address so the model does not need to decode uint160. Everything else falls
+ * back to decimal.
+ */
+function formatPackedValue(value: bigint, m: ResolvedSlotMember): string {
+    if (m.variableType === 'address' && m.numberOfBytes === 20) {
+        return labelAddress('0x' + value.toString(16).padStart(40, '0'), shortenAddress);
+    }
+    if (m.variableType === 'bool' && m.numberOfBytes === 1) {
+        return value === 0n ? 'false' : 'true';
+    }
+    return value.toString();
+}
+
+/**
+ * Number of bytes for a single-entry resolved slot (no packed members).
+ * Returns `null` when the type is variable-width (mapping, dynamic array,
+ * bytes, string) so callers do not apply the width guard.
+ */
+function singleValueByteWidth(resolved: ResolvedSlot): number | null {
+    const type = resolved.variableType;
+    if (!type) return null;
+    // Dynamic containers can legitimately fill the whole word (length prefix
+    // or hash), no guard.
+    if (type.includes('mapping(') || type.endsWith('[]') || type === 'bytes' || type === 'string') return null;
+    const uintMatch = /^uint(\d+)$/.exec(type);
+    if (uintMatch) return Number(uintMatch[1]) / 8;
+    const intMatch = /^int(\d+)$/.exec(type);
+    if (intMatch) return Number(intMatch[1]) / 8;
+    const bytesMatch = /^bytes(\d+)$/.exec(type);
+    if (bytesMatch) return Number(bytesMatch[1]);
+    if (type === 'address') return 20;
+    if (type === 'bool') return 1;
+    return null;
+}
+
+function fitsInBytes(hex: string, numberOfBytes: number): boolean {
+    if (numberOfBytes <= 0) return true;
+    if (numberOfBytes >= 32) return true;
+    const val = hexToBigInt(hex);
+    if (val < 0n) return true; // negative slot placeholders — nothing to check
+    const max = 1n << BigInt(numberOfBytes * 8);
+    return val < max;
+}
+
+function slotIdentifier(resolved: ResolvedSlot, rawSlot: string): string {
+    if (typeof resolved.baseSlot === 'number' && resolved.baseSlot >= 0) return String(resolved.baseSlot);
+    if (typeof resolved.baseSlot === 'string') return resolved.baseSlot;
+    return shortenAddress(rawSlot);
+}
+
+/**
+ * Net wei per address as implied by the trace, so we can validate ETH balance
+ * changes (issue #381). Only value-carrying frames move ETH: `CALL`,
+ * `CALLCODE`, `CREATE`, `CREATE2`. `DELEGATECALL` / `STATICCALL` inherit their
+ * value from the caller frame and must not be counted.
+ *
+ * @param result - Simulation result carrying the flat trace list
+ * @return Map from lowercase address to net wei (sender debited, receiver credited)
+ */
+function netEthByAddress(result: SimulationResult): Map<string, bigint> {
+    const net = new Map<string, bigint>();
+    if (!result.trace) return net;
+    for (const t of result.trace) {
+        const type = (t.type ?? 'CALL').toUpperCase();
+        if (type === 'DELEGATECALL' || type === 'STATICCALL') continue;
+        const value = hexToBigInt(t.value);
+        if (value === 0n) continue;
+        if (t.from) {
+            const from = t.from.toLowerCase();
+            net.set(from, (net.get(from) ?? 0n) - value);
+        }
+        if (t.to) {
+            const to = t.to.toLowerCase();
+            net.set(to, (net.get(to) ?? 0n) + value);
+        }
+    }
+    return net;
 }
 
 function formatResolvedLabel(resolved: ResolvedSlot): string {
@@ -313,6 +546,9 @@ function formatTrace(trace: TraceEntry[], context?: EnrichedContext): string {
         if (decoded) {
             const params = decoded.params.map(p => `${p.name}=${p.value}`).join(', ');
             lines.push(`${i + 1}. ${from} -> ${to}: ${decoded.name}(${params})${value} [${callType}]`);
+        } else if (isAddressWithoutAbi(t.to, context)) {
+            const size = formatCalldataSize(t.input);
+            lines.push(`${i + 1}. ${from} -> ${to}: calldata ${size} (no ABI)${value} [${callType}]`);
         } else {
             const selector = t.input ? formatSelector(t.input) : '';
             const method = selector || callType;
@@ -468,6 +704,10 @@ function formatSourceContext(result: SimulationResult, context: EnrichedContext,
         if (meta.sources) {
             for (const [filename, source] of Object.entries(meta.sources)) {
                 if (totalBudget <= 0) break;
+                // Issue #382: skip non-Solidity artifacts (Yul, raw EVM). The
+                // model has no training signal for these and confidently
+                // hallucinates state variables.
+                if (!isEmbeddableSource(filename, source.content)) continue;
                 const content = sanitizeSourceForPrompt(source.content);
                 if (!content) continue;
                 const truncated = unlimited
@@ -486,6 +726,25 @@ function formatSourceContext(result: SimulationResult, context: EnrichedContext,
 }
 
 /**
+ * Filter: only embed Solidity sources. Yul input (`object "..." { code {`,
+ * `.yul` files) and raw EVM (`.bin`) is dropped so the model does not treat
+ * them as Solidity storage-layout hints (issue #382).
+ *
+ * @param filename - Source filename from the Sourcify metadata
+ * @param content - Raw file content
+ * @return `true` when the file looks like Solidity source
+ */
+function isEmbeddableSource(filename: string, content: string): boolean {
+    const name = String(filename ?? '').toLowerCase();
+    if (name.endsWith('.yul') || name.endsWith('.bin') || name.endsWith('.abi')) return false;
+    const head = String(content ?? '').trimStart().slice(0, 200);
+    // Yul object header (with or without pragma / SPDX above).
+    if (/^object\s+["']/.test(head)) return false;
+    if (!name || name.endsWith('.sol')) return true;
+    return false;
+}
+
+/**
  * Count source files that would be embedded for the given contracts.
  *
  * @param context - Enrichment context
@@ -496,7 +755,10 @@ function countSourceFiles(context: EnrichedContext, addresses: Set<string>): num
     let n = 0;
     for (const addr of addresses) {
         const sources = context.contracts.get(addr)?.sources;
-        if (sources) n += Object.keys(sources).length;
+        if (!sources) continue;
+        for (const [filename, source] of Object.entries(sources)) {
+            if (isEmbeddableSource(filename, source.content)) n++;
+        }
     }
     return n;
 }

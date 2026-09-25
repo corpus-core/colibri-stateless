@@ -48,6 +48,7 @@ export type {
     DecodedError,
     ParsedKey,
     ResolvedSlot,
+    ResolvedSlotMember,
     EnrichedContext,
     EnhancedSimulationResult,
     EnhancedLog,
@@ -72,7 +73,7 @@ export {
 } from './log.js';
 export type { LogLevel, ExplainerLogFn } from './log.js';
 export { decodeFunctionCall, decodeEventLog, decodeFunctionResult, decodeRevertData } from './decoder.js';
-export { parseSlotSource, resolveStorageSlot, resolveDirectSlot } from './storage.js';
+export { parseSlotSource, resolveStorageSlot, resolveDirectSlot, extractPackedValue } from './storage.js';
 export { enrichSimulation, toEnhancedResult } from './enrich.js';
 export { compileAndVerify, loadCompiler, getBundledCompiler, hashRuntimeBytecode } from './compiler.js';
 export { extractStorageLayout } from './layout.js';

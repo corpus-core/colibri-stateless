@@ -96,7 +96,7 @@ describe('buildPrompt', () => {
         assert.ok(userPrompt.includes('REVERTED'), `Expected REVERTED status, got:\n${userPrompt}`);
     });
 
-    it('handles unknown events gracefully', () => {
+    it('marks logs with topics but no ABI as unrecognized events', () => {
         const unknownEventResult = {
             gasUsed: '0x100',
             status: '0x1',
@@ -110,7 +110,26 @@ describe('buildPrompt', () => {
             }],
         };
         const { userPrompt } = buildPrompt(unknownEventResult, TX_PARAMS, {});
-        assert.ok(userPrompt.includes('Unknown event'), `Expected unknown event, got:\n${userPrompt}`);
+        assert.ok(userPrompt.includes('Unrecognized event'), `Expected Unrecognized event, got:\n${userPrompt}`);
+        assert.ok(userPrompt.includes('topic0: 0xabcdef1234'), `Expected topic0 line, got:\n${userPrompt}`);
+    });
+
+    it('marks logs without topics as anonymous (LOG0), not unrecognized', () => {
+        const anonLogResult = {
+            gasUsed: '0x100',
+            status: '0x1',
+            returnValue: '0x',
+            logs: [{
+                raw: {
+                    address: '0x1234567890abcdef1234567890abcdef12345678',
+                    data: '0xdeadbeef',
+                    topics: [],
+                },
+            }],
+        };
+        const { userPrompt } = buildPrompt(anonLogResult, TX_PARAMS, {});
+        assert.ok(userPrompt.includes('Anonymous log (no topics)'), `Expected LOG0 label, got:\n${userPrompt}`);
+        assert.ok(!userPrompt.includes('Unrecognized event'), `LOG0 must not be labelled as unrecognized event, got:\n${userPrompt}`);
     });
 
     it('includes state changes with balance and storage', () => {
@@ -191,6 +210,208 @@ describe('buildPrompt', () => {
         assert.ok(userPrompt.includes('[0x309066af5db7ee2d246, 0x0]'), `Expected array dump, got:\n${userPrompt}`);
         assert.ok(userPrompt.includes('-201600'), `Expected decimal negative, got:\n${userPrompt}`);
         assert.equal(userPrompt.includes('0x-31380'), false);
+    });
+
+    it('prints packed reserve0/reserve1 sub-values instead of the raw word (issue #380)', () => {
+        const PAIR = '0x1234567890abcdef1234567890abcdef12345678';
+        // reserve0 = uint112 @0, reserve1 = uint112 @14, blockTimestampLast = uint32 @28.
+        // Packed value = (ts << 224) | (reserve1 << 112) | reserve0.
+        const pack = (r0, r1, ts) => (BigInt(ts) << 224n) | (BigInt(r1) << 112n) | BigInt(r0);
+        const prevWord = pack(15n, 254n, 42n);
+        const nextWord = pack(16n, 255n, 42n); // timestamp unchanged
+        const toHex = v => '0x' + v.toString(16).padStart(64, '0');
+        const result = {
+            gasUsed: '0x100', status: '0x1', returnValue: '0x', logs: [],
+            stateChanges: [{
+                address: PAIR,
+                storage: [{
+                    slot: '0x' + (8n).toString(16).padStart(64, '0'),
+                    previousValue: toHex(prevWord),
+                    newValue: toHex(nextWord),
+                }],
+            }],
+        };
+        const ctx = {
+            contracts: new Map(),
+            resolvedStorage: new Map([[PAIR.toLowerCase(), [{
+                baseSlot: 8, raw: 'x',
+                members: [
+                    { variableName: 'reserve0', variableType: 'uint112', offset: 0, numberOfBytes: 14 },
+                    { variableName: 'reserve1', variableType: 'uint112', offset: 14, numberOfBytes: 14 },
+                    { variableName: 'blockTimestampLast', variableType: 'uint32', offset: 28, numberOfBytes: 4 },
+                ],
+            }]]]),
+            decodedTrace: [],
+            decodedEvents: [],
+        };
+        const { userPrompt } = buildPrompt(result, { ...TX_PARAMS, to: PAIR }, {}, ctx);
+        assert.ok(userPrompt.includes('reserve0 (uint112): 15 -> 16'), `Expected reserve0 delta, got:\n${userPrompt}`);
+        assert.ok(userPrompt.includes('reserve1 (uint112): 254 -> 255'), `Expected reserve1 delta, got:\n${userPrompt}`);
+        assert.ok(!userPrompt.includes('blockTimestampLast'), `Unchanged member must be skipped, got:\n${userPrompt}`);
+        assert.equal((userPrompt.match(/\[s0\]/g) || []).length, 2, 'both member lines must share the same [s0] change-id');
+    });
+
+    it('falls back to [unresolved] when a resolved uint value exceeds its type width (issue #380)', () => {
+        const PAIR = '0x1234567890abcdef1234567890abcdef12345678';
+        // A word whose value cannot fit into uint112: high bytes non-zero.
+        const bigWord = '0x' + 'ff'.repeat(32);
+        const result = {
+            gasUsed: '0x100', status: '0x1', returnValue: '0x', logs: [],
+            stateChanges: [{
+                address: PAIR,
+                storage: [{ slot: '0x' + '00'.repeat(32), previousValue: '0x' + '00'.repeat(32), newValue: bigWord }],
+            }],
+        };
+        const ctx = {
+            contracts: new Map(),
+            resolvedStorage: new Map([[PAIR.toLowerCase(), [{
+                variableName: 'reserve0', variableType: 'uint112', baseSlot: 8, raw: 'x',
+            }]]]),
+            decodedTrace: [],
+            decodedEvents: [],
+        };
+        const { userPrompt } = buildPrompt(result, { ...TX_PARAMS, to: PAIR }, {}, ctx);
+        assert.ok(userPrompt.includes('[unresolved]'), `Expected [unresolved] guard, got:\n${userPrompt}`);
+        assert.ok(!userPrompt.includes('reserve0 (uint112)'), `Must not label an out-of-range value, got:\n${userPrompt}`);
+    });
+
+    it('omits the balance line with a NOTE when delta contradicts the trace (issue #381)', () => {
+        // Trace transfers 0.072262 ETH, but the state-changes claim the WETH
+        // balance jumped from 0 to 2.240151 ETH -- reproduce the bad training
+        // example from issue #381.
+        const WETH = '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2';
+        const result = {
+            gasUsed: '0x100', status: '0x1', returnValue: '0x', logs: [],
+            trace: [{
+                from: '0x3610bad33aac567d2c5fb03e47eec5c2172fd42a', to: WETH,
+                value: '0x100b58cd7f8000', type: 'CALL',
+            }],
+            stateChanges: [{
+                address: WETH,
+                balance: { previousValue: '0x00', newValue: '0x1f1463c61ea36000' },
+            }],
+        };
+        const { userPrompt } = buildPrompt(result, TX_PARAMS, {});
+        assert.ok(userPrompt.includes('NOTE: omitted inconsistent ETH balance'), `Expected omission NOTE, got:\n${userPrompt}`);
+        assert.ok(!userPrompt.includes('balance 0 ETH -> 2.240151 ETH'), `Must not print the wrong balance line, got:\n${userPrompt}`);
+    });
+
+    it('keeps a matching balance line when delta agrees with the trace net (issue #381)', () => {
+        // WETH_DEPOSIT_RESULT already has trace value 0.1 ETH and a balance
+        // delta of exactly 0.1 ETH on the WETH address, so the safety net
+        // must not fire.
+        const { userPrompt } = buildPrompt(WETH_DEPOSIT_RESULT, TX_PARAMS, {});
+        assert.ok(!userPrompt.includes('NOTE: omitted inconsistent'), `Consistent balance must be kept, got:\n${userPrompt}`);
+        assert.ok(/balance .+ ETH -> .+ ETH/.test(userPrompt), `Balance line must still appear, got:\n${userPrompt}`);
+    });
+
+    it('renders no selector for a predeploy without ABI and adds a NOTE (issue #382)', () => {
+        const EIP_7002 = '0x00000961Ef480Eb55e80D19ad83579A64c007002';
+        // 56 bytes = 48-byte pubkey || 8-byte amount.
+        const calldata = '0x' + '11'.repeat(56);
+        const tx = { to: EIP_7002, from: TX_PARAMS.from, data: calldata, value: '0x0' };
+        const result = { gasUsed: '0x100', status: '0x1', returnValue: '0x', logs: [] };
+        const { userPrompt } = buildPrompt(result, tx, {});
+        assert.ok(userPrompt.includes('EIP-7002'), `Expected EIP-7002 label, got:\n${userPrompt}`);
+        assert.ok(userPrompt.includes('NOTE:'), `Expected trusted NOTE for the predeploy, got:\n${userPrompt}`);
+        assert.ok(userPrompt.includes('Calldata: 56 bytes (no ABI)'), `Expected calldata size line, got:\n${userPrompt}`);
+        assert.ok(!userPrompt.includes('Function selector:'), `Must not invent a selector for predeploys, got:\n${userPrompt}`);
+    });
+
+    it('distinguishes LOG0 from an unrecognized event with topics (issue #382)', () => {
+        const contract = '0x1234567890abcdef1234567890abcdef12345678';
+        const result = {
+            gasUsed: '0x100', status: '0x1', returnValue: '0x', logs: [
+                { raw: { address: contract, data: '0xdeadbeef', topics: [] } },
+                { raw: { address: contract, data: '0x', topics: ['0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890'] } },
+            ],
+        };
+        const { userPrompt } = buildPrompt(result, TX_PARAMS, {});
+        assert.ok(userPrompt.includes('Anonymous log (no topics)'), `Expected LOG0 label, got:\n${userPrompt}`);
+        assert.ok(userPrompt.includes('Unrecognized event'), `Expected unrecognized label, got:\n${userPrompt}`);
+        assert.ok(userPrompt.includes('topic0: 0xabcdef1234567890'), `Expected topic0 for the second log, got:\n${userPrompt}`);
+    });
+
+    it('ignores DELEGATECALL and STATICCALL value fields when checking balance deltas (issue #381)', () => {
+        // A real CALL transfers 0.1 ETH to the WETH contract, but the trace
+        // also contains a bogus DELEGATECALL and STATICCALL frame with the
+        // *same* value field. These sub-frames inherit value from their
+        // caller and must not be counted a second time by the safety net.
+        const SENDER = '0x3610bad33aac567d2c5fb03e47eec5c2172fd42a';
+        const WETH = '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2';
+        const value = '0x16345785d8a0000'; // 0.1 ETH in wei
+        const result = {
+            gasUsed: '0x100', status: '0x1', returnValue: '0x', logs: [],
+            trace: [
+                { from: SENDER, to: WETH, value, type: 'CALL' },
+                // Would double the debit/credit if it were counted.
+                { from: WETH, to: WETH, value, type: 'DELEGATECALL' },
+                { from: WETH, to: WETH, value, type: 'STATICCALL' },
+            ],
+            stateChanges: [{
+                address: WETH,
+                // Exact net credit expected from the single CALL only.
+                balance: { previousValue: '0x00', newValue: value },
+            }],
+        };
+        const { userPrompt } = buildPrompt(result, TX_PARAMS, {});
+        assert.ok(!userPrompt.includes('NOTE: omitted inconsistent'),
+            `Balance line must be kept because DELEGATECALL/STATICCALL are ignored, got:\n${userPrompt}`);
+        assert.ok(/balance .+ ETH -> .+ ETH/.test(userPrompt),
+            `Balance line must still appear, got:\n${userPrompt}`);
+    });
+
+    it('exposes packed struct members for a mapping(address => Struct) value (issue #380)', async () => {
+        // `mapping(address => Position)` where Position packs uint128 amount +
+        // uint128 lockedUntil into slot 0. `resolveStorageSlot` must return
+        // members so the printer can split the packed word.
+        const { resolveStorageSlot } = await import('../dist/storage.js');
+        const { keccak256, AbiCoder } = await import('ethers');
+
+        const OWNER = '0x1111111111111111111111111111111111111111';
+        const LAYOUT = {
+            storage: [
+                { slot: '0', type: 't_map', astId: 1, label: 'positions', offset: 0, contract: 'C.sol:C' },
+            ],
+            types: {
+                t_map: {
+                    label: 'mapping(address => struct C.Position)',
+                    encoding: 'mapping',
+                    key: 't_address',
+                    value: 't_pos',
+                    numberOfBytes: '32',
+                },
+                t_address: { label: 'address', encoding: 'inplace', numberOfBytes: '20' },
+                t_pos: {
+                    label: 'struct C.Position',
+                    encoding: 'inplace',
+                    numberOfBytes: '32',
+                    members: [
+                        { slot: '0', type: 't_u128', astId: 2, label: 'amount', offset: 0, contract: 'C.sol:C' },
+                        { slot: '0', type: 't_u128', astId: 3, label: 'lockedUntil', offset: 16, contract: 'C.sol:C' },
+                    ],
+                },
+                t_u128: { label: 'uint128', encoding: 'inplace', numberOfBytes: '16' },
+            },
+        };
+        const paddedKey = OWNER.slice(2).toLowerCase().padStart(64, '0');
+        // Preimage for mapping(k => v) is padded_key || padded_slot.
+        const preimage = '0x' + paddedKey + '00'.repeat(32);
+        const resolved = resolveStorageSlot(preimage, LAYOUT);
+        assert.equal(resolved.variableName, 'positions');
+        assert.ok(resolved.members, 'mapping-to-struct should carry members');
+        assert.equal(resolved.members.length, 2);
+        assert.deepEqual(resolved.members.map(m => [m.variableName, m.offset, m.numberOfBytes]), [
+            ['amount', 0, 16],
+            ['lockedUntil', 16, 16],
+        ]);
+        // Sanity check: the intercepted keccak preimage encodes exactly this owner.
+        const _hashed = keccak256(preimage);
+        assert.equal(resolved.keys?.[0]?.type, 'address');
+        assert.equal(resolved.keys?.[0]?.value.toLowerCase(), OWNER.toLowerCase());
+        // Silence unused-import warnings from AbiCoder.
+        void AbiCoder;
+        void _hashed;
     });
 
     it('includes custom error name in prompt when no reason string', () => {

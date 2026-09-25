@@ -25,6 +25,19 @@ export interface KnownAddress {
     label: string;
     decimals?: number;
     symbol?: string;
+    /**
+     * Short trusted description injected as a `NOTE` into the prompt. Used for
+     * hand-written EVM predeploys (EIP-4788, EIP-2935, EIP-7002, EIP-7251)
+     * where the model would otherwise invent a selector or misread raw storage
+     * (issue #382).
+     */
+    description?: string;
+    /**
+     * If true, the address hosts no ABI-based Solidity contract. Suppresses
+     * ABI/selector guesses in the prompt so hand-written EVM inputs (e.g. a
+     * 48-byte BLS pubkey for EIP-7002) are not labelled as function calls.
+     */
+    noAbi?: boolean;
 }
 
 const KNOWN: Record<string, KnownAddress> = {
@@ -42,6 +55,27 @@ const KNOWN: Record<string, KnownAddress> = {
     '0x00000000006c3852cbef3e08e8df289169ede581': { label: 'Seaport 1.1' },
     '0x1111111254eeb25477b68fb85ed929f73a960582': { label: '1inch Router' },
     '0xdef1c0ded9bec7f1a1670819833240f027b25eff': { label: '0x Exchange Proxy' },
+    // -- System / consensus-layer predeploys (no ABI, hand-written EVM). --
+    '0x000f3df6d732807ef1319fb7b8bb8522d0beac02': {
+        label: 'EIP-4788 Beacon Root',
+        description: 'EIP-4788 predeploy. `set` (called by the SYSTEM_ADDRESS at slot start) writes the current beacon block root to a 8191-slot ring buffer; any caller reads a stored root by passing a `uint64` timestamp as calldata and receiving the 32-byte root. No ABI, no Solidity source.',
+        noAbi: true,
+    },
+    '0x0000f90827f1c53a10cb7a02335b175320002935': {
+        label: 'EIP-2935 Historical Block Hashes',
+        description: 'EIP-2935 predeploy. `set` (called by the SYSTEM_ADDRESS at slot start) writes `blockhash(number-1)` to a 8191-slot ring buffer; any caller queries a historical hash by passing the block number as 32-byte calldata and receiving the 32-byte hash. No ABI, no Solidity source.',
+        noAbi: true,
+    },
+    '0x00000961ef480eb55e80d19ad83579a64c007002': {
+        label: 'EIP-7002 Execution-Layer Withdrawal Request',
+        description: 'EIP-7002 predeploy. A validator posts a withdrawal request by calling with 56 bytes: `pubkey (48) || amount (8)` and the required fee in `msg.value`. `set` (called by the SYSTEM_ADDRESS at slot start) drains the queue for the block. No ABI, no Solidity source.',
+        noAbi: true,
+    },
+    '0x0000bbddc7ce488642fb579f8b00f3a590007251': {
+        label: 'EIP-7251 Execution-Layer Consolidation Request',
+        description: 'EIP-7251 predeploy. A validator posts a consolidation request by calling with 96 bytes: `source_pubkey (48) || target_pubkey (48)` and the required fee in `msg.value`. `set` (called by the SYSTEM_ADDRESS at slot start) drains the queue for the block. No ABI, no Solidity source.',
+        noAbi: true,
+    },
 };
 
 /** Look up a known address label. Returns `undefined` if unknown. */

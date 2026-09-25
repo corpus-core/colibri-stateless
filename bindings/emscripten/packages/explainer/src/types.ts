@@ -286,6 +286,20 @@ export interface ParsedKey {
     value: string;
 }
 
+/**
+ * A single value packed into a 32-byte storage word. Multiple members share
+ * the same slot when the compiler packs them (e.g. `uint112 reserve0` and
+ * `uint112 reserve1` at slot 8 of `UniswapV2Pair`).
+ */
+export interface ResolvedSlotMember {
+    variableName: string;
+    variableType: string;
+    /** Byte offset from the low-order end of the slot word. */
+    offset: number;
+    /** Width in bytes (1..32). */
+    numberOfBytes: number;
+}
+
 export interface ResolvedSlot {
     variableName?: string;
     variableType?: string;
@@ -294,6 +308,12 @@ export interface ResolvedSlot {
     raw: string;
     arrayIndex?: number;
     structField?: string;
+    /**
+     * Packed members that share this slot word. When present, the storage
+     * change should be printed per-member (only members whose extracted value
+     * changed) instead of dumping the whole 32-byte word under one name.
+     */
+    members?: ResolvedSlotMember[];
 }
 
 export interface EnrichedContext {

@@ -147,6 +147,45 @@ void test_simulation_result_access_list_skips_unaccessed_keys_without_code_hash(
   safe_free(result.bytes.data);
 }
 
+// Regression for issue #381: an account materialised from the on-disk PAP
+// cache must expose `src_balance == balance` and `src_nonce == nonce` before
+// any simulation frame runs. Otherwise `verify_simulate.c` would ship
+// `previousValue = 0` in the SSZ `stateChanges` even when the account already
+// held a non-zero balance/nonce at the top of the transaction, and the
+// explainer would print a "0 ETH -> N ETH" line whose delta contradicts the
+// real value transfer.
+void test_simulate_cache_deserialize_seeds_snapshot(void) {
+  call_account_t seed = {0};
+  memset(seed.address, 0x77, 20);
+  seed.flags = ACCOUNT_HAS_BALANCE | ACCOUNT_HAS_CODE_HASH | ACCOUNT_HAS_STORAGE_ROOT | ACCOUNT_HAS_NONCE;
+  seed.nonce = 0x123456;
+  // 2.240151 ETH mirrors the WETH-deposit example from issue #381.
+  seed.balance[24] = 0x1f; seed.balance[25] = 0x14; seed.balance[26] = 0x63;
+  seed.balance[27] = 0xc6; seed.balance[28] = 0x1e; seed.balance[29] = 0xa3;
+  seed.balance[30] = 0x60; seed.balance[31] = 0x00;
+  memset(seed.storage_root, 0xaa, 32);
+  memset(seed.code_hash, 0xbb, 32);
+  seed.verified_at = 99;
+  // `src_balance` / `src_nonce` are intentionally left zero: this mirrors an
+  // in-flight account whose snapshot was not seeded before serialization.
+
+  buffer_t buf = {0};
+  eth_call_account_serialize(&buf, &seed);
+
+  call_account_t out = {0};
+  TEST_ASSERT_TRUE(eth_call_account_deserialize(buf.data, &out));
+
+  TEST_ASSERT_EQUAL_MEMORY_MESSAGE(seed.balance, out.balance, 32, "cached balance must round-trip");
+  TEST_ASSERT_EQUAL_MEMORY_MESSAGE(seed.balance, out.src_balance, 32,
+                                   "src_balance must be seeded from balance on load (issue #381)");
+  TEST_ASSERT_EQUAL_UINT64(seed.nonce, out.nonce);
+  TEST_ASSERT_EQUAL_UINT64_MESSAGE(seed.nonce, out.src_nonce,
+                                   "src_nonce must be seeded from nonce on load (issue #381)");
+
+  buffer_free(&buf);
+  call_storage_free_list(out.storage);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_simulate_simple);
@@ -154,5 +193,6 @@ int main(void) {
   RUN_TEST(test_simulation_result_access_list_includes_code_hash);
   RUN_TEST(test_simulation_result_omits_access_list_when_nothing_accessed);
   RUN_TEST(test_simulation_result_access_list_skips_unaccessed_keys_without_code_hash);
+  RUN_TEST(test_simulate_cache_deserialize_seeds_snapshot);
   return UNITY_END();
 }
