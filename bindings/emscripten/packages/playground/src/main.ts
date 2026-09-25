@@ -4,6 +4,8 @@ import {
     createProvider,
     buildPrompt,
     toEnhancedResult,
+    resolveLabels,
+    parseExplanation,
     formatGas,
     shortenAddress,
     labelAddress,
@@ -18,10 +20,11 @@ import type {
     EnhancedLog,
     TxParams,
     LLMProviderType,
+    ExplanationLine,
+    AddressLabel,
+    EthCallFn,
 } from '@corpus-core/colibri-explainer';
 import { Transaction } from 'ethers';
-import { marked } from 'marked';
-import DOMPurify from 'dompurify';
 
 // -- Model catalogs per provider --------------------------------------------
 
@@ -602,13 +605,7 @@ function readTransaction(): TxParams {
     return readTxFromRaw();
 }
 
-async function simulateLocally(
-    tx: TxParams,
-    chainId: number,
-    rpc: string,
-    prover: string,
-    usePrivacy: boolean,
-): Promise<SimulationResult> {
+function makeClient(chainId: number, rpc: string, prover: string, usePrivacy: boolean): C4Client {
     const clientConfig: Record<string, unknown> = { chainId };
     clientConfig.zk_proof = true;
     clientConfig.debug = true;
@@ -625,8 +622,18 @@ async function simulateLocally(
         const oblivious = ($('oblivious') as HTMLInputElement).value.trim();
         if (oblivious) clientConfig.oblivious_nodes = [oblivious];
     }
-    const client = new C4Client(clientConfig);
-    return (await client.rpc('colibri_simulateTransaction', [tx, 'latest'])) as SimulationResult;
+    return new C4Client(clientConfig);
+}
+
+function ethCallFor(client: C4Client): EthCallFn {
+    return async (to, data) => {
+        try {
+            const out = await client.rpc('eth_call', [{ to, data }, 'latest']);
+            return typeof out === 'string' ? out : null;
+        } catch {
+            return null;
+        }
+    };
 }
 
 async function buildExplainerConfig(useEnrichment: boolean, chainId: number): Promise<ExplainerConfig> {
@@ -645,6 +652,7 @@ async function buildExplainerConfig(useEnrichment: boolean, chainId: number): Pr
         language,
         maxSourceChars,
         chainId: useEnrichment ? chainId : undefined,
+        explainMode: 'developer',
     };
     if (apiKey) config.apiKey = apiKey;
     if (baseUrl) config.baseUrl = baseUrl;
@@ -656,15 +664,21 @@ async function buildExplainerConfig(useEnrichment: boolean, chainId: number): Pr
         config.onModelProgress = ({ progress, text }) => setProgress(progress, text);
         // Render the answer live as the local model streams it. Once tokens
         // arrive the download/load is finished, so the progress bar can go away.
-        config.onToken = (_delta, full) => {
+        config.onToken = () => {
             show('progress-wrap', false);
-            renderMarkdown('explanation', full);
+        };
+        config.onLine = (line) => {
+            show('progress-wrap', false);
+            appendLine(line);
         };
     }
     return config;
 }
 
 // -- Run ---------------------------------------------------------------------
+
+let lineLabels: AddressLabel[] = [];
+let lineChainId = 1;
 
 const EMPTY_CONTEXT: EnrichedContext = {
     contracts: new Map(),
@@ -687,6 +701,7 @@ async function run(): Promise<void> {
     // step fails (e.g. the LLM exceeds its context window).
     let sim: SimulationResult | undefined;
     let context: EnrichedContext = EMPTY_CONTEXT;
+    let ethCall: EthCallFn | undefined;
 
     try {
         const chainId = Number(($('chainId') as HTMLSelectElement).value);
@@ -714,7 +729,9 @@ async function run(): Promise<void> {
             throw new Error('Select a sample transaction first.');
         } else {
             setStatus('Running colibri_simulateTransaction (verified)...');
-            sim = await simulateLocally(tx, chainId, rpc, prover, usePrivacy);
+            const client = makeClient(chainId, rpc, prover, usePrivacy);
+            sim = (await client.rpc('colibri_simulateTransaction', [tx, 'latest'])) as SimulationResult;
+            ethCall = ethCallFor(client);
         }
         $('sim-json').textContent = JSON.stringify(sim, null, 2);
         setStep(1, 'done');
@@ -734,6 +751,16 @@ async function run(): Promise<void> {
 
         // The decoded result and the prompt are fully known before the LLM runs,
         // so render them now -- they remain visible even if the LLM step fails.
+        context.labels = await resolveLabels(sim, tx, {
+            contracts: context.contracts,
+            resolvedStorage: context.resolvedStorage,
+            decodedEvents: context.decodedEvents,
+            ethCall,
+        });
+        lineLabels = Object.values(context.labels.byAddress);
+        lineChainId = chainId;
+        resetLines();
+
         renderDecoded(sim, context);
         const prompt = buildPrompt(sim, tx, config, context);
         showPrompt(prompt.systemPrompt, prompt.userPrompt);
@@ -746,8 +773,8 @@ async function run(): Promise<void> {
         const explanation = await provider.complete(prompt.systemPrompt, prompt.userPrompt);
         setStep(4, 'done');
 
-        renderMarkdown('explanation', explanation);
-        $('enhanced-json').textContent = JSON.stringify(toEnhancedResult(sim, context, explanation), null, 2);
+        renderLines(parseExplanation(explanation, prompt.refs));
+        $('enhanced-json').textContent = JSON.stringify(toEnhancedResult(sim, context, explanation, prompt.refs), null, 2);
         show('progress-wrap', false);
         setStatus('Done.');
     } catch (err) {
@@ -772,9 +799,10 @@ async function run(): Promise<void> {
 // -- Result rendering --------------------------------------------------------
 
 function clearDebug(): void {
-    for (const id of ['explanation', 'prompt-text', 'prompt-size', 'enhanced-json', 'sim-json']) {
+    for (const id of ['explanation', 'explanation-more', 'prompt-text', 'prompt-size', 'enhanced-json', 'sim-json']) {
         $(id).textContent = '';
     }
+    show('explanation-details', false);
     $('summary').innerHTML = '';
     $('events').innerHTML = '';
 }
@@ -859,9 +887,78 @@ function formatEventParam(param: { name: string; type: string; value: string }):
 
 // Render LLM output (which is typically Markdown) into the target element.
 // The text is untrusted, so the parsed HTML is sanitized before insertion.
-function renderMarkdown(id: string, markdown: string): void {
-    const html = marked.parse(markdown, { async: false }) as string;
-    $(id).innerHTML = DOMPurify.sanitize(html);
+function resetLines(): void {
+    $('explanation').replaceChildren();
+    $('explanation-more').replaceChildren();
+    show('explanation-details', false);
+}
+
+function renderLines(lines: ExplanationLine[]): void {
+    resetLines();
+    for (const line of lines) appendLine(line);
+}
+
+function appendLine(line: ExplanationLine): void {
+    if (line.malformed) return;
+    const primary = line.type === 'summary' || line.type === 'risk';
+    const parent = $(primary ? 'explanation' : 'explanation-more');
+    if (!primary) show('explanation-details', true);
+    const row = document.createElement('p');
+    row.className = `line line-${line.type}`;
+    const kind = document.createElement('span');
+    kind.className = 'line-kind';
+    kind.textContent = line.type.toUpperCase();
+    row.appendChild(kind);
+    appendLinked(row, line.text);
+    if (line.refs.length) {
+        const refs = document.createElement('span');
+        refs.className = 'line-refs';
+        refs.textContent = line.refs.join(',');
+        row.appendChild(refs);
+    }
+    parent.appendChild(row);
+}
+
+const EXPLORER: Record<number, string> = {
+    1: 'https://etherscan.io/address/',
+    11155111: 'https://sepolia.etherscan.io/address/',
+    10: 'https://optimistic.etherscan.io/address/',
+    8453: 'https://basescan.org/address/',
+    42161: 'https://arbiscan.io/address/',
+};
+
+function appendLinked(parent: HTMLElement, text: string): void {
+    let rest = text;
+    while (rest) {
+        let bestAt = -1;
+        let best: AddressLabel | undefined;
+        for (const label of lineLabels) {
+            if (!label.text) continue;
+            const at = rest.indexOf(label.text);
+            if (at < 0) continue;
+            if (best == null || at < bestAt || (at === bestAt && label.text.length > best.text.length)) {
+                bestAt = at;
+                best = label;
+            }
+        }
+        if (!best || bestAt < 0) {
+            parent.appendChild(document.createTextNode(rest));
+            return;
+        }
+        if (bestAt > 0) parent.appendChild(document.createTextNode(rest.slice(0, bestAt)));
+        const href = EXPLORER[lineChainId];
+        if (href && /^0x[0-9a-f]{40}$/.test(best.address)) {
+            const link = document.createElement('a');
+            link.textContent = best.text;
+            link.href = href + best.address;
+            link.target = '_blank';
+            link.rel = 'noopener noreferrer';
+            parent.appendChild(link);
+        } else {
+            parent.appendChild(document.createTextNode(best.text));
+        }
+        rest = rest.slice(bestAt + best.text.length);
+    }
 }
 
 function badge(text: string, kind: 'ok' | 'bad'): HTMLElement {

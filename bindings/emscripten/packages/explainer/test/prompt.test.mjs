@@ -7,7 +7,7 @@ describe('buildPrompt', () => {
     it('produces system and user prompts', () => {
         const { systemPrompt, userPrompt } = buildPrompt(WETH_DEPOSIT_RESULT, TX_PARAMS, {});
 
-        assert.ok(systemPrompt.includes('blockchain transaction analyst'));
+        assert.ok(systemPrompt.includes('You explain a simulated Ethereum transaction'));
         assert.ok(userPrompt.includes('Transaction Overview'));
     });
 
@@ -23,8 +23,8 @@ describe('buildPrompt', () => {
 
     it('lists decoded events', () => {
         const { userPrompt } = buildPrompt(WETH_DEPOSIT_RESULT, TX_PARAMS, {});
-        assert.ok(userPrompt.includes('**Transfer**'), `Expected Transfer event, got:\n${userPrompt}`);
-        assert.ok(userPrompt.includes('**Deposit**'), `Expected Deposit event, got:\n${userPrompt}`);
+        assert.ok(userPrompt.includes('Transfer on'), `Expected Transfer event, got:\n${userPrompt}`);
+        assert.ok(userPrompt.includes('Deposit on'), `Expected Deposit event, got:\n${userPrompt}`);
     });
 
     it('formats gas used', () => {
@@ -52,7 +52,9 @@ describe('buildPrompt', () => {
         const custom = 'You are a terse auditor. Reply in one line.';
         const { systemPrompt } = buildPrompt(WETH_DEPOSIT_RESULT, TX_PARAMS, { systemPrompt: custom });
         assert.ok(systemPrompt.startsWith(custom), `Expected custom prompt, got:\n${systemPrompt}`);
-        assert.ok(!systemPrompt.includes('blockchain transaction analyst'), 'default prompt must be replaced');
+        assert.ok(!systemPrompt.includes('You explain a simulated Ethereum transaction'), 'default base must be replaced');
+        assert.ok(systemPrompt.includes('SUMMARY <text>'), 'format block must still be appended');
+        assert.ok(systemPrompt.includes('Mode: developer'), 'mode block must still be appended');
     });
 
     it('still appends language and include to a custom system prompt', () => {
@@ -66,7 +68,7 @@ describe('buildPrompt', () => {
 
     it('falls back to the default prompt for a blank systemPrompt', () => {
         const { systemPrompt } = buildPrompt(WETH_DEPOSIT_RESULT, TX_PARAMS, { systemPrompt: '   ' });
-        assert.ok(systemPrompt.includes('blockchain transaction analyst'));
+        assert.ok(systemPrompt.includes('You explain a simulated Ethereum transaction'));
     });
 
     it('always appends the untrusted-source rule to the system prompt', () => {
@@ -111,7 +113,7 @@ describe('buildPrompt', () => {
         };
         const { userPrompt } = buildPrompt(unknownEventResult, TX_PARAMS, {});
         assert.ok(userPrompt.includes('Unrecognized event'), `Expected Unrecognized event, got:\n${userPrompt}`);
-        assert.ok(userPrompt.includes('topic0: 0xabcdef1234'), `Expected topic0 line, got:\n${userPrompt}`);
+        assert.ok(userPrompt.includes('topic0=0xabcdef1234'), `Expected topic0 line, got:\n${userPrompt}`);
     });
 
     it('marks logs without topics as anonymous (LOG0), not unrecognized', () => {
@@ -248,7 +250,7 @@ describe('buildPrompt', () => {
         assert.ok(userPrompt.includes('reserve0 (uint112): 15 -> 16'), `Expected reserve0 delta, got:\n${userPrompt}`);
         assert.ok(userPrompt.includes('reserve1 (uint112): 254 -> 255'), `Expected reserve1 delta, got:\n${userPrompt}`);
         assert.ok(!userPrompt.includes('blockTimestampLast'), `Unchanged member must be skipped, got:\n${userPrompt}`);
-        assert.equal((userPrompt.match(/\[s0\]/g) || []).length, 2, 'both member lines must share the same [s0] change-id');
+        assert.equal((userPrompt.match(/\[s1\]/g) || []).length, 2, 'both member lines must share the same [s1] change-id');
     });
 
     it('falls back to [unresolved] when a resolved uint value exceeds its type width (issue #380)', () => {
@@ -329,7 +331,7 @@ describe('buildPrompt', () => {
         const { userPrompt } = buildPrompt(result, TX_PARAMS, {});
         assert.ok(userPrompt.includes('Anonymous log (no topics)'), `Expected LOG0 label, got:\n${userPrompt}`);
         assert.ok(userPrompt.includes('Unrecognized event'), `Expected unrecognized label, got:\n${userPrompt}`);
-        assert.ok(userPrompt.includes('topic0: 0xabcdef1234567890'), `Expected topic0 for the second log, got:\n${userPrompt}`);
+        assert.ok(userPrompt.includes('topic0=0xabcdef1234567890'), `Expected topic0 for the second log, got:\n${userPrompt}`);
     });
 
     it('ignores DELEGATECALL and STATICCALL value fields when checking balance deltas (issue #381)', () => {
@@ -810,5 +812,112 @@ describe('sanitizeSourceForPrompt', () => {
     it('keeps a leading comment that only mentions copyright without a year', () => {
         const src = '// This contract manages copyright of NFTs\ncontract C {}';
         assert.equal(sanitizeSourceForPrompt(src), src);
+    });
+});
+
+describe('amounts, labels and ids', () => {
+    it('labels the signer as you and WETH as known', () => {
+        const { userPrompt } = buildPrompt(WETH_DEPOSIT_RESULT, TX_PARAMS, {});
+        assert.ok(userPrompt.includes('you (0x3610...d42a)'));
+        assert.ok(userPrompt.includes('WETH (0xc02a...6cc2)'));
+        assert.ok(!userPrompt.includes('from source'));
+        assert.ok(!userPrompt.includes('self-declared'));
+    });
+
+    it('scales a WETH deposit wad with 18 decimals', () => {
+        const { userPrompt } = buildPrompt(WETH_DEPOSIT_RESULT, TX_PARAMS, {});
+        assert.ok(userPrompt.includes('wad=0.1 WETH'), `Expected scaled wad, got:\n${userPrompt}`);
+    });
+
+    it('scales USDC (6), WBTC (8) and leaves an unknown token raw', () => {
+        const usdc = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48';
+        const wbtc = '0x2260fac5e5542a773aa44fbcfedf7c193bc2c599';
+        const unknown = '0x1111111111111111111111111111111111111111';
+        const result = {
+            gasUsed: '0x1', status: '0x1', returnValue: '0x',
+            logs: [
+                { name: 'Transfer', inputs: [{ name: 'value', type: 'uint256', value: '0x16e360' }], raw: { address: usdc, data: '0x', topics: ['0x1'] } },
+                { name: 'Transfer', inputs: [{ name: 'value', type: 'uint256', value: '0x5f5e100' }], raw: { address: wbtc, data: '0x', topics: ['0x1'] } },
+                { name: 'Transfer', inputs: [{ name: 'value', type: 'uint256', value: '0x64' }], raw: { address: unknown, data: '0x', topics: ['0x1'] } },
+            ],
+        };
+        const { userPrompt } = buildPrompt(result, { to: usdc, from: TX_PARAMS.from }, {});
+        assert.ok(userPrompt.includes('value=1.5 USDC'), userPrompt);
+        assert.ok(userPrompt.includes('value=1 WBTC'), userPrompt);
+        assert.ok(userPrompt.includes('value=100 raw'), userPrompt);
+    });
+
+    it('prints uint256 max allowance as unlimited', () => {
+        const max = '0x' + 'f'.repeat(64);
+        const result = {
+            gasUsed: '0x1', status: '0x1', returnValue: '0x', logs: [],
+            stateChanges: [{
+                address: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
+                storage: [{ slot: '0x1', previousValue: '0x0', newValue: max }],
+            }],
+        };
+        const ctx = {
+            contracts: new Map(),
+            resolvedStorage: new Map([['0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2', [{
+                variableName: 'allowance', variableType: 'uint256', baseSlot: 1, raw: 'x',
+            }]]]),
+            decodedTrace: [], decodedEvents: [],
+        };
+        const { userPrompt } = buildPrompt(result, TX_PARAMS, {}, ctx);
+        assert.ok(userPrompt.includes('unlimited'), userPrompt);
+    });
+
+    it('renders a verified contractName as a source label', () => {
+        const addr = '0xeca8218c4d93c9e8a1285b6d5c6e4e5e4e5e0318';
+        const result = { gasUsed: '0x1', status: '0x1', returnValue: '0x', logs: [], trace: [{ from: TX_PARAMS.from, to: addr, input: '0x', type: 'CALL' }] };
+        const ctx = {
+            contracts: new Map([[addr, { abi: [], sources: null, storageLayout: null, contractName: 'PerlinToken' }]]),
+            resolvedStorage: new Map(), decodedTrace: [], decodedEvents: [],
+        };
+        const { userPrompt, labels } = buildPrompt(result, { to: addr, from: TX_PARAMS.from }, {}, ctx);
+        assert.ok(userPrompt.includes('PerlinToken (0xeca8...0318, from source)'), userPrompt);
+        assert.equal(labels.byAddress[addr].provenance, 'source');
+    });
+
+    it('assigns stable ids and promptRefs omits truncated trace frames', async () => {
+        const { promptRefs } = await import('../dist/refs.js');
+        const { toEnhancedResult } = await import('../dist/enrich.js');
+        const trace = Array.from({ length: 21 }, (_, i) => ({
+            from: TX_PARAMS.from, to: TX_PARAMS.to, input: '0x', type: 'CALL',
+        }));
+        const result = { ...WETH_DEPOSIT_RESULT, trace };
+        const built = buildPrompt(result, TX_PARAMS, {});
+        const refs = promptRefs(built.userPrompt);
+        assert.ok(refs.includes('c1') && refs.includes('c20'));
+        assert.ok(!refs.includes('c21'));
+        const enhanced = toEnhancedResult(result, {
+            contracts: new Map(), resolvedStorage: new Map(), decodedTrace: [], decodedEvents: [], labels: built.labels,
+        }, '', refs);
+        assert.equal(enhanced.trace[20].id, 'c21');
+        for (const id of refs) {
+            const hit = enhanced.logs.some(l => l.id === id)
+                || enhanced.trace.some(t => t.id === id)
+                || enhanced.stateChanges?.some(c => c.balance?.id === id || c.storage?.some(s => s.id === id));
+            assert.ok(hit, `prompt id ${id} missing from enhanced result`);
+        }
+    });
+
+    it('uses the user mode block when explainMode is user', () => {
+        const { systemPrompt } = buildPrompt(WETH_DEPOSIT_RESULT, TX_PARAMS, { explainMode: 'user' });
+        assert.ok(systemPrompt.includes('Mode: user'));
+        assert.ok(!systemPrompt.includes('Also write STEP'));
+    });
+
+    it('includes the ETH balance id', () => {
+        const { userPrompt, refs } = buildPrompt(WETH_DEPOSIT_RESULT, TX_PARAMS, {});
+        assert.ok(userPrompt.includes('[b1]'), userPrompt);
+        assert.ok(refs.includes('b1'));
+    });
+
+    it('keeps the system prompt compact', () => {
+        const { systemPrompt } = buildPrompt(WETH_DEPOSIT_RESULT, TX_PARAMS, {});
+        assert.ok(systemPrompt.length < 3500, `system prompt is ${systemPrompt.length} chars`);
+        assert.ok(systemPrompt.includes('PROMPT') === false);
+        assert.ok(systemPrompt.includes('self-declared'));
     });
 });

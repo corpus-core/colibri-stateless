@@ -128,6 +128,40 @@ describe('WebLLMProvider.complete', () => {
         assert.equal(req.max_tokens, 256);
         // Default model is a Qwen3.5 fine-tune: thinking is switched off.
         assert.deepEqual(req.extra_body, { enable_thinking: false });
+        assert.equal(req.response_format, undefined);
+    });
+
+    it('attaches a grammar that cites only prompt ids and streams parsed lines', async () => {
+        const calls = [];
+        const chunks = [
+            { choices: [{ delta: { content: 'SUMMARY You deposit.\n' } }] },
+            { choices: [{ delta: { content: 'STEP c1 Wrapped.\n' } }] },
+        ];
+        const engine = {
+            calls,
+            chat: {
+                completions: {
+                    create: async (req) => {
+                        calls.push(req);
+                        return (async function* () { for (const c of chunks) yield c; })();
+                    },
+                },
+            },
+        };
+        const lines = [];
+        const provider = new WebLLMProvider({
+            webllmEngine: engine,
+            model: 'Llama-3.2-3B-Instruct-q4f16_1-MLC',
+            disableThinking: false,
+            onLine: (line) => lines.push(line),
+        });
+        const out = await provider.complete('SYS', 'see [c1] only');
+        assert.equal(out, 'SUMMARY You deposit.\nSTEP c1 Wrapped.\n');
+        assert.equal(calls[0].response_format.type, 'grammar');
+        assert.ok(calls[0].response_format.grammar.includes('"c1"'));
+        assert.equal(calls[0].stream, true);
+        assert.equal(lines[0].type, 'summary');
+        assert.deepEqual(lines[1].refs, ['c1']);
     });
 
     it('sends no extra_body for models that do not think, and honours disableThinking', async () => {

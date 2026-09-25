@@ -112,12 +112,9 @@ export interface ModelProgress {
 /** Prompt-related configuration (subset of ExplainerConfig). */
 export interface PromptConfig {
     /**
-     * Full override for the base system prompt. When set, it *replaces* the
-     * built-in analyst prompt (`DEFAULT_SYSTEM_PROMPT`). The language instruction
-     * and `systemPromptInclude` are still appended afterwards, then the
-     * untrusted-data handling rule (always last, so it wins recency). Leave unset
-     * to use the default. Use `DEFAULT_SYSTEM_PROMPT` as a starting point if you
-     * only want to tweak it.
+     * Replaces the base block (`BASE_PROMPT`) only. The format block, the mode
+     * block and the untrusted-data rule are still appended, in that order.
+     * Leave unset to use the default base.
      */
     systemPrompt?: string;
     /**
@@ -135,6 +132,15 @@ export interface PromptConfig {
      * file in full. Default: `10000`.
      */
     maxSourceChars?: number;
+    /**
+     * Which line types the model is asked to emit.
+     *
+     * - `user` — `SUMMARY`, `RISK`, `NOTE`
+     * - `developer` — also `STEP`
+     *
+     * Default: `developer`.
+     */
+    explainMode?: 'user' | 'developer';
 }
 
 /** Configuration shared by all LLM provider implementations. */
@@ -162,6 +168,21 @@ export interface LLMProviderConfig {
      * other providers ignore it and return the full text via the promise.
      */
     onToken?: (delta: string, full: string) => void;
+    /**
+     * Invoked once per completed explanation line while a WebLLM answer streams.
+     * Other providers ignore it; parse the final string with `parseExplanation`.
+     */
+    onLine?: (line: ExplanationLine) => void;
+    /**
+     * Aborts an in-flight WebLLM stream between chunks. The engine may still
+     * finish the current token. Other providers ignore it.
+     */
+    abortSignal?: AbortSignal;
+    /**
+     * Line-protocol mode forwarded to WebLLM so the grammar can omit `STEP`.
+     * Same field as `PromptConfig.explainMode`.
+     */
+    explainMode?: 'user' | 'developer';
     /**
      * Pre-initialized WebLLM engine to reuse across calls (avoids re-downloading
      * the model). Only used by the `webllm` provider. Typed as `unknown` so the
@@ -198,6 +219,12 @@ export interface ExplainerConfig extends PromptConfig, LLMProviderConfig {
     sourcifyBaseUrl?: string;
     /** Custom cache implementation. Uses localStorage (browser), fs (Node.js), or in-memory fallback by default. */
     cache?: ContractCache;
+    /**
+     * Optional verified `eth_call` used to read `name()`, `symbol()` and
+     * `decimals()` for token contracts that are not in the curated list.
+     * Return the hex result, or `null` when the call fails.
+     */
+    ethCall?: (to: string, data: string) => Promise<string | null>;
 }
 
 /** Persistent cache for verified contract metadata, keyed by `codeHash`. */
@@ -251,6 +278,8 @@ export interface ContractMetadata {
     abi: unknown[] | null;
     sources: Record<string, { content: string }> | null;
     storageLayout: SolidityStorageLayout | null;
+    /** Verified Sourcify contract name, when the compilation input carried one. */
+    contractName?: string | null;
 }
 
 /** Compilation artifacts returned by the Sourcify v2 `stdJsonInput` endpoint. */
@@ -323,25 +352,79 @@ export interface EnrichedContext {
     resolvedStorage: Map<string, ResolvedSlot[]>;
     decodedTrace: (DecodedCall | null)[];
     decodedEvents: (DecodedEvent | null)[];
+    /** Address labels used in the prompt. Absent until `resolveLabels` runs. */
+    labels?: LabelTable;
+}
+
+/** Where an address label came from. Names without one of these are not shown. */
+export type LabelProvenance = 'known' | 'source' | 'self-declared' | 'signer';
+
+/**
+ * One address as it appears in the prompt and in the UI.
+ * `text` is the exact string the model sees.
+ */
+export interface AddressLabel {
+    /** Lowercase address. */
+    address: string;
+    provenance: LabelProvenance;
+    /** Display name. Collisions inside one transaction get a `#1` / `#2` suffix. */
+    name: string;
+    /** Prompt rendering, including provenance. */
+    text: string;
+    symbol?: string;
+    decimals?: number;
+    /** Where `decimals` came from. Absent when the amount must be printed raw. */
+    decimalsSource?: 'known' | 'call';
+}
+
+/** JSON-serializable label lookup for one transaction. */
+export interface LabelTable {
+    /** Keyed by lowercase address. */
+    byAddress: Record<string, AddressLabel>;
+}
+
+/** One statement of the explanation line protocol. */
+export interface ExplanationLine {
+    type: 'summary' | 'step' | 'risk' | 'note';
+    /** IDs that appear in the prompt. Unresolved refs are omitted. */
+    refs: string[];
+    text: string;
+    /** Set when the line did not match the protocol. Callers should not render it. */
+    malformed?: boolean;
+    /** Refs the model cited that were not in the prompt. */
+    droppedRefs?: string[];
 }
 
 // -- Enhanced result types (JSON-serializable, for UI consumption) --
 
 export interface EnhancedLog extends SimulationLog {
+    /** Stable id (`l1`, `l2`, …) assigned before any prompt filtering. */
+    id: string;
     decoded?: DecodedEvent;
 }
 
 export interface EnhancedStorageSlotChange extends StorageSlotChange {
+    /** Stable id (`s1`, `s2`, …) shared by every packed member of this slot. */
+    id: string;
     resolved?: ResolvedSlot;
+}
+
+export interface EnhancedBalanceChange {
+    /** Stable id (`b1`, `b2`, …). */
+    id: string;
+    previousValue: string;
+    newValue: string;
 }
 
 export interface EnhancedContractStateChange {
     address: string;
     storage?: EnhancedStorageSlotChange[];
-    balance?: { previousValue: string; newValue: string };
+    balance?: EnhancedBalanceChange;
 }
 
 export interface EnhancedTraceEntry extends TraceEntry {
+    /** Stable id (`c1`, `c2`, …) assigned before the prompt's trace limit. */
+    id: string;
     decoded?: DecodedCall;
 }
 
@@ -357,7 +440,12 @@ export interface EnhancedSimulationResult {
     logs: EnhancedLog[];
     stateChanges?: EnhancedContractStateChange[];
     trace?: EnhancedTraceEntry[];
+    /** Raw model output, including any malformed lines. */
     explanation: string;
+    /** Parsed line protocol. Malformed lines are flagged and unresolved refs are dropped. */
+    lines: ExplanationLine[];
+    /** Labels used in the prompt, so the UI can map names back to addresses. */
+    labels: AddressLabel[];
     decodedCall?: DecodedCall;
     error?: DecodedError;
 }

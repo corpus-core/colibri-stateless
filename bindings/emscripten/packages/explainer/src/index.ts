@@ -55,16 +55,26 @@ export type {
     EnhancedTraceEntry,
     EnhancedStorageSlotChange,
     EnhancedContractStateChange,
+    EnhancedBalanceChange,
+    ExplanationLine,
+    AddressLabel,
+    LabelTable,
+    LabelProvenance,
 } from './types.js';
 
-export { buildPrompt, DEFAULT_SYSTEM_PROMPT } from './prompt.js';
+export { buildPrompt, DEFAULT_SYSTEM_PROMPT, BASE_PROMPT, FORMAT_PROMPT, PROMPT_VERSION } from './prompt.js';
+export type { PromptParts } from './prompt.js';
+export { promptRefs, assignRefIds } from './refs.js';
+export { resolveLabels, buildLabelTableSync, labelText } from './labels.js';
+export type { EthCallFn } from './labels.js';
+export { parseExplanation, LineStreamParser, buildLineGrammar } from './lines.js';
 export { createProvider } from './providers/index.js';
 export {
     WebLLMProvider, DEFAULT_WEBLLM_MODEL, TSA_EXPLAINER_MODELS,
     shouldDisableThinking, resolveModelRecord, buildAppConfig,
 } from './providers/webllm.js';
 export type { WebLLMModelRecord } from './providers/webllm.js';
-export { hexToBigInt, weiToEth, formatTokenAmount, formatGas, shortenAddress } from './format.js';
+export { hexToBigInt, weiToEth, formatTokenAmount, formatAmount, formatAmountDelta, formatGas, shortenAddress } from './format.js';
 export { lookupAddress, labelAddress } from './known_addresses.js';
 export { fetchContractMetadata, fetchCompilationInput, setSourcifyLogger } from './sourcify.js';
 export type { SourcifyLogFn } from './sourcify.js';
@@ -84,10 +94,31 @@ export {
     cacheGetLayout, cacheSetLayout,
 } from './cache.js';
 
-import type { SimulationResult, TxParams, ExplainerConfig, EnhancedSimulationResult } from './types.js';
+import type { SimulationResult, TxParams, ExplainerConfig, EnhancedSimulationResult, EnrichedContext } from './types.js';
 import { buildPrompt } from './prompt.js';
 import { createProvider } from './providers/index.js';
 import { enrichSimulation, toEnhancedResult } from './enrich.js';
+import { resolveLabels } from './labels.js';
+
+async function contextWithLabels(
+    result: SimulationResult,
+    txParams: TxParams,
+    config: ExplainerConfig,
+): Promise<EnrichedContext> {
+    const context = config.chainId
+        ? await enrichSimulation(result, txParams, config.chainId, {
+            sourcifyBaseUrl: config.sourcifyBaseUrl,
+            cache: config.cache,
+        })
+        : { contracts: new Map(), resolvedStorage: new Map(), decodedTrace: [], decodedEvents: [] } as EnrichedContext;
+    context.labels = await resolveLabels(result, txParams, {
+        contracts: context.contracts,
+        resolvedStorage: context.resolvedStorage,
+        decodedEvents: context.decodedEvents,
+        ethCall: config.ethCall,
+    });
+    return context;
+}
 
 /**
  * Explain a transaction simulation result in human-readable language using an LLM.
@@ -119,13 +150,7 @@ export async function explainSimulation(
     if (!txParams?.to) throw new Error('explainSimulation: txParams.to is required');
     if (!config?.provider) throw new Error('explainSimulation: config.provider is required');
 
-    const context = config.chainId
-        ? await enrichSimulation(result, txParams, config.chainId, {
-            sourcifyBaseUrl: config.sourcifyBaseUrl,
-            cache: config.cache,
-        })
-        : undefined;
-
+    const context = await contextWithLabels(result, txParams, config);
     const provider = createProvider(config);
     const { systemPrompt, userPrompt } = buildPrompt(result, txParams, config, context);
     return provider.complete(systemPrompt, userPrompt);
@@ -165,16 +190,9 @@ export async function enhanceSimulation(
     if (!txParams?.to) throw new Error('enhanceSimulation: txParams.to is required');
     if (!config?.provider) throw new Error('enhanceSimulation: config.provider is required');
 
-    const context = config.chainId
-        ? await enrichSimulation(result, txParams, config.chainId, {
-            sourcifyBaseUrl: config.sourcifyBaseUrl,
-            cache: config.cache,
-        })
-        : { contracts: new Map(), resolvedStorage: new Map(), decodedTrace: [], decodedEvents: [] };
-
+    const context = await contextWithLabels(result, txParams, config);
     const provider = createProvider(config);
-    const { systemPrompt, userPrompt } = buildPrompt(result, txParams, config, context);
-    const explanation = await provider.complete(systemPrompt, userPrompt);
-
-    return toEnhancedResult(result, context, explanation);
+    const built = buildPrompt(result, txParams, config, context);
+    const explanation = await provider.complete(built.systemPrompt, built.userPrompt);
+    return toEnhancedResult(result, context, explanation, built.refs);
 }
