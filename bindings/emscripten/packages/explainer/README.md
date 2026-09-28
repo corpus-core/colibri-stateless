@@ -85,14 +85,14 @@ the local provider.
 const explanation = await explainSimulation(result, tx, {
   provider: 'webllm',
   // Default: the corpus-core fine-tune of Qwen3.5-4B (~2.4 GB download,
-  // ~4.4 GB VRAM with its 32k context). Prebuilt generic models such as
+  // ~3.9 GB VRAM with its 16k context). Prebuilt generic models such as
   // 'Qwen2.5-Coder-7B-Instruct-q4f16_1-MLC' (~5-6 GB) or
   // 'Llama-3.2-3B-Instruct-q4f16_1-MLC' (~2.3 GB) can be passed instead.
   model: 'colibri-tsa-4b-q4f16_1-MLC',
   chainId: 1,
   // Prebuilt models default to a 4096-token context; the fine-tunes ship
-  // with 32768 via their model record. Override here if needed...
-  contextWindowSize: 32768,
+  // with 16384 via their model record. Override here if needed...
+  contextWindowSize: 16384,
   // ...and/or set the embedded source-code budget (default 10000 chars; 0 = no cap).
   maxSourceChars: 4000,
   // Progress for the one-time model download (cached afterwards).

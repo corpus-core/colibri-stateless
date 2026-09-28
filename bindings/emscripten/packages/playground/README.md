@@ -75,7 +75,7 @@ variables, optional source snippets), so a mid-size model is enough:
 
 | Model | VRAM (~4-bit) | Notes |
 | --- | --- | --- |
-| `colibri-tsa-4b` | ~4.4 GB (32k context) | Fine-tuned on explainer prompts (default) |
+| `colibri-tsa-4b` | ~3.9 GB (16k context) | Fine-tuned on explainer prompts (default) |
 | `Llama-3.2-3B` / `Qwen2.5-Coder-3B` | ~2.3-3 GB | Generic, lower usable bound |
 | `Qwen2.5-Coder-7B-Instruct` | ~5-6 GB | Generic, code-tuned |
 
