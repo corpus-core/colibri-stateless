@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { registerHooks } from 'node:module';
+import { register } from 'node:module';
 import {
     createProvider,
     explainSimulation,
@@ -17,27 +17,8 @@ import { WETH_DEPOSIT_RESULT, TX_PARAMS } from './fixtures.mjs';
 // `createEngine()` dynamically imports the optional `@mlc-ai/web-llm` package.
 // Redirect that specifier at a factory on globalThis so cache eviction and the
 // one-shot GPU restart can run in Node, without WebGPU or a model download.
-registerHooks({
-    resolve(specifier, context, next) {
-        if (specifier !== '@mlc-ai/web-llm') return next(specifier, context);
-        const source = `
-            export const prebuiltAppConfig = { model_list: [] };
-            export const modelLibURLPrefix = 'https://libs.example/';
-            export const modelVersion = 'v1';
-            export function CreateMLCEngine(model, config, chatOpts) {
-                const factory = globalThis.__colibriExplainerWebllmFactory;
-                if (typeof factory !== 'function') {
-                    throw new Error('WebLLM test factory is not installed');
-                }
-                return factory(model, config, chatOpts);
-            }
-        `;
-        return {
-            shortCircuit: true,
-            url: 'data:text/javascript,' + encodeURIComponent(source),
-        };
-    },
-});
+// CI uses Node 20, which exports `register` but not `registerHooks` (22.15+).
+await register('./webllm-loader.mjs', import.meta.url);
 
 /**
  * Build a fake WebLLM engine that records the last request and returns a fixed
@@ -78,7 +59,9 @@ function withWebGpu() {
         value: { gpu: {}, userAgent: 'test' },
     });
     return () => {
-        Object.defineProperty(globalThis, 'navigator', prev);
+        // Node 20 has no global `navigator`, so there is no descriptor to put back.
+        if (prev) Object.defineProperty(globalThis, 'navigator', prev);
+        else delete globalThis.navigator;
     };
 }
 
