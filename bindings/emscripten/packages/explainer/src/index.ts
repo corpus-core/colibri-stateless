@@ -61,7 +61,7 @@ export { buildPrompt, DEFAULT_SYSTEM_PROMPT } from './prompt.js';
 export { createProvider } from './providers/index.js';
 export {
     WebLLMProvider, DEFAULT_WEBLLM_MODEL, TSA_EXPLAINER_MODELS,
-    shouldDisableThinking, resolveModelRecord, buildAppConfig,
+    shouldDisableThinking, resolveModelRecord, buildAppConfig, isDeadEngineError,
 } from './providers/webllm.js';
 export type { WebLLMModelRecord } from './providers/webllm.js';
 export { hexToBigInt, weiToEth, formatTokenAmount, formatGas, shortenAddress } from './format.js';

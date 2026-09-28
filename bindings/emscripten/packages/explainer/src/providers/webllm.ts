@@ -72,10 +72,13 @@ export const TSA_EXPLAINER_MODELS: readonly WebLLMModelRecord[] = [
         model: 'https://huggingface.co/corpus-core/colibri-tsa-4b-q4f16_1-MLC',
         model_id: 'colibri-tsa-4b-q4f16_1-MLC',
         model_lib: 'Qwen3.5-4B-q4f16_1_cs1k-webgpu.wasm',
-        // ~2.4 GB weights + ~1 GB KV cache at 32k (8 attention layers, 4 KV heads).
-        vram_required_MB: 4400,
+        // Weights are ~2.4 GB. A 32k context needed ~1 GB of KV cache
+        // (8 attention layers, 4 KV heads), ~4.4 GB in total. The default
+        // window is 16k, so that KV term is ~0.5 GB. 3900 MB is this
+        // estimate, not a measured value.
+        vram_required_MB: 3900,
         low_resource_required: false,
-        overrides: { context_window_size: 32768 },
+        overrides: { context_window_size: 16384 },
         download_gb: 2.4,
         label: 'Colibri TSA 4B (Qwen3.5, fine-tuned)',
         weights_version: 'v1',
@@ -85,7 +88,7 @@ export const TSA_EXPLAINER_MODELS: readonly WebLLMModelRecord[] = [
 
 /**
  * Default WebLLM model: the corpus-core fine-tune of Qwen3.5-4B (~2.4 GB
- * download, ~4.4 GB VRAM incl. a 32k context). It was trained on exactly the
+ * download, ~3.9 GB VRAM incl. a 16k context). It was trained on exactly the
  * prompts this package builds. Prebuilt generic models such as
  * `Qwen2.5-Coder-7B-Instruct-q4f16_1-MLC` still work as alternatives.
  */
@@ -123,6 +126,8 @@ interface MLCEngineLike {
             create(request: unknown): Promise<ChatCompletionLike | AsyncIterable<ChatCompletionChunkLike>>;
         };
     };
+    /** Release the WebGPU device and TVM objects. Absent on injected test doubles. */
+    unload?(): Promise<void>;
 }
 
 interface AppConfigLike {
@@ -189,10 +194,81 @@ export function buildAppConfig(webllm: WebLLMModule, extra: readonly WebLLMModel
 /**
  * Cache of engine instances keyed by `model::contextWindow`, so a model is only
  * downloaded and initialized once per page even across multiple provider
- * instances. The promise is cached (and evicted on failure) to deduplicate
- * concurrent initializations.
+ * instances. The promise is cached (and evicted on failure, or when the GPU
+ * device is lost) to deduplicate concurrent initializations. Loading a
+ * different key unloads the others first, so two context windows are not
+ * resident together.
  */
 const engineCache = new Map<string, Promise<MLCEngineLike>>();
+
+/**
+ * Whether `err` means the WebGPU device or the WebLLM engine is already dead.
+ *
+ * WebLLM logs `Device was lost` and then disposes its TVM objects. The next
+ * `resetChat` throws `The current Object has already been disposed`, and
+ * `unload()` can throw `A valid external Instance reference no longer exists`.
+ *
+ * @param err - Rejection from engine creation or `chat.completions.create`
+ * @return `true` when the cached engine should be dropped and loaded once more
+ */
+export function isDeadEngineError(err: unknown): boolean {
+    const name = err instanceof Error ? err.name : '';
+    const message = err instanceof Error ? err.message : String(err ?? '');
+    if (name === 'DeviceLostError') return true;
+    return /disposed|device was lost|device lost|external instance reference/i.test(`${name} ${message}`);
+}
+
+/**
+ * User-facing message after a device-loss attempt has failed.
+ *
+ * @param err - The error from the failed attempt
+ * @return Message that includes the original detail
+ */
+function gpuMemoryMessage(err: unknown): string {
+    const detail = err instanceof Error ? err.message : String(err ?? '');
+    return `WebGPU device was lost, usually because the GPU ran out of memory. Lower the context window or pick a smaller model, then try again. (${detail})`;
+}
+
+/**
+ * Release a WebLLM engine. A missing or already-dead `unload` is ignored:
+ * WebLLM's own `device.lost` handler may have disposed the instance already.
+ *
+ * @param engine - Engine to unload
+ */
+async function releaseEngine(engine: MLCEngineLike): Promise<void> {
+    if (typeof engine.unload !== 'function') return;
+    try {
+        await engine.unload();
+    } catch {
+        // The device-lost handler may already have disposed the instance.
+    }
+}
+
+/**
+ * Read a promise that has already fulfilled, without waiting for one that has not.
+ * One microtask is enough: a fulfilled promise queues its reaction before this
+ * await. Waiting on a still-pending load would deadlock when that load is queued
+ * behind the caller.
+ *
+ * @param pending - Promise to inspect
+ * @return The value when `pending` is already fulfilled, otherwise `undefined`
+ */
+async function fulfilledNow<T>(pending: Promise<T>): Promise<T | undefined> {
+    // A local `let` assigned only inside `then` stays narrowed to its initializer
+    // across `await`, so the result lives on an object.
+    const box: { ok: boolean; value?: T } = { ok: false };
+    pending.then(
+        (v) => {
+            box.value = v;
+            box.ok = true;
+        },
+        () => {
+            box.ok = false;
+        },
+    );
+    await Promise.resolve();
+    return box.ok ? box.value : undefined;
+}
 
 /**
  * Local LLM provider running fully in the browser via WebGPU (WebLLM / MLC).
@@ -224,7 +300,48 @@ export class WebLLMProvider implements LLMProvider {
         this.disableThinking = config.disableThinking ?? shouldDisableThinking(this.model, this.modelRecords ?? TSA_EXPLAINER_MODELS);
     }
 
+    /**
+     * Generate a completion. If the GPU device was lost, drop the cached engine,
+     * unload it, and try once more. An injected engine is not reloaded.
+     *
+     * @param systemPrompt - System message
+     * @param userPrompt - User message
+     * @return Generated text
+     */
     async complete(systemPrompt: string, userPrompt: string): Promise<string> {
+        const run = () => this.runCompletion(systemPrompt, userPrompt);
+        if (this.injectedEngine) {
+            try {
+                return await run();
+            } catch (err) {
+                if (!isDeadEngineError(err)) throw err;
+                throw new Error(gpuMemoryMessage(err));
+            }
+        }
+
+        try {
+            return await run();
+        } catch (err) {
+            if (!isDeadEngineError(err)) throw err;
+            await this.evictCachedEngine(this.cacheKey());
+            try {
+                return await run();
+            } catch (retryErr) {
+                await this.evictCachedEngine(this.cacheKey());
+                if (isDeadEngineError(retryErr)) throw new Error(gpuMemoryMessage(retryErr));
+                throw retryErr;
+            }
+        }
+    }
+
+    /**
+     * Run one completion against the current engine, streaming when `onToken` is set.
+     *
+     * @param systemPrompt - System message
+     * @param userPrompt - User message
+     * @return Generated text
+     */
+    private async runCompletion(systemPrompt: string, userPrompt: string): Promise<string> {
         const engine = await this.getEngine();
         const messages = [
             { role: 'system', content: systemPrompt },
@@ -273,13 +390,60 @@ export class WebLLMProvider implements LLMProvider {
         return content;
     }
 
+    /**
+     * Cache key for this provider's model and context window.
+     *
+     * @return Key into `engineCache`
+     */
+    private cacheKey(): string {
+        return `${this.model}::${this.contextWindowSize ?? 'default'}`;
+    }
+
+    /**
+     * Remove `key` from the cache and unload its engine when it has already loaded.
+     * A load that is still in flight is unloaded when it settles, without waiting:
+     * that promise may be queued behind the caller.
+     *
+     * @param key - Cache key to drop
+     */
+    private async evictCachedEngine(key: string): Promise<void> {
+        const pending = engineCache.get(key);
+        if (!pending) return;
+        engineCache.delete(key);
+        const engine = await fulfilledNow(pending);
+        if (engine) {
+            await releaseEngine(engine);
+            return;
+        }
+        void pending.then((loaded) => releaseEngine(loaded)).catch(() => undefined);
+    }
+
+    /**
+     * Unload every cached engine except `keepKey`, so two context windows are
+     * not resident at once.
+     *
+     * @param keepKey - Cache key that must stay
+     */
+    private async evictOtherEngines(keepKey: string): Promise<void> {
+        for (const key of [...engineCache.keys()]) {
+            if (key !== keepKey) await this.evictCachedEngine(key);
+        }
+    }
+
+    /**
+     * Return the injected engine or the cached one, creating it on a miss.
+     * The new promise is stored before the first await so concurrent callers
+     * share one initialization.
+     *
+     * @return Loaded engine
+     */
     private async getEngine(): Promise<MLCEngineLike> {
         if (this.injectedEngine) return this.injectedEngine;
 
-        const key = `${this.model}::${this.contextWindowSize ?? 'default'}`;
+        const key = this.cacheKey();
         let pending = engineCache.get(key);
         if (!pending) {
-            pending = this.createEngine();
+            pending = this.loadEngine(key);
             engineCache.set(key, pending);
         }
 
@@ -296,6 +460,23 @@ export class WebLLMProvider implements LLMProvider {
         }
     }
 
+    /**
+     * Unload any other cached engine, then create this one.
+     *
+     * @param key - Cache key reserved for this load
+     * @return Loaded engine
+     */
+    private async loadEngine(key: string): Promise<MLCEngineLike> {
+        await this.evictOtherEngines(key);
+        return this.createEngine();
+    }
+
+    /**
+     * Create a WebLLM engine for this provider's model. `contextWindowSize`,
+     * when set, overrides the context window on the model record.
+     *
+     * @return Loaded engine
+     */
     private async createEngine(): Promise<MLCEngineLike> {
         if (typeof navigator === 'undefined' || !(navigator as { gpu?: unknown }).gpu) {
             throw new Error(
