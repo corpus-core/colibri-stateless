@@ -135,13 +135,25 @@ interface AppConfigLike {
     [key: string]: unknown;
 }
 
+interface WebLLMEngineConfig {
+    appConfig?: AppConfigLike;
+    initProgressCallback?: (report: { progress?: number; text?: string }) => void;
+}
+
+interface WebLLMWorkerLike {
+    terminate(): void;
+}
+
 interface WebLLMModule {
     CreateMLCEngine(
         modelId: string,
-        engineConfig?: {
-            appConfig?: AppConfigLike;
-            initProgressCallback?: (report: { progress?: number; text?: string }) => void;
-        },
+        engineConfig?: WebLLMEngineConfig,
+        chatOpts?: { context_window_size?: number },
+    ): Promise<MLCEngineLike>;
+    CreateWebWorkerMLCEngine?(
+        worker: WebLLMWorkerLike,
+        modelId: string,
+        engineConfig?: WebLLMEngineConfig,
         chatOpts?: { context_window_size?: number },
     ): Promise<MLCEngineLike>;
     prebuiltAppConfig?: AppConfigLike;
@@ -197,9 +209,16 @@ export function buildAppConfig(webllm: WebLLMModule, extra: readonly WebLLMModel
  * instances. The promise is cached (and evicted on failure, or when the GPU
  * device is lost) to deduplicate concurrent initializations. Loading a
  * different key unloads the others first, so two context windows are not
- * resident together.
+ * resident together. A `::worker` suffix keeps a worker-backed engine from
+ * being reused as a main-thread engine.
  */
 const engineCache = new Map<string, Promise<MLCEngineLike>>();
+
+/**
+ * Worker that owns the engine stored under the same cache key, so eviction
+ * can terminate the thread after `unload()`.
+ */
+const engineWorkers = new Map<string, WebLLMWorkerLike>();
 
 /**
  * Whether `err` means the WebGPU device or the WebLLM engine is already dead.
@@ -283,6 +302,7 @@ export class WebLLMProvider implements LLMProvider {
     private onProgress?: (progress: ModelProgress) => void;
     private onToken?: (delta: string, full: string) => void;
     private injectedEngine?: MLCEngineLike;
+    private workerFactory?: () => WebLLMWorkerLike;
     private appConfig?: AppConfigLike;
     private modelRecords?: WebLLMModelRecord[];
     private disableThinking: boolean;
@@ -295,6 +315,7 @@ export class WebLLMProvider implements LLMProvider {
         this.onProgress = config.onModelProgress;
         this.onToken = config.onToken;
         this.injectedEngine = config.webllmEngine as MLCEngineLike | undefined;
+        this.workerFactory = config.webllmWorker;
         this.appConfig = config.webllmAppConfig as AppConfigLike | undefined;
         this.modelRecords = config.webllmModelRecords as WebLLMModelRecord[] | undefined;
         this.disableThinking = config.disableThinking ?? shouldDisableThinking(this.model, this.modelRecords ?? TSA_EXPLAINER_MODELS);
@@ -391,12 +412,39 @@ export class WebLLMProvider implements LLMProvider {
     }
 
     /**
-     * Cache key for this provider's model and context window.
+     * Cache key for this provider's model, context window, and where the engine runs.
      *
      * @return Key into `engineCache`
      */
     private cacheKey(): string {
-        return `${this.model}::${this.contextWindowSize ?? 'default'}`;
+        const where = this.workerFactory ? 'worker' : 'main';
+        return `${this.model}::${this.contextWindowSize ?? 'default'}::${where}`;
+    }
+
+    /**
+     * Drop the worker registered for `key`, without terminating it yet.
+     *
+     * @param key - Cache key
+     * @return The worker that was registered, if any
+     */
+    private detachWorker(key: string): WebLLMWorkerLike | undefined {
+        const worker = engineWorkers.get(key);
+        if (worker) engineWorkers.delete(key);
+        return worker;
+    }
+
+    /**
+     * Stop a worker thread. Already-terminated workers and test doubles are ignored.
+     *
+     * @param worker - Worker returned by `webllmWorker`, if this engine has one
+     */
+    private stopWorker(worker: WebLLMWorkerLike | undefined): void {
+        if (!worker) return;
+        try {
+            worker.terminate();
+        } catch {
+            // A test double or an already-terminated worker.
+        }
     }
 
     /**
@@ -408,11 +456,24 @@ export class WebLLMProvider implements LLMProvider {
      */
     private async evictCachedEngine(key: string): Promise<void> {
         const pending = engineCache.get(key);
-        if (!pending) return;
-        engineCache.delete(key);
+        const worker = this.detachWorker(key);
+        if (!pending && !worker) return;
+        if (pending) engineCache.delete(key);
+        if (!pending) {
+            this.stopWorker(worker);
+            return;
+        }
         const engine = await fulfilledNow(pending);
         if (engine) {
             await releaseEngine(engine);
+            this.stopWorker(worker);
+            return;
+        }
+        if (worker) {
+            // The load is still in flight. Stopping the thread rejects it.
+            // Waiting here can deadlock: that load may be queued behind us.
+            this.stopWorker(worker);
+            void pending.catch(() => undefined);
             return;
         }
         void pending.then((loaded) => releaseEngine(loaded)).catch(() => undefined);
@@ -468,16 +529,18 @@ export class WebLLMProvider implements LLMProvider {
      */
     private async loadEngine(key: string): Promise<MLCEngineLike> {
         await this.evictOtherEngines(key);
-        return this.createEngine();
+        return this.createEngine(key);
     }
 
     /**
      * Create a WebLLM engine for this provider's model. `contextWindowSize`,
-     * when set, overrides the context window on the model record.
+     * when set, overrides the context window on the model record. A
+     * `webllmWorker` factory runs the engine in that worker.
      *
+     * @param key - Cache key the worker is registered under
      * @return Loaded engine
      */
-    private async createEngine(): Promise<MLCEngineLike> {
+    private async createEngine(key: string): Promise<MLCEngineLike> {
         if (typeof navigator === 'undefined' || !(navigator as { gpu?: unknown }).gpu) {
             throw new Error(
                 'WebGPU is not available. The "webllm" provider requires a WebGPU-capable browser (e.g. recent Chrome/Edge).',
@@ -496,7 +559,7 @@ export class WebLLMProvider implements LLMProvider {
         // Always pass an app config: the prebuilt list alone does not know our
         // fine-tuned records. A caller-supplied `webllmAppConfig` replaces it;
         // `webllmModelRecords` swaps only the custom records (local test weights).
-        const engineConfig: NonNullable<Parameters<WebLLMModule['CreateMLCEngine']>[1]> = {
+        const engineConfig: WebLLMEngineConfig = {
             appConfig: this.appConfig ?? buildAppConfig(webllm, this.modelRecords ?? TSA_EXPLAINER_MODELS),
         };
         if (this.onProgress) {
@@ -505,7 +568,31 @@ export class WebLLMProvider implements LLMProvider {
         }
 
         const chatOpts = this.contextWindowSize ? { context_window_size: this.contextWindowSize } : undefined;
-
-        return webllm.CreateMLCEngine(this.model, engineConfig, chatOpts);
+        const worker = this.workerFactory?.();
+        try {
+            if (worker) {
+                // Register before the first await so eviction can stop this thread
+                // while CreateWebWorkerMLCEngine is still running.
+                engineWorkers.set(key, worker);
+                if (typeof webllm.CreateWebWorkerMLCEngine !== 'function') {
+                    throw new Error(
+                        'This @mlc-ai/web-llm build has no CreateWebWorkerMLCEngine. Upgrade @mlc-ai/web-llm or omit webllmWorker.',
+                    );
+                }
+                const engine = await webllm.CreateWebWorkerMLCEngine(worker, this.model, engineConfig, chatOpts);
+                if (engineWorkers.get(key) !== worker) {
+                    await releaseEngine(engine);
+                    throw new Error('WebLLM worker was stopped before the engine finished loading');
+                }
+                return engine;
+            }
+            return webllm.CreateMLCEngine(this.model, engineConfig, chatOpts);
+        } catch (err) {
+            if (worker && engineWorkers.get(key) === worker) {
+                engineWorkers.delete(key);
+                this.stopWorker(worker);
+            }
+            throw err;
+        }
     }
 }

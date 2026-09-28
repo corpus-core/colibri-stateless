@@ -654,6 +654,10 @@ async function buildExplainerConfig(useEnrichment: boolean, chainId: number): Pr
         const records = await webllmModelRecords();
         if (records) config.webllmModelRecords = [...records];
         config.onModelProgress = ({ progress, text }) => setProgress(progress, text);
+        // A fresh worker per engine. The provider terminates the previous one
+        // after unload, including the retry after a lost GPU device.
+        config.webllmWorker = () =>
+            new Worker(new URL('./webllm-worker.ts', import.meta.url), { type: 'module' });
         // Render the answer live as the local model streams it. Once tokens
         // arrive the download/load is finished, so the progress bar can go away.
         config.onToken = (_delta, full) => {
