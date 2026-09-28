@@ -1,5 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { register } from 'node:module';
 import {
     createProvider,
@@ -19,6 +20,10 @@ import { WETH_DEPOSIT_RESULT, TX_PARAMS } from './fixtures.mjs';
 // one-shot GPU restart can run in Node, without WebGPU or a model download.
 // CI uses Node 20, which exports `register` but not `registerHooks` (22.15+).
 await register('./webllm-loader.mjs', import.meta.url);
+
+// Drop a mode file left behind by a crashed run so later imports stay on the normal mock.
+const webllmImportMode = new URL('./.webllm-import-mode', import.meta.url);
+fs.rmSync(webllmImportMode, { force: true });
 
 /**
  * Build a fake WebLLM engine that records the last request and returns a fixed
@@ -42,6 +47,20 @@ function makeFakeEngine(reply) {
 /** Reply payload a cached fake engine returns from `chat.completions.create`. */
 function chatReply(content) {
     return { choices: [{ message: { content } }] };
+}
+
+/**
+ * Point `@mlc-ai/web-llm` at an alternate mock until `restore` runs.
+ * `hide` omits `CreateWebWorkerMLCEngine`. `missing` fails the import.
+ *
+ * @param mode - `hide` or `missing`
+ * @return Restore function
+ */
+function withWebLLMImportMode(mode) {
+    fs.writeFileSync(webllmImportMode, mode);
+    return () => {
+        fs.rmSync(webllmImportMode, { force: true });
+    };
 }
 
 /**
@@ -587,6 +606,739 @@ describe('WebLLMProvider GPU recovery for a cached engine', () => {
             assert.equal(await new WebLLMProvider({ model: 'coverage-no-unload' }).complete('s', 'u'), 'ok');
             assert.equal(stats.creates, 2);
         } finally {
+            restore();
+        }
+    });
+});
+
+describe('WebLLMProvider worker engine', () => {
+    /** @return A fake Worker the provider can terminate */
+    function fakeWorker(workers) {
+        const worker = {
+            terminated: false,
+            terminateCalls: 0,
+            terminate() {
+                this.terminateCalls += 1;
+                this.terminated = true;
+            },
+        };
+        workers.push(worker);
+        return worker;
+    }
+
+    it('creates the engine on the main thread when no worker factory is set', async () => {
+        let sawWorker = false;
+        const restore = useWebLlmFactory((_model, _config, _chatOpts, worker) => {
+            sawWorker = worker !== undefined;
+            return {
+                chat: { completions: { create: async () => chatReply('main') } },
+            };
+        });
+        try {
+            const provider = new WebLLMProvider({ model: 'coverage-main-thread' });
+            assert.equal(await provider.complete('s', 'u'), 'main');
+            assert.equal(sawWorker, false);
+        } finally {
+            restore();
+        }
+    });
+
+    it('reloads a dead worker engine with a fresh worker and terminates the first', async () => {
+        const workers = [];
+        const order = [];
+        const stats = { creates: 0 };
+        const restore = useWebLlmFactory(async (_model, _config, _chatOpts, worker) => {
+            assert.ok(worker);
+            stats.creates += 1;
+            const generation = stats.creates;
+            return {
+                unload: async () => { order.push(`unload-${generation}`); },
+                chat: {
+                    completions: {
+                        create: async () => {
+                            if (generation === 1) throw new Error('The current Object has already been disposed');
+                            return chatReply('recovered');
+                        },
+                    },
+                },
+            };
+        });
+        try {
+            const provider = new WebLLMProvider({
+                model: 'coverage-worker-retry',
+                webllmWorker: () => {
+                    const worker = fakeWorker(workers);
+                    const terminate = worker.terminate.bind(worker);
+                    worker.terminate = () => {
+                        order.push(`terminate-${workers.indexOf(worker) + 1}`);
+                        terminate();
+                    };
+                    return worker;
+                },
+            });
+            assert.equal(await provider.complete('s', 'u'), 'recovered');
+            assert.equal(stats.creates, 2);
+            assert.equal(workers.length, 2);
+            assert.equal(workers[0].terminated, true);
+            assert.equal(workers[1].terminated, false);
+            assert.deepEqual(order, ['unload-1', 'terminate-1']);
+        } finally {
+            restore();
+        }
+    });
+
+    it('terminates a worker when engine creation reports device loss', async () => {
+        const workers = [];
+        const stats = { creates: 0 };
+        const restore = useWebLlmFactory(async (_model, _config, _chatOpts, worker) => {
+            assert.ok(worker);
+            stats.creates += 1;
+            if (stats.creates === 1) {
+                const err = new Error('device lost during init');
+                err.name = 'DeviceLostError';
+                throw err;
+            }
+            return {
+                chat: { completions: { create: async () => chatReply('booted') } },
+            };
+        });
+        try {
+            const provider = new WebLLMProvider({
+                model: 'coverage-worker-create-dead',
+                webllmWorker: () => fakeWorker(workers),
+            });
+            assert.equal(await provider.complete('s', 'u'), 'booted');
+            assert.equal(stats.creates, 2);
+            assert.equal(workers.length, 2);
+            assert.equal(workers[0].terminated, true);
+            assert.equal(workers[0].terminateCalls, 1);
+            assert.equal(workers[1].terminated, false);
+            assert.equal(workers[1].terminateCalls, 0);
+        } finally {
+            restore();
+        }
+    });
+
+    it('reuses one worker engine and forwards model, progress, and context window', async () => {
+        const workers = [];
+        const progress = [];
+        const seen = {};
+        let factoryCalls = 0;
+        const restore = useWebLlmFactory((model, config, chatOpts, worker) => {
+            seen.model = model;
+            seen.chatOpts = chatOpts;
+            seen.worker = worker;
+            seen.ids = config.appConfig.model_list.map((record) => record.model_id);
+            config.initProgressCallback({});
+            config.initProgressCallback({ progress: 0.25, text: 'weights' });
+            return {
+                chat: { completions: { create: async () => chatReply('ok') } },
+            };
+        });
+        try {
+            const model = 'coverage-worker-happy';
+            const provider = new WebLLMProvider({
+                model,
+                contextWindowSize: 2048,
+                onModelProgress: (report) => { progress.push(report); },
+                webllmWorker: () => {
+                    factoryCalls += 1;
+                    return fakeWorker(workers);
+                },
+            });
+            assert.equal(await provider.complete('s', 'u'), 'ok');
+            assert.equal(await provider.complete('s', 'u'), 'ok');
+            let otherFactoryCalls = 0;
+            const shared = new WebLLMProvider({
+                model,
+                contextWindowSize: 2048,
+                webllmWorker: () => {
+                    otherFactoryCalls += 1;
+                    return fakeWorker(workers);
+                },
+            });
+            assert.equal(await shared.complete('s', 'u'), 'ok');
+            assert.equal(factoryCalls, 1);
+            assert.equal(otherFactoryCalls, 0);
+            assert.equal(workers.length, 1);
+            assert.equal(workers[0].terminateCalls, 0);
+            assert.equal(seen.model, model);
+            assert.equal(seen.worker, workers[0]);
+            assert.deepEqual(seen.chatOpts, { context_window_size: 2048 });
+            assert.ok(seen.ids.includes('colibri-tsa-4b-q4f16_1-MLC'));
+            assert.deepEqual(progress, [
+                { progress: 0, text: '' },
+                { progress: 0.25, text: 'weights' },
+            ]);
+        } finally {
+            restore();
+        }
+    });
+
+    it('does not call the worker factory for an injected engine', async () => {
+        let calls = 0;
+        const engine = makeFakeEngine('injected');
+        const provider = new WebLLMProvider({
+            webllmEngine: engine,
+            webllmWorker: () => {
+                calls += 1;
+                return fakeWorker([]);
+            },
+        });
+        assert.equal(await provider.complete('s', 'u'), 'injected');
+        assert.equal(calls, 0);
+        assert.equal(engine.calls.length, 1);
+    });
+
+    it('createProvider passes webllmWorker through to the engine', async () => {
+        const workers = [];
+        let sawWorker = false;
+        const restore = useWebLlmFactory((_model, _config, _chatOpts, worker) => {
+            sawWorker = worker !== undefined;
+            return {
+                chat: { completions: { create: async () => chatReply('forwarded') } },
+            };
+        });
+        try {
+            const provider = createProvider({
+                provider: 'webllm',
+                model: 'coverage-create-provider-worker',
+                webllmWorker: () => fakeWorker(workers),
+            });
+            assert.equal(await provider.complete('s', 'u'), 'forwarded');
+            assert.equal(sawWorker, true);
+            assert.equal(workers.length, 1);
+            assert.equal(workers[0].terminated, false);
+        } finally {
+            restore();
+        }
+    });
+
+    it('does not call the worker factory when WebGPU is unavailable', async () => {
+        let calls = 0;
+        const provider = new WebLLMProvider({
+            model: 'coverage-worker-no-gpu',
+            webllmWorker: () => {
+                calls += 1;
+                return fakeWorker([]);
+            },
+        });
+        await assert.rejects(() => provider.complete('s', 'u'), /WebGPU is not available/);
+        assert.equal(calls, 0);
+    });
+
+    it('does not construct a worker when @mlc-ai/web-llm cannot be imported', async () => {
+        const restoreGpu = withWebGpu();
+        const restoreMode = withWebLLMImportMode('missing');
+        let calls = 0;
+        try {
+            const provider = new WebLLMProvider({
+                model: 'coverage-worker-missing-pkg',
+                webllmWorker: () => {
+                    calls += 1;
+                    return fakeWorker([]);
+                },
+            });
+            await assert.rejects(
+                () => provider.complete('s', 'u'),
+                /optional dependency "@mlc-ai\/web-llm" is not installed/,
+            );
+            assert.equal(calls, 0);
+        } finally {
+            restoreMode();
+            restoreGpu();
+        }
+    });
+
+    it('terminates the worker when CreateWebWorkerMLCEngine is missing and does not retry', async () => {
+        const workers = [];
+        let creates = 0;
+        const restoreFactory = useWebLlmFactory(() => {
+            creates += 1;
+            throw new Error('CreateMLCEngine should not run');
+        });
+        const restoreMode = withWebLLMImportMode('hide');
+        try {
+            const provider = new WebLLMProvider({
+                model: 'coverage-worker-no-api',
+                webllmWorker: () => fakeWorker(workers),
+            });
+            const missingApi = /no CreateWebWorkerMLCEngine/;
+            await assert.rejects(() => provider.complete('s', 'u'), missingApi);
+            await assert.rejects(() => provider.complete('s', 'u'), missingApi);
+            assert.equal(creates, 0);
+            assert.equal(workers.length, 2);
+            assert.equal(workers[0].terminateCalls, 1);
+            assert.equal(workers[1].terminateCalls, 1);
+        } finally {
+            restoreMode();
+            restoreFactory();
+        }
+    });
+
+    it('propagates a worker factory failure and retries on the next completion', async () => {
+        let calls = 0;
+        const restore = useWebLlmFactory(() => {
+            throw new Error('CreateWebWorkerMLCEngine should not run');
+        });
+        try {
+            const provider = new WebLLMProvider({
+                model: 'coverage-worker-ctor-throws',
+                webllmWorker: () => {
+                    calls += 1;
+                    throw new Error('worker ctor failed');
+                },
+            });
+            await assert.rejects(() => provider.complete('s', 'u'), /worker ctor failed/);
+            await assert.rejects(() => provider.complete('s', 'u'), /worker ctor failed/);
+            assert.equal(calls, 2);
+        } finally {
+            restore();
+        }
+    });
+
+    it('terminates the worker when creation fails and ignores a terminate() throw', async () => {
+        const workers = [];
+        let creates = 0;
+        const restore = useWebLlmFactory(async () => {
+            creates += 1;
+            throw new Error('wasm missing');
+        });
+        try {
+            const provider = new WebLLMProvider({
+                model: 'coverage-worker-create-fail',
+                webllmWorker: () => {
+                    const worker = fakeWorker(workers);
+                    worker.terminate = () => {
+                        worker.terminateCalls += 1;
+                        worker.terminated = true;
+                        throw new Error('terminate failed');
+                    };
+                    return worker;
+                },
+            });
+            await assert.rejects(
+                () => provider.complete('s', 'u'),
+                (err) => {
+                    assert.equal(err.message, 'wasm missing');
+                    return true;
+                },
+            );
+            assert.equal(creates, 1);
+            assert.equal(workers[0].terminateCalls, 1);
+            await assert.rejects(() => provider.complete('s', 'u'), /wasm missing/);
+            assert.equal(creates, 2);
+            assert.equal(workers[1].terminateCalls, 1);
+        } finally {
+            restore();
+        }
+    });
+
+    it('still reloads a dead worker when unload and terminate both throw', async () => {
+        const workers = [];
+        const order = [];
+        const stats = { creates: 0 };
+        const restore = useWebLlmFactory(async () => {
+            stats.creates += 1;
+            const generation = stats.creates;
+            order.push(`create-${generation}`);
+            return {
+                unload: async () => {
+                    order.push(`unload-${generation}`);
+                    if (generation === 1) throw new Error('A valid external Instance reference no longer exists.');
+                },
+                chat: {
+                    completions: {
+                        create: async () => {
+                            if (generation === 1) throw new Error('Device was lost');
+                            return chatReply('ok');
+                        },
+                    },
+                },
+            };
+        });
+        try {
+            const provider = new WebLLMProvider({
+                model: 'coverage-worker-cleanup-throws',
+                webllmWorker: () => {
+                    const worker = fakeWorker(workers);
+                    worker.terminate = () => {
+                        worker.terminateCalls += 1;
+                        worker.terminated = true;
+                        order.push(`terminate-${workers.length}`);
+                        if (workers.length === 1) throw new Error('terminate failed');
+                    };
+                    return worker;
+                },
+            });
+            assert.equal(await provider.complete('s', 'u'), 'ok');
+            assert.equal(stats.creates, 2);
+            assert.equal(workers[0].terminateCalls, 1);
+            assert.equal(workers[1].terminated, false);
+            assert.deepEqual(order, ['create-1', 'unload-1', 'terminate-1', 'create-2']);
+        } finally {
+            restore();
+        }
+    });
+
+    it('terminates a dead worker engine that has no unload method', async () => {
+        const workers = [];
+        const stats = { creates: 0 };
+        const restore = useWebLlmFactory(async () => {
+            stats.creates += 1;
+            const generation = stats.creates;
+            return {
+                chat: {
+                    completions: {
+                        create: async () => {
+                            if (generation === 1) throw new Error('Device was lost');
+                            return chatReply('ok');
+                        },
+                    },
+                },
+            };
+        });
+        try {
+            assert.equal(
+                await new WebLLMProvider({
+                    model: 'coverage-worker-no-unload',
+                    webllmWorker: () => fakeWorker(workers),
+                }).complete('s', 'u'),
+                'ok',
+            );
+            assert.equal(stats.creates, 2);
+            assert.equal(workers[0].terminateCalls, 1);
+            assert.equal(workers[1].terminateCalls, 0);
+        } finally {
+            restore();
+        }
+    });
+
+    it('does not unload or terminate a worker engine for an ordinary completion error', async () => {
+        const workers = [];
+        const stats = { creates: 0, unloads: 0 };
+        const restore = useWebLlmFactory(async () => {
+            stats.creates += 1;
+            return {
+                unload: async () => { stats.unloads += 1; },
+                chat: {
+                    completions: {
+                        create: async () => { throw new Error('context window exceeded'); },
+                    },
+                },
+            };
+        });
+        try {
+            const provider = new WebLLMProvider({
+                model: 'coverage-worker-ordinary',
+                webllmWorker: () => fakeWorker(workers),
+            });
+            for (let i = 0; i < 2; i++) {
+                await assert.rejects(() => provider.complete('s', 'u'), /context window exceeded/);
+            }
+            assert.equal(stats.creates, 1);
+            assert.equal(stats.unloads, 0);
+            assert.equal(workers.length, 1);
+            assert.equal(workers[0].terminateCalls, 0);
+        } finally {
+            restore();
+        }
+    });
+
+    it('terminates both workers when the reloaded engine dies too', async () => {
+        const workers = [];
+        const stats = { creates: 0, unloads: 0 };
+        const restore = useWebLlmFactory(async () => {
+            stats.creates += 1;
+            return {
+                unload: async () => { stats.unloads += 1; },
+                chat: {
+                    completions: {
+                        create: async () => { throw new Error('Device was lost'); },
+                    },
+                },
+            };
+        });
+        try {
+            await assert.rejects(
+                () => new WebLLMProvider({
+                    model: 'coverage-worker-retry-twice',
+                    webllmWorker: () => fakeWorker(workers),
+                }).complete('s', 'u'),
+                (err) => {
+                    assert.equal(
+                        err.message,
+                        'WebGPU device was lost, usually because the GPU ran out of memory. Lower the context window or pick a smaller model, then try again. (Device was lost)',
+                    );
+                    return true;
+                },
+            );
+            assert.equal(stats.creates, 2);
+            assert.equal(stats.unloads, 2);
+            assert.equal(workers[0].terminateCalls, 1);
+            assert.equal(workers[1].terminateCalls, 1);
+        } finally {
+            restore();
+        }
+    });
+
+    it('rethrows a non-dead error from the worker retry and terminates both workers', async () => {
+        const workers = [];
+        const stats = { creates: 0, unloads: 0 };
+        const restore = useWebLlmFactory(async () => {
+            stats.creates += 1;
+            const generation = stats.creates;
+            return {
+                unload: async () => { stats.unloads += 1; },
+                chat: {
+                    completions: {
+                        create: async () => {
+                            if (generation === 1) throw new Error('Device was lost');
+                            throw new Error('context window exceeded');
+                        },
+                    },
+                },
+            };
+        });
+        try {
+            await assert.rejects(
+                () => new WebLLMProvider({
+                    model: 'coverage-worker-retry-other',
+                    webllmWorker: () => fakeWorker(workers),
+                }).complete('s', 'u'),
+                (err) => {
+                    assert.equal(err.message, 'context window exceeded');
+                    return true;
+                },
+            );
+            assert.equal(stats.creates, 2);
+            assert.equal(stats.unloads, 2);
+            assert.equal(workers[0].terminateCalls, 1);
+            assert.equal(workers[1].terminateCalls, 1);
+        } finally {
+            restore();
+        }
+    });
+
+    it('unloads and terminates a worker engine before loading a different context window', async () => {
+        const workers = [];
+        const order = [];
+        const restore = useWebLlmFactory(async (_model, _config, chatOpts) => {
+            const window = chatOpts.context_window_size;
+            order.push(`create-${window}`);
+            return {
+                unload: async () => { order.push(`unload-${window}`); },
+                chat: { completions: { create: async () => chatReply(`w${window}`) } },
+            };
+        });
+        try {
+            const model = 'coverage-worker-windows';
+            const workerFactory = () => {
+                const worker = fakeWorker(workers);
+                const terminate = worker.terminate.bind(worker);
+                worker.terminate = () => {
+                    order.push('terminate');
+                    terminate();
+                };
+                return worker;
+            };
+            const narrow = new WebLLMProvider({ model, contextWindowSize: 111, webllmWorker: workerFactory });
+            const wide = new WebLLMProvider({ model, contextWindowSize: 222, webllmWorker: workerFactory });
+            assert.equal(await narrow.complete('s', 'u'), 'w111');
+            assert.equal(await wide.complete('s', 'u'), 'w222');
+            assert.equal(await narrow.complete('s', 'u'), 'w111');
+            assert.deepEqual(order, [
+                'create-111',
+                'unload-111',
+                'terminate',
+                'create-222',
+                'unload-222',
+                'terminate',
+                'create-111',
+            ]);
+            assert.equal(workers[0].terminated, true);
+            assert.equal(workers[1].terminated, true);
+            assert.equal(workers[2].terminated, false);
+        } finally {
+            restore();
+        }
+    });
+
+    it('does not reuse a worker engine as a main-thread engine', async () => {
+        const workers = [];
+        const order = [];
+        const restore = useWebLlmFactory(async (_model, _config, chatOpts, worker) => {
+            const where = worker ? 'worker' : 'main';
+            assert.equal(chatOpts, undefined);
+            order.push(`create-${where}`);
+            return {
+                unload: async () => { order.push(`unload-${where}`); },
+                chat: { completions: { create: async () => chatReply(where) } },
+            };
+        });
+        try {
+            const model = 'coverage-worker-vs-main';
+            const onWorker = new WebLLMProvider({
+                model,
+                webllmWorker: () => {
+                    const worker = fakeWorker(workers);
+                    const terminate = worker.terminate.bind(worker);
+                    worker.terminate = () => {
+                        order.push('terminate');
+                        terminate();
+                    };
+                    return worker;
+                },
+            });
+            const onMain = new WebLLMProvider({ model });
+            assert.equal(await onWorker.complete('s', 'u'), 'worker');
+            assert.equal(await onMain.complete('s', 'u'), 'main');
+            assert.equal(await onWorker.complete('s', 'u'), 'worker');
+            assert.deepEqual(order, [
+                'create-worker',
+                'unload-worker',
+                'terminate',
+                'create-main',
+                'unload-main',
+                'create-worker',
+            ]);
+            assert.equal(workers.length, 2);
+            assert.equal(workers[0].terminated, true);
+            assert.equal(workers[1].terminated, false);
+        } finally {
+            restore();
+        }
+    });
+
+    it('stops an in-flight worker without waiting, then drops the engine if loading still finishes', async () => {
+        const workers = [];
+        const started = deferred();
+        const gate = deferred();
+        const stats = { creates: 0, staleUnloads: 0, replacementUnloads: 0 };
+        const restore = useWebLlmFactory((_model, _config, chatOpts) => {
+            stats.creates += 1;
+            const window = chatOpts.context_window_size;
+            if (window === 222) {
+                return {
+                    chat: { completions: { create: async () => chatReply('from-222') } },
+                };
+            }
+            if (stats.creates === 1) {
+                started.resolve();
+                return gate.promise;
+            }
+            return {
+                unload: async () => { stats.replacementUnloads += 1; },
+                chat: { completions: { create: async () => chatReply('replacement') } },
+            };
+        });
+        const model = 'coverage-worker-inflight-resolve';
+        const workerFactory = () => fakeWorker(workers);
+        const narrow = new WebLLMProvider({ model, contextWindowSize: 111, webllmWorker: workerFactory });
+        const pending = narrow.complete('s', 'u');
+        const captured = pending.then(
+            (text) => ({ ok: true, text }),
+            (err) => ({ ok: false, message: err.message }),
+        );
+        try {
+            await started.promise;
+            const wide = new WebLLMProvider({
+                model,
+                contextWindowSize: 222,
+                webllmWorker: workerFactory,
+            }).complete('s', 'u');
+            const finished = await Promise.race([
+                wide.then(
+                    (text) => ({ ok: true, text }),
+                    (err) => ({ ok: false, message: err.message }),
+                ),
+                new Promise((resolve) => setTimeout(() => resolve({ ok: false, message: 'timed out' }), 500)),
+            ]);
+            assert.equal(finished.ok, true);
+            assert.equal(finished.text, 'from-222');
+            assert.equal(workers[0].terminateCalls, 1);
+            assert.equal(workers[1].terminated, false);
+            assert.equal(stats.staleUnloads, 0);
+
+            assert.equal(await narrow.complete('s', 'u'), 'replacement');
+            assert.equal(workers[1].terminated, true);
+            assert.equal(workers[2].terminated, false);
+
+            gate.resolve({
+                unload: async () => {
+                    stats.staleUnloads += 1;
+                    throw new Error('A valid external Instance reference no longer exists.');
+                },
+                chat: { completions: { create: async () => chatReply('stale') } },
+            });
+            const first = await captured;
+            assert.equal(first.ok, false);
+            assert.equal(first.message, 'WebLLM worker was stopped before the engine finished loading');
+            assert.equal(stats.staleUnloads, 1);
+            assert.equal(stats.replacementUnloads, 0);
+            assert.equal(workers[0].terminateCalls, 1);
+            assert.equal(workers[2].terminated, false);
+            assert.equal(await narrow.complete('s', 'u'), 'replacement');
+            assert.equal(stats.creates, 3);
+            assert.equal(workers.length, 3);
+        } finally {
+            gate.reject(new Error('cancelled'));
+            gate.promise.catch(() => undefined);
+            captured.catch(() => undefined);
+            restore();
+        }
+    });
+
+    it('stops an in-flight worker when creation rejects and does not terminate it twice', async () => {
+        const workers = [];
+        const started = deferred();
+        const gate = deferred();
+        const stats = { creates333: 0, creates444: 0 };
+        const restore = useWebLlmFactory((_model, _config, chatOpts) => {
+            const window = chatOpts.context_window_size;
+            if (window === 444) {
+                stats.creates444 += 1;
+                return {
+                    chat: { completions: { create: async () => chatReply('from-444') } },
+                };
+            }
+            stats.creates333 += 1;
+            started.resolve();
+            return gate.promise;
+        });
+        const model = 'coverage-worker-inflight-reject';
+        const workerFactory = () => fakeWorker(workers);
+        const pending = new WebLLMProvider({
+            model,
+            contextWindowSize: 333,
+            webllmWorker: workerFactory,
+        }).complete('s', 'u');
+        const captured = pending.then(
+            () => { throw new Error('expected the in-flight load to fail'); },
+            (err) => err,
+        );
+        try {
+            await started.promise;
+            assert.equal(
+                await new WebLLMProvider({
+                    model,
+                    contextWindowSize: 444,
+                    webllmWorker: workerFactory,
+                }).complete('s', 'u'),
+                'from-444',
+            );
+            assert.equal(workers[0].terminateCalls, 1);
+            assert.equal(workers[1].terminated, false);
+            gate.reject(new Error('init failed'));
+            const err = await captured;
+            assert.equal(err.message, 'init failed');
+            assert.equal(workers[0].terminateCalls, 1);
+            assert.equal(stats.creates333, 1);
+            assert.equal(stats.creates444, 1);
+        } finally {
+            gate.reject(new Error('cancelled'));
+            gate.promise.catch(() => undefined);
+            captured.catch(() => undefined);
             restore();
         }
     });

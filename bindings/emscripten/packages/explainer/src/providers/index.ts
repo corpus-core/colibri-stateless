@@ -38,6 +38,7 @@ export function createProvider(config: ExplainerConfig): LLMProvider {
         onModelProgress: config.onModelProgress,
         onToken: config.onToken,
         webllmEngine: config.webllmEngine,
+        webllmWorker: config.webllmWorker,
         webllmAppConfig: config.webllmAppConfig,
         webllmModelRecords: config.webllmModelRecords,
         disableThinking: config.disableThinking,

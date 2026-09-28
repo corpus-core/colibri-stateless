@@ -1,5 +1,7 @@
 dist/
 node_modules/
+# Written by webllm.test.mjs to switch the mocked @mlc-ai/web-llm module.
+test/.webllm-import-mode
 # Remote solc JS binaries cached under a fixture's C4_STATE_DIR.
 test/data/**/solc/
 test/data/_replay_unit/

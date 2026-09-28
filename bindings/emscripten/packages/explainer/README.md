@@ -103,6 +103,29 @@ const explanation = await explainSimulation(result, tx, {
 The model is downloaded once and cached by the browser. To reuse an
 already-initialized engine across calls, pass it via `webllmEngine`.
 
+By default the engine is created on the main thread. Pass `webllmWorker` to
+run it in a dedicated worker so startup does not block the page. The factory
+must return a new `Worker` every time; the provider terminates it when the
+engine is unloaded. `webllmEngine` still wins when the host already built an
+engine (main thread or worker). The worker script belongs to the app, because
+bundlers only pick up `new Worker(new URL(...))` from application source:
+
+```typescript
+// worker.ts
+import { WebWorkerMLCEngineHandler } from '@mlc-ai/web-llm';
+
+const handler = new WebWorkerMLCEngineHandler();
+self.onmessage = (msg: MessageEvent) => {
+  handler.onmessage(msg);
+};
+
+const explanation = await explainSimulation(result, tx, {
+  provider: 'webllm',
+  webllmWorker: () =>
+    new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' }),
+});
+```
+
 ### Fine-tuned explainer models
 
 `TSA_EXPLAINER_MODELS` lists the models corpus-core fine-tuned on the exact

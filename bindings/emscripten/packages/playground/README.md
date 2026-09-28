@@ -88,7 +88,8 @@ converted model served by `tsa_train.py serve`), from the same origin at
 the playground's reverse proxy (probed once on page load), or from the record's
 Hugging Face URL. Prebuilt models default to
 4096 tokens: if that is exceeded, lower **Max source chars** and/or raise the
-**Context window** field.
+**Context window** field. This example runs WebLLM in a dedicated worker
+(`src/webllm-worker.ts`) so model startup does not block the page.
 
 ## License
 

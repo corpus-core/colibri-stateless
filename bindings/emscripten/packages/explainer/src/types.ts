@@ -166,8 +166,22 @@ export interface LLMProviderConfig {
      * Pre-initialized WebLLM engine to reuse across calls (avoids re-downloading
      * the model). Only used by the `webllm` provider. Typed as `unknown` so the
      * core package stays free of a hard dependency on `@mlc-ai/web-llm`.
+     * When set, `webllmWorker` is ignored.
      */
     webllmEngine?: unknown;
+    /**
+     * Factory for a fresh Web Worker that should own the WebLLM engine.
+     * Each call must return a new `Worker`. The provider terminates it after
+     * `unload()`, including the one retry after a lost GPU device.
+     *
+     * The worker script installs `WebWorkerMLCEngineHandler` from
+     * `@mlc-ai/web-llm` and forwards `onmessage` to it. The app's bundler has
+     * to emit that script (`new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })`).
+     * Omit this to create the engine on the main thread.
+     *
+     * Only used by the `webllm` provider.
+     */
+    webllmWorker?: () => Worker;
     /**
      * Complete WebLLM `AppConfig` (`{ model_list: ModelRecord[], ... }`) to use
      * instead of the default (prebuilt models + `TSA_EXPLAINER_MODELS`). Only
