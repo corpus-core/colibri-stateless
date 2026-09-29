@@ -381,4 +381,62 @@ contract Token is ERC20Upgradeable {}`;
         assert.equal(typeInfo.encoding, 'mapping');
         assert.ok(layout.types[typeInfo.value]?.encoding === 'mapping');
     });
+
+    it('maps ERC20_STORAGE_LOCATION onto the ERC20Storage struct', async () => {
+        const location = '0x52c63247e1f47db19d5ce0460030c497f067ca4cebf71ba98eeadabe20bace00';
+        const source = `pragma solidity ^0.8.25;
+abstract contract ERC20RebasingUpgradeable {
+    struct ERC20Storage {
+        mapping(address account => uint256) _sharesBalances;
+        mapping(address account => mapping(address spender => uint256)) _allowances;
+        uint256 _totalSharesSupply;
+    }
+    bytes32 private constant ERC20_STORAGE_LOCATION = ${location};
+}
+contract Token is ERC20RebasingUpgradeable {}`;
+
+        const layout = await extractStorageLayout({ 'Token.sol': { content: source } }, 'Token');
+        assert.ok(layout);
+        const shares = layout.storage.find(s => s.label === '_sharesBalances');
+        const supply = layout.storage.find(s => s.label === '_totalSharesSupply');
+        assert.ok(shares);
+        assert.ok(supply);
+        assert.equal(shares.slot, BigInt(location).toString());
+        assert.equal(supply.slot, (BigInt(location) + 2n).toString());
+        assert.equal(layout.types[shares.type].encoding, 'mapping');
+    });
+
+    it('pairs a snake_case prefix with a camelCase storage struct', async () => {
+        const location = '0x52c63247e1f47db19d5ce0460030c497f067ca4cebf71ba98eeadabe20bace00';
+        const source = `pragma solidity ^0.8.20;
+contract Token {
+    struct FooBarStorage {
+        uint256 value;
+    }
+    bytes32 private constant FOO_BAR_STORAGE_LOCATION = ${location};
+}`;
+
+        const layout = await extractStorageLayout({ 'Token.sol': { content: source } }, 'Token');
+        assert.ok(layout);
+        const entry = layout.storage.find(s => s.label === 'value');
+        assert.ok(entry);
+        assert.equal(entry.slot, BigInt(location).toString());
+    });
+
+    it('pairs a camelCase location constant with a snake_case storage struct', async () => {
+        const location = '0x52c63247e1f47db19d5ce0460030c497f067ca4cebf71ba98eeadabe20bace00';
+        const source = `pragma solidity ^0.8.20;
+contract Token {
+    struct FOO_BAR_STORAGE {
+        uint256 value;
+    }
+    bytes32 private constant FooBarStorageLocation = ${location};
+}`;
+
+        const layout = await extractStorageLayout({ 'Token.sol': { content: source } }, 'Token');
+        assert.ok(layout);
+        const entry = layout.storage.find(s => s.label === 'value');
+        assert.ok(entry);
+        assert.equal(entry.slot, BigInt(location).toString());
+    });
 });

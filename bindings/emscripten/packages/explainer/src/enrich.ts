@@ -79,7 +79,7 @@ export async function enrichSimulation(
     const decodedEvents = decodeEventLogs(result.logs, contracts, implementations);
     const resolvedStorage = resolveAllStorage(result, contracts, implementations);
 
-    return { contracts, decodedCall, decodedError, resolvedStorage, decodedTrace, decodedEvents };
+    return { contracts, decodedCall, decodedError, resolvedStorage, decodedTrace, decodedEvents, implementations };
 }
 
 /** keccak256("") -- code hash of accounts without bytecode. */
@@ -639,9 +639,12 @@ function resolveAllStorage(
 
     for (const change of result.stateChanges) {
         const addr = change.address.toLowerCase();
+        // Delegated storage lives in the implementation. The proxy contract's
+        // own layout (ERC-1967 admin slots) does not describe those variables.
         const implAddr = implementations?.get(addr);
-        const implLayout = implAddr ? contracts.get(implAddr)?.storageLayout : undefined;
-        const layout = implLayout ?? contracts.get(addr)?.storageLayout ?? null;
+        const layout = implAddr
+            ? (contracts.get(implAddr)?.storageLayout ?? null)
+            : (contracts.get(addr)?.storageLayout ?? null);
 
         if (!change.storage) {
             resolved.set(addr, []);

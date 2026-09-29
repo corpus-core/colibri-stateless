@@ -1056,6 +1056,109 @@ describe('enrichSimulation', () => {
         assert.ok(slots);
         assert.equal(slots[0].variableName, 'allowances');
         assert.equal(slots[0].keys?.length, 2);
+        assert.equal(ctx.implementations.get(proxy), impl);
+    });
+
+    it('does not label proxy storage with the proxy layout when the implementation has none', async () => {
+        mockSourcify({});
+        const proxy = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+        const impl = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+        const proxyHash = '0x' + '44'.repeat(32);
+        const implHash = '0x' + '55'.repeat(32);
+        const verified = JSON.stringify({
+            abi: [],
+            storageLayout: UNI_STORAGE_LAYOUT,
+            sources: { 'Proxy.sol': { content: 'contract Proxy {}' } },
+            compilerVersion: '0.8.0',
+            contractName: 'Proxy',
+        });
+        const cache = {
+            get: async (key) => (typeof key === 'string' && key.includes(proxyHash) ? verified : null),
+            set: async () => { },
+        };
+        const result = {
+            gasUsed: '0x1',
+            status: '0x1',
+            returnValue: '0x',
+            logs: [],
+            stateChanges: [{
+                address: proxy,
+                storage: [{
+                    slot: '0x0',
+                    previousValue: '0x0',
+                    newValue: '0x1',
+                }],
+            }],
+            trace: [
+                { type: 'CALL', to: proxy, traceAddress: [] },
+                { type: 'DELEGATECALL', to: impl, traceAddress: [0] },
+            ],
+            accessList: [
+                { address: proxy, codeHash: proxyHash, storageKeys: [] },
+                { address: impl, codeHash: implHash, storageKeys: [] },
+            ],
+        };
+
+        const ctx = await enrichSimulation(result, { to: proxy, data: '0x' }, 1, { cache });
+        const slots = ctx.resolvedStorage.get(proxy);
+        assert.ok(slots);
+        assert.equal(slots[0].variableName, undefined);
+        assert.equal(ctx.implementations.get(proxy), impl);
+    });
+
+    it('prefers the implementation layout when the proxy layout also matches the slot', async () => {
+        mockSourcify({});
+        const proxy = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+        const impl = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+        const proxyHash = '0x' + '66'.repeat(32);
+        const implHash = '0x' + '77'.repeat(32);
+        const proxyVerified = JSON.stringify({
+            abi: [],
+            storageLayout: {
+                storage: [{ slot: '0', type: 't_uint256', astId: 1, label: 'adminSlot', offset: 0, contract: 'Proxy' }],
+                types: { t_uint256: { label: 'uint256', encoding: 'inplace', numberOfBytes: '32' } },
+            },
+            sources: {},
+            compilerVersion: '0.8.0',
+            contractName: 'Proxy',
+        });
+        const implVerified = JSON.stringify({
+            abi: [],
+            storageLayout: UNI_STORAGE_LAYOUT,
+            sources: {},
+            compilerVersion: '0.8.0',
+            contractName: 'Uni',
+        });
+        const cache = {
+            get: async (key) => {
+                if (typeof key !== 'string') return null;
+                if (key.includes(proxyHash)) return proxyVerified;
+                if (key.includes(implHash)) return implVerified;
+                return null;
+            },
+            set: async () => { },
+        };
+        const result = {
+            gasUsed: '0x1',
+            status: '0x1',
+            returnValue: '0x',
+            logs: [],
+            stateChanges: [{
+                address: proxy,
+                storage: [{ slot: '0x0', previousValue: '0x0', newValue: '0x1' }],
+            }],
+            trace: [
+                { type: 'CALL', to: proxy, traceAddress: [] },
+                { type: 'DELEGATECALL', to: impl, traceAddress: [0] },
+            ],
+            accessList: [
+                { address: proxy, codeHash: proxyHash, storageKeys: [] },
+                { address: impl, codeHash: implHash, storageKeys: [] },
+            ],
+        };
+
+        const ctx = await enrichSimulation(result, { to: proxy, data: '0x' }, 1, { cache });
+        assert.equal(ctx.resolvedStorage.get(proxy)?.[0].variableName, 'totalSupply');
     });
 });
 
