@@ -112,12 +112,37 @@ export function shouldDisableThinking(modelId: string, records: readonly WebLLMM
 
 // Minimal structural typings for the subset of the `@mlc-ai/web-llm` API we use.
 // Kept local so the package compiles even when the optional dependency is absent.
+/**
+ * WebLLM extensions of OpenAI `CompletionUsage`. Present on a non-streaming
+ * reply, and on the last streaming chunk when `stream_options.include_usage`
+ * is set. `time_to_first_token_s` is engine prefill time, not the wall clock
+ * from `complete()` (that also includes model load and shader compile).
+ */
+interface CompletionUsageLike {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+    extra?: {
+        /** Seconds from request receipt to the finished reply, inside the engine. */
+        e2e_latency_s?: number;
+        prefill_tokens_per_s?: number;
+        decode_tokens_per_s?: number;
+        /** Prefill seconds until the first token, measured by WebLLM. */
+        time_to_first_token_s?: number;
+        /** Average seconds between output tokens. */
+        time_per_output_token_s?: number;
+    };
+}
+
 interface ChatCompletionLike {
-    choices?: { message?: { content?: string } }[];
+    choices?: { message?: { content?: string }; finish_reason?: string | null }[];
+    usage?: CompletionUsageLike;
 }
 
 interface ChatCompletionChunkLike {
-    choices?: { delta?: { content?: string } }[];
+    choices?: { delta?: { content?: string }; finish_reason?: string | null }[];
+    /** `null` on every chunk except the last one, which carries the request totals. */
+    usage?: CompletionUsageLike | null;
 }
 
 interface MLCEngineLike {
@@ -140,7 +165,7 @@ interface WebLLMModule {
         modelId: string,
         engineConfig?: {
             appConfig?: AppConfigLike;
-            initProgressCallback?: (report: { progress?: number; text?: string }) => void;
+            initProgressCallback?: (report: { progress?: number; text?: string; timeElapsed?: number }) => void;
         },
         chatOpts?: { context_window_size?: number },
     ): Promise<MLCEngineLike>;
@@ -271,6 +296,95 @@ async function fulfilledNow<T>(pending: Promise<T>): Promise<T | undefined> {
 }
 
 /**
+ * Format a finite number, or `n/a` when WebLLM omitted the field or divided by zero.
+ *
+ * @param value - Measurement from `CompletionUsage` or a wall-clock sample
+ * @param digits - Digits after the decimal point
+ * @return The fixed-point text, or `n/a`
+ */
+function fmtNum(value: number | undefined, digits: number): string {
+    return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(digits) : 'n/a';
+}
+
+/**
+ * Format a measurement with its unit. A missing value stays `n/a`, so the unit
+ * is not glued on (`n/as`).
+ *
+ * @param value - Measurement to format
+ * @param digits - Digits after the decimal point
+ * @param unit - Suffix such as `s` or `ms`
+ * @return Fixed-point text plus unit, or `n/a`
+ */
+function fmtUnit(value: number | undefined, digits: number, unit: string): string {
+    const text = fmtNum(value, digits);
+    return text === 'n/a' ? text : `${text}${unit}`;
+}
+
+/**
+ * Collapse shard counters inside a WebLLM init-progress text so
+ * `Loading model from cache[50/200]` stays one phase.
+ *
+ * @param text - `InitProgressReport.text`
+ * @return Stable phase name
+ */
+function initPhaseName(text: string): string {
+    return text.replace(/\[[^\]]*\]/g, '').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Where the engine for this completion came from. `cold` is a cache miss
+ * (download, WASM compile, GPU pipeline). `cached` may still be loading;
+ * `engine_wait` is the time actually spent waiting.
+ */
+type EngineSource = 'injected' | 'cached' | 'cold';
+
+/**
+ * Print one line of generation statistics. WebLLM's `time_to_first_token_s`
+ * is prefill inside the engine. `engine_wait` is everything before
+ * `chat.completions.create` (weight fetch, shader compile). `ttft_wall` is
+ * from that call until the first content delta. `to_first_token` is the sum,
+ * which is the gap a cold start shows the user.
+ *
+ * @param info - Tokens, rates, and wall-clock samples for one completion
+ */
+function logWebllmGeneration(info: {
+    model: string;
+    contextWindow: string;
+    maxTokens: number;
+    promptChars: number;
+    engine: EngineSource;
+    engineWaitMs: number;
+    firstTokenMs?: number;
+    generateMs: number;
+    finish?: string;
+    usage?: CompletionUsageLike;
+}): void {
+    const u = info.usage;
+    const extra = u?.extra;
+    const toFirst = info.firstTokenMs === undefined ? undefined : info.engineWaitMs + info.firstTokenMs;
+    const fill =
+        typeof u?.prompt_tokens === 'number' && /^\d+$/.test(info.contextWindow)
+            ? `${u.prompt_tokens}/${info.contextWindow}`
+            : 'n/a';
+    console.log(
+        `[webllm] prompt=${u?.prompt_tokens ?? 'n/a'} completion=${u?.completion_tokens ?? 'n/a'} ` +
+        `total=${u?.total_tokens ?? 'n/a'} ` +
+        `prefill=${fmtNum(extra?.prefill_tokens_per_s, 1)} tok/s ` +
+        `decode=${fmtNum(extra?.decode_tokens_per_s, 1)} tok/s ` +
+        `ttft=${fmtUnit(extra?.time_to_first_token_s, 3, 's')} ` +
+        `e2e=${fmtUnit(extra?.e2e_latency_s, 3, 's')} ` +
+        `per_token=${fmtUnit(extra?.time_per_output_token_s, 4, 's')} ` +
+        `context_window=${info.contextWindow} fill=${fill} ` +
+        `max_tokens=${info.maxTokens} prompt_chars=${info.promptChars} ` +
+        `engine=${info.engine} engine_wait=${fmtUnit(info.engineWaitMs, 0, 'ms')} ` +
+        `ttft_wall=${fmtUnit(info.firstTokenMs, 0, 'ms')} ` +
+        `to_first_token=${fmtUnit(toFirst, 0, 'ms')} ` +
+        `generate=${fmtUnit(info.generateMs, 0, 'ms')} ` +
+        `finish=${info.finish ?? 'n/a'} model=${info.model}`,
+    );
+}
+
+/**
  * Local LLM provider running fully in the browser via WebGPU (WebLLM / MLC).
  * No data leaves the device. Requires a WebGPU-capable browser and the optional
  * `@mlc-ai/web-llm` dependency.
@@ -342,7 +456,15 @@ export class WebLLMProvider implements LLMProvider {
      * @return Generated text
      */
     private async runCompletion(systemPrompt: string, userPrompt: string): Promise<string> {
+        // Read the cache before `getEngine` inserts this load, so a miss stays `cold`.
+        const engineSource: EngineSource = this.injectedEngine
+            ? 'injected'
+            : engineCache.has(this.cacheKey())
+                ? 'cached'
+                : 'cold';
+        const engineWaitStart = performance.now();
         const engine = await this.getEngine();
+        const engineWaitMs = performance.now() - engineWaitStart;
         const messages = [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt },
@@ -351,43 +473,97 @@ export class WebLLMProvider implements LLMProvider {
         // block when `enable_thinking` is false; the fine-tunes were trained
         // with exactly that prefix (Qwen3.5 chat template, non-thinking).
         const extra = this.disableThinking ? { extra_body: { enable_thinking: false } } : {};
+        const stats = {
+            model: this.model,
+            contextWindow: this.contextWindowLabel(),
+            maxTokens: this.maxTokens,
+            promptChars: systemPrompt.length + userPrompt.length,
+            engine: engineSource,
+            engineWaitMs,
+        };
 
         // Stream token-by-token when a callback is provided so callers can render
         // the answer live (generation can take 10-20s on consumer hardware).
+        // `stream_options` is rejected unless `stream` is true (InvalidStreamOptionsError).
+        // Non-streaming replies already include `usage`.
         if (this.onToken) {
-            const stream = (await engine.chat.completions.create({
+            const genStart = performance.now();
+            let firstTokenMs: number | undefined;
+            let usage: CompletionUsageLike | undefined;
+            let finish: string | undefined;
+            let full = '';
+            try {
+                const stream = (await engine.chat.completions.create({
+                    messages,
+                    max_tokens: this.maxTokens,
+                    temperature: this.temperature,
+                    stream: true,
+                    stream_options: { include_usage: true },
+                    ...extra,
+                })) as AsyncIterable<ChatCompletionChunkLike>;
+
+                for await (const chunk of stream) {
+                    if (chunk.usage) usage = chunk.usage;
+                    const reason = chunk.choices?.[0]?.finish_reason;
+                    if (reason) finish = reason;
+                    const delta = chunk.choices?.[0]?.delta?.content;
+                    if (delta) {
+                        if (firstTokenMs === undefined) firstTokenMs = performance.now() - genStart;
+                        full += delta;
+                        this.onToken(delta, full);
+                    }
+                }
+                if (!full) throw new Error('WebLLM returned an empty response');
+                return full;
+            } finally {
+                logWebllmGeneration({
+                    ...stats,
+                    firstTokenMs,
+                    generateMs: performance.now() - genStart,
+                    finish,
+                    usage,
+                });
+            }
+        }
+
+        const genStart = performance.now();
+        let usage: CompletionUsageLike | undefined;
+        let finish: string | undefined;
+        let content = '';
+        try {
+            const res = (await engine.chat.completions.create({
                 messages,
                 max_tokens: this.maxTokens,
                 temperature: this.temperature,
-                stream: true,
                 ...extra,
-            })) as AsyncIterable<ChatCompletionChunkLike>;
-
-            let full = '';
-            for await (const chunk of stream) {
-                const delta = chunk.choices?.[0]?.delta?.content;
-                if (delta) {
-                    full += delta;
-                    this.onToken(delta, full);
-                }
-            }
-            if (!full) throw new Error('WebLLM returned an empty response');
-            return full;
+            })) as ChatCompletionLike;
+            usage = res.usage;
+            finish = res.choices?.[0]?.finish_reason ?? undefined;
+            content = res.choices?.[0]?.message?.content ?? '';
+            if (!content) throw new Error('WebLLM returned an empty response');
+            return content;
+        } finally {
+            logWebllmGeneration({
+                ...stats,
+                generateMs: performance.now() - genStart,
+                finish,
+                usage,
+            });
         }
+    }
 
-        const res = (await engine.chat.completions.create({
-            messages,
-            max_tokens: this.maxTokens,
-            temperature: this.temperature,
-            ...extra,
-        })) as ChatCompletionLike;
-
-        const content = res.choices?.[0]?.message?.content;
-        if (!content) {
-            throw new Error('WebLLM returned an empty response');
-        }
-
-        return content;
+    /**
+     * Context window this load will use. An explicit `contextWindowSize` wins
+     * over the model record. The fine-tune record sets 16384; a prebuilt model
+     * with no record here keeps WebLLM's own default (`model-default`).
+     *
+     * @return Window size in tokens, or `model-default`
+     */
+    private contextWindowLabel(): string {
+        if (this.contextWindowSize !== undefined) return String(this.contextWindowSize);
+        const records = this.appConfig?.model_list ?? this.modelRecords ?? TSA_EXPLAINER_MODELS;
+        const size = records.find((r) => r.model_id === this.model)?.overrides?.context_window_size;
+        return size !== undefined ? String(size) : 'model-default';
     }
 
     /**
@@ -484,6 +660,7 @@ export class WebLLMProvider implements LLMProvider {
             );
         }
 
+        const loadStarted = performance.now();
         let webllm: WebLLMModule;
         try {
             webllm = (await import('@mlc-ai/web-llm')) as unknown as WebLLMModule;
@@ -492,6 +669,7 @@ export class WebLLMProvider implements LLMProvider {
                 'The optional dependency "@mlc-ai/web-llm" is not installed. Run `npm install @mlc-ai/web-llm` to use the local WebGPU provider.',
             );
         }
+        const importMs = performance.now() - loadStarted;
 
         // Always pass an app config: the prebuilt list alone does not know our
         // fine-tuned records. A caller-supplied `webllmAppConfig` replaces it;
@@ -499,13 +677,62 @@ export class WebLLMProvider implements LLMProvider {
         const engineConfig: NonNullable<Parameters<WebLLMModule['CreateMLCEngine']>[1]> = {
             appConfig: this.appConfig ?? buildAppConfig(webllm, this.modelRecords ?? TSA_EXPLAINER_MODELS),
         };
-        if (this.onProgress) {
-            engineConfig.initProgressCallback = (report: { progress?: number; text?: string }) =>
-                this.onProgress!({ progress: report.progress ?? 0, text: report.text ?? '' });
-        }
+        // Shard counters (`cache[50/200]`) stay one phase. The slow ones on a
+        // weak laptop are the weight fetch and `Loading GPU shader modules`.
+        let phase = '';
+        let phaseAt = performance.now();
+        let phaseProgress = 0;
+        /**
+         * Log the init phase that just ended.
+         *
+         * @param now - `performance.now()` at the phase boundary
+         */
+        const logPhase = (now: number) => {
+            if (!phase) return;
+            console.log(
+                `[webllm] init ${fmtNum(now - phaseAt, 0)}ms ${(phaseProgress * 100).toFixed(0)}% "${phase}"`,
+            );
+        };
+        engineConfig.initProgressCallback = (report) => {
+            const text = report.text ?? '';
+            const name = initPhaseName(text);
+            const now = performance.now();
+            if (name && name !== phase) {
+                // WebLLM fetches mlc-chat-config and the WASM library before the
+                // first progress report. That gap is not a named phase.
+                if (!phase) {
+                    console.log(
+                        `[webllm] init ${fmtNum(now - phaseAt, 0)}ms before first progress (config, wasm, gpu detect)`,
+                    );
+                } else {
+                    logPhase(now);
+                }
+                phase = name;
+                phaseAt = now;
+            }
+            if (typeof report.progress === 'number') phaseProgress = report.progress;
+            if (this.onProgress) this.onProgress({ progress: report.progress ?? 0, text });
+        };
 
         const chatOpts = this.contextWindowSize ? { context_window_size: this.contextWindowSize } : undefined;
+        const contextWindow = this.contextWindowLabel();
 
-        return webllm.CreateMLCEngine(this.model, engineConfig, chatOpts);
+        let engine: MLCEngineLike;
+        try {
+            engine = await webllm.CreateMLCEngine(this.model, engineConfig, chatOpts);
+        } catch (err) {
+            logPhase(performance.now());
+            console.log(
+                `[webllm] engine init failed after ${fmtNum(performance.now() - loadStarted, 0)}ms ` +
+                `import=${fmtNum(importMs, 0)}ms model=${this.model} context_window=${contextWindow}`,
+            );
+            throw err;
+        }
+        logPhase(performance.now());
+        console.log(
+            `[webllm] engine ready ${fmtNum(performance.now() - loadStarted, 0)}ms ` +
+            `import=${fmtNum(importMs, 0)}ms model=${this.model} context_window=${contextWindow}`,
+        );
+        return engine;
     }
 }

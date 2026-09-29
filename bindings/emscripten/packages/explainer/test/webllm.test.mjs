@@ -274,6 +274,113 @@ describe('WebLLMProvider.complete', () => {
         await new WebLLMProvider({ webllmEngine: engine, temperature: 0 }).complete('s', 'u');
         assert.equal(req.temperature, 0);
     });
+
+    it('logs usage from a non-streaming reply without sending stream_options', async () => {
+        const logs = [];
+        const original = console.log;
+        console.log = (...args) => {
+            logs.push(args.map(String).join(' '));
+        };
+        let req;
+        const engine = {
+            chat: {
+                completions: {
+                    create: async (r) => {
+                        req = r;
+                        return {
+                            choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }],
+                            usage: {
+                                prompt_tokens: 3,
+                                completion_tokens: 1,
+                                total_tokens: 4,
+                                extra: { prefill_tokens_per_s: 12.34, decode_tokens_per_s: 5, time_to_first_token_s: 0.25 },
+                            },
+                        };
+                    },
+                },
+            },
+        };
+        try {
+            assert.equal(await new WebLLMProvider({ webllmEngine: engine }).complete('sys', 'user'), 'ok');
+            assert.equal(req.stream, undefined);
+            assert.equal(req.stream_options, undefined);
+            const line = logs.find((entry) => entry.startsWith('[webllm] prompt='));
+            assert.match(line, /prompt=3 completion=1 total=4/);
+            assert.match(line, /prefill=12\.3 tok\/s/);
+            assert.match(line, /decode=5\.0 tok\/s/);
+            assert.match(line, /ttft=0\.250s/);
+            assert.match(line, /context_window=16384 fill=3\/16384/);
+            assert.match(line, /prompt_chars=7/);
+            assert.match(line, /engine=injected/);
+            assert.match(line, /ttft_wall=n\/a/);
+            assert.match(line, /finish=stop/);
+        } finally {
+            console.log = original;
+        }
+    });
+
+    it('requests usage on a stream and logs wall-clock time to the first token', async () => {
+        const logs = [];
+        const original = console.log;
+        console.log = (...args) => {
+            logs.push(args.map(String).join(' '));
+        };
+        let req;
+        const engine = {
+            chat: {
+                completions: {
+                    create: async (r) => {
+                        req = r;
+                        return (async function* () {
+                            yield { choices: [{ delta: { content: 'hi' } }] };
+                            yield { choices: [{ delta: {}, finish_reason: 'length' }] };
+                            yield {
+                                choices: [],
+                                usage: {
+                                    prompt_tokens: 10,
+                                    completion_tokens: 2,
+                                    total_tokens: 12,
+                                    extra: {
+                                        prefill_tokens_per_s: 100.04,
+                                        decode_tokens_per_s: 40.06,
+                                        time_to_first_token_s: 1.5,
+                                        e2e_latency_s: 2.25,
+                                        time_per_output_token_s: 0.02,
+                                    },
+                                },
+                            };
+                        })();
+                    },
+                },
+            },
+        };
+        try {
+            const provider = new WebLLMProvider({
+                webllmEngine: engine,
+                contextWindowSize: 4096,
+                maxTokens: 128,
+                onToken: () => { },
+            });
+            assert.equal(await provider.complete('sys', 'user'), 'hi');
+            assert.equal(req.stream, true);
+            assert.deepEqual(req.stream_options, { include_usage: true });
+            const line = logs.find((entry) => entry.startsWith('[webllm] prompt='));
+            assert.match(line, /prompt=10 completion=2 total=12/);
+            assert.match(line, /prefill=100\.0 tok\/s/);
+            assert.match(line, /decode=40\.1 tok\/s/);
+            assert.match(line, /ttft=1\.500s/);
+            assert.match(line, /e2e=2\.250s/);
+            assert.match(line, /per_token=0\.0200s/);
+            assert.match(line, /context_window=4096 fill=10\/4096/);
+            assert.match(line, /max_tokens=128/);
+            assert.match(line, /ttft_wall=\d+ms/);
+            assert.match(line, /to_first_token=\d+ms/);
+            assert.match(line, /finish=length/);
+            assert.doesNotMatch(line, /ttft_wall=n\/a/);
+        } finally {
+            console.log = original;
+        }
+    });
 });
 
 describe('isDeadEngineError', () => {
@@ -587,6 +694,53 @@ describe('WebLLMProvider GPU recovery for a cached engine', () => {
             assert.equal(await new WebLLMProvider({ model: 'coverage-no-unload' }).complete('s', 'u'), 'ok');
             assert.equal(stats.creates, 2);
         } finally {
+            restore();
+        }
+    });
+});
+
+describe('WebLLMProvider engine init statistics', () => {
+    it('logs each init phase once and forwards progress to the caller', async () => {
+        const progress = [];
+        const logs = [];
+        const original = console.log;
+        console.log = (...args) => {
+            logs.push(args.map(String).join(' '));
+        };
+        const restore = useWebLlmFactory(async (_model, config) => {
+            config.initProgressCallback({ progress: 0.1, text: 'Loading model from cache[1/4]' });
+            config.initProgressCallback({ progress: 0.4, text: 'Loading model from cache[4/4]' });
+            config.initProgressCallback({ progress: 0.5, text: 'Loading GPU shader modules[1/80]' });
+            config.initProgressCallback({ progress: 1, text: 'Finish loading on WebGPU - Test GPU' });
+            return {
+                chat: { completions: { create: async () => chatReply('ok') } },
+            };
+        });
+        try {
+            const provider = new WebLLMProvider({
+                model: 'coverage-init-log',
+                contextWindowSize: 2048,
+                onModelProgress: (report) => {
+                    progress.push(report);
+                },
+            });
+            assert.equal(await provider.complete('s', 'u'), 'ok');
+            assert.equal(progress.length, 4);
+            assert.equal(progress[3].text, 'Finish loading on WebGPU - Test GPU');
+            assert.equal(progress[3].progress, 1);
+            const phases = logs.filter((entry) => entry.startsWith('[webllm] init '));
+            assert.equal(phases.length, 4);
+            assert.match(phases[0], /before first progress \(config, wasm, gpu detect\)/);
+            assert.match(phases[1], /"Loading model from cache"/);
+            assert.match(phases[2], /"Loading GPU shader modules"/);
+            assert.match(phases[3], /"Finish loading on WebGPU - Test GPU"/);
+            assert.equal(phases.filter((entry) => entry.includes('cache[')).length, 0);
+            const ready = logs.find((entry) => entry.startsWith('[webllm] engine ready'));
+            assert.match(ready, /context_window=2048/);
+            assert.match(ready, /model=coverage-init-log/);
+            assert.match(ready, /import=\d+ms/);
+        } finally {
+            console.log = original;
             restore();
         }
     });
