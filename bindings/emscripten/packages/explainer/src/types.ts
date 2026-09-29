@@ -323,6 +323,12 @@ export interface EnrichedContext {
     resolvedStorage: Map<string, ResolvedSlot[]>;
     decodedTrace: (DecodedCall | null)[];
     decodedEvents: (DecodedEvent | null)[];
+    /**
+     * Lowercase proxy address → lowercase implementation address, taken from
+     * `DELEGATECALL` frames. Storage layout and source for a proxy state change
+     * come from the implementation.
+     */
+    implementations?: Map<string, string>;
 }
 
 // -- Enhanced result types (JSON-serializable, for UI consumption) --

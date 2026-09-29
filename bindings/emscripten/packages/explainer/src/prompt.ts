@@ -666,7 +666,8 @@ function isDroppableHeaderComment(text: string): boolean {
  *
  * Source is untrusted third-party data (Sourcify). It is sanitized and wrapped
  * in `C4_UNTRUSTED_SOURCE` markers; comments are kept except for leading
- * license boilerplate.
+ * license boilerplate. A proxy state change uses the implementation's sources:
+ * the proxy contract does not declare the variables stored in its context.
  */
 function formatSourceContext(result: SimulationResult, context: EnrichedContext, maxSourceChars?: number): string | null {
     const contractsNeedingSource = new Set<string>();
@@ -675,10 +676,10 @@ function formatSourceContext(result: SimulationResult, context: EnrichedContext,
         for (const change of result.stateChanges) {
             const addr = change.address.toLowerCase();
             const resolved = context.resolvedStorage?.get(addr);
-            const meta = context.contracts?.get(addr);
+            const sources = sourcesForStorageContext(context, addr);
 
             const hasUnresolvedSlots = change.storage?.some((_, i) => resolved?.[i] && !resolved[i].variableName);
-            if (hasUnresolvedSlots && meta?.sources) {
+            if (hasUnresolvedSlots && sources) {
                 contractsNeedingSource.add(addr);
             }
         }
@@ -703,14 +704,14 @@ function formatSourceContext(result: SimulationResult, context: EnrichedContext,
     let embeddedAny = false;
     for (const addr of contractsNeedingSource) {
         if (totalBudget <= 0) break;
-        const meta = context.contracts.get(addr)!;
+        const sources = sourcesForStorageContext(context, addr);
         const label = labelAddress(addr, shortenAddress);
         const contractHeaderIndex = lines.length;
         lines.push(`\n### ${label}`);
         let embeddedForThisAddr = false;
 
-        if (meta.sources) {
-            for (const [filename, source] of Object.entries(meta.sources)) {
+        if (sources) {
+            for (const [filename, source] of Object.entries(sources)) {
                 if (totalBudget <= 0) break;
                 // Issue #382: skip non-Solidity artifacts (Yul, raw EVM). The
                 // model has no training signal for these and confidently
@@ -766,6 +767,26 @@ function isEmbeddableSource(filename: string, content: string): boolean {
 }
 
 /**
+ * Sources that describe storage for a state-change address.
+ *
+ * When the address is a proxy, the implementation's sources are used. The
+ * proxy's own verified files describe the proxy contract, not the variables
+ * written through `DELEGATECALL`.
+ *
+ * @param context - Enrichment context
+ * @param addr - Lowercase state-change address
+ * @return Source map, or `null` when nothing should be embedded
+ */
+function sourcesForStorageContext(
+    context: EnrichedContext,
+    addr: string,
+): Record<string, { content: string }> | null {
+    const impl = context.implementations?.get(addr);
+    if (impl) return context.contracts.get(impl)?.sources ?? null;
+    return context.contracts.get(addr)?.sources ?? null;
+}
+
+/**
  * Count source files that would be embedded for the given contracts.
  *
  * @param context - Enrichment context
@@ -775,7 +796,7 @@ function isEmbeddableSource(filename: string, content: string): boolean {
 function countSourceFiles(context: EnrichedContext, addresses: Set<string>): number {
     let n = 0;
     for (const addr of addresses) {
-        const sources = context.contracts.get(addr)?.sources;
+        const sources = sourcesForStorageContext(context, addr);
         if (!sources) continue;
         for (const [filename, source] of Object.entries(sources)) {
             if (isEmbeddableSource(filename, source.content)) n++;

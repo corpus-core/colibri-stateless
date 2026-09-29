@@ -159,7 +159,7 @@ function rememberStruct(structs: Map<string, StructSkeleton>, node: ASTNode): vo
 }
 
 /**
- * Record `bytes32 constant FooStorageLocation = 0x…32` for ERC-7201 namespaces.
+ * Record `bytes32 constant FooStorageLocation = 0x…32` (also `FOO_STORAGE_LOCATION`) for ERC-7201 namespaces.
  *
  * @param constants - Constant name → slot
  * @param node - Contract sub-node
@@ -361,8 +361,53 @@ function mergeLayouts(
 }
 
 /**
- * Turn ERC-7201 structs (`bytes32 constant FooStorageLocation = 0x…`) into
- * layout entries at `location + memberSlot`.
+ * Fold a Solidity identifier so `ERC20Storage`, `ERC20StorageLocation`, and
+ * `ERC20_STORAGE_LOCATION` share one key.
+ *
+ * @param name - Struct or constant identifier
+ * @return Lowercase name with underscores removed
+ */
+function normalizeStorageIdent(name: string): string {
+    return name.toLowerCase().replace(/_/g, '');
+}
+
+/**
+ * Prefix that links an ERC-7201 location constant to its struct.
+ *
+ * `ERC20StorageLocation` and `ERC20_STORAGE_LOCATION` both yield `erc20`.
+ * Constants that do not end in `StorageLocation` are ignored.
+ *
+ * @param constName - `bytes32` constant identifier
+ * @return Prefix, or `null` when the name is not a storage-location constant
+ */
+function storageLocationPrefix(constName: string): string | null {
+    const normalized = normalizeStorageIdent(constName);
+    const suffix = 'storagelocation';
+    if (!normalized.endsWith(suffix)) return null;
+    const prefix = normalized.slice(0, -suffix.length);
+    return prefix.length > 0 ? prefix : null;
+}
+
+/**
+ * Prefix of an ERC-7201 struct (`ERC20Storage` → `erc20`).
+ *
+ * @param structName - Struct identifier
+ * @return Prefix, or `null` when the name does not end in `Storage`
+ */
+function storageStructPrefix(structName: string): string | null {
+    const normalized = normalizeStorageIdent(structName);
+    const suffix = 'storage';
+    if (!normalized.endsWith(suffix)) return null;
+    const prefix = normalized.slice(0, -suffix.length);
+    return prefix.length > 0 ? prefix : null;
+}
+
+/**
+ * Turn ERC-7201 structs into layout entries at `location + memberSlot`.
+ *
+ * A location constant is paired with the struct that shares its prefix:
+ * `ERC20StorageLocation` and `ERC20_STORAGE_LOCATION` both match `ERC20Storage`.
+ * The first struct wins when two names fold to the same prefix.
  *
  * @param structs - Parsed structs
  * @param constants - bytes32 location constants
@@ -374,13 +419,20 @@ function buildNamespacedLayout(
 ): SolidityStorageLayout | null {
     const storage: SolidityStorageEntry[] = [];
     const types: Record<string, SolidityStorageType> = {};
+    const structsByPrefix = new Map<string, { name: string; skeleton: StructSkeleton }>();
+
+    for (const [name, skeleton] of structs) {
+        const prefix = storageStructPrefix(name);
+        if (!prefix || structsByPrefix.has(prefix)) continue;
+        structsByPrefix.set(prefix, { name, skeleton });
+    }
 
     for (const [constName, base] of constants) {
-        if (!constName.endsWith('Location')) continue;
-        const structName = constName.slice(0, -'Location'.length);
-        const skeleton = structs.get(structName);
-        if (!skeleton?.members.length) continue;
-        appendNamespacedMembers(skeleton.members, structName, base, storage, types);
+        const prefix = storageLocationPrefix(constName);
+        if (!prefix) continue;
+        const match = structsByPrefix.get(prefix);
+        if (!match?.skeleton.members.length) continue;
+        appendNamespacedMembers(match.skeleton.members, match.name, base, storage, types);
     }
 
     return storage.length ? { storage, types } : null;

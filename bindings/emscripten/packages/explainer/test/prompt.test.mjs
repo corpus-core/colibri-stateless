@@ -459,6 +459,38 @@ describe('buildPrompt source-code budget (maxSourceChars)', () => {
         assert.ok(!userPrompt.includes('(truncated)'));
     });
 
+    it('embeds the implementation source for an unresolved proxy slot', () => {
+        const impl = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+        const ctx = sourceContext('contract Proxy {}');
+        ctx.contracts.set(impl, {
+            abi: null,
+            storageLayout: null,
+            sources: { 'ERC20.sol': { content: 'contract Impl { uint256 shares; }' } },
+        });
+        ctx.implementations = new Map([[WETH_ADDR, impl]]);
+        const { userPrompt } = buildPrompt(WETH_DEPOSIT_RESULT, TX_PARAMS, {}, ctx);
+        assert.ok(userPrompt.includes('contract Impl { uint256 shares; }'));
+        assert.ok(!userPrompt.includes('contract Proxy {}'));
+    });
+
+    it('keeps the contract source when the implementations map names another address', () => {
+        const ctx = sourceContext('contract Mine {}');
+        ctx.implementations = new Map([[
+            '0x1111111111111111111111111111111111111111',
+            '0x2222222222222222222222222222222222222222',
+        ]]);
+        const { userPrompt } = buildPrompt(WETH_DEPOSIT_RESULT, TX_PARAMS, {}, ctx);
+        assert.ok(userPrompt.includes('contract Mine {}'));
+    });
+
+    it('omits proxy source when the mapped implementation has no sources', () => {
+        const ctx = sourceContext('contract Proxy {}');
+        ctx.implementations = new Map([[WETH_ADDR, '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb']]);
+        const { userPrompt } = buildPrompt(WETH_DEPOSIT_RESULT, TX_PARAMS, {}, ctx);
+        assert.ok(!userPrompt.includes('## Contract Source Code'));
+        assert.ok(!userPrompt.includes('contract Proxy {}'));
+    });
+
     it('gives a single source file the full default budget', () => {
         const { userPrompt } = buildPrompt(WETH_DEPOSIT_RESULT, TX_PARAMS, {}, sourceContext('A'.repeat(5000)));
         assert.ok(!userPrompt.includes('(truncated)'));
