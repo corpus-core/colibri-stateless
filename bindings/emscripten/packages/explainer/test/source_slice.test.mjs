@@ -54,6 +54,7 @@ describe('sliceUsedFunctions', () => {
         const names = pieces.map(p => `${p.kind}:${p.name}`);
         assert.deepEqual(names, [
             'function:deposit',
+            'state:total',
             'modifier:onlyOwner',
             'function:_mint',
             'function:add',
@@ -159,5 +160,113 @@ describe('sliceUsedFunctions', () => {
         const names = pieces.map(p => p.name);
         assert.deepEqual(names, ['deposit', 'helper']);
         assert.ok(!names.includes('transfer'));
+    });
+
+    it('includes storage variables and skips unused constants', () => {
+        const sources = {
+            'C.sol': {
+                content: [
+                    'contract C {',
+                    '    uint256 total;',
+                    '    uint256 constant UNUSED = 1;',
+                    '    uint256 immutable cached;',
+                    '    function deposit() public { total += 1; }',
+                    '}',
+                ].join('\n'),
+            },
+        };
+        const pieces = slice(sources, ['deposit'], { contractName: 'C' });
+        assert.ok(pieces);
+        const names = pieces.map(p => `${p.kind}:${p.name}`);
+        assert.ok(names.includes('state:total'));
+        assert.ok(!names.includes('state:UNUSED'));
+        assert.ok(!names.includes('state:cached'));
+        assert.equal(pieces.find(p => p.name === 'deposit').contractHeader, 'contract C');
+    });
+
+    it('rebuilds an abstract contract header with its bases', () => {
+        const sources = {
+            'C.sol': {
+                content: 'abstract contract Proxy is ERC1967 { address impl; function deposit() public { impl = msg.sender; } }',
+            },
+        };
+        const pieces = slice(sources, ['deposit'], { contractName: 'Proxy' });
+        assert.ok(pieces);
+        assert.equal(pieces.find(p => p.name === 'deposit').contractHeader, 'abstract contract Proxy is ERC1967');
+        assert.ok(pieces.some(p => p.kind === 'state' && p.name === 'impl'));
+    });
+
+    it('includes an enum and a struct the function names, not unused ones', () => {
+        const sources = {
+            'C.sol': {
+                content: [
+                    'contract C {',
+                    '    enum Mode { Off, On }',
+                    '    enum Unused { A, B }',
+                    '    struct Store { uint256 total; }',
+                    '    struct Other { uint256 x; }',
+                    '    function deposit() public view returns (uint256) {',
+                    '        Store storage s = _store();',
+                    '        return mode == Mode.On ? s.total : 0;',
+                    '    }',
+                    '    function _store() internal view returns (Store storage s) { assembly { s.slot := 0 } }',
+                    '    uint8 mode;',
+                    '}',
+                ].join('\n'),
+            },
+        };
+        const pieces = slice(sources, ['deposit'], { contractName: 'C' });
+        assert.ok(pieces);
+        const names = new Set(pieces.map(p => `${p.kind}:${p.name}`));
+        assert.ok(names.has('enum:Mode'));
+        assert.ok(names.has('struct:Store'));
+        assert.ok(names.has('state:mode'));
+        assert.ok(!names.has('enum:Unused'));
+        assert.ok(!names.has('struct:Other'));
+    });
+
+    it('includes a library enum and a constant named from assembly', () => {
+        const sources = {
+            'C.sol': {
+                content: [
+                    'library Math { enum Rounding { Floor, Ceil } function unused() internal {} }',
+                    'contract C {',
+                    '    uint256 constant LOC = 1;',
+                    '    uint256 constant OTHER = 2;',
+                    '    function deposit() public view returns (uint256) {',
+                    '        uint256 x;',
+                    '        assembly { x := LOC }',
+                    '        return x + uint256(Math.Rounding.Ceil);',
+                    '    }',
+                    '}',
+                ].join('\n'),
+            },
+        };
+        const pieces = slice(sources, ['deposit'], { contractName: 'C' });
+        assert.ok(pieces);
+        const names = pieces.map(p => `${p.kind}:${p.name}`);
+        assert.ok(names.includes('state:LOC'));
+        assert.ok(names.includes('enum:Rounding'));
+        assert.ok(!names.includes('state:OTHER'));
+        assert.ok(!names.includes('function:unused'));
+        assert.equal(pieces.find(p => p.name === 'Rounding').contractHeader, 'library Math');
+    });
+
+    it('keeps a referenced file-level enum outside a contract', () => {
+        const sources = {
+            'C.sol': {
+                content: [
+                    'enum Mode { Off, On }',
+                    'contract C { function deposit() public pure returns (uint256) { return uint256(Mode.On); } }',
+                ].join('\n'),
+            },
+        };
+        const pieces = slice(sources, ['deposit'], { contractName: 'C' });
+        assert.ok(pieces);
+        const mode = pieces.find(p => p.name === 'Mode');
+        assert.ok(mode);
+        assert.equal(mode.kind, 'enum');
+        assert.equal(mode.contractHeader, '');
+        assert.ok(mode.text.includes('enum Mode'));
     });
 });

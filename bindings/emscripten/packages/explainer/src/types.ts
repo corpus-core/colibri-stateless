@@ -133,10 +133,12 @@ export interface PromptConfig {
      * (after comment stripping). Lower this for local models with a small
      * context window. `0` disables the cap. Default: `10000`.
      *
-     * When the trace identifies entry functions, only those functions and the
-     * modifiers and internal calls reachable from them are embedded, whole
-     * functions at a time, until this budget is spent. When no entry can be
-     * matched, source files are windowed into the same budget.
+     * When the trace identifies entry functions, those functions and the
+     * modifiers and internal calls reachable from them are embedded as Solidity
+     * contracts, together with the storage variables of those contracts and the
+     * enums and structs the functions reference. Whole definitions are kept
+     * until this budget is spent. When no entry can be matched, source files
+     * are windowed into the same budget.
      */
     maxSourceChars?: number;
 }

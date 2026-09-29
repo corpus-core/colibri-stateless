@@ -28,10 +28,19 @@ type AstNode = Record<string, any>;
 
 export interface SourceSlice {
     filename: string;
-    kind: 'function' | 'modifier';
+    kind: 'function' | 'modifier' | 'state' | 'enum' | 'struct';
     name: string;
     /** Comment-stripped source of this definition. */
     text: string;
+    /** Declaring contract. Empty for a file-level declaration. */
+    contractName: string;
+    /**
+     * Reconstructed declaration such as `abstract contract Foo is Bar`.
+     * Empty for a file-level declaration, which is emitted on its own.
+     */
+    contractHeader: string;
+    /** Start offset in the original file, used to order members. */
+    start: number;
 }
 
 export interface SliceUsedFunctionsOptions {
@@ -51,28 +60,45 @@ export interface SliceUsedFunctionsOptions {
 
 interface Def {
     id: string;
-    kind: 'function' | 'modifier';
+    kind: 'function' | 'modifier' | 'state' | 'enum' | 'struct';
     name: string;
     filename: string;
     start: number;
     end: number;
     contractName: string;
     node: AstNode;
+    isConst: boolean;
+    isImmutable: boolean;
 }
 
 interface ContractIndex {
     name: string;
+    kind: string;
+    header: string;
     bases: string[];
     functions: Def[];
     modifiers: Def[];
+    stateVars: Def[];
+    enums: Def[];
+    structs: Def[];
 }
+
+interface SourceIndex {
+    contracts: Map<string, ContractIndex>;
+    files: Map<string, string>;
+    globals: Def[];
+}
+
+const IDENT_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 
 /**
  * Keep the functions and modifiers reachable from the trace entry points.
  *
- * Returns `null` when nothing in the sources matches an entry name, so the
- * caller can fall back to a file window. Returns an empty list when entries
- * matched but none of them fit in the budget.
+ * Each included function also pulls in the storage variables of its contract,
+ * constants it names, and enums or structs it references. Those declarations
+ * share the same character budget. Returns `null` when nothing in the sources
+ * matches an entry name, so the caller can fall back to a file window. Returns
+ * an empty list when entries matched but none of them fit in the budget.
  *
  * @param options - Sources, entry names, budget, and sanitizer
  * @return Selected definitions, or `null` when no entry matched
@@ -81,14 +107,14 @@ export function sliceUsedFunctions(options: SliceUsedFunctionsOptions): SourceSl
     const entryNames = uniqueIdents(options.entryNames);
     if (entryNames.length === 0) return null;
 
-    const { contracts, files } = indexSources(options.sources, options.includeFile);
-    if (contracts.size === 0) return null;
+    const indexed = indexSources(options.sources, options.includeFile);
+    if (indexed.contracts.size === 0) return null;
 
-    const roots = resolveEntries(contracts, options.contractName, entryNames);
+    const roots = resolveEntries(indexed.contracts, options.contractName, entryNames);
     if (roots.length === 0) return null;
 
     const budget = options.maxChars === null ? Number.POSITIVE_INFINITY : options.maxChars;
-    return expand(roots, contracts, files, budget, options.sanitize);
+    return expand(roots, indexed, budget, options.sanitize);
 }
 
 /**
@@ -103,7 +129,7 @@ function uniqueIdents(names: string[]): string[] {
     const seen = new Set<string>();
     for (const name of names) {
         if (!name || seen.has(name)) continue;
-        if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)) continue;
+        if (!IDENT_RE.test(name)) continue;
         seen.add(name);
         out.push(name);
     }
@@ -120,9 +146,10 @@ function uniqueIdents(names: string[]): string[] {
 function indexSources(
     sources: Record<string, { content: string }>,
     includeFile: (filename: string, content: string) => boolean,
-): { contracts: Map<string, ContractIndex>; files: Map<string, string> } {
+): SourceIndex {
     const contracts = new Map<string, ContractIndex>();
     const files = new Map<string, string>();
+    const globals: Def[] = [];
 
     for (const [filename, source] of Object.entries(sources)) {
         const content = source?.content ?? '';
@@ -135,12 +162,22 @@ function indexSources(
         }
         files.set(filename, content);
         for (const node of (ast.children ?? []) as AstNode[]) {
-            if (node?.type !== 'ContractDefinition' || typeof node.name !== 'string') continue;
-            rememberContract(contracts, filename, content, node);
+            if (!node || typeof node.type !== 'string') continue;
+            if (node.type === 'ContractDefinition' && typeof node.name === 'string') {
+                rememberContract(contracts, filename, content, node);
+                continue;
+            }
+            const kind = node.type === 'EnumDefinition' ? 'enum'
+                : node.type === 'StructDefinition' ? 'struct'
+                    : node.type === 'FileLevelConstant' ? 'state'
+                        : null;
+            if (!kind) continue;
+            const def = declarationDef(filename, content, '', node, kind);
+            if (def) globals.push(def);
         }
     }
 
-    return { contracts, files };
+    return { contracts, files, globals };
 }
 
 /**
@@ -163,19 +200,64 @@ function rememberContract(
     const name = node.name as string;
     let contract = contracts.get(name);
     if (!contract) {
-        contract = { name, bases: [], functions: [], modifiers: [] };
+        contract = {
+            name,
+            kind: typeof node.kind === 'string' ? node.kind : 'contract',
+            header: '',
+            bases: [],
+            functions: [],
+            modifiers: [],
+            stateVars: [],
+            enums: [],
+            structs: [],
+        };
         contracts.set(name, contract);
     }
+    if (typeof node.kind === 'string') contract.kind = node.kind;
     for (const base of baseNames(node)) {
         if (!contract.bases.includes(base)) contract.bases.push(base);
     }
+    contract.header = headerFor(contract.kind, name, contract.bases);
     for (const sub of (node.subNodes ?? []) as AstNode[]) {
-        if (sub?.type !== 'FunctionDefinition' && sub?.type !== 'ModifierDefinition') continue;
-        const def = toDef(filename, content, name, sub);
+        if (!sub || typeof sub.type !== 'string') continue;
+        if (sub.type === 'FunctionDefinition' || sub.type === 'ModifierDefinition') {
+            const def = toDef(filename, content, name, sub);
+            if (!def) continue;
+            const list = def.kind === 'function' ? contract.functions : contract.modifiers;
+            list.push(def);
+            continue;
+        }
+        const kind = sub.type === 'StateVariableDeclaration' ? 'state'
+            : sub.type === 'EnumDefinition' ? 'enum'
+                : sub.type === 'StructDefinition' ? 'struct'
+                    : null;
+        if (!kind) continue;
+        const def = declarationDef(filename, content, name, sub, kind);
         if (!def) continue;
-        const list = def.kind === 'function' ? contract.functions : contract.modifiers;
+        const list = kind === 'state' ? contract.stateVars : kind === 'enum' ? contract.enums : contract.structs;
         list.push(def);
     }
+}
+
+/**
+ * Solidity declaration rebuilt from the AST, not from raw header text.
+ *
+ * The name and base names are identifiers, so a comment or string in the
+ * source header cannot change what the prompt shows.
+ *
+ * @param kind - Parser contract kind (`contract`, `abstract`, `library`, `interface`)
+ * @param name - Contract name
+ * @param bases - Inherited contract names
+ * @return Header without the body, or an empty string when the name is not an identifier
+ */
+function headerFor(kind: string, name: string, bases: string[]): string {
+    if (!IDENT_RE.test(name)) return '';
+    const safeBases = bases.filter(base => IDENT_RE.test(base));
+    const keyword = kind === 'library' ? 'library'
+        : kind === 'interface' ? 'interface'
+            : kind === 'abstract' ? 'abstract contract'
+                : 'contract';
+    return safeBases.length > 0 ? `${keyword} ${name} is ${safeBases.join(', ')}` : `${keyword} ${name}`;
 }
 
 /**
@@ -212,20 +294,84 @@ function baseNames(node: AstNode): string[] {
 function toDef(filename: string, content: string, contractName: string, node: AstNode): Def | null {
     if (!node.body) return null;
     const name = typeof node.name === 'string' ? node.name : '';
-    if (!name) return null;
-    const range = node.range as [number, number] | undefined;
-    if (!range || range.length < 2 || range[0] < 0 || range[1] < range[0]) return null;
-    const end = Math.min(content.length, range[1] + 1);
+    if (!name || !IDENT_RE.test(name)) return null;
+    const span = spanOf(content, node);
+    if (!span) return null;
     return {
-        id: `${filename}:${range[0]}:${name}`,
+        id: `${filename}:${span.start}:${name}`,
         kind: node.type === 'ModifierDefinition' ? 'modifier' : 'function',
         name,
         filename,
-        start: range[0],
-        end,
+        start: span.start,
+        end: span.end,
         contractName,
         node,
+        isConst: false,
+        isImmutable: false,
     };
+}
+
+/**
+ * Slice a state variable, enum, struct, or file-level constant.
+ *
+ * @param filename - Source filename
+ * @param content - Original file text
+ * @param contractName - Enclosing contract, or empty at file scope
+ * @param node - Declaration AST node
+ * @param kind - Declaration kind
+ * @return Definition, or `null` when it has no identifier or no range
+ */
+function declarationDef(
+    filename: string,
+    content: string,
+    contractName: string,
+    node: AstNode,
+    kind: 'state' | 'enum' | 'struct',
+): Def | null {
+    let name = '';
+    let isConst = false;
+    let isImmutable = false;
+    if (node.type === 'FileLevelConstant') {
+        if (typeof node.name !== 'string') return null;
+        name = node.name;
+        isConst = true;
+    } else if (kind === 'state') {
+        const variable = (node.variables as AstNode[] | undefined)?.[0];
+        if (!variable || typeof variable.name !== 'string') return null;
+        name = variable.name;
+        isConst = variable.isDeclaredConst === true;
+        isImmutable = variable.isImmutable === true;
+    } else if (typeof node.name === 'string') {
+        name = node.name;
+    }
+    if (!name || !IDENT_RE.test(name)) return null;
+    const span = spanOf(content, node);
+    if (!span) return null;
+    return {
+        id: `${filename}:${span.start}:${name}`,
+        kind,
+        name,
+        filename,
+        start: span.start,
+        end: span.end,
+        contractName,
+        node,
+        isConst,
+        isImmutable,
+    };
+}
+
+/**
+ * Source span of a node. Parser ranges exclude the closing character.
+ *
+ * @param content - Original file text
+ * @param node - AST node with a `range`
+ * @return Inclusive-exclusive span, or `null` when the range is unusable
+ */
+function spanOf(content: string, node: AstNode): { start: number; end: number } | null {
+    const range = node.range as [number, number] | undefined;
+    if (!range || range.length < 2 || range[0] < 0 || range[1] < range[0]) return null;
+    return { start: range[0], end: Math.min(content.length, range[1] + 1) };
 }
 
 /**
@@ -315,8 +461,7 @@ function findNamed(
  */
 function expand(
     roots: Def[],
-    contracts: Map<string, ContractIndex>,
-    files: Map<string, string>,
+    indexed: SourceIndex,
     budget: number,
     sanitize: (source: string) => string,
 ): SourceSlice[] {
@@ -331,14 +476,20 @@ function expand(
         for (const def of wave) {
             if (seen.has(def.id)) continue;
             seen.add(def.id);
-            const content = files.get(def.filename);
-            const raw = content ? content.slice(def.start, def.end) : '';
-            const text = sanitize(raw).trim();
-            if (text && text.length <= remaining) {
-                slices.push({ filename: def.filename, kind: def.kind, name: def.name, text });
+            const text = materialize(def, indexed.files, sanitize);
+            if (text && text.length <= remaining && headerOk(def, indexed.contracts)) {
+                slices.push(toSlice(def, text, indexed.contracts));
                 remaining -= text.length;
+                for (const extra of contextOf(indexed, def)) {
+                    if (seen.has(extra.id)) continue;
+                    seen.add(extra.id);
+                    const extraText = materialize(extra, indexed.files, sanitize);
+                    if (!extraText || extraText.length > remaining || !headerOk(extra, indexed.contracts)) continue;
+                    slices.push(toSlice(extra, extraText, indexed.contracts));
+                    remaining -= extraText.length;
+                }
             }
-            for (const child of callees(contracts, def)) {
+            for (const child of callees(indexed.contracts, def)) {
                 if (seen.has(child.id) || queued.has(child.id)) continue;
                 queued.add(child.id);
                 next.push(child);
@@ -348,6 +499,188 @@ function expand(
     }
 
     return slices;
+}
+
+/**
+ * Storage of the enclosing contract, plus constants, enums, and structs the
+ * body names.
+ *
+ * Real storage variables (not `constant` or `immutable`) are always included.
+ * Constants and immutables are included only when the function mentions them,
+ * including names used inside inline assembly. Enum and struct lookup prefers
+ * the enclosing contract and its bases, then a contract whose name appears in
+ * the same body (`Math.Rounding`).
+ *
+ * @param indexed - Parsed sources
+ * @param def - Function or modifier that was just included
+ * @return Declarations to embed with `def`
+ */
+function contextOf(indexed: SourceIndex, def: Def): Def[] {
+    if (def.kind !== 'function' && def.kind !== 'modifier') return [];
+    const refs = referencedNames(def.node);
+    const out: Def[] = [];
+    const seen = new Set<string>();
+    const push = (item: Def | null | undefined): void => {
+        if (!item || item.id === def.id || seen.has(item.id)) return;
+        seen.add(item.id);
+        out.push(item);
+    };
+
+    const scopes = ancestors(indexed.contracts, def.contractName);
+    for (const scope of scopes) {
+        const contract = indexed.contracts.get(scope);
+        if (!contract) continue;
+        for (const variable of contract.stateVars) {
+            const ownStorage = scope === def.contractName && !variable.isConst && !variable.isImmutable;
+            if (ownStorage || refs.has(variable.name)) push(variable);
+        }
+    }
+    for (const name of refs) {
+        push(lookupType(indexed, def.contractName, refs, name, 'enum'));
+        push(lookupType(indexed, def.contractName, refs, name, 'struct'));
+    }
+    for (const global of indexed.globals) {
+        if (global.kind === 'state' && refs.has(global.name)) push(global);
+    }
+    return out;
+}
+
+/**
+ * Names written in a function: identifiers, assembly calls, type names, and
+ * member names. Matching them against declarations filters out locals.
+ *
+ * @param node - Function or modifier AST node
+ * @return Referenced names
+ */
+function referencedNames(node: AstNode): Set<string> {
+    const names = new Set<string>();
+    const walk = (current: AstNode | null | undefined): void => {
+        if (!current || typeof current !== 'object') return;
+        if (current.type === 'Identifier' && typeof current.name === 'string') names.add(current.name);
+        if (current.type === 'AssemblyCall' && typeof current.functionName === 'string') names.add(current.functionName);
+        if (current.type === 'UserDefinedTypeName' && typeof current.namePath === 'string') {
+            for (const part of current.namePath.split('.')) {
+                if (part) names.add(part);
+            }
+        }
+        if (current.type === 'MemberAccess' && typeof current.memberName === 'string') names.add(current.memberName);
+        for (const value of Object.values(current)) {
+            if (Array.isArray(value)) {
+                for (const item of value) {
+                    if (item && typeof item === 'object' && (item as AstNode).type) walk(item as AstNode);
+                }
+            } else if (value && typeof value === 'object' && (value as AstNode).type) {
+                walk(value as AstNode);
+            }
+        }
+    };
+    walk(node);
+    return names;
+}
+
+/**
+ * Contract and its bases, starting at `start`.
+ *
+ * @param contracts - Parsed contracts
+ * @param start - Contract that contains the function
+ * @return Names in breadth-first order
+ */
+function ancestors(contracts: Map<string, ContractIndex>, start: string): string[] {
+    const out: string[] = [];
+    const seen = new Set<string>();
+    const queue = [start];
+    while (queue.length > 0) {
+        const name = queue.shift();
+        if (!name || seen.has(name)) continue;
+        seen.add(name);
+        out.push(name);
+        const contract = contracts.get(name);
+        if (!contract) continue;
+        for (const base of contract.bases) queue.push(base);
+    }
+    return out;
+}
+
+/**
+ * Resolve an enum or struct name mentioned by a function.
+ *
+ * @param indexed - Parsed sources
+ * @param owner - Contract that contains the function
+ * @param refs - Names seen in that function
+ * @param name - Candidate type name
+ * @param kind - `enum` or `struct`
+ * @return Matching definition, or `null` when it is missing or ambiguous
+ */
+function lookupType(
+    indexed: SourceIndex,
+    owner: string,
+    refs: Set<string>,
+    name: string,
+    kind: 'enum' | 'struct',
+): Def | null {
+    for (const scope of ancestors(indexed.contracts, owner)) {
+        const contract = indexed.contracts.get(scope);
+        const list = kind === 'enum' ? contract?.enums : contract?.structs;
+        const hit = list?.find(item => item.name === name);
+        if (hit) return hit;
+    }
+    const qualified: Def[] = [];
+    for (const [contractName, contract] of indexed.contracts) {
+        if (!refs.has(contractName)) continue;
+        const list = kind === 'enum' ? contract.enums : contract.structs;
+        const hit = list.find(item => item.name === name);
+        if (hit) qualified.push(hit);
+    }
+    if (qualified.length === 1) return qualified[0];
+    if (qualified.length > 1) return null;
+    const globals = indexed.globals.filter(item => item.kind === kind && item.name === name);
+    return globals.length === 1 ? globals[0] : null;
+}
+
+/**
+ * Comment-stripped text of one definition.
+ *
+ * @param def - Definition to slice
+ * @param files - Original file text
+ * @param sanitize - Comment stripper and fence redaction
+ * @return Trimmed text, possibly empty
+ */
+function materialize(def: Def, files: Map<string, string>, sanitize: (source: string) => string): string {
+    const content = files.get(def.filename);
+    const raw = content ? content.slice(def.start, def.end) : '';
+    return sanitize(raw).trim();
+}
+
+/**
+ * A contract member needs a reconstructed header. File-level declarations do not.
+ *
+ * @param def - Definition about to be embedded
+ * @param contracts - Parsed contracts
+ * @return Whether the definition can be shown safely
+ */
+function headerOk(def: Def, contracts: Map<string, ContractIndex>): boolean {
+    if (!def.contractName) return true;
+    return Boolean(contracts.get(def.contractName)?.header);
+}
+
+/**
+ * Copy a definition into the public slice shape.
+ *
+ * @param def - Included definition
+ * @param text - Sanitized source
+ * @param contracts - Parsed contracts, for the header
+ * @return Prompt slice
+ */
+function toSlice(def: Def, text: string, contracts: Map<string, ContractIndex>): SourceSlice {
+    return {
+        filename: def.filename,
+        kind: def.kind,
+        name: def.name,
+        text,
+        contractName: def.contractName,
+        contractHeader: def.contractName ? (contracts.get(def.contractName)?.header ?? '') : '',
+        start: def.start,
+    };
 }
 
 /**
