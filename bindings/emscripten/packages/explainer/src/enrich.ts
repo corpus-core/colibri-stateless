@@ -26,14 +26,18 @@ import type {
     DecodedCall, DecodedEvent, DecodedError, ResolvedSlot, TraceEntry,
     EnhancedSimulationResult, EnhancedLog, EnhancedTraceEntry, EnhancedContractStateChange,
     ContractCache, VerifiedContract, AccessListEntry, ContractStateChange,
+    EthCallFn, TokenInfo,
 } from './types.js';
+import { AbiCoder } from 'ethers';
 import { fetchCompilationInput } from './sourcify.js';
 import { decodeFunctionCall, decodeEventLog, decodeRevertData } from './decoder.js';
 import { resolveStorageSlot, resolveDirectSlot } from './storage.js';
 import { compileAndVerify } from './compiler.js';
 import { extractStorageLayout } from './layout.js';
-import { cacheGet, cacheSet, cacheGetLayout, cacheSetLayout, getDefaultCache } from './cache.js';
+import { cacheGet, cacheSet, cacheGetLayout, cacheSetLayout, cacheGetToken, cacheSetToken, getDefaultCache, isSafeTokenSymbol } from './cache.js';
 import { elapsedMs, explainerLog } from './log.js';
+import { collectUsedAddresses } from './addresses.js';
+import { lookupAddress } from './known_addresses.js';
 
 /**
  * Enrich a simulation result with decoded contract metadata.
@@ -55,7 +59,7 @@ export async function enrichSimulation(
     result: SimulationResult,
     txParams: TxParams,
     chainId: number,
-    options?: { sourcifyBaseUrl?: string; cache?: ContractCache },
+    options?: { sourcifyBaseUrl?: string; cache?: ContractCache; ethCall?: EthCallFn },
 ): Promise<EnrichedContext> {
     const cache = options?.cache || await getDefaultCache();
     const { hashes: codeHashes, eoas } = buildCodeHashMap(result.accessList);
@@ -78,8 +82,19 @@ export async function enrichSimulation(
     const decodedTrace = decodeTraceEntries(result.trace, contracts, result.accessList, implementations);
     const decodedEvents = decodeEventLogs(result.logs, contracts, implementations);
     const resolvedStorage = resolveAllStorage(result, contracts, implementations);
+    const tokens = await resolveErc20Tokens(
+        collectUsedAddresses(result, txParams, {
+            decodedCall, decodedTrace, decodedEvents, resolvedStorage,
+        }),
+        txParams.from,
+        chainId,
+        contracts,
+        implementations,
+        cache,
+        options?.ethCall,
+    );
 
-    return { contracts, decodedCall, decodedError, resolvedStorage, decodedTrace, decodedEvents, implementations };
+    return { contracts, decodedCall, decodedError, resolvedStorage, decodedTrace, decodedEvents, implementations, tokens };
 }
 
 /** keccak256("") -- code hash of accounts without bytecode. */
@@ -188,6 +203,7 @@ function verifiedToMeta(cached: VerifiedContract): ContractMetadata {
         abi: cached.abi,
         sources: cached.sources,
         storageLayout: cached.storageLayout,
+        contractName: cached.contractName || null,
     };
 }
 
@@ -286,7 +302,7 @@ async function resolveFromSourcify(
             );
         } catch {
             explainerLog('warn', 'bytecode verify threw', { scope: 'enrich', address: addr });
-            return { abi: comp.abi, sources: comp.sources, storageLayout };
+            return { abi: comp.abi, sources: comp.sources, storageLayout, contractName: comp.contractName ?? null };
         }
 
         explainerLog('info', 'bytecode verify', {
@@ -309,10 +325,10 @@ async function resolveFromSourcify(
             await cacheSet(cache, codeHash, verifiedContract);
         }
 
-        return { abi, sources: comp.sources, storageLayout };
+        return { abi, sources: comp.sources, storageLayout, contractName: comp.contractName ?? null };
     }
 
-    return { abi: comp.abi, sources: comp.sources, storageLayout };
+    return { abi: comp.abi, sources: comp.sources, storageLayout, contractName: comp.contractName ?? null };
 }
 
 /**
@@ -703,4 +719,241 @@ function collectMappingKeyCandidates(
         add(t.to);
     }
     return [...keys];
+}
+
+const SYMBOL_CALL = '0x95d89b41';
+const DECIMALS_CALL = '0x313ce567';
+
+interface Erc20Abi {
+    symbol: 'string' | 'bytes32';
+}
+
+/**
+ * Resolve ERC-20 symbol and decimals for addresses the prompt will name.
+ *
+ * Known addresses that already carry both fields are skipped. The transaction
+ * sender is skipped because the prompt always calls that address `sender`.
+ * A cache hit skips `ethCall`. Only a validated pair is written back.
+ *
+ * @param addresses - Lowercase addresses used in the prompt
+ * @param sender - `tx.from`, when present
+ * @param chainId - EVM chain ID
+ * @param contracts - Resolved metadata
+ * @param implementations - Proxy → implementation
+ * @param cache - Persistent cache
+ * @param ethCall - Host callback, optional
+ * @return Token info keyed by lowercase address
+ */
+async function resolveErc20Tokens(
+    addresses: string[],
+    sender: string | undefined,
+    chainId: number,
+    contracts: Map<string, ContractMetadata>,
+    implementations: Map<string, string>,
+    cache: ContractCache,
+    ethCall?: EthCallFn,
+): Promise<Map<string, TokenInfo>> {
+    const tokens = new Map<string, TokenInfo>();
+    const senderAddr = sender?.toLowerCase();
+
+    for (const addr of addresses) {
+        if (addr === senderAddr) continue;
+        const known = lookupAddress(addr);
+        if (known?.symbol && known.decimals != null) continue;
+        const shape = erc20Abi(addr, contracts, implementations);
+        if (!shape) continue;
+
+        const cached = await cacheGetToken(cache, chainId, addr);
+        if (cached) {
+            tokens.set(addr, cached);
+            continue;
+        }
+        if (!ethCall) continue;
+
+        const resolved = await readErc20(ethCall, addr, shape);
+        if (!resolved) continue;
+        tokens.set(addr, resolved);
+        await cacheSetToken(cache, chainId, addr, resolved);
+    }
+
+    return tokens;
+}
+
+/**
+ * `symbol()` / `decimals()` shape when both view functions take no arguments.
+ *
+ * The proxy ABI is tried first. When it is not an ERC-20 surface, the
+ * implementation ABI is used. The call itself still goes to the proxy so
+ * `symbol()` reads the proxy's storage.
+ *
+ * @param address - Lowercase address
+ * @param contracts - Resolved metadata
+ * @param implementations - Proxy → implementation
+ * @return Symbol return type, or `null` when the ABI is not an ERC-20
+ */
+function erc20Abi(
+    address: string,
+    contracts: Map<string, ContractMetadata>,
+    implementations: Map<string, string>,
+): Erc20Abi | null {
+    const own = erc20Shape(contracts.get(address)?.abi);
+    if (own) return own;
+    const impl = implementations.get(address);
+    if (!impl) return null;
+    return erc20Shape(contracts.get(impl)?.abi);
+}
+
+/**
+ * Detect parameterless `symbol()` and `decimals()` on an ABI.
+ *
+ * @param abi - Contract ABI, possibly missing
+ * @return Symbol return type, or `null`
+ */
+function erc20Shape(abi: unknown[] | null | undefined): Erc20Abi | null {
+    if (!Array.isArray(abi)) return null;
+    const symbol = viewReturn(abi, 'symbol');
+    const decimals = viewReturn(abi, 'decimals');
+    if ((symbol !== 'string' && symbol !== 'bytes32') || (decimals !== 'uint8' && decimals !== 'uint256')) {
+        return null;
+    }
+    return { symbol };
+}
+
+/**
+ * Return type of a no-argument function, if the ABI declares one.
+ *
+ * @param abi - Contract ABI
+ * @param name - Function name
+ * @return ABI output type, or `null`
+ */
+function viewReturn(abi: unknown[], name: string): string | null {
+    for (const item of abi) {
+        if (!item || typeof item !== 'object') continue;
+        const fn = item as Record<string, unknown>;
+        if (fn.type !== 'function' || fn.name !== name) continue;
+        if (Array.isArray(fn.inputs) && fn.inputs.length > 0) continue;
+        if (!Array.isArray(fn.outputs) || fn.outputs.length < 1) continue;
+        const out = fn.outputs[0] as Record<string, unknown> | undefined;
+        if (typeof out?.type === 'string') return out.type;
+    }
+    return null;
+}
+
+/**
+ * Call `symbol()` and `decimals()`. A failure of either drops the token.
+ *
+ * @param ethCall - Host callback
+ * @param address - Token address
+ * @param shape - Which symbol encoding the ABI declares
+ * @return Validated token info, or `null`
+ */
+async function readErc20(ethCall: EthCallFn, address: string, shape: Erc20Abi): Promise<TokenInfo | null> {
+    const symbolData = await callContract(ethCall, address, SYMBOL_CALL);
+    const decimalsData = await callContract(ethCall, address, DECIMALS_CALL);
+    // A 32-character symbol ABI-encodes to 96 bytes; bytes32 and decimals are
+    // 32. Anything larger is not a symbol we would keep, and decoding it
+    // would let a contract spend arbitrary memory in the client.
+    if (!symbolData || !decimalsData || !fitsReturn(symbolData, 128) || !fitsReturn(decimalsData, 32)) return null;
+    const symbol = shape.symbol === 'bytes32' ? decodeBytes32(symbolData) : decodeAbiString(symbolData);
+    const decimals = decodeDecimals(decimalsData);
+    if (!symbol || decimals == null || !isSafeTokenSymbol(symbol)) return null;
+    return { symbol, decimals };
+}
+
+/**
+ * Invoke `ethCall` and normalize a hex return value.
+ *
+ * @param ethCall - Host callback
+ * @param to - Contract address
+ * @param data - Calldata
+ * @return Hex return data, or `null` on failure or empty data
+ */
+async function callContract(ethCall: EthCallFn, to: string, data: string): Promise<string | null> {
+    try {
+        const out = await ethCall(to, data);
+        if (typeof out !== 'string') return null;
+        const hex = out.startsWith('0x') || out.startsWith('0X') ? out : `0x${out}`;
+        if (hex === '0x' || hex === '0X') return null;
+        return hex;
+    } catch (err) {
+        explainerLog('debug', 'eth_call failed', {
+            scope: 'enrich',
+            address: to,
+            error: err instanceof Error ? err.message : String(err),
+        });
+        return null;
+    }
+}
+
+/**
+ * `true` when hex return data is at most `maxBytes` long.
+ *
+ * @param data - Hex return data
+ * @param maxBytes - Maximum decoded byte length
+ * @return Whether the payload is small enough to decode
+ */
+function fitsReturn(data: string, maxBytes: number): boolean {
+    const hex = data.replace(/^0x/i, '');
+    if (hex.length % 2 !== 0) return false;
+    return hex.length / 2 <= maxBytes;
+}
+
+/**
+ * Decode an ABI `string` return.
+ *
+ * @param data - Hex return data
+ * @return Decoded string, or `null`
+ */
+function decodeAbiString(data: string): string | null {
+    try {
+        const [value] = AbiCoder.defaultAbiCoder().decode(['string'], data);
+        return typeof value === 'string' ? value : null;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Decode a `bytes32` symbol, stopping at the first zero byte.
+ *
+ * Non-ASCII bytes are rejected. The prompt sanitizer would drop them anyway,
+ * and a partial symbol would be misleading.
+ *
+ * @param data - Hex return data
+ * @return ASCII symbol, or `null`
+ */
+function decodeBytes32(data: string): string | null {
+    try {
+        const [value] = AbiCoder.defaultAbiCoder().decode(['bytes32'], data);
+        if (typeof value !== 'string') return null;
+        const hex = value.replace(/^0x/i, '');
+        let out = '';
+        for (let i = 0; i < hex.length; i += 2) {
+            const byte = parseInt(hex.slice(i, i + 2), 16);
+            if (!byte) break;
+            if (byte < 32 || byte > 126) return null;
+            out += String.fromCharCode(byte);
+        }
+        return out || null;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Decode `decimals()` as an integer in `0..255`.
+ *
+ * Both `uint8` and `uint256` ABI returns are a single 32-byte word.
+ *
+ * @param data - Hex return data
+ * @return Decimals, or `null` when the word is out of range
+ */
+function decodeDecimals(data: string): number | null {
+    try {
+        const [value] = AbiCoder.defaultAbiCoder().decode(['uint256'], data);
+        if (typeof value !== 'bigint' || value < 0n || value > 255n) return null;
+        return Number(value);
+    } catch {
+        return null;
+    }
 }

@@ -55,6 +55,8 @@ export type {
     EnhancedTraceEntry,
     EnhancedStorageSlotChange,
     EnhancedContractStateChange,
+    EthCallFn,
+    TokenInfo,
 } from './types.js';
 
 export { buildPrompt, DEFAULT_SYSTEM_PROMPT } from './prompt.js';
@@ -80,8 +82,9 @@ export { extractStorageLayout } from './layout.js';
 export {
     getDefaultCache, get_default_cache, cacheGet, cacheSet, getCacheDirectory,
     sanitizeKey, sourcifyCompilationKey, sourcifyMetadataKey, layoutCacheKey,
+    tokenCacheKey, isSafeTokenSymbol,
     cacheGetCompilation, cacheSetCompilation, cacheGetMetadata, cacheSetMetadata,
-    cacheGetLayout, cacheSetLayout,
+    cacheGetLayout, cacheSetLayout, cacheGetToken, cacheSetToken,
 } from './cache.js';
 
 import type { SimulationResult, TxParams, ExplainerConfig, EnhancedSimulationResult } from './types.js';
@@ -123,6 +126,7 @@ export async function explainSimulation(
         ? await enrichSimulation(result, txParams, config.chainId, {
             sourcifyBaseUrl: config.sourcifyBaseUrl,
             cache: config.cache,
+            ethCall: config.ethCall,
         })
         : undefined;
 
@@ -169,8 +173,9 @@ export async function enhanceSimulation(
         ? await enrichSimulation(result, txParams, config.chainId, {
             sourcifyBaseUrl: config.sourcifyBaseUrl,
             cache: config.cache,
+            ethCall: config.ethCall,
         })
-        : { contracts: new Map(), resolvedStorage: new Map(), decodedTrace: [], decodedEvents: [] };
+        : { contracts: new Map(), resolvedStorage: new Map(), decodedTrace: [], decodedEvents: [], tokens: new Map() };
 
     const provider = createProvider(config);
     const { systemPrompt, userPrompt } = buildPrompt(result, txParams, config, context);

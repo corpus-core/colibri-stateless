@@ -21,7 +21,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-import type { CompilationInput, ContractCache, ContractMetadata, SolidityStorageLayout, VerifiedContract } from './types.js';
+import type { CompilationInput, ContractCache, ContractMetadata, SolidityStorageLayout, TokenInfo, VerifiedContract } from './types.js';
 import { keccak256, toUtf8Bytes } from 'ethers';
 
 const CACHE_PREFIX = 'c4x_';
@@ -32,8 +32,12 @@ const CACHE_PREFIX = 'c4x_';
  * - `c4l_0x{hex}` — skeleton storage layout by sources fingerprint
  * - `c4s_{chainId}_{address}` — Sourcify compilation input (or miss marker)
  * - `c4m_{chainId}_{address}` — Sourcify metadata (or miss marker)
+ * - `c4e_{chainId}_{address}` — resolved ERC-20 symbol and decimals
  */
-const SAFE_KEY_RE = /^(?:c4[xl]_0x[0-9a-fA-F]{1,64}|c4[sm]_\d+_0x[0-9a-fA-F]{1,40})$/;
+const SAFE_KEY_RE = /^(?:c4[xl]_0x[0-9a-fA-F]{1,64}|c4[sme]_\d+_0x[0-9a-fA-F]{1,40})$/;
+
+/** Symbol strings safe to embed in a prompt. Rejects whitespace and control chars. */
+const TOKEN_SYMBOL_RE = /^[A-Za-z0-9._$-]{1,32}$/;
 
 /** Bump to invalidate checked-in skeleton layouts after extractor changes. */
 const LAYOUT_CACHE_VERSION = 2;
@@ -85,7 +89,7 @@ function normalizeAddress(address: string): string | null {
     return ADDRESS_RE.test(addr) ? addr : null;
 }
 
-function sourcifyKey(prefix: 'c4s' | 'c4m', chainId: number, address: string): string | null {
+function sourcifyKey(prefix: 'c4s' | 'c4m' | 'c4e', chainId: number, address: string): string | null {
     if (!Number.isInteger(chainId) || chainId < 0 || chainId > 0xffffffff) return null;
     const addr = normalizeAddress(address);
     if (!addr) return null;
@@ -113,6 +117,34 @@ export function sourcifyCompilationKey(chainId: number, address: string): string
  */
 export function sourcifyMetadataKey(chainId: number, address: string): string | null {
     return sourcifyKey('c4m', chainId, address);
+}
+
+/**
+ * `true` when `symbol` is safe to embed in a prompt.
+ *
+ * Allows letters, digits, `.`, `_`, `$`, and `-`, at most 32 characters.
+ * Rejects whitespace, quotes, and newlines so a token symbol cannot break
+ * the address directory or inject instructions.
+ *
+ * @param symbol - Candidate ERC-20 symbol
+ * @return Whether the symbol may be stored and shown
+ */
+export function isSafeTokenSymbol(symbol: string): boolean {
+    return TOKEN_SYMBOL_RE.test(symbol);
+}
+
+/**
+ * Cache key for a resolved ERC-20 `symbol()` / `decimals()` pair.
+ *
+ * Keyed by chain and address, not by code hash: the same bytecode can store
+ * a different symbol on every proxy.
+ *
+ * @param chainId - EVM chain ID
+ * @param address - Token address
+ * @return Safe `c4e_…` key, or `null` if the inputs cannot be used as a filename
+ */
+export function tokenCacheKey(chainId: number, address: string): string | null {
+    return sourcifyKey('c4e', chainId, address);
 }
 
 /**
@@ -335,6 +367,67 @@ export async function cacheSetMetadata(
     if (!key) return;
     try {
         await cache.set(key, value === 'empty' ? MISS_MARKER : JSON.stringify(value));
+    } catch { /* quota */ }
+}
+
+function isCachedToken(val: unknown): val is TokenInfo {
+    if (!val || typeof val !== 'object') return false;
+    const o = val as Record<string, unknown>;
+    return typeof o.symbol === 'string'
+        && isSafeTokenSymbol(o.symbol)
+        && typeof o.decimals === 'number'
+        && Number.isInteger(o.decimals)
+        && o.decimals >= 0
+        && o.decimals <= 255;
+}
+
+/**
+ * Read a cached ERC-20 symbol and decimals.
+ *
+ * @param cache - Cache backend
+ * @param chainId - EVM chain ID
+ * @param address - Token address
+ * @return Token info on hit, or `null` on miss / corruption / unsafe symbol
+ */
+export async function cacheGetToken(
+    cache: ContractCache,
+    chainId: number,
+    address: string,
+): Promise<TokenInfo | null> {
+    const key = tokenCacheKey(chainId, address);
+    if (!key) return null;
+    const raw = await cache.get(key);
+    if (!raw) return null;
+    try {
+        const parsed = JSON.parse(raw);
+        return isCachedToken(parsed) ? parsed : null;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Persist a resolved ERC-20 symbol and decimals.
+ *
+ * Unsafe symbols and decimals outside `0..255` are not stored, so a later
+ * call can try again.
+ *
+ * @param cache - Cache backend
+ * @param chainId - EVM chain ID
+ * @param address - Token address
+ * @param token - Validated symbol and decimals
+ */
+export async function cacheSetToken(
+    cache: ContractCache,
+    chainId: number,
+    address: string,
+    token: TokenInfo,
+): Promise<void> {
+    if (!isCachedToken(token)) return;
+    const key = tokenCacheKey(chainId, address);
+    if (!key) return;
+    try {
+        await cache.set(key, JSON.stringify({ symbol: token.symbol, decimals: token.decimals }));
     } catch { /* quota */ }
 }
 
