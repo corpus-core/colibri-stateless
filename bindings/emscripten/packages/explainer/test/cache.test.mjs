@@ -5,7 +5,8 @@ import {
     sourcifyCompilationKey, sourcifyMetadataKey, getCacheDirectory,
     cacheGetCompilation, cacheSetCompilation,
     cacheGetMetadata, cacheSetMetadata,
-    layoutCacheKey, cacheGetLayout, cacheSetLayout,
+    layoutCacheKey,     cacheGetLayout, cacheSetLayout,
+    tokenCacheKey, isSafeTokenSymbol, cacheGetToken, cacheSetToken,
 } from '../dist/cache.js';
 
 describe('get_default_cache', () => {
@@ -93,6 +94,10 @@ describe('sanitizeKey / sourcify keys', () => {
         assert.equal(
             sanitizeKey('c4m_10_0x0000000000000000000000000000000000000001'),
             'c4m_10_0x0000000000000000000000000000000000000001',
+        );
+        assert.equal(
+            sanitizeKey('c4e_1_0x1111111111111111111111111111111111111111'),
+            'c4e_1_0x1111111111111111111111111111111111111111',
         );
     });
 
@@ -248,6 +253,68 @@ describe('cacheGetLayout / cacheSetLayout', () => {
         await cacheSetLayout(cache, sourcesA, 'A', { storage: [], types: {} });
         assert.equal(cache.store.size, 1);
         assert.deepEqual(await cacheGetLayout(cache, sourcesA, 'A'), { storage: [], types: {} });
+    });
+});
+
+describe('cacheGetToken / cacheSetToken', () => {
+    const addr = '0x1111111111111111111111111111111111111111';
+
+    function memoryCache() {
+        const store = new Map();
+        return {
+            store,
+            get: async (key) => store.get(key) ?? null,
+            set: async (key, value) => { store.set(key, value); },
+        };
+    }
+
+    it('roundtrips a safe symbol and rejects unsafe input', async () => {
+        const cache = memoryCache();
+        assert.equal(tokenCacheKey(1, addr), `c4e_1_${addr}`);
+        assert.equal(isSafeTokenSymbol('USDC'), true);
+        assert.equal(isSafeTokenSymbol('bad symbol'), false);
+        assert.equal(isSafeTokenSymbol('a\nb'), false);
+
+        await cacheSetToken(cache, 1, addr, { symbol: 'USDC', decimals: 6 });
+        assert.deepEqual(await cacheGetToken(cache, 1, addr), { symbol: 'USDC', decimals: 6 });
+
+        await cacheSetToken(cache, 1, addr, { symbol: 'bad symbol', decimals: 6 });
+        assert.deepEqual(await cacheGetToken(cache, 1, addr), { symbol: 'USDC', decimals: 6 });
+
+        await cacheSetToken(cache, 1, addr, { symbol: 'DAI', decimals: 256 });
+        assert.deepEqual(await cacheGetToken(cache, 1, addr), { symbol: 'USDC', decimals: 6 });
+    });
+
+    it('returns null for a corrupted token entry', async () => {
+        const cache = memoryCache();
+        cache.store.set(`c4e_1_${addr}`, 'not json {{');
+        assert.equal(await cacheGetToken(cache, 1, addr), null);
+    });
+
+    it('rejects invalid keys and unsafe cached shapes', async () => {
+        const cache = memoryCache();
+        assert.equal(tokenCacheKey(-1, addr), null);
+        assert.equal(tokenCacheKey(1.5, addr), null);
+        assert.equal(tokenCacheKey(1, 'not-an-address'), null);
+        assert.equal(tokenCacheKey(1, '0xzz'), null);
+
+        assert.equal(isSafeTokenSymbol(''), false);
+        assert.equal(isSafeTokenSymbol('A'.repeat(33)), false);
+        assert.equal(isSafeTokenSymbol('USD.C'), true);
+        assert.equal(isSafeTokenSymbol('A$'), true);
+        assert.equal(isSafeTokenSymbol('x-y'), true);
+
+        await cacheSetToken(cache, 1, addr, { symbol: 'OK', decimals: -1 });
+        assert.equal(cache.store.size, 0);
+
+        cache.store.set(`c4e_1_${addr}`, JSON.stringify({ symbol: 'USDC' }));
+        assert.equal(await cacheGetToken(cache, 1, addr), null);
+
+        cache.store.set(`c4e_1_${addr}`, JSON.stringify({ symbol: 'bad symbol', decimals: 6 }));
+        assert.equal(await cacheGetToken(cache, 1, addr), null);
+
+        cache.store.set(`c4e_1_${addr}`, JSON.stringify({ symbol: 'USDC', decimals: 6.5 }));
+        assert.equal(await cacheGetToken(cache, 1, addr), null);
     });
 });
 

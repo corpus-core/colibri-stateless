@@ -1160,6 +1160,177 @@ describe('enrichSimulation', () => {
         const ctx = await enrichSimulation(result, { to: proxy, data: '0x' }, 1, { cache });
         assert.equal(ctx.resolvedStorage.get(proxy)?.[0].variableName, 'totalSupply');
     });
+
+    it('resolves ERC-20 symbol and decimals, caches them, and skips known addresses', async () => {
+        const token = '0x1111111111111111111111111111111111111111';
+        const from = '0x2222222222222222222222222222222222222222';
+        const erc20Abi = [
+            { type: 'function', name: 'symbol', inputs: [], outputs: [{ type: 'string' }], stateMutability: 'view' },
+            { type: 'function', name: 'decimals', inputs: [], outputs: [{ type: 'uint8' }], stateMutability: 'view' },
+        ];
+        globalThis.fetch = async (url) => {
+            const match = String(url).match(/\/v2\/contract\/\d+\/([^?]+)/);
+            const addr = match?.[1]?.toLowerCase();
+            const body = addr === token
+                ? {
+                    abi: erc20Abi,
+                    sources: { 'MyToken.sol': { content: 'contract MyToken {}' } },
+                    compilation: { compilerVersion: '0.8.0', name: 'MyToken' },
+                    stdJsonInput: null,
+                }
+                : { abi: null, sources: null };
+            return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        };
+        const coder = AbiCoder.defaultAbiCoder();
+        let calls = 0;
+        const ethCall = async (to, data) => {
+            calls += 1;
+            assert.equal(to.toLowerCase(), token);
+            if (data === '0x95d89b41') return coder.encode(['string'], ['USDC']);
+            if (data === '0x313ce567') return coder.encode(['uint8'], [6]);
+            return null;
+        };
+        const result = {
+            gasUsed: '0x1', status: '0x1', returnValue: '0x', logs: [],
+            trace: [{ from, to: token, type: 'CALL', input: '0x' }],
+        };
+        const tx = { to: token, from, data: '0x' };
+        const cache = memoryCache();
+        const ctx = await enrichSimulation(result, tx, 1, { cache, ethCall });
+        assert.equal(ctx.contracts.get(token).contractName, 'MyToken');
+        assert.deepEqual(ctx.tokens.get(token), { symbol: 'USDC', decimals: 6 });
+        assert.equal(calls, 2);
+
+        const again = await enrichSimulation(result, tx, 1, { cache, ethCall });
+        assert.equal(calls, 2, 'cache hit must not call ethCall again');
+        assert.deepEqual(again.tokens.get(token), { symbol: 'USDC', decimals: 6 });
+
+        let failed = 0;
+        const failing = async () => {
+            failed += 1;
+            throw new Error('rpc down');
+        };
+        const emptyCache = memoryCache();
+        const missed = await enrichSimulation(result, tx, 1, { cache: emptyCache, ethCall: failing });
+        assert.equal(missed.tokens.has(token), false);
+        assert.ok(![...emptyCache.store.keys()].some(key => key.startsWith('c4e_')));
+        assert.ok(failed > 0);
+
+        mockSourcify({ '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2': erc20Abi });
+        let knownCalls = 0;
+        await enrichSimulation(WETH_DEPOSIT_RESULT, TX_PARAMS, 1, {
+            cache: memoryCache(),
+            ethCall: async () => { knownCalls += 1; return '0x'; },
+        });
+        assert.equal(knownCalls, 0);
+    });
+
+    it('resolves bytes32 symbols and skips ethCall when absent or sender-only', async () => {
+        const token = '0x1111111111111111111111111111111111111111';
+        const from = '0x2222222222222222222222222222222222222222';
+        const bytes32Abi = [
+            { type: 'function', name: 'symbol', inputs: [], outputs: [{ type: 'bytes32' }], stateMutability: 'view' },
+            { type: 'function', name: 'decimals', inputs: [], outputs: [{ type: 'uint256' }], stateMutability: 'view' },
+        ];
+        mockSourcify({ [token]: bytes32Abi, [from]: bytes32Abi });
+        const coder = AbiCoder.defaultAbiCoder();
+        const symbolWord = Buffer.alloc(32);
+        symbolWord.write('MKR');
+        let calls = 0;
+        const ethCall = async (to, data) => {
+            calls += 1;
+            assert.equal(to.toLowerCase(), token, 'must call the token, never the sender');
+            if (data === '0x95d89b41') return coder.encode(['bytes32'], [symbolWord]);
+            if (data === '0x313ce567') return coder.encode(['uint256'], [18]);
+            return null;
+        };
+        const result = {
+            gasUsed: '0x1', status: '0x1', returnValue: '0x', logs: [],
+            trace: [{ from, to: token, type: 'CALL', input: '0x' }],
+        };
+        const tx = { to: token, from, data: '0x' };
+        const ctx = await enrichSimulation(result, tx, 1, { cache: memoryCache(), ethCall });
+        assert.deepEqual(ctx.tokens.get(token), { symbol: 'MKR', decimals: 18 });
+        assert.equal(ctx.tokens.has(from), false);
+        assert.equal(calls, 2);
+
+        const noCall = await enrichSimulation(result, tx, 1, { cache: memoryCache() });
+        assert.equal(noCall.tokens.size, 0);
+    });
+
+    it('uses the implementation ERC-20 ABI but ethCalls the proxy address', async () => {
+        const proxy = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+        const impl = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+        const from = '0x1111111111111111111111111111111111111111';
+        const proxyAbi = [
+            { type: 'function', name: 'upgradeTo', inputs: [{ type: 'address' }], outputs: [], stateMutability: 'nonpayable' },
+        ];
+        const implAbi = [
+            { type: 'function', name: 'symbol', inputs: [], outputs: [{ type: 'string' }], stateMutability: 'view' },
+            { type: 'function', name: 'decimals', inputs: [], outputs: [{ type: 'uint8' }], stateMutability: 'view' },
+        ];
+        mockSourcify({ [proxy]: proxyAbi, [impl]: implAbi });
+        const coder = AbiCoder.defaultAbiCoder();
+        const called = [];
+        const ethCall = async (to, data) => {
+            called.push(to.toLowerCase());
+            if (data === '0x95d89b41') return coder.encode(['string'], ['pUSDC']);
+            if (data === '0x313ce567') return coder.encode(['uint8'], [6]);
+            return null;
+        };
+        const result = {
+            gasUsed: '0x1', status: '0x1', returnValue: '0x', logs: [],
+            trace: [
+                { from, to: proxy, type: 'CALL', input: '0x', traceAddress: [] },
+                { from, to: impl, type: 'DELEGATECALL', input: '0x', traceAddress: [0] },
+            ],
+            accessList: [
+                { address: proxy, codeHash: '0x' + 'aa'.repeat(32), storageKeys: [] },
+                { address: impl, codeHash: '0x' + 'bb'.repeat(32), storageKeys: [] },
+            ],
+        };
+        const ctx = await enrichSimulation(result, { to: proxy, from, data: '0x' }, 1, {
+            cache: memoryCache(),
+            ethCall,
+        });
+        assert.deepEqual(ctx.tokens.get(proxy), { symbol: 'pUSDC', decimals: 6 });
+        assert.ok(called.includes(proxy), 'proxy must be ethCalled so symbol reads proxy storage');
+        assert.equal(called.filter(addr => addr === proxy).length, 2);
+    });
+
+    it('does not cache empty returns, unsafe symbols, or out-of-range decimals', async () => {
+        const token = '0x1111111111111111111111111111111111111111';
+        const from = '0x2222222222222222222222222222222222222222';
+        const erc20Abi = [
+            { type: 'function', name: 'symbol', inputs: [], outputs: [{ type: 'string' }], stateMutability: 'view' },
+            { type: 'function', name: 'decimals', inputs: [], outputs: [{ type: 'uint8' }], stateMutability: 'view' },
+        ];
+        mockSourcify({ [token]: erc20Abi });
+        const coder = AbiCoder.defaultAbiCoder();
+        const result = {
+            gasUsed: '0x1', status: '0x1', returnValue: '0x', logs: [],
+            trace: [{ from, to: token, type: 'CALL', input: '0x' }],
+        };
+        const tx = { to: token, from, data: '0x' };
+
+        for (const ethCall of [
+            async (_to, data) => (data === '0x95d89b41' ? '0x' : coder.encode(['uint8'], [6])),
+            async (_to, data) => (data === '0x95d89b41'
+                ? coder.encode(['string'], ['bad symbol'])
+                : coder.encode(['uint8'], [6])),
+            async (_to, data) => (data === '0x95d89b41'
+                ? coder.encode(['string'], ['OK'])
+                : coder.encode(['uint256'], [256])),
+            async (_to, data) => (data === '0x95d89b41'
+                ? coder.encode(['string'], ['S'.repeat(200)])
+                : coder.encode(['uint8'], [6])),
+        ]) {
+            const cache = memoryCache();
+            const ctx = await enrichSimulation(result, tx, 1, { cache, ethCall });
+            assert.equal(ctx.tokens.has(token), false);
+            assert.ok(![...cache.store.keys()].some(key => key.startsWith('c4e_')));
+        }
+    });
 });
 
 describe('toEnhancedResult', () => {

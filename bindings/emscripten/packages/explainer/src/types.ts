@@ -130,9 +130,13 @@ export interface PromptConfig {
     language?: string;
     /**
      * Maximum number of source-code characters embedded into the prompt
-     * (after license-header stripping). Lower this for local models with a
-     * small context window. `0` disables the cap and includes every source
-     * file in full. Default: `10000`.
+     * (after comment stripping). Lower this for local models with a small
+     * context window. `0` disables the cap. Default: `10000`.
+     *
+     * When the trace identifies entry functions, only those functions and the
+     * modifiers and internal calls reachable from them are embedded, whole
+     * functions at a time, until this budget is spent. When no entry can be
+     * matched, source files are windowed into the same budget.
      */
     maxSourceChars?: number;
 }
@@ -198,6 +202,31 @@ export interface ExplainerConfig extends PromptConfig, LLMProviderConfig {
     sourcifyBaseUrl?: string;
     /** Custom cache implementation. Uses localStorage (browser), fs (Node.js), or in-memory fallback by default. */
     cache?: ContractCache;
+    /**
+     * Read contract return data during enrichment. `data` is hex calldata
+     * (`0x` + selector + ABI args). Used to resolve ERC-20 `symbol()` and
+     * `decimals()` for addresses that are not in `known_addresses.ts`.
+     * Return hex return-data, or `null` when the call fails.
+     *
+     * Successful reads are stored in `cache` under `c4e_{chainId}_{address}`.
+     */
+    ethCall?: EthCallFn;
+}
+
+/**
+ * Host-supplied contract call used by enrichment.
+ *
+ * @param to - Contract address
+ * @param data - Hex calldata (`0x` + selector + ABI-encoded args)
+ * @return Hex return data, or `null` when the call fails
+ */
+export type EthCallFn = (to: string, data: string) => Promise<string | null>;
+
+/** ERC-20 `symbol()` / `decimals()` resolved for one address. */
+export interface TokenInfo {
+    symbol: string;
+    /** Token decimals in the range `0..255`. */
+    decimals: number;
 }
 
 /** Persistent cache for verified contract metadata, keyed by `codeHash`. */
@@ -251,6 +280,8 @@ export interface ContractMetadata {
     abi: unknown[] | null;
     sources: Record<string, { content: string }> | null;
     storageLayout: SolidityStorageLayout | null;
+    /** Solidity contract name from Sourcify compilation metadata, when known. */
+    contractName?: string | null;
 }
 
 /** Compilation artifacts returned by the Sourcify v2 `stdJsonInput` endpoint. */
@@ -329,6 +360,12 @@ export interface EnrichedContext {
      * come from the implementation.
      */
     implementations?: Map<string, string>;
+    /**
+     * Lowercase address → ERC-20 symbol and decimals. Filled by
+     * `enrichSimulation` from the token cache or from `ethCall`. Known
+     * addresses in `known_addresses.ts` are not repeated here.
+     */
+    tokens?: Map<string, TokenInfo>;
 }
 
 // -- Enhanced result types (JSON-serializable, for UI consumption) --

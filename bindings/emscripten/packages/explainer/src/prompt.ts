@@ -24,10 +24,14 @@
 import type {
     SimulationResult, SimulationLog, ContractStateChange, TraceEntry,
     TxParams, PromptConfig, EnrichedContext, ResolvedSlot, ResolvedSlotMember,
+    TokenInfo,
 } from './types.js';
-import { hexToBigInt, weiToEth, formatGas, shortenAddress, formatSelector, formatCalldataSize } from './format.js';
-import { labelAddress, lookupAddress } from './known_addresses.js';
+import { hexToBigInt, weiToEth, formatTokenAmount, formatGas, shortenAddress, formatSelector, formatCalldataSize } from './format.js';
+import { lookupAddress } from './known_addresses.js';
 import { extractPackedValue } from './storage.js';
+import { collectUsedAddresses } from './addresses.js';
+import { isSafeTokenSymbol } from './cache.js';
+import { sliceUsedFunctions } from './source_slice.js';
 
 /**
  * Default base system prompt used by the explainer. Exposed so applications can
@@ -118,32 +122,136 @@ function buildSystemPrompt(config: PromptConfig): string {
 
 function buildUserPrompt(result: SimulationResult, txParams: TxParams, context?: EnrichedContext, maxSourceChars?: number): string {
     const sections: string[] = [];
+    const book = buildAddressBook(result, txParams, context);
+
+    if (book.section) sections.push(book.section);
 
     const notes = collectAddressNotes(result, txParams);
     if (notes.length) sections.push(notes.join('\n'));
 
-    sections.push(formatTxOverview(result, txParams, context));
+    sections.push(formatTxOverview(result, txParams, context, book));
 
     if (result.logs && result.logs.length > 0) {
-        sections.push(formatEvents(result.logs, context));
+        sections.push(formatEvents(result.logs, context, book));
     }
 
     if (result.stateChanges && result.stateChanges.length > 0) {
-        sections.push(formatStateChanges(result.stateChanges, context, result));
+        sections.push(formatStateChanges(result.stateChanges, context, result, book));
     }
 
     if (result.trace && result.trace.length > 0) {
-        sections.push(formatTrace(result.trace, context));
+        sections.push(formatTrace(result.trace, context, book));
     }
 
     if (context) {
-        const sourceSection = formatSourceContext(result, context, maxSourceChars);
+        const sourceSection = formatSourceContext(result, txParams, context, maxSourceChars, book);
         if (sourceSection) sections.push(sourceSection);
     }
 
     sections.push('Please explain what this transaction would do.');
 
     return sections.join('\n\n');
+}
+
+const ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
+const SOLIDITY_IDENT_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+
+interface AddressBook {
+    section: string | null;
+    nameOf(address: string): string;
+    tokenOf(address: string): TokenInfo | undefined;
+}
+
+/**
+ * List every address the prompt uses once, then refer to it by name.
+ *
+ * Priority: `tx.from` is `sender`, then a curated label, then an ERC-20
+ * symbol, then the Solidity contract name, then `addr_` plus the last four
+ * hex characters. Collisions get a numeric suffix (`Token`, `Token2`).
+ *
+ * @param result - Simulation result
+ * @param txParams - Original transaction parameters
+ * @param context - Enrichment context, when available
+ * @return Name lookup and the directory section
+ */
+function buildAddressBook(
+    result: SimulationResult,
+    txParams: TxParams,
+    context?: EnrichedContext,
+): AddressBook {
+    const addresses = collectUsedAddresses(result, txParams, context);
+    const sender = txParams.from?.toLowerCase();
+    const names = new Map<string, string>();
+    const usedNames = new Map<string, number>();
+    const lines: string[] = [];
+
+    const claim = (base: string): string => {
+        const n = usedNames.get(base) ?? 0;
+        usedNames.set(base, n + 1);
+        return n === 0 ? base : `${base}${n + 1}`;
+    };
+
+    for (const addr of addresses) {
+        const name = claim(preferredName(addr, sender, context));
+        names.set(addr, name);
+        const token = tokenMeta(addr, context);
+        const decimals = token ? ` (${token.decimals} decimals)` : '';
+        lines.push(`- ${name} = ${addr}${decimals}`);
+    }
+
+    return {
+        section: lines.length ? `## Addresses\n${lines.join('\n')}` : null,
+        nameOf(address: string): string {
+            if (!address || !ADDRESS_RE.test(address)) return address ?? '';
+            const key = address.toLowerCase();
+            return names.get(key) ?? `addr_${key.slice(-4)}`;
+        },
+        tokenOf(address: string): TokenInfo | undefined {
+            if (!address) return undefined;
+            return tokenMeta(address.toLowerCase(), context);
+        },
+    };
+}
+
+/**
+ * Unsuffixed name for one address.
+ *
+ * @param addr - Lowercase address
+ * @param sender - Lowercase `tx.from`, if any
+ * @param context - Enrichment context
+ * @return Display name before collision handling
+ */
+function preferredName(addr: string, sender: string | undefined, context?: EnrichedContext): string {
+    if (sender && addr === sender) return 'sender';
+    const known = lookupAddress(addr);
+    if (known?.label) return known.label;
+    const token = context?.tokens?.get(addr);
+    if (token && isSafeTokenSymbol(token.symbol)) return token.symbol;
+    const contractName = context?.contracts?.get(addr)?.contractName;
+    if (contractName && SOLIDITY_IDENT_RE.test(contractName) && contractName.length <= 128) return contractName;
+    return `addr_${addr.slice(-4)}`;
+}
+
+/**
+ * Decimals and symbol for amount formatting.
+ *
+ * Curated entries win over a resolved token. The symbol shown next to an
+ * amount is the token symbol when we have one, otherwise the curated label.
+ *
+ * @param addr - Lowercase address
+ * @param context - Enrichment context
+ * @return Token metadata, or `undefined` when decimals are unknown
+ */
+function tokenMeta(addr: string, context?: EnrichedContext): TokenInfo | undefined {
+    const known = lookupAddress(addr);
+    if (known?.decimals != null) {
+        const symbol = known.symbol && isSafeTokenSymbol(known.symbol) ? known.symbol : known.label;
+        return { symbol, decimals: known.decimals };
+    }
+    const token = context?.tokens?.get(addr);
+    if (!token || !isSafeTokenSymbol(token.symbol)) return undefined;
+    if (!Number.isInteger(token.decimals) || token.decimals < 0 || token.decimals > 255) return undefined;
+    return token;
 }
 
 /**
@@ -186,7 +294,7 @@ function collectAddressNotes(result: SimulationResult, txParams: TxParams): stri
         seen.add(addr);
         const known = lookupAddress(addr);
         if (!known?.description) return;
-        notes.push(`NOTE: ${known.label} (${shortenAddress(addr)}): ${known.description}`);
+        notes.push(`NOTE: ${known.label}: ${known.description}`);
     };
     add(txParams.to);
     add(txParams.from);
@@ -202,10 +310,10 @@ function collectAddressNotes(result: SimulationResult, txParams: TxParams): stri
     return notes;
 }
 
-function formatTxOverview(result: SimulationResult, txParams: TxParams, context?: EnrichedContext): string {
+function formatTxOverview(result: SimulationResult, txParams: TxParams, context: EnrichedContext | undefined, book: AddressBook): string {
     const status = result.status === '0x1' ? 'SUCCESS' : 'REVERTED';
-    const to = labelAddress(txParams.to, shortenAddress);
-    const from = txParams.from ? labelAddress(txParams.from, shortenAddress) : 'unknown sender';
+    const to = book.nameOf(txParams.to);
+    const from = txParams.from ? book.nameOf(txParams.from) : 'unknown sender';
     const value = txParams.value ? weiToEth(txParams.value) : '0';
     const gas = formatGas(result.gasUsed);
 
@@ -217,7 +325,7 @@ function formatTxOverview(result: SimulationResult, txParams: TxParams, context?
 
     if (context?.decodedCall) {
         const dc = context.decodedCall;
-        const params = dc.params.map(p => `${p.name}=${p.value}`).join(', ');
+        const params = formatCallParams(dc.params, book, book.tokenOf(txParams.to));
         overview += `- Function: ${dc.name}(${params})\n`;
     } else if (isAddressWithoutAbi(txParams.to, context)) {
         // Issue #382: don't invent a selector for hand-written EVM (predeploys,
@@ -243,23 +351,24 @@ function formatTxOverview(result: SimulationResult, txParams: TxParams, context?
     return overview.trimEnd();
 }
 
-function formatEvents(logs: SimulationLog[], context?: EnrichedContext): string {
+function formatEvents(logs: SimulationLog[], context: EnrichedContext | undefined, book: AddressBook): string {
     const lines: string[] = ['## Emitted Events'];
 
     for (let i = 0; i < logs.length; i++) {
         const log = logs[i];
         const contractAddr = log.raw?.address
-            ? labelAddress(log.raw.address, shortenAddress)
+            ? book.nameOf(log.raw.address)
             : 'unknown contract';
+        const token = log.raw?.address ? book.tokenOf(log.raw.address) : undefined;
 
         const decoded = context?.decodedEvents?.[i];
 
         if (decoded) {
-            const params = decoded.params.map(p => formatEventParam(p)).join(', ');
+            const params = decoded.params.map(p => formatEventParam(p, book, token)).join(', ');
             lines.push(`${i + 1}. **${decoded.name}** on ${contractAddr}`);
             lines.push(`   Parameters: ${params}`);
         } else if (log.name && log.inputs) {
-            const params = log.inputs.map(p => formatEventParam(p)).join(', ');
+            const params = log.inputs.map(p => formatEventParam(p, book, token)).join(', ');
             lines.push(`${i + 1}. **${log.name}** on ${contractAddr}`);
             lines.push(`   Parameters: ${params}`);
         } else {
@@ -280,14 +389,61 @@ function formatEvents(logs: SimulationLog[], context?: EnrichedContext): string 
     return lines.join('\n');
 }
 
-function formatEventParam(param: { name: string; type: string; value: string }): string {
-    if (param.type === 'address') {
-        return `${param.name}=${labelAddress(param.value, shortenAddress)}`;
+function formatEventParam(
+    param: { name: string; type: string; value: string },
+    book: AddressBook,
+    token?: TokenInfo,
+): string {
+    return `${param.name}=${formatParamValue(param.type, param.value, param.name, book, token)}`;
+}
+
+/**
+ * Format one ABI value. Addresses become directory names. Token amounts on a
+ * contract whose decimals we know use that scale; other large amounts keep
+ * the 18-decimal heuristic.
+ *
+ * @param type - ABI type
+ * @param value - Decoded value text
+ * @param name - Parameter name
+ * @param book - Address directory
+ * @param token - Token metadata of the emitting or called contract
+ * @return Value text without the `name=` prefix
+ */
+function formatParamValue(
+    type: string,
+    value: string,
+    name: string,
+    book: AddressBook,
+    token?: TokenInfo,
+): string {
+    const compact = type.replace(/\s+/g, '');
+    if (compact === 'address') return book.nameOf(value);
+    if (compact.includes('address')) {
+        return value.replace(/0x[a-fA-F0-9]{40}/g, match => book.nameOf(match));
     }
-    if (param.type.startsWith('uint') || param.type.startsWith('int')) {
-        return `${param.name}=${formatNumericParam(param.value, param.name)}`;
+    if (type.startsWith('uint') || type.startsWith('int')) {
+        if (token && AMOUNT_PARAM_NAMES.has(name)) {
+            return `${formatTokenAmount(value, token.decimals)} ${token.symbol}`;
+        }
+        return formatNumericParam(value, name);
     }
-    return `${param.name}=${param.value}`;
+    return value;
+}
+
+/**
+ * Join decoded call parameters, scaling amounts when the callee is a token.
+ *
+ * @param params - Decoded arguments
+ * @param book - Address directory
+ * @param token - Token metadata of the callee, if any
+ * @return `name=value` list
+ */
+function formatCallParams(
+    params: { name: string; type: string; value: string }[],
+    book: AddressBook,
+    token?: TokenInfo,
+): string {
+    return params.map(p => `${p.name}=${formatParamValue(p.type, p.value, p.name, book, token)}`).join(', ');
 }
 
 const AMOUNT_PARAM_NAMES = new Set([
@@ -309,14 +465,15 @@ function formatNumericParam(hexValue: string, name: string): string {
 
 function formatStateChanges(
     changes: ContractStateChange[],
-    context?: EnrichedContext,
-    result?: SimulationResult,
+    context: EnrichedContext | undefined,
+    result: SimulationResult | undefined,
+    book: AddressBook,
 ): string {
     const lines: string[] = ['## State Changes'];
     const netByAddress = result ? netEthByAddress(result) : null;
 
     for (const change of changes) {
-        const addr = labelAddress(change.address, shortenAddress);
+        const addr = book.nameOf(change.address);
         const resolvedSlots = context?.resolvedStorage?.get(change.address.toLowerCase());
 
         if (change.balance) {
@@ -342,7 +499,7 @@ function formatStateChanges(
             for (let i = 0; i < change.storage.length; i++) {
                 const s = change.storage[i];
                 const resolved = resolvedSlots?.[i];
-                for (const line of formatStorageChangeLines(addr, s, resolved, i)) {
+                for (const line of formatStorageChangeLines(addr, s, resolved, i, book)) {
                     lines.push(line);
                 }
             }
@@ -358,10 +515,11 @@ function formatStateChanges(
  * move. Each line carries the same `[sN]` change-ID so the reader can tell
  * that they share one on-chain slot write (issue #380).
  *
- * @param addr - Contract address label (`WETH (0xC02a…6Cc2)` or shortened)
+ * @param addr - Contract name from the address directory
  * @param s - Storage slot change from the simulation result
  * @param resolved - Enriched slot metadata (may be missing / unresolved)
  * @param idx - Position of the storage change within the contract's list
+ * @param book - Address directory
  * @return Prompt lines (usually 1, more for packed slots)
  */
 function formatStorageChangeLines(
@@ -369,19 +527,20 @@ function formatStorageChangeLines(
     s: { slot: string; previousValue: string; newValue: string },
     resolved: ResolvedSlot | undefined,
     idx: number,
+    book: AddressBook,
 ): string[] {
     const tag = `[s${idx}]`;
 
     if (resolved?.members?.length) {
         const lines: string[] = [];
-        const keyStr = resolved.keys?.map(k => `[${formatKeyValue(k)}]`).join('') ?? '';
+        const keyStr = resolved.keys?.map(k => `[${formatKeyValue(k, book)}]`).join('') ?? '';
         const arrayStr = resolved.arrayIndex !== undefined ? `[${resolved.arrayIndex}]` : '';
         for (const m of resolved.members) {
             const prev = extractPackedValue(s.previousValue, m.offset, m.numberOfBytes);
             const next = extractPackedValue(s.newValue, m.offset, m.numberOfBytes);
             if (prev === null || next === null || prev === next) continue;
             const label = memberLabel(resolved, m, keyStr, arrayStr);
-            lines.push(`- ${tag} ${addr}: ${label} (${m.variableType}): ${formatPackedValue(prev, m)} -> ${formatPackedValue(next, m)}`);
+            lines.push(`- ${tag} ${addr}: ${label} (${m.variableType}): ${formatPackedValue(prev, m, book)} -> ${formatPackedValue(next, m, book)}`);
         }
         if (lines.length === 0) {
             // Every packed member reads the same value: the raw word changed
@@ -400,13 +559,13 @@ function formatStorageChangeLines(
         if (singleWidth !== null && (!fitsInBytes(s.previousValue, singleWidth) || !fitsInBytes(s.newValue, singleWidth))) {
             return [`- ${tag} ${addr}: slot ${slotIdentifier(resolved, s.slot)} [unresolved]: ${formatSlotValue(s.previousValue)} -> ${formatSlotValue(s.newValue)}`];
         }
-        const varLabel = formatResolvedLabel(resolved);
+        const varLabel = formatResolvedLabel(resolved, book);
         const typeHint = resolved.variableType ? ` (${resolved.variableType})` : '';
         return [`- ${tag} ${addr}: ${varLabel}${typeHint}: ${formatSlotValue(s.previousValue)} -> ${formatSlotValue(s.newValue)}`];
     }
 
     if (resolved && typeof resolved.baseSlot === 'number' && resolved.baseSlot >= 0) {
-        const keyStr = resolved.keys?.map(k => `[${formatKeyValue(k)}]`).join('') || '';
+        const keyStr = resolved.keys?.map(k => `[${formatKeyValue(k, book)}]`).join('') || '';
         return [`- ${tag} ${addr}: slot ${resolved.baseSlot}${keyStr} [unresolved]: ${formatSlotValue(s.previousValue)} -> ${formatSlotValue(s.newValue)}`];
     }
 
@@ -427,9 +586,9 @@ function memberLabel(resolved: ResolvedSlot, m: ResolvedSlotMember, keyStr: stri
  * address so the model does not need to decode uint160. Everything else falls
  * back to decimal.
  */
-function formatPackedValue(value: bigint, m: ResolvedSlotMember): string {
+function formatPackedValue(value: bigint, m: ResolvedSlotMember, book: AddressBook): string {
     if (m.variableType === 'address' && m.numberOfBytes === 20) {
-        return labelAddress('0x' + value.toString(16).padStart(40, '0'), shortenAddress);
+        return book.nameOf('0x' + value.toString(16).padStart(40, '0'));
     }
     if (m.variableType === 'bool' && m.numberOfBytes === 1) {
         return value === 0n ? 'false' : 'true';
@@ -507,10 +666,10 @@ function netEthByAddress(result: SimulationResult): Map<string, bigint> {
     return net;
 }
 
-function formatResolvedLabel(resolved: ResolvedSlot): string {
+function formatResolvedLabel(resolved: ResolvedSlot, book: AddressBook): string {
     let label = resolved.variableName || `slot ${resolved.baseSlot}`;
     if (resolved.keys?.length) {
-        label += resolved.keys.map(k => `[${formatKeyValue(k)}]`).join('');
+        label += resolved.keys.map(k => `[${formatKeyValue(k, book)}]`).join('');
     }
     if (resolved.arrayIndex !== undefined) {
         label += `[${resolved.arrayIndex}]`;
@@ -521,8 +680,8 @@ function formatResolvedLabel(resolved: ResolvedSlot): string {
     return label;
 }
 
-function formatKeyValue(key: { type: string; value: string }): string {
-    if (key.type === 'address') return labelAddress(key.value, shortenAddress);
+function formatKeyValue(key: { type: string; value: string }, book: AddressBook): string {
+    if (key.type === 'address') return book.nameOf(key.value);
     return key.value;
 }
 
@@ -535,20 +694,20 @@ function formatSlotValue(hex: string): string {
     return val.toString();
 }
 
-function formatTrace(trace: TraceEntry[], context?: EnrichedContext): string {
+function formatTrace(trace: TraceEntry[], context: EnrichedContext | undefined, book: AddressBook): string {
     const lines: string[] = ['## Call Trace'];
     const limit = Math.min(trace.length, 20);
 
     for (let i = 0; i < limit; i++) {
         const t = trace[i];
-        const from = t.from ? labelAddress(t.from, shortenAddress) : '?';
-        const to = t.to ? labelAddress(t.to, shortenAddress) : '?';
+        const from = t.from ? book.nameOf(t.from) : '?';
+        const to = t.to ? book.nameOf(t.to) : '?';
         const callType = t.type || 'CALL';
         const value = t.value && t.value !== '0x0' && t.value !== '0x' ? ` (${weiToEth(t.value)} ETH)` : '';
 
         const decoded = context?.decodedTrace?.[i];
         if (decoded) {
-            const params = decoded.params.map(p => `${p.name}=${p.value}`).join(', ');
+            const params = formatCallParams(decoded.params, book, t.to ? book.tokenOf(t.to) : undefined);
             lines.push(`${i + 1}. ${from} -> ${to}: ${decoded.name}(${params})${value} [${callType}]`);
         } else if (isAddressWithoutAbi(t.to, context)) {
             const size = formatCalldataSize(t.input);
@@ -567,24 +726,19 @@ function formatTrace(trace: TraceEntry[], context?: EnrichedContext): string {
     return lines.join('\n');
 }
 
-const SPDX_LINE_RE = /^\s*\/\/\/?\s*SPDX-License-Identifier:/i;
-const NATSPEC_RE = /@(?:title|notice|dev|author|param|return|inheritdoc|custom)\b/;
-const LICENSE_HINT_RE = /\b(?:spdx-license-identifier|licensed under|permission is hereby granted|gnu (?:lesser |affero )?general public|apache license|all rights reserved|mozilla public license|bsd [23]-clause|the unlicense|creative commons|cc0[- ]1\.0)\b/i;
-const COPYRIGHT_HEADER_RE = /\bcopyright\s*(?:\(c\)|©)?\s*\d{4}\b/i;
-
 /**
  * Prepare Solidity source for embedding into an LLM prompt.
  *
- * Strips leading SPDX / license / copyright boilerplate (noise that consumes
- * the source-character budget) and redacts fence tokens so the source cannot
- * break out of the untrusted-data wrapper. Code-adjacent comments and NatSpec
- * are kept: they are often the only hint for storage interpretation.
+ * Strips every line comment and block comment, including NatSpec and license
+ * headers. Comments are untrusted and are a prompt-injection path. String
+ * literals are left intact. Fence tokens inside the remaining text are
+ * redacted so the source cannot break out of the untrusted-data wrapper.
  *
  * @param source - Raw Solidity source
  * @return Sanitized source, or an empty string if nothing remains
  */
 export function sanitizeSourceForPrompt(source: string): string {
-    let text = stripLeadingLicense(source);
+    let text = stripSolidityComments(source);
     // Destroy the unique fence tokens anywhere they appear, including
     // whitespace/case variants around the wrapper punctuation. The replacement
     // is not a valid closer.
@@ -593,83 +747,111 @@ export function sanitizeSourceForPrompt(source: string): string {
     return text.trim();
 }
 
+/**
+ * Remove Solidity comments. An unclosed block comment drops the rest of the
+ * file so a missing closer cannot leave an instruction in the prompt.
+ *
+ * @param source - Raw source
+ * @return Source with comments removed
+ */
+function stripSolidityComments(source: string): string {
+    let i = source.charCodeAt(0) === 0xFEFF ? 1 : 0;
+    const n = source.length;
+    let out = '';
+
+    while (i < n) {
+        const ch = source[i];
+        const next = source[i + 1];
+        if (ch === '"' || ch === '\'') {
+            const end = scanStringLiteral(source, i);
+            out += source.slice(i, end);
+            i = end;
+            continue;
+        }
+        if (ch === '/' && next === '/') {
+            i += 2;
+            while (i < n && !isLineBreak(source[i])) i++;
+            continue;
+        }
+        if (ch === '/' && next === '*') {
+            const close = source.indexOf('*/', i + 2);
+            if (close < 0) break;
+            const body = source.slice(i, close + 2);
+            out += /[\n\r\u2028\u2029]/.test(body) ? '\n' : ' ';
+            i = close + 2;
+            continue;
+        }
+        out += ch;
+        i++;
+    }
+    return out;
+}
+
+/**
+ * End index (exclusive) of a Solidity string that starts at `start`.
+ *
+ * Stops at an unescaped newline so a missing closer cannot swallow the file.
+ *
+ * @param source - Raw source
+ * @param start - Index of the opening quote
+ * @return Index just after the closing quote, or the newline / end of input
+ */
+function scanStringLiteral(source: string, start: number): number {
+    const quote = source[start];
+    let i = start + 1;
+    while (i < source.length) {
+        if (source[i] === '\\') {
+            i += 2;
+            continue;
+        }
+        if (source[i] === quote) return i + 1;
+        if (isLineBreak(source[i])) return i;
+        i++;
+    }
+    return source.length;
+}
+
 function safeSourceFilename(name: string): string {
     const cleaned = name.replace(/[^a-zA-Z0-9._/\-]+/g, '_');
     return (cleaned || 'source.sol').slice(0, 128);
 }
 
 /**
- * Drop SPDX identifiers and license/copyright block comments that appear
- * before the first real code token. Stops at NatSpec or any non-license comment
- * so documentation and inline notes stay in the prompt.
+ * `true` for characters that end a Solidity line comment.
+ *
+ * @param ch - One source character, or `undefined` past the end
+ * @return Whether `ch` is a line break
  */
 function isLineBreak(ch: string | undefined): boolean {
     return ch === '\n' || ch === '\r' || ch === '\u2028' || ch === '\u2029';
-}
-
-function skipLineBreak(source: string, i: number): number {
-    if (source[i] === '\r' && source[i + 1] === '\n') return i + 2;
-    return isLineBreak(source[i]) ? i + 1 : i;
-}
-
-function lineCommentEnd(source: string, start: number): number {
-    for (let i = start; i < source.length; i++) {
-        if (isLineBreak(source[i])) return i;
-    }
-    return source.length;
-}
-
-function stripLeadingLicense(source: string): string {
-    let i = source.charCodeAt(0) === 0xFEFF ? 1 : 0;
-    const n = source.length;
-
-    while (i < n) {
-        while (i < n && (source[i] === ' ' || source[i] === '\t' || isLineBreak(source[i]))) {
-            i++;
-        }
-        if (i >= n) break;
-
-        if (source.startsWith('//', i)) {
-            const end = lineCommentEnd(source, i);
-            const body = source.slice(i, end);
-            if (SPDX_LINE_RE.test(body) || isDroppableHeaderComment(body)) {
-                i = skipLineBreak(source, end);
-                continue;
-            }
-            return source.slice(i);
-        }
-
-        if (source.startsWith('/*', i)) {
-            const close = source.indexOf('*/', i + 2);
-            if (close < 0) return source.slice(i);
-            const body = source.slice(i, close + 2);
-            if (isDroppableHeaderComment(body)) {
-                i = close + 2;
-                continue;
-            }
-            return source.slice(i);
-        }
-
-        return source.slice(i);
-    }
-    return '';
-}
-
-function isDroppableHeaderComment(text: string): boolean {
-    if (NATSPEC_RE.test(text)) return false;
-    return LICENSE_HINT_RE.test(text) || COPYRIGHT_HEADER_RE.test(text);
 }
 
 /**
  * Include source code context for contracts where storage layout is unavailable,
  * so the LLM can reason about storage variable assignments.
  *
- * Source is untrusted third-party data (Sourcify). It is sanitized and wrapped
- * in `C4_UNTRUSTED_SOURCE` markers; comments are kept except for leading
- * license boilerplate. A proxy state change uses the implementation's sources:
- * the proxy contract does not declare the variables stored in its context.
+ * Source is untrusted third-party data (Sourcify). Comments are stripped and
+ * the rest is wrapped in `C4_UNTRUSTED_SOURCE` markers. When the trace names
+ * entry functions, only those functions and the modifiers and calls reachable
+ * from them are embedded, whole definitions at a time, until `maxSourceChars`
+ * is spent. Otherwise the file is windowed from the last contract definition.
+ * A proxy state change uses the implementation's sources: the proxy contract
+ * does not declare the variables stored in its context.
+ *
+ * @param result - Simulation result
+ * @param txParams - Original transaction parameters
+ * @param context - Enrichment context
+ * @param maxSourceChars - Source-character budget (`0` means unlimited)
+ * @param book - Address directory
+ * @return Prompt section, or `null` when nothing should be embedded
  */
-function formatSourceContext(result: SimulationResult, context: EnrichedContext, maxSourceChars?: number): string | null {
+function formatSourceContext(
+    result: SimulationResult,
+    txParams: TxParams,
+    context: EnrichedContext,
+    maxSourceChars: number | undefined,
+    book: AddressBook,
+): string | null {
     const contractsNeedingSource = new Set<string>();
 
     if (result.stateChanges) {
@@ -692,25 +874,47 @@ function formatSourceContext(result: SimulationResult, context: EnrichedContext,
     const budgetLimit = resolveSourceBudget(maxSourceChars);
     const unlimited = budgetLimit === null;
     let totalBudget = unlimited ? Number.POSITIVE_INFINITY : budgetLimit;
+    const initialBudget = totalBudget;
     const fileCount = countSourceFiles(context, contractsNeedingSource);
-    // A single file gets the full budget (the old 30% cap cut MCGA-style
-    // tokens in the middle of Ownable and dropped the state variables).
-    // Multiple files share a finite budget evenly. `maxSourceChars: 0` skips
-    // the cap so a large model can see every file in full.
+    // Fallback windows only. A single file gets the full budget (the old 30%
+    // cap cut MCGA-style tokens in the middle of Ownable and dropped the state
+    // variables). Multiple files share a finite budget evenly.
     const perFileCap = unlimited || fileCount <= 1
-        ? totalBudget
-        : Math.max(1, Math.floor(totalBudget / fileCount));
+        ? initialBudget
+        : Math.max(1, Math.floor(initialBudget / fileCount));
 
     let embeddedAny = false;
     for (const addr of contractsNeedingSource) {
         if (totalBudget <= 0) break;
         const sources = sourcesForStorageContext(context, addr);
-        const label = labelAddress(addr, shortenAddress);
+        const label = book.nameOf(addr);
         const contractHeaderIndex = lines.length;
         lines.push(`\n### ${label}`);
         let embeddedForThisAddr = false;
 
-        if (sources) {
+        const sliced = sources
+            ? sliceUsedFunctions({
+                sources,
+                contractName: contractNameForSource(context, addr),
+                entryNames: entryNamesFor(addr, result, txParams, context),
+                maxChars: unlimited ? null : totalBudget,
+                includeFile: isEmbeddableSource,
+                sanitize: sanitizeSourceForPrompt,
+            })
+            : null;
+
+        if (sliced) {
+            for (const piece of sliced) {
+                if (!SOLIDITY_IDENT_RE.test(piece.name)) continue;
+                const safeName = safeSourceFilename(piece.filename);
+                lines.push(
+                    `\`${safeName}\` ${piece.kind} ${piece.name}:\n<<<${SOURCE_BEGIN_TOKEN} filename="${safeName}">>>\n${piece.text}\n<<<${SOURCE_END_TOKEN}>>>`,
+                );
+                totalBudget -= piece.text.length;
+                embeddedForThisAddr = true;
+                embeddedAny = true;
+            }
+        } else if (sources) {
             for (const [filename, source] of Object.entries(sources)) {
                 if (totalBudget <= 0) break;
                 // Issue #382: skip non-Solidity artifacts (Yul, raw EVM). The
@@ -742,6 +946,50 @@ function formatSourceContext(result: SimulationResult, context: EnrichedContext,
     if (!embeddedAny) return null;
 
     return lines.join('\n');
+}
+
+/**
+ * Solidity contract name whose sources describe `addr`.
+ *
+ * A proxy uses the implementation's name, matching `sourcesForStorageContext`.
+ *
+ * @param context - Enrichment context
+ * @param addr - Lowercase state-change address
+ * @return Contract name, or `null` when unknown
+ */
+function contractNameForSource(context: EnrichedContext, addr: string): string | null {
+    const impl = context.implementations?.get(addr);
+    return context.contracts.get(impl ?? addr)?.contractName ?? null;
+}
+
+/**
+ * Function names executed against this contract or its implementation.
+ *
+ * @param addr - Lowercase state-change address
+ * @param result - Simulation result
+ * @param txParams - Original transaction parameters
+ * @param context - Enrichment context
+ * @return Entry names in trace order
+ */
+function entryNamesFor(
+    addr: string,
+    result: SimulationResult,
+    txParams: TxParams,
+    context: EnrichedContext,
+): string[] {
+    const impl = context.implementations?.get(addr);
+    const targets = new Set<string>([addr]);
+    if (impl) targets.add(impl);
+    const names: string[] = [];
+    const push = (name?: string): void => {
+        if (!name || !SOLIDITY_IDENT_RE.test(name) || names.includes(name)) return;
+        names.push(name);
+    };
+    if (txParams.to && targets.has(txParams.to.toLowerCase())) push(context.decodedCall?.name);
+    result.trace?.forEach((frame, i) => {
+        if (frame.to && targets.has(frame.to.toLowerCase())) push(context.decodedTrace?.[i]?.name);
+    });
+    return names;
 }
 
 /**
