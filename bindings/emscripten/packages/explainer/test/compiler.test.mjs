@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, rmSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { Module } from 'node:module';
+import { Module, createRequire } from 'node:module';
 import { Worker } from 'node:worker_threads';
-import { getBundledCompiler, compileAndVerify, loadCompiler, solcCacheFileName, resetCompilerStateForTests, hashRuntimeBytecode, compileSoljsonSourceForTests, installDummyCompilerForTests, compilerCacheSizeForTests } from '../dist/compiler.js';
+import { getBundledCompiler, compileAndVerify, loadCompiler, solcCacheFileName, resetCompilerStateForTests, hashRuntimeBytecode, compileSoljsonSourceForTests, installDummyCompilerForTests, compilerCacheSizeForTests, BUNDLED_SOLC_RELEASE } from '../dist/compiler.js';
 import { keccak256 } from 'ethers';
 
 const FAKE_SOLC_V1 = '0.7.6+commit.aaaaaa';
@@ -67,6 +67,11 @@ function fakeSoljsonSource(version) {
 }
 
 describe('getBundledCompiler', () => {
+    it('pins the browser soljson release to the installed solc package', () => {
+        const pkg = createRequire(import.meta.url)('solc/package.json');
+        assert.equal(BUNDLED_SOLC_RELEASE, pkg.version);
+    });
+
     it('returns a compiler with compile and version methods', async () => {
         const compiler = await getBundledCompiler();
         assert.ok(typeof compiler.compile === 'function');

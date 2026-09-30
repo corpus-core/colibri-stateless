@@ -724,7 +724,12 @@ async function compileSkeleton(
     const started = Date.now();
     let output: Record<string, unknown>;
     try {
-        output = JSON.parse(compiler.compile(input));
+        // The browser compiler only exposes `compileAsync` (worker). Node's
+        // bundled solc compiles synchronously.
+        const raw = compiler.compileAsync
+            ? await compiler.compileAsync(input)
+            : compiler.compile(input);
+        output = JSON.parse(raw);
     } catch (err) {
         explainerLog('warn', 'skeleton compile failed', {
             scope: 'layout',
