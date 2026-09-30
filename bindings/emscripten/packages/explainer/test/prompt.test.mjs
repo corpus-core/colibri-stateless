@@ -1094,3 +1094,216 @@ describe('buildPrompt used-function source', () => {
     });
 });
 
+describe('buildPrompt coverage-based source slicing', () => {
+    const WETH_ADDR = '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2';
+    const source = [
+        'contract Vault {',
+        '    function deposit(uint256 amount) public { helper(amount); }',
+        '    function withdraw(uint256 amount) public { total -= amount; }',
+        '    function helper(uint256 amount) internal { total += amount; }',
+        '    function unused() public {}',
+        '    uint256 total;',
+        '}',
+    ].join('\n');
+    const withdrawStart = source.indexOf('function withdraw');
+
+    it('includes covered withdraw even though the decoded call is deposit, without dragging deposit/helper', () => {
+        const ctx = {
+            contracts: new Map([[WETH_ADDR, {
+                abi: null, storageLayout: null, contractName: 'Vault',
+                sources: { 'Vault.sol': { content: source } },
+            }]]),
+            resolvedStorage: new Map([[WETH_ADDR, [{ baseSlot: -1, raw: 'x' }]]]),
+            decodedCall: { name: 'deposit', signature: 'deposit(uint256)', params: [] },
+            decodedTrace: [{ name: 'deposit', signature: 'deposit(uint256)', params: [] }],
+            decodedEvents: [],
+            coveredDefinitions: new Map([[WETH_ADDR, [{
+                filename: 'Vault.sol',
+                contractName: 'Vault',
+                name: 'withdraw',
+                kind: 'function',
+                start: withdrawStart,
+                end: withdrawStart + 'function withdraw(uint256 amount) public { total -= amount; }'.length,
+            }]]]),
+        };
+        const { userPrompt } = buildPrompt(WETH_DEPOSIT_RESULT, TX_PARAMS, {}, ctx);
+        assert.ok(userPrompt.includes('function withdraw'));
+        assert.ok(userPrompt.includes('uint256 total;'));
+        assert.ok(!userPrompt.includes('function deposit'), 'name-based BFS must be bypassed when coverage is available');
+        assert.ok(!userPrompt.includes('function helper'), 'coverage must not follow callees');
+        assert.ok(!userPrompt.includes('function unused'));
+    });
+
+    it('falls back to name-based slicing when coverage is empty', () => {
+        const ctx = {
+            contracts: new Map([[WETH_ADDR, {
+                abi: null, storageLayout: null, contractName: 'Vault',
+                sources: { 'Vault.sol': { content: source } },
+            }]]),
+            resolvedStorage: new Map([[WETH_ADDR, [{ baseSlot: -1, raw: 'x' }]]]),
+            decodedCall: { name: 'deposit', signature: 'deposit(uint256)', params: [] },
+            decodedTrace: [{ name: 'deposit', signature: 'deposit(uint256)', params: [] }],
+            decodedEvents: [],
+            coveredDefinitions: new Map(),
+        };
+        const { userPrompt } = buildPrompt(WETH_DEPOSIT_RESULT, TX_PARAMS, {}, ctx);
+        assert.ok(userPrompt.includes('function deposit'));
+        assert.ok(userPrompt.includes('function helper'));
+        assert.ok(!userPrompt.includes('function withdraw'));
+    });
+
+    it('follows implementations map to pull coverage for a proxy target', () => {
+        const IMPL_ADDR = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+        // The stateChanges iterator sees the proxy address (WETH_ADDR here);
+        // sources & coverage are registered against the implementation address.
+        const ctx = {
+            contracts: new Map([
+                [WETH_ADDR, { abi: null, storageLayout: null, contractName: null, sources: null }],
+                [IMPL_ADDR, {
+                    abi: null, storageLayout: null, contractName: 'Vault',
+                    sources: { 'Vault.sol': { content: source } },
+                }],
+            ]),
+            resolvedStorage: new Map([[WETH_ADDR, [{ baseSlot: -1, raw: 'x' }]]]),
+            decodedCall: { name: 'deposit', signature: 'deposit(uint256)', params: [] },
+            decodedTrace: [{ name: 'deposit', signature: 'deposit(uint256)', params: [] }],
+            decodedEvents: [],
+            implementations: new Map([[WETH_ADDR, IMPL_ADDR]]),
+            coveredDefinitions: new Map([[IMPL_ADDR, [{
+                filename: 'Vault.sol',
+                contractName: 'Vault',
+                name: 'withdraw',
+                kind: 'function',
+                start: withdrawStart,
+                end: withdrawStart + 'function withdraw(uint256 amount) public { total -= amount; }'.length,
+            }]]]),
+        };
+        const { userPrompt } = buildPrompt(WETH_DEPOSIT_RESULT, TX_PARAMS, {}, ctx);
+        assert.ok(userPrompt.includes('function withdraw'), 'proxy iteration must resolve coverage on the implementation');
+        assert.ok(!userPrompt.includes('function deposit'), 'name-based BFS must be bypassed via impl coverage');
+    });
+});
+
+describe('buildPrompt state reads', () => {
+    const TOKEN = '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2';
+    const readSlot = '0x' + '00'.repeat(31) + '01';
+
+    function readContext(overrides = {}) {
+        return {
+            contracts: new Map(),
+            resolvedStorage: new Map(),
+            resolvedReads: new Map([[
+                TOKEN,
+                [
+                    { slot: readSlot, value: '0x2a', resolved: { variableName: 'totalSupply', variableType: 'uint256', baseSlot: 1, raw: readSlot } },
+                    { slot: '0x' + '00'.repeat(31) + '02', value: '0x1', resolved: { variableName: 'paused', variableType: 'bool', baseSlot: 2, raw: '0x' } },
+                ],
+            ]]),
+            decodedTrace: [],
+            decodedEvents: [],
+            ...overrides,
+        };
+    }
+
+    it('emits a ## State Reads section before ## State Changes', () => {
+        const result = {
+            ...WETH_DEPOSIT_RESULT,
+            stateChanges: [{
+                address: TOKEN,
+                storage: [{ slot: '0x' + '00'.repeat(32), previousValue: '0x0', newValue: '0x1' }],
+            }],
+        };
+        const { userPrompt } = buildPrompt(result, TX_PARAMS, {}, readContext());
+        const readsIdx = userPrompt.indexOf('## State Reads');
+        const changesIdx = userPrompt.indexOf('## State Changes');
+        assert.ok(readsIdx >= 0, 'expected ## State Reads section');
+        assert.ok(changesIdx >= 0, 'expected ## State Changes section');
+        assert.ok(readsIdx < changesIdx, `State Reads must precede State Changes, got reads=${readsIdx}, changes=${changesIdx}`);
+        assert.ok(userPrompt.includes('totalSupply'));
+        assert.ok(userPrompt.includes('paused'));
+    });
+
+    it('caps entries per contract via PromptConfig.maxStateValues', () => {
+        const { userPrompt } = buildPrompt(WETH_DEPOSIT_RESULT, TX_PARAMS, { maxStateValues: 1 }, readContext());
+        assert.ok(userPrompt.includes('## State Reads'));
+        assert.ok(userPrompt.includes('totalSupply'));
+        assert.ok(!userPrompt.includes('paused'));
+        assert.ok(userPrompt.includes('1 more read omitted'));
+    });
+
+    it('omits the section when every read is unresolved', () => {
+        const ctx = readContext({
+            resolvedReads: new Map([[
+                TOKEN,
+                [{ slot: readSlot, value: '0x2a', resolved: { baseSlot: 1, raw: readSlot } }],
+            ]]),
+        });
+        const { userPrompt } = buildPrompt(WETH_DEPOSIT_RESULT, TX_PARAMS, {}, ctx);
+        assert.ok(!userPrompt.includes('## State Reads'));
+    });
+
+    it('lists every entry when maxStateValues is 0 (unlimited)', () => {
+        const many = Array.from({ length: 10 }, (_, i) => ({
+            slot: '0x' + i.toString(16).padStart(64, '0'),
+            value: '0x' + (i + 1).toString(16),
+            resolved: { variableName: `field${i}`, variableType: 'uint256', baseSlot: i, raw: '0x' },
+        }));
+        const ctx = readContext({ resolvedReads: new Map([[TOKEN, many]]) });
+        const { userPrompt } = buildPrompt(WETH_DEPOSIT_RESULT, TX_PARAMS, { maxStateValues: 0 }, ctx);
+        assert.ok(userPrompt.includes('## State Reads'));
+        for (let i = 0; i < 10; i++) assert.ok(userPrompt.includes(`field${i}`), `expected field${i}`);
+        assert.ok(!userPrompt.includes('more read omitted'));
+        assert.ok(!userPrompt.includes('more reads omitted'));
+    });
+
+    it('drops a resolved read whose value exceeds the declared type width', () => {
+        // Same guard as State Changes (issue #380): a uint112 variable with a
+        // value that needs more than 112 bits must not be labelled with that
+        // variable name in the prompt.
+        const ctx = readContext({
+            resolvedReads: new Map([[
+                TOKEN,
+                [{
+                    slot: readSlot,
+                    value: '0x' + 'ff'.repeat(32),
+                    resolved: { variableName: 'reserve0', variableType: 'uint112', baseSlot: 3, raw: readSlot },
+                }],
+            ]]),
+        });
+        const { userPrompt } = buildPrompt(WETH_DEPOSIT_RESULT, TX_PARAMS, {}, ctx);
+        assert.ok(!userPrompt.includes('reserve0'), 'too-wide value must not be attributed to the typed variable');
+        assert.ok(!userPrompt.includes('## State Reads'), 'section must not be emitted when nothing survives the width guard');
+    });
+
+    it('renders only the named members of a partially-resolved packed slot', () => {
+        // Packed slot with one named uint96 member (offset 0) and one anonymous
+        // member (offset 12) — the anonymous member must be silently skipped.
+        const packed = (r0, r1) => '0x' + BigInt(r1).toString(16).padStart(24, '0').padStart(64, '0').slice(0, 24)
+            + BigInt(r0).toString(16).padStart(24, '0');
+        const value = packed(42n, 99n);
+        const ctx = readContext({
+            resolvedReads: new Map([[
+                TOKEN,
+                [{
+                    slot: readSlot,
+                    value,
+                    resolved: {
+                        baseSlot: 4,
+                        raw: readSlot,
+                        variableName: 'reserves',
+                        variableType: 'Reserves',
+                        members: [
+                            { variableName: 'amount0', variableType: 'uint96', offset: 0, numberOfBytes: 12 },
+                            { variableName: '', variableType: 'uint96', offset: 12, numberOfBytes: 12 },
+                        ],
+                    },
+                }],
+            ]]),
+        });
+        const { userPrompt } = buildPrompt(WETH_DEPOSIT_RESULT, TX_PARAMS, {}, ctx);
+        assert.ok(userPrompt.includes('## State Reads'));
+        assert.ok(userPrompt.includes('reserves.amount0'), 'named packed member must be printed');
+        assert.ok(!/reserves\.\s|reserves\.$/m.test(userPrompt), 'anonymous member must not print a bare "reserves." label');
+    });
+});
+

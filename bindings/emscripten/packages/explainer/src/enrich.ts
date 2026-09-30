@@ -25,8 +25,10 @@ import type {
     SimulationResult, TxParams, EnrichedContext, ContractMetadata,
     DecodedCall, DecodedEvent, DecodedError, ResolvedSlot, TraceEntry,
     EnhancedSimulationResult, EnhancedLog, EnhancedTraceEntry, EnhancedContractStateChange,
+    EnhancedContractStateReads,
     ContractCache, VerifiedContract, AccessListEntry, ContractStateChange,
-    EthCallFn, TokenInfo,
+    EthCallFn, TokenInfo, CoveredDefinition, ResolvedStateRead, ExecutedPositions,
+    ContractSourceMap,
 } from './types.js';
 import { AbiCoder } from 'ethers';
 import { fetchCompilationInput } from './sourcify.js';
@@ -38,6 +40,8 @@ import { cacheGet, cacheSet, cacheGetLayout, cacheSetLayout, cacheGetToken, cach
 import { elapsedMs, explainerLog } from './log.js';
 import { collectUsedAddresses } from './addresses.js';
 import { lookupAddress } from './known_addresses.js';
+import { resolvePcs } from './source_map.js';
+import { findCoveredDefinitions } from './source_slice.js';
 
 /**
  * Enrich a simulation result with decoded contract metadata.
@@ -82,6 +86,9 @@ export async function enrichSimulation(
     const decodedTrace = decodeTraceEntries(result.trace, contracts, result.accessList, implementations);
     const decodedEvents = decodeEventLogs(result.logs, contracts, implementations);
     const resolvedStorage = resolveAllStorage(result, contracts, implementations);
+    const resolvedReads = resolveAllReads(result, contracts, implementations);
+    await attachSourceMaps(result.positions, contracts, codeHashes, chainId, cache, options?.sourcifyBaseUrl);
+    const coveredDefinitions = buildCoveredDefinitions(result.positions, contracts, implementations);
     const tokens = await resolveErc20Tokens(
         collectUsedAddresses(result, txParams, {
             decodedCall, decodedTrace, decodedEvents, resolvedStorage,
@@ -94,7 +101,18 @@ export async function enrichSimulation(
         options?.ethCall,
     );
 
-    return { contracts, decodedCall, decodedError, resolvedStorage, decodedTrace, decodedEvents, implementations, tokens };
+    return {
+        contracts,
+        decodedCall,
+        decodedError,
+        resolvedStorage,
+        resolvedReads,
+        decodedTrace,
+        decodedEvents,
+        implementations,
+        tokens,
+        coveredDefinitions,
+    };
 }
 
 /** keccak256("") -- code hash of accounts without bytecode. */
@@ -631,12 +649,23 @@ export function toEnhancedResult(
         return { address: change.address, storage, balance: change.balance };
     });
 
+    let stateReads: EnhancedContractStateReads[] | undefined;
+    if (context.resolvedReads && context.resolvedReads.size > 0) {
+        stateReads = [];
+        for (const [address, reads] of context.resolvedReads) {
+            if (!reads.length) continue;
+            stateReads.push({ address, reads });
+        }
+        if (!stateReads.length) stateReads = undefined;
+    }
+
     return {
         gasUsed: result.gasUsed,
         status: result.status,
         returnValue: result.returnValue,
         logs,
         stateChanges,
+        stateReads,
         trace,
         explanation,
         decodedCall: context.decodedCall,
@@ -679,6 +708,239 @@ function resolveAllStorage(
     }
 
     return resolved;
+}
+
+/**
+ * Resolve `accessList[].storage` entries the same way `resolveAllStorage`
+ * treats `stateChanges`, skipping slots that also appear in `stateChanges`
+ * (writes trump reads — a written slot is already shown under "State Changes").
+ *
+ * Returns an empty map when the simulation was not asked for `state_values`.
+ *
+ * @param result - Simulation result
+ * @param contracts - Resolved metadata
+ * @param implementations - Proxy → implementation
+ * @return Lowercase address → per-slot resolutions
+ */
+function resolveAllReads(
+    result: SimulationResult,
+    contracts: Map<string, ContractMetadata>,
+    implementations?: Map<string, string>,
+): Map<string, ResolvedStateRead[]> {
+    const resolved = new Map<string, ResolvedStateRead[]>();
+    if (!result.accessList?.length) return resolved;
+
+    const writtenSlots = collectWrittenSlots(result.stateChanges);
+    const globalCandidates = collectGlobalMappingKeyCandidates(result);
+
+    for (const entry of result.accessList) {
+        if (!entry.address || !entry.storage?.length) continue;
+        const addr = entry.address.toLowerCase();
+        const written = writtenSlots.get(addr);
+        const implAddr = implementations?.get(addr);
+        const layout = implAddr
+            ? (contracts.get(implAddr)?.storageLayout ?? null)
+            : (contracts.get(addr)?.storageLayout ?? null);
+
+        const candidates = [addr, ...globalCandidates];
+        const reads: ResolvedStateRead[] = [];
+        for (const slot of entry.storage) {
+            if (!slot || typeof slot.slot !== 'string') continue;
+            if (written && written.has(slot.slot.toLowerCase())) continue;
+            const resolvedSlot = slot.slotSource
+                ? resolveStorageSlot(slot.slotSource, layout, candidates)
+                : resolveDirectSlot(slot.slot, layout);
+            reads.push({ slot: slot.slot, value: slot.value, resolved: resolvedSlot });
+        }
+        if (reads.length) resolved.set(addr, reads);
+    }
+    return resolved;
+}
+
+/**
+ * Index every written storage slot by contract so read-only slots can be
+ * subtracted from the access list.
+ *
+ * @param changes - `SimulationResult.stateChanges`
+ * @return Lowercase address → set of written raw slot keys (lowercase)
+ */
+function collectWrittenSlots(
+    changes: SimulationResult['stateChanges'],
+): Map<string, Set<string>> {
+    const out = new Map<string, Set<string>>();
+    if (!changes) return out;
+    for (const change of changes) {
+        if (!change.storage?.length) continue;
+        const addr = change.address.toLowerCase();
+        let set = out.get(addr);
+        if (!set) { set = new Set<string>(); out.set(addr, set); }
+        for (const slot of change.storage) {
+            if (typeof slot.slot === 'string') set.add(slot.slot.toLowerCase());
+        }
+    }
+    return out;
+}
+
+/**
+ * Address candidates for mapping-key detection, computed once per tx from
+ * logs, trace, and access list.
+ *
+ * @param result - Simulation result
+ * @return Deduplicated lowercase addresses
+ */
+function collectGlobalMappingKeyCandidates(result: SimulationResult): string[] {
+    const keys = new Set<string>();
+    const add = (value?: string): void => {
+        if (!value) return;
+        const v = value.toLowerCase();
+        if (ADDRESS_CANDIDATE_RE.test(v)) keys.add(v);
+    };
+    for (const log of result.logs ?? []) {
+        add(log.raw?.address);
+        for (const input of log.inputs ?? []) {
+            if (input.type === 'address') add(input.value);
+        }
+        for (const topic of (log.raw?.topics ?? []).slice(1)) {
+            if (INDEXED_ADDRESS_TOPIC_RE.test(topic)) add('0x' + topic.slice(26));
+        }
+    }
+    for (const t of result.trace ?? []) {
+        add(t.from);
+        add(t.to);
+    }
+    for (const entry of result.accessList ?? []) {
+        add(entry.address);
+    }
+    return [...keys];
+}
+
+/**
+ * Recompile every contract referenced by `positions` a second time with
+ * `evm.deployedBytecode.sourceMap` requested, and attach the result to the
+ * matching `ContractMetadata`. Contracts without cached compilation input or
+ * without sources are left untouched.
+ *
+ * @param positions - `SimulationResult.positions`
+ * @param contracts - Resolved metadata (mutated in place)
+ * @param chainId - EVM chain ID (for the compilation-input cache)
+ * @param cache - Persistent cache backend
+ * @param baseUrl - Optional Sourcify override
+ */
+async function attachSourceMaps(
+    positions: ExecutedPositions[] | undefined,
+    contracts: Map<string, ContractMetadata>,
+    codeHashes: Map<string, string>,
+    chainId: number,
+    cache: ContractCache,
+    baseUrl?: string,
+): Promise<void> {
+    if (!positions?.length) return;
+    const seen = new Set<string>();
+    for (const pos of positions) {
+        if (!pos?.address) continue;
+        const addr = pos.address.toLowerCase();
+        if (seen.has(addr)) continue;
+        seen.add(addr);
+        const meta = contracts.get(addr);
+        if (!meta || meta.sourceMap || !meta.sources) continue;
+
+        // Without a codeHash the second solc pass has nothing to verify
+        // against — the first pass ran with the same input, so the second
+        // one either produces the same runtime bytecode or the toolchain is
+        // non-deterministic and we should not attribute source ranges either.
+        const codeHash = codeHashes.get(addr);
+        if (!codeHash) continue;
+
+        const comp = await fetchCompilationInput(addr, chainId, baseUrl, cache);
+        if (!comp.stdJsonInput || !comp.compilerVersion) continue;
+
+        try {
+            const started = Date.now();
+            const verification = await compileAndVerify(
+                comp.stdJsonInput, comp.compilerVersion, codeHash, meta.sources,
+                { includeSourceMap: true },
+            );
+            explainerLog('info', 'source-map compile', {
+                scope: 'positions',
+                address: addr,
+                ms: elapsedMs(started),
+                verified: verification.verified,
+                mapped: !!verification.sourceMap,
+            });
+            if (verification.verified && verification.sourceMap) {
+                meta.sourceMap = {
+                    sourceMap: verification.sourceMap.sourceMap,
+                    runtimeBytecode: verification.sourceMap.runtimeBytecode,
+                    sourceIndex: verification.sourceMap.sourceIndex,
+                };
+            }
+        } catch (err) {
+            explainerLog('warn', 'source-map compile threw', {
+                scope: 'positions',
+                address: addr,
+                error: err instanceof Error ? err.message : String(err),
+            });
+        }
+    }
+}
+
+/**
+ * Map each contract with a source-map to the set of Solidity functions and
+ * modifiers whose parser range covers at least one executed JUMPDEST.
+ *
+ * @param positions - `SimulationResult.positions`
+ * @param contracts - Resolved metadata (must already carry `sourceMap` where possible)
+ * @param implementations - Proxy → implementation
+ * @return Lowercase address → covered definitions
+ */
+function buildCoveredDefinitions(
+    positions: ExecutedPositions[] | undefined,
+    contracts: Map<string, ContractMetadata>,
+    implementations?: Map<string, string>,
+): Map<string, CoveredDefinition[]> {
+    const out = new Map<string, CoveredDefinition[]>();
+    if (!positions?.length) return out;
+
+    for (const pos of positions) {
+        if (!pos?.address || !Array.isArray(pos.pcs) || pos.pcs.length === 0) continue;
+        const addr = pos.address.toLowerCase();
+        // A proxy's positions belong to the implementation, but the C-core
+        // already records the *code* address for every frame, so `addr` is
+        // the correct lookup key without proxy chasing.
+        const meta = contracts.get(addr);
+        if (!meta || !meta.sourceMap || !meta.sources) continue;
+
+        const hits = resolvePcs(pos.pcs, meta.sourceMap as ContractSourceMap);
+        if (!hits.length) continue;
+
+        const covered = findCoveredDefinitions({
+            sources: meta.sources,
+            hits: hits.map(h => ({ filename: h.filename, offset: h.start })),
+            includeFile: isEmbeddableCoverageSource,
+        });
+        if (covered.length) out.set(addr, covered);
+    }
+    // Silence the lint about unused `implementations`; it is kept in the
+    // signature because proxy handling may need it in a future revision.
+    void implementations;
+    return out;
+}
+
+/**
+ * Coverage-only source filter. Mirrors `isEmbeddableSource` in `prompt.ts`
+ * but is duplicated here so `enrich.ts` does not import from the prompt path.
+ *
+ * @param filename - Source filename
+ * @param content - Raw file text
+ * @return `true` when the file looks like Solidity source
+ */
+function isEmbeddableCoverageSource(filename: string, content: string): boolean {
+    const name = String(filename ?? '').toLowerCase();
+    if (name.endsWith('.yul') || name.endsWith('.bin') || name.endsWith('.abi')) return false;
+    const head = String(content ?? '').slice(0, 2000);
+    if (/(^|\n)\s*object\s+["'][^"']+["']\s*\{/.test(head)) return false;
+    if (!name || name.endsWith('.sol')) return true;
+    return false;
 }
 
 const ADDRESS_CANDIDATE_RE = /^0x[0-9a-fA-F]{40}$/;

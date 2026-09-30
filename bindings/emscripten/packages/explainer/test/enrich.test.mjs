@@ -1416,4 +1416,189 @@ describe('toEnhancedResult', () => {
         assert.equal(enhanced.error.reason, 'Insufficient balance');
         assert.equal(enhanced.status, '0x0');
     });
+
+    it('exposes stateReads and skips slots that are already in stateChanges', () => {
+        const address = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+        const writtenSlot = '0x' + '00'.repeat(32);
+        const readSlot = '0x' + '00'.repeat(31) + '01';
+        const result = {
+            gasUsed: '0x1', status: '0x1', returnValue: '0x', logs: [],
+            stateChanges: [{
+                address,
+                storage: [{ slot: writtenSlot, previousValue: '0x', newValue: '0x1' }],
+            }],
+            accessList: [{
+                address,
+                storageKeys: [writtenSlot, readSlot],
+                storage: [
+                    { slot: writtenSlot, value: '0x0' },
+                    { slot: readSlot, value: '0x2a' },
+                ],
+            }],
+        };
+        const ctx = {
+            contracts: new Map(),
+            resolvedStorage: new Map(),
+            resolvedReads: new Map([[
+                address,
+                [{ slot: readSlot, value: '0x2a', resolved: { variableName: 'counter', variableType: 'uint256', baseSlot: 1, raw: readSlot } }],
+            ]]),
+            decodedTrace: [],
+            decodedEvents: [],
+        };
+        const enhanced = toEnhancedResult(result, ctx, 'ok');
+        assert.ok(enhanced.stateReads);
+        assert.equal(enhanced.stateReads.length, 1);
+        assert.equal(enhanced.stateReads[0].address, address);
+        assert.equal(enhanced.stateReads[0].reads.length, 1);
+        assert.equal(enhanced.stateReads[0].reads[0].slot, readSlot);
+    });
+});
+
+describe('enrichSimulation state reads', () => {
+    let originalFetch;
+    beforeEach(() => {
+        originalFetch = globalThis.fetch;
+        resetSourcifyStateForTests();
+        setSourcifyClockForTests(() => Date.now(), async () => { });
+        // Sourcify is not needed for these tests; return a synthetic miss.
+        globalThis.fetch = async () => new Response(JSON.stringify({
+            abi: null, sources: null, compilation: null, stdJsonInput: null,
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    });
+    afterEach(() => {
+        globalThis.fetch = originalFetch;
+        resetSourcifyStateForTests();
+        resetExplainerLogForTests();
+    });
+
+    /**
+     * Cache backend that pretends every verified contract has UNI's storage
+     * layout. Bypasses Sourcify + the real solc extraction, which are neither
+     * needed nor stable enough for a targeted unit test.
+     */
+    function layoutOnlyCache(codeHash) {
+        const store = new Map();
+        const verified = JSON.stringify({
+            abi: [],
+            storageLayout: UNI_STORAGE_LAYOUT,
+            sources: {},
+            compilerVersion: '0.8.0',
+            contractName: 'Uni',
+        });
+        return {
+            store,
+            get: async (key) => {
+                if (typeof key === 'string' && key.includes(codeHash)) return verified;
+                return store.get(key) ?? null;
+            },
+            set: async (key, value) => { store.set(key, value); },
+        };
+    }
+
+    it('resolves accessList[].storage using the same layout as stateChanges', async () => {
+        const token = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+        const codeHash = '0x' + '55'.repeat(32);
+        const totalSupplySlot = '0x' + '00'.repeat(32);
+        const result = {
+            gasUsed: '0x1', status: '0x1', returnValue: '0x', logs: [],
+            accessList: [{
+                address: token, codeHash,
+                storageKeys: [totalSupplySlot],
+                storage: [{ slot: totalSupplySlot, value: '0x2a' }],
+            }],
+        };
+        const ctx = await enrichSimulation(result, { to: token, data: '0x' }, 1, {
+            cache: layoutOnlyCache(codeHash),
+        });
+        assert.ok(ctx.resolvedReads);
+        const reads = ctx.resolvedReads.get(token);
+        assert.equal(reads?.length, 1);
+        assert.equal(reads[0].resolved?.variableName, 'totalSupply');
+    });
+
+    it('drops read slots that are also in stateChanges', async () => {
+        const token = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+        const codeHash = '0x' + '66'.repeat(32);
+        const writtenSlot = '0x' + '00'.repeat(32);
+        const readOnlySlot = '0x' + '00'.repeat(31) + '02';
+        const result = {
+            gasUsed: '0x1', status: '0x1', returnValue: '0x', logs: [],
+            stateChanges: [{
+                address: token,
+                storage: [{ slot: writtenSlot, previousValue: '0x0', newValue: '0x1' }],
+            }],
+            accessList: [{
+                address: token, codeHash,
+                storageKeys: [writtenSlot, readOnlySlot],
+                storage: [
+                    { slot: writtenSlot, value: '0x1' },
+                    { slot: readOnlySlot, value: '0x9' },
+                ],
+            }],
+        };
+        const ctx = await enrichSimulation(result, { to: token, data: '0x' }, 1, {
+            cache: layoutOnlyCache(codeHash),
+        });
+        const reads = ctx.resolvedReads.get(token);
+        assert.equal(reads?.length, 1);
+        assert.equal(reads[0].slot.toLowerCase(), readOnlySlot);
+    });
+
+    it('leaves resolvedReads empty when the request did not carry state_values', async () => {
+        const token = '0xcccccccccccccccccccccccccccccccccccccccc';
+        const codeHash = '0x' + '77'.repeat(32);
+        const result = {
+            gasUsed: '0x1', status: '0x1', returnValue: '0x', logs: [],
+            accessList: [{ address: token, codeHash, storageKeys: [] }],
+        };
+        const ctx = await enrichSimulation(result, { to: token, data: '0x' }, 1, {
+            cache: layoutOnlyCache(codeHash),
+        });
+        assert.equal(ctx.resolvedReads.size, 0);
+    });
+});
+
+describe('enrichSimulation coverage plumbing', () => {
+    let originalFetch;
+    beforeEach(() => {
+        originalFetch = globalThis.fetch;
+        resetSourcifyStateForTests();
+        setSourcifyClockForTests(() => Date.now(), async () => { });
+        globalThis.fetch = async () => new Response(JSON.stringify({
+            abi: null, sources: null, compilation: null, stdJsonInput: null,
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    });
+    afterEach(() => {
+        globalThis.fetch = originalFetch;
+        resetSourcifyStateForTests();
+        resetExplainerLogForTests();
+    });
+
+    it('publishes an empty coveredDefinitions when no address in positions has a source map', async () => {
+        const token = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+        const result = {
+            gasUsed: '0x1', status: '0x1', returnValue: '0x', logs: [],
+            accessList: [],
+            positions: [{ address: token, pcs: ['0x0', '0x5', '0xa'] }],
+        };
+        const ctx = await enrichSimulation(result, { to: token, data: '0x' }, 1, { cache: memoryCache() });
+        assert.ok(ctx.coveredDefinitions);
+        assert.equal(ctx.coveredDefinitions.size, 0);
+    });
+
+    it('does not attempt a source-map compile when the address has no codeHash', async () => {
+        // No `accessList[].codeHash` entry for `token` → `attachSourceMaps`
+        // cannot verify a recompile and must skip. Because the ContractMetadata
+        // never carries a sourceMap in that scenario, coveredDefinitions stays empty.
+        const token = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+        const result = {
+            gasUsed: '0x1', status: '0x1', returnValue: '0x', logs: [],
+            accessList: [{ address: token, storageKeys: [] }], // no codeHash
+            positions: [{ address: token, pcs: ['0x0'] }],
+        };
+        const ctx = await enrichSimulation(result, { to: token, data: '0x' }, 1, { cache: memoryCache() });
+        assert.equal(ctx.coveredDefinitions.size, 0);
+        assert.equal(ctx.contracts.get(token)?.sourceMap ?? null, null);
+    });
 });

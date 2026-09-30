@@ -35,6 +35,22 @@ interface CompileResult {
     verified: boolean;
     abi: unknown[] | null;
     sources: Record<string, { content: string }> | null;
+    /**
+     * Runtime bytecode + `sourceMap` string of the verified contract, when the
+     * caller passed `includeSourceMap: true` and the compilation succeeded.
+     * Callers use these to map executed JUMPDEST PCs to Solidity ranges.
+     */
+    sourceMap?: {
+        sourceMap: string;
+        runtimeBytecode: string;
+        sourceIndex: Map<number, string>;
+    } | null;
+}
+
+/** Additional compilation controls. */
+export interface CompileOptions {
+    /** Request `evm.deployedBytecode.sourceMap` and expose the runtime bytecode. */
+    includeSourceMap?: boolean;
 }
 
 const MAX_CACHED_COMPILERS = 1;
@@ -976,6 +992,7 @@ export async function compileAndVerify(
     compilerVersion: string,
     expectedCodeHash: string,
     sources: Record<string, { content: string }>,
+    options?: CompileOptions,
 ): Promise<CompileResult> {
     let compiler: SolcInstance;
     try {
@@ -989,21 +1006,30 @@ export async function compileAndVerify(
         return { verified: false, abi: null, sources: null };
     }
 
+    const wantSourceMap = options?.includeSourceMap === true;
     const input = { ...stdJsonInput } as Record<string, unknown>;
     const settings = { ...(input.settings as Record<string, unknown> || {}) };
     const outputSelection = { ...(settings.outputSelection as Record<string, Record<string, string[]>> || {}) };
 
+    const ensure = (existing: string[]): string[] => {
+        if (!existing.includes('abi')) existing.push('abi');
+        if (!existing.includes('evm.deployedBytecode.object')) existing.push('evm.deployedBytecode.object');
+        if (wantSourceMap && !existing.includes('evm.deployedBytecode.sourceMap')) {
+            existing.push('evm.deployedBytecode.sourceMap');
+        }
+        return existing;
+    };
+
     for (const file of Object.keys(outputSelection)) {
         for (const contract of Object.keys(outputSelection[file])) {
-            const existing = outputSelection[file][contract] || [];
-            if (!existing.includes('abi')) existing.push('abi');
-            if (!existing.includes('evm.deployedBytecode.object')) existing.push('evm.deployedBytecode.object');
-            outputSelection[file][contract] = existing;
+            outputSelection[file][contract] = ensure(outputSelection[file][contract] || []);
         }
     }
 
     if (!Object.keys(outputSelection).length) {
-        outputSelection['*'] = { '*': ['abi', 'evm.deployedBytecode.object'] };
+        const base = ['abi', 'evm.deployedBytecode.object'];
+        if (wantSourceMap) base.push('evm.deployedBytecode.sourceMap');
+        outputSelection['*'] = { '*': base };
     }
 
     settings.outputSelection = outputSelection;
@@ -1037,6 +1063,8 @@ export async function compileAndVerify(
     const contracts = output.contracts as Record<string, Record<string, Record<string, unknown>>> | undefined;
     if (!contracts) return { verified: false, abi: null, sources: null };
 
+    const sourceIndex = wantSourceMap ? buildSourceIndex(output) : null;
+
     const normalizedHash = expectedCodeHash.toLowerCase();
     for (const file of Object.values(contracts)) {
         for (const contractData of Object.values(file)) {
@@ -1048,10 +1076,58 @@ export async function compileAndVerify(
             if (!hash) continue;
             if (hash.toLowerCase() === normalizedHash) {
                 const abi = Array.isArray(contractData.abi) ? contractData.abi : null;
-                return { verified: true, abi, sources };
+                let sourceMap: CompileResult['sourceMap'] = null;
+                if (wantSourceMap && sourceIndex) {
+                    const map = typeof evm?.deployedBytecode?.sourceMap === 'string'
+                        ? evm.deployedBytecode.sourceMap
+                        : '';
+                    if (map) {
+                        sourceMap = {
+                            sourceMap: map,
+                            runtimeBytecode: normalizeBytecode(bytecodeHex),
+                            sourceIndex,
+                        };
+                    }
+                }
+                return { verified: true, abi, sources, sourceMap };
             }
         }
     }
 
     return { verified: false, abi: null, sources: null };
+}
+
+/**
+ * Build the `sourceId → filename` table from a solc standard-json output.
+ *
+ * The compiler numbers sources sequentially. The number is what appears in
+ * source-map entries (`s:l:f:...`).
+ *
+ * @param output - Parsed solc output
+ * @return Map from source id to filename (may be empty on malformed output)
+ */
+function buildSourceIndex(output: Record<string, unknown>): Map<number, string> {
+    const result = new Map<number, string>();
+    const sources = output.sources as Record<string, Record<string, unknown>> | undefined;
+    if (!sources) return result;
+    for (const [name, meta] of Object.entries(sources)) {
+        const id = meta?.id;
+        if (typeof id === 'number' && Number.isFinite(id) && id >= 0) {
+            result.set(id, name);
+        }
+    }
+    return result;
+}
+
+/**
+ * Ensure the bytecode is a `0x`-prefixed lowercase hex string.
+ *
+ * @param bytecodeHex - Runtime bytecode as returned by solc
+ * @return Normalized `0x...` form
+ */
+function normalizeBytecode(bytecodeHex: string): string {
+    const trimmed = bytecodeHex.startsWith('0x') || bytecodeHex.startsWith('0X')
+        ? bytecodeHex.slice(2)
+        : bytecodeHex;
+    return '0x' + trimmed.toLowerCase();
 }

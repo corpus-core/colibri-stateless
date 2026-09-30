@@ -24,14 +24,14 @@
 import type {
     SimulationResult, SimulationLog, ContractStateChange, TraceEntry,
     TxParams, PromptConfig, EnrichedContext, ResolvedSlot, ResolvedSlotMember,
-    TokenInfo,
+    ResolvedStateRead, TokenInfo,
 } from './types.js';
 import { hexToBigInt, weiToEth, formatTokenAmount, formatGas, shortenAddress, formatSelector, formatCalldataSize } from './format.js';
 import { lookupAddress } from './known_addresses.js';
 import { extractPackedValue } from './storage.js';
 import { collectUsedAddresses } from './addresses.js';
 import { isSafeTokenSymbol } from './cache.js';
-import { sliceUsedFunctions, type SourceSlice } from './source_slice.js';
+import { sliceUsedFunctions, sliceCoveredDefinitions, type SourceSlice } from './source_slice.js';
 
 /**
  * Default base system prompt used by the explainer. Exposed so applications can
@@ -82,7 +82,7 @@ export function buildPrompt(
     context?: EnrichedContext,
 ): PromptParts {
     const systemPrompt = buildSystemPrompt(config);
-    const userPrompt = buildUserPrompt(result, txParams, context, config.maxSourceChars);
+    const userPrompt = buildUserPrompt(result, txParams, context, config.maxSourceChars, config.maxStateValues);
     return { systemPrompt, userPrompt };
 }
 
@@ -125,7 +125,13 @@ function buildSystemPrompt(config: PromptConfig): string {
     return prompt;
 }
 
-function buildUserPrompt(result: SimulationResult, txParams: TxParams, context?: EnrichedContext, maxSourceChars?: number): string {
+function buildUserPrompt(
+    result: SimulationResult,
+    txParams: TxParams,
+    context?: EnrichedContext,
+    maxSourceChars?: number,
+    maxStateValues?: number,
+): string {
     const sections: string[] = [];
     const book = buildAddressBook(result, txParams, context);
 
@@ -138,6 +144,11 @@ function buildUserPrompt(result: SimulationResult, txParams: TxParams, context?:
 
     if (result.logs && result.logs.length > 0) {
         sections.push(formatEvents(result.logs, context, book));
+    }
+
+    if (context?.resolvedReads && context.resolvedReads.size > 0) {
+        const readsSection = formatStateReads(context, book, maxStateValues);
+        if (readsSection) sections.push(readsSection);
     }
 
     if (result.stateChanges && result.stateChanges.length > 0) {
@@ -512,6 +523,118 @@ function formatStateChanges(
     }
 
     return lines.join('\n');
+}
+
+/** Default cap on the number of resolved reads printed per contract. */
+const DEFAULT_MAX_STATE_VALUES = 8;
+
+/**
+ * Render the `## State Reads` section from the resolved access-list slots.
+ *
+ * Only *named* reads make it into the section: an unresolved slot on a fully
+ * unknown ABI would just be noise for the model. When every read on every
+ * contract is unresolved, the whole section is dropped.
+ *
+ * @param context - Enrichment context (must carry `resolvedReads`)
+ * @param book - Address directory
+ * @param maxStateValues - Per-contract cap. `0` disables the cap.
+ * @return Section text, or `null` when nothing survived the filter
+ */
+function formatStateReads(
+    context: EnrichedContext,
+    book: AddressBook,
+    maxStateValues: number | undefined,
+): string | null {
+    const reads = context.resolvedReads;
+    if (!reads || reads.size === 0) return null;
+    const cap = resolveMaxStateValues(maxStateValues);
+
+    const blocks: string[] = [];
+    for (const [address, entries] of reads) {
+        if (!entries.length) continue;
+        const named = entries.filter(r => isNamedRead(r.resolved));
+        if (!named.length) continue;
+        const shown = cap === null ? named : named.slice(0, cap);
+        const addr = book.nameOf(address);
+        for (const read of shown) {
+            const line = formatStateReadLine(addr, read, book);
+            if (line) blocks.push(line);
+        }
+        if (cap !== null && named.length > cap) {
+            const omitted = named.length - cap;
+            blocks.push(`- ${addr}: ... (${omitted} more read${omitted === 1 ? '' : 's'} omitted)`);
+        }
+    }
+
+    if (!blocks.length) return null;
+    return ['## State Reads', ...blocks].join('\n');
+}
+
+/**
+ * True when a resolved slot carries either a named variable or at least one
+ * named packed member. An unresolved slot has no place under `## State Reads`.
+ *
+ * @param resolved - Slot resolution, may be missing
+ * @return Whether the read is worth printing
+ */
+function isNamedRead(resolved: ResolvedSlot | undefined): boolean {
+    if (!resolved) return false;
+    if (resolved.variableName) return true;
+    return Array.isArray(resolved.members) && resolved.members.some(m => !!m.variableName);
+}
+
+/**
+ * Format one resolved read as a prompt line. Packed slots emit one line per
+ * member; a single-value slot emits one line labelled with the variable name.
+ *
+ * @param addr - Contract name from the address directory
+ * @param read - Resolved read
+ * @param book - Address directory (for `address` keys)
+ * @return Prompt line, or `null` when the read cannot be rendered
+ */
+function formatStateReadLine(
+    addr: string,
+    read: ResolvedStateRead,
+    book: AddressBook,
+): string | null {
+    const resolved = read.resolved;
+    if (!resolved) return null;
+    if (resolved.members?.length) {
+        const keyStr = resolved.keys?.map(k => `[${formatKeyValue(k, book)}]`).join('') ?? '';
+        const arrayStr = resolved.arrayIndex !== undefined ? `[${resolved.arrayIndex}]` : '';
+        const parts: string[] = [];
+        for (const m of resolved.members) {
+            if (!m.variableName) continue;
+            const val = extractPackedValue(read.value, m.offset, m.numberOfBytes);
+            if (val === null) continue;
+            const label = memberLabel(resolved, m, keyStr, arrayStr);
+            parts.push(`${label} (${m.variableType}) = ${formatPackedValue(val, m, book)}`);
+        }
+        if (parts.length === 0) return null;
+        return `- ${addr}: ${parts.join('; ')}`;
+    }
+    if (!resolved.variableName) return null;
+    const singleWidth = singleValueByteWidth(resolved);
+    if (singleWidth !== null && !fitsInBytes(read.value, singleWidth)) return null;
+    const varLabel = formatResolvedLabel(resolved, book);
+    const typeHint = resolved.variableType ? ` (${resolved.variableType})` : '';
+    return `- ${addr}: ${varLabel}${typeHint} = ${formatSlotValue(read.value)}`;
+}
+
+/**
+ * Normalize `PromptConfig.maxStateValues`.
+ *
+ * - omitted / negative → `DEFAULT_MAX_STATE_VALUES`
+ * - `0` → unlimited (`null`)
+ * - positive → that many entries
+ *
+ * @param n - Raw configuration value
+ * @return Positive cap, or `null` when uncapped
+ */
+function resolveMaxStateValues(n: number | undefined): number | null {
+    if (n === 0) return null;
+    if (typeof n === 'number' && Number.isFinite(n) && n > 0) return Math.floor(n);
+    return DEFAULT_MAX_STATE_VALUES;
 }
 
 /**
@@ -918,16 +1041,29 @@ function formatSourceContext(
         const sources = sourcesForStorageContext(context, addr);
         const label = book.nameOf(addr);
 
-        const sliced = sources
-            ? sliceUsedFunctions({
+        const coverageHits = coverageHitsFor(context, addr);
+        const covered = sources && coverageHits.length
+            ? sliceCoveredDefinitions({
                 sources,
-                contractName: contractNameForSource(context, addr),
-                entryNames: entryNamesFor(addr, result, txParams, context),
+                hits: coverageHits,
                 maxChars: unlimited ? null : totalBudget,
                 includeFile: isEmbeddableSource,
                 sanitize: sanitizeSourceForPrompt,
             })
             : null;
+
+        const sliced = covered && covered.length > 0
+            ? covered
+            : sources
+                ? sliceUsedFunctions({
+                    sources,
+                    contractName: contractNameForSource(context, addr),
+                    entryNames: entryNamesFor(addr, result, txParams, context),
+                    maxChars: unlimited ? null : totalBudget,
+                    includeFile: isEmbeddableSource,
+                    sanitize: sanitizeSourceForPrompt,
+                })
+                : null;
 
         if (sliced) {
             const accepted: SourceSlice[] = [];
@@ -1049,6 +1185,32 @@ function contractNameForSource(context: EnrichedContext, addr: string): string |
  * @param context - Enrichment context
  * @return Entry names in trace order
  */
+/**
+ * Coverage-based seeds for `sliceCoveredDefinitions`.
+ *
+ * When a proxy delegates to an implementation, positions are already tracked
+ * per code address by the C-core, so the implementation address (if known)
+ * takes precedence.
+ *
+ * @param context - Enrichment context
+ * @param addr - Lowercase address of the state-change target
+ * @return Filename + offset pairs; empty when no covered definitions were found
+ */
+function coverageHitsFor(
+    context: EnrichedContext,
+    addr: string,
+): Array<{ filename: string; offset: number }> {
+    const covered = context.coveredDefinitions;
+    if (!covered || covered.size === 0) return [];
+    const impl = context.implementations?.get(addr);
+    const key = impl && covered.has(impl) ? impl : addr;
+    const defs = covered.get(key);
+    if (!defs || defs.length === 0) return [];
+    // The def's own start offset is inside its range and matches
+    // deterministically after re-parsing the same source in `sliceCoveredDefinitions`.
+    return defs.map(def => ({ filename: def.filename, offset: def.start }));
+}
+
 function entryNamesFor(
     addr: string,
     result: SimulationResult,
