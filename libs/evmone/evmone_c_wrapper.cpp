@@ -11,10 +11,54 @@
 #include <evmc/evmc.h>
 #include <evmc/evmc.hpp>
 #include <evmone/evmone.h>
+#include "evmone/vm.hpp"
 
 static_assert(EVMC_ABI_VERSION == 18, "evmone wrapper requires EVMC ABI 18 (evmone >= 0.23)");
 
 namespace {
+
+struct JumpdestHook {
+  evmone_jumpdest_fn fn  = nullptr;
+  void*              ctx = nullptr;
+};
+
+JumpdestHook& jumpdest_hook() noexcept {
+  static thread_local JumpdestHook hook;
+  return hook;
+}
+
+// Records executed JUMPDEST opcodes. Installed only while a hook is set, so the
+// default computed-goto interpreter stays in place for ordinary calls.
+class JumpdestTracer final : public evmone::Tracer {
+  evmone_jumpdest_fn fn_;
+  void*              ctx_;
+
+public:
+  JumpdestTracer(evmone_jumpdest_fn fn, void* ctx) noexcept : fn_(fn), ctx_(ctx) {}
+
+private:
+  void on_execution_start(evmc_revision, const evmc_message&, evmone::bytes_view) noexcept override {}
+
+  void on_instruction_start(uint32_t pc, const intx::uint256*, int, int64_t,
+                            const evmone::ExecutionState& state) noexcept override {
+    if (!fn_ || !state.msg || pc >= state.original_code.size()) return;
+    if (state.original_code[pc] != 0x5b) return;
+    fn_(ctx_, &state.msg->code_address, pc);
+  }
+
+  void on_execution_end(const evmc_result&) noexcept override {}
+};
+
+// Removes a tracer this call installed. Nested executes see the tracer already
+// present and must not drop it while the outer frame is still running.
+struct TracerGuard {
+  evmone::VM* vm        = nullptr;
+  bool        installed = false;
+
+  ~TracerGuard() {
+    if (installed && vm) vm->remove_tracers();
+  }
+};
 
 bool map_revision(int revision, evmc_revision* out) noexcept {
   switch (revision) {
@@ -31,6 +75,11 @@ bool map_revision(int revision, evmc_revision* out) noexcept {
 }
 
 } // namespace
+
+extern "C" void evmone_set_jumpdest_hook(evmone_jumpdest_fn fn, void* ctx) {
+  jumpdest_hook().fn  = fn;
+  jumpdest_hook().ctx = ctx;
+}
 
 /* C++ to C host interface adapter */
 struct HostInterfaceAdapter {
@@ -290,7 +339,7 @@ extern "C" evmone_result evmone_execute(
     const uint8_t*               code,
     size_t                       code_size) {
 
-  auto* vm = static_cast<struct evmc_vm*>(executor);
+  auto* vm = static_cast<evmone::VM*>(executor);
 
   // Default overridden by map_revision on success; failure returns before use.
   evmc_revision rev = EVMC_OSAKA;
@@ -298,6 +347,14 @@ extern "C" evmone_result evmone_execute(
     evmone_result err{};
     err.status_code = EVMC_INTERNAL_ERROR;
     return err;
+  }
+
+
+  TracerGuard tracer;
+  tracer.vm = vm;
+  if (jumpdest_hook().fn != nullptr && vm->get_tracer() == nullptr) {
+    vm->add_tracer(std::make_unique<JumpdestTracer>(jumpdest_hook().fn, jumpdest_hook().ctx));
+    tracer.installed = true;
   }
 
   HostInterfaceAdapter adapter(host_interface, host_context);

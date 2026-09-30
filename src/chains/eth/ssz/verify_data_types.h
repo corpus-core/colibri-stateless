@@ -62,6 +62,7 @@
 #define ETH_SIMULATION_RESULT_MASK_RETURN_VALUE   (1 << 9)  // returnValue field (i=9)
 #define ETH_SIMULATION_RESULT_MASK_STATE_CHANGES  (1 << 10) // stateChanges field (i=10)
 #define ETH_SIMULATION_RESULT_MASK_ACCESS_LIST    (1 << 11) // accessList field (i=11)
+#define ETH_SIMULATION_RESULT_MASK_POSITIONS      (1 << 12) // positions field (i=12)
 #define ETH_SIMULATION_RESULT_MASK_ALL            0xFFFF    // all fields for testing
 #define ETH_SIMULATION_RESULT_MASK_MINIMAL        (ETH_SIMULATION_RESULT_MASK_GAS_USED | \
                                             ETH_SIMULATION_RESULT_MASK_LOGS |            \
@@ -373,9 +374,11 @@ static const ssz_def_t ETH_SIMULATION_STORAGE_READ_CONTAINER = SSZ_CONTAINER("St
 // Generated access-list entry (Tenderly `generated_access_list` / EIP-2930),
 // extended with the on-chain `codeHash` so downstream enrichment can verify
 // Sourcify metadata against the bytecode that was actually executed.
-// `storage` repeats each `storageKeys` entry with its proven pre-state value.
+// `storage` repeats each `storageKeys` entry with its proven pre-state value
+// and is visible only when the caller set `state_values`.
 // This type is simulation-only -- do not reuse `ETH_ACCESS_LIST_DATA` (tx encoding).
 static const ssz_def_t ETH_SIMULATION_ACCESS_ENTRY[] = {
+    SSZ_OPT_MASK("_optmask", 1),                                     // bit 4 controls storage visibility
     SSZ_ADDRESS("address"),                                          // accessed account
     SSZ_PROG_LIST("storageKeys", ssz_bytes32),                       // storage keys read or written (EIP-2930)
     SSZ_BYTES32("codeHash"),                                         // keccak256 of deployed runtime bytecode (`EMPTY_HASH` for EOAs)
@@ -383,6 +386,16 @@ static const ssz_def_t ETH_SIMULATION_ACCESS_ENTRY[] = {
 };
 // Container type for a generated access-list entry
 static const ssz_def_t ETH_SIMULATION_ACCESS_ENTRY_CONTAINER = SSZ_CONTAINER("SimulationAccessEntry", ETH_SIMULATION_ACCESS_ENTRY);
+
+#define ETH_SIMULATION_ACCESS_ENTRY_MASK_BASE    ((1 << 1) | (1 << 2) | (1 << 3)) // address, storageKeys, codeHash
+#define ETH_SIMULATION_ACCESS_ENTRY_MASK_STORAGE (1 << 4)                          // storage field (i=4)
+
+// Unique JUMPDEST program counters executed by one code address.
+static const ssz_def_t ETH_SIMULATION_CODE_POSITIONS[] = {
+    SSZ_ADDRESS("address"),             // code address (delegatecall: the implementation)
+    SSZ_PROG_LIST("pcs", ssz_uint32_def), // executed JUMPDEST program counters, sorted, unique
+};
+static const ssz_def_t ETH_SIMULATION_CODE_POSITIONS_CONTAINER = SSZ_CONTAINER("CodePositions", ETH_SIMULATION_CODE_POSITIONS);
 
 // Main simulation result structure (based on Tenderly format).
 static const ssz_def_t ETH_SIMULATION_RESULT[] = {
@@ -397,7 +410,8 @@ static const ssz_def_t ETH_SIMULATION_RESULT[] = {
     SSZ_UINT8("type"),                                                      // transaction type
     SSZ_PROG_BYTES("returnValue"),                                          // return value of the call
     SSZ_PROG_LIST("stateChanges", ETH_SIMULATION_ACCOUNT_CHANGE_CONTAINER), // per-account state diffs (Tenderly format)
-    SSZ_PROG_LIST("accessList", ETH_SIMULATION_ACCESS_ENTRY_CONTAINER),     // generated access list + codeHash + storage values (appended; i=11)
+    SSZ_PROG_LIST("accessList", ETH_SIMULATION_ACCESS_ENTRY_CONTAINER),     // generated access list + codeHash + optional storage values (appended; i=11)
+    SSZ_PROG_LIST("positions", ETH_SIMULATION_CODE_POSITIONS_CONTAINER),    // unique executed JUMPDEST program counters (appended; i=12)
 };
 // Container type for the complete simulation result
 static const ssz_def_t ETH_SIMULATION_RESULT_CONTAINER = SSZ_CONTAINER("SimulationResult", ETH_SIMULATION_RESULT);

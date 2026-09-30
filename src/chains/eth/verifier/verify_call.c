@@ -224,7 +224,7 @@ static bool match_simulate_result(verify_ctx_t* ctx, evm_call_ctx_t* evm) {
   // The revert bytes are already in `evm->call_result` and are carried as
   // the call output for callers that want to decode them.
   bool     evm_success       = ctx->state.error == NULL && !evm->reverted;
-  ssz_ob_t simulation_result = eth_build_simulation_result_ssz(evm->call_result, evm->logs, evm_success, evm->gas_used, NULL, evm->accounts, evm->keccak_entries, evm->traces);
+  ssz_ob_t simulation_result = eth_build_simulation_result_ssz(evm->call_result, evm->logs, evm_success, evm->gas_used, NULL, evm->accounts, evm->keccak_entries, evm->traces, evm->sim_flags, evm->positions);
 
   if (ctx->data.def == NULL || ctx->data.def->type == SSZ_TYPE_NONE) {
     ctx->data = simulation_result;
@@ -733,7 +733,11 @@ bool verify_call_proof(verify_ctx_t* ctx) {
     if (!(success && !evm->evm_done)) return success;
   }
 
-  CHECK_JSON_VERIFY(ctx->args, "[{to:address,data:bytes,gas?:hexuint,value?:hexuint,gasPrice?:hexuint,from?:address},block,{*:{balance?:hexuint,code?:bytes,state?:{*:bytes32},stateDiff?:{*:bytes32}}}]", "Invalid transaction");
+  if (is_simulate)
+    CHECK_JSON_VERIFY(ctx->args, C4_SIMULATE_TX_PARAMS, "Invalid transaction");
+  else
+    CHECK_JSON_VERIFY(ctx->args, "[{to:address,data:bytes,gas?:hexuint,value?:hexuint,gasPrice?:hexuint,from?:address},block,{*:{balance?:hexuint,code?:bytes,state?:{*:bytes32},stateDiff?:{*:bytes32}}}]", "Invalid transaction");
+  evm->sim_flags = is_simulate ? c4_eth_sim_flags_from_args(ctx->args) : 0;
 
   if (has_proof && !verify_call_freshness(ctx, ctx)) return false;
 

@@ -354,6 +354,26 @@ void free_keccak_entries(keccak_entry_t* entries) {
   }
 }
 
+void free_jumpdest_sets(jumpdest_set_t* sets) {
+  while (sets) {
+    jumpdest_set_t* next = sets->next;
+    safe_free(sets->bits);
+    safe_free(sets);
+    sets = next;
+  }
+}
+
+uint32_t c4_eth_sim_flags_from_args(json_t args) {
+  if (json_len(args) <= 3) return 0;
+  json_t cfg = json_at(args, 3);
+  if (cfg.type != JSON_TYPE_OBJECT) return 0;
+
+  uint32_t flags = 0;
+  if (json_as_bool(json_get(cfg, "positions"))) flags |= EVM_SIM_POSITIONS;
+  if (json_as_bool(json_get(cfg, "state_values"))) flags |= EVM_SIM_STATE_VALUES;
+  return flags;
+}
+
 void free_trace_entries(trace_entry_t* entries) {
   while (entries) {
     trace_entry_t* next = entries->next;
@@ -519,6 +539,8 @@ void evm_call_ctx_free(evm_call_ctx_t* evm) {
   evm->logs = NULL;
   free_keccak_entries(evm->keccak_entries);
   evm->keccak_entries = NULL;
+  free_jumpdest_sets(evm->positions);
+  evm->positions = NULL;
   free_trace_entries(evm->traces);
   evm->traces = NULL;
   call_account_free_list(evm->accounts);

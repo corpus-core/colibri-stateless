@@ -82,10 +82,19 @@ export interface AccessListEntry {
     codeHash?: string;
     /**
      * Accessed slots in the same order as `storageKeys`, each with its proven
-     * pre-state value. Slots that were also written stay listed under
+     * pre-state value. Present only when the simulation request set
+     * `state_values`. Slots that were also written stay listed under
      * `stateChanges`.
      */
     storage?: AccessedStorageSlot[];
+}
+
+/** Unique JUMPDEST program counters executed by one code address. */
+export interface ExecutedPositions {
+    /** Code address. On a delegatecall this is the implementation. */
+    address: string;
+    /** Sorted unique program counters. Hex quantities. */
+    pcs: string[];
 }
 
 /**
@@ -101,6 +110,11 @@ export interface SimulationResult {
     stateChanges?: ContractStateChange[];
     trace?: TraceEntry[];
     accessList?: AccessListEntry[];
+    /**
+     * Unique executed JUMPDEST program counters, grouped by code address.
+     * Present only when the simulation request set `positions`.
+     */
+    positions?: ExecutedPositions[];
 }
 
 /** Transaction parameters as passed to `colibri_simulateTransaction`. */
