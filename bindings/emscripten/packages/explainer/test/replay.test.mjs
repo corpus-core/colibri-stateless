@@ -291,5 +291,19 @@ describe('replay', { concurrency: false }, () => {
                 1,
             );
         });
+
+        // Mainnet withdraw 0x27e645de… of stUSR (TransparentUpgradeableProxy
+        // 0x6c89…) via StUSR, paying out the underlying token on a second
+        // proxy. All 4 logs and 8 trace frames should decode. The 4 storage
+        // writes are ERC-7201 slots: shares balance, total shares, and the
+        // underlying token's balances.
+        it('decodes stUSR withdraw events, calls and namespaced storage', { timeout: 300_000 }, async () => {
+            await assertEnrichedFixture(
+                'withdraw/long_prompt_sim.json',
+                4,
+                8,
+                4,
+            );
+        });
     });
 });
