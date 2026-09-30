@@ -66,11 +66,35 @@ export interface ContractStateChange {
     balance?: { previousValue: string; newValue: string };
 }
 
+/** One storage slot read or written during simulation. */
+export interface AccessedStorageSlot {
+    slot: string;
+    /** Proven pre-state value of the slot (`src_value`). */
+    value: string;
+    /** Keccak preimage of `slot`, present when the key was hashed during the call. */
+    slotSource?: string;
+}
+
 export interface AccessListEntry {
     address: string;
     storageKeys?: string[];
     /** keccak256 of the deployed runtime bytecode. Absent / empty-code hash for EOAs. */
     codeHash?: string;
+    /**
+     * Accessed slots in the same order as `storageKeys`, each with its proven
+     * pre-state value. Present only when the simulation request set
+     * `state_values`. Slots that were also written stay listed under
+     * `stateChanges`.
+     */
+    storage?: AccessedStorageSlot[];
+}
+
+/** Unique JUMPDEST program counters executed by one code address. */
+export interface ExecutedPositions {
+    /** Code address. On a delegatecall this is the implementation. */
+    address: string;
+    /** Sorted unique program counters. Hex quantities. */
+    pcs: string[];
 }
 
 /**
@@ -86,6 +110,11 @@ export interface SimulationResult {
     stateChanges?: ContractStateChange[];
     trace?: TraceEntry[];
     accessList?: AccessListEntry[];
+    /**
+     * Unique executed JUMPDEST program counters, grouped by code address.
+     * Present only when the simulation request set `positions`.
+     */
+    positions?: ExecutedPositions[];
 }
 
 /** Transaction parameters as passed to `colibri_simulateTransaction`. */

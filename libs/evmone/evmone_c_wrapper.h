@@ -58,7 +58,7 @@ typedef struct {
  * explicit enumerator values, so Osaka is no longer safely hard-coded as 14.
  */
 /* Non-zero so zero-initialized callers cannot silently select a fork. */
-#define EVMONE_REV_OSAKA     1
+#define EVMONE_REV_OSAKA 1
 /* Glamsterdam. Adds SLOTNUM / DUPN / SWAPN / EXCHANGE and lifts MAX_CODE_SIZE
  * to 64 KiB, MAX_INITCODE_SIZE to 128 KiB. Storage-refund table matches
  * London/Osaka. Host callers that select this revision are responsible for
@@ -216,6 +216,31 @@ typedef void (*evmone_keccak_fn)(void* context, const uint8_t* data,
  * @param ctx  Opaque context forwarded to `fn`.
  */
 void evmone_set_keccak_hook(evmone_keccak_fn fn, void* ctx);
+
+/**
+ * Callback invoked for every executed `JUMPDEST` while a hook is installed.
+ *
+ * `code_address` is the account whose bytecode is running (the implementation
+ * on `DELEGATECALL`). The pointer is only valid for the duration of the callback.
+ * Push immediates that happen to contain `0x5b` are not reported.
+ *
+ * @param context opaque pointer set via `evmone_set_jumpdest_hook`
+ * @param code_address address of the bytecode being executed
+ * @param pc program counter of the `JUMPDEST`
+ */
+typedef void (*evmone_jumpdest_fn)(void* context, const evmc_address* code_address, uint32_t pc);
+
+/**
+ * Install a thread-local hook that fires on every executed `JUMPDEST`.
+ *
+ * The hook is read by `evmone_execute`. Pass `NULL` to clear it. While a hook
+ * is set, that execution uses evmone's instruction tracer and skips the
+ * computed-goto interpreter. Nested calls on the same executor share one tracer.
+ *
+ * @param fn callback function, or `NULL` to clear
+ * @param ctx opaque context forwarded to `fn`
+ */
+void evmone_set_jumpdest_hook(evmone_jumpdest_fn fn, void* ctx);
 
 #ifdef __cplusplus
 }

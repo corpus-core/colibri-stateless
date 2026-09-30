@@ -94,6 +94,11 @@ foreach(test_source ${TEST_SOURCES})
         endif()
     endif()
 
+    # Executes bytecode to check JUMPDEST capture. The symbol lives in eth_verifier.
+    if("${test_name}" STREQUAL "test_eth_verify_simulate" AND EVMONE)
+        target_compile_definitions(${test_name} PRIVATE EVMONE)
+    endif()
+
     if("${test_name}" STREQUAL "test_bn254")
         target_link_libraries(${test_name} PRIVATE eth_bn254 intx_wrapper util)
     endif()
