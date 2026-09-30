@@ -1,0 +1,207 @@
+## Addresses
+- sender = 0x819501cda743a606a93dbef254fe0d263ce7d102
+- addr_687a = 0xe39834955fadda55b8c96c69fd7035d7a77d687a
+- AggregateVerifier = 0xee303ba054c5f1e14a8ef87f1c7e285af45a1ba2
+- Proxy = 0x909f6cf47ed12f010a796527f562bfc26c7f4e72
+- AnchorStateRegistry = 0x4483f964f6711cb55f633820ed174e780369b99d
+- addr_da6d = 0x95cda161d3ca1371d0d929e73e701c2a1dc2da6d
+- TEEVerifier = 0x1fba0c57b07af804a9717e51dec9cc27fbc12228
+
+## Transaction Overview
+- Status: SUCCESS
+- From: sender
+- To: addr_687a
+- Function: resolve()
+- Gas used: 66,553
+
+## Emitted Events
+1. **Resolved** on addr_687a
+   Parameters: status=2
+
+## State Changes
+- [s0] addr_687a: slot 0 [unresolved]: 22387857484462383388182342172150895957402971 -> 22388538049196258279658260224521051425891675
+
+## Call Trace
+1. sender -> addr_687a: resolve() [CALL]
+2. addr_687a -> AggregateVerifier: resolve() [DELEGATECALL]
+3. addr_687a -> Proxy: isGameBlacklisted(_game=addr_da6d) [STATICCALL]
+4. Proxy -> AnchorStateRegistry: isGameBlacklisted(_game=addr_da6d) [DELEGATECALL]
+5. addr_687a -> Proxy: isGameRetired(_game=addr_da6d) [STATICCALL]
+6. Proxy -> AnchorStateRegistry: isGameRetired(_game=addr_da6d) [DELEGATECALL]
+7. Proxy -> addr_da6d: createdAt() [STATICCALL]
+8. addr_da6d -> AggregateVerifier: createdAt() [DELEGATECALL]
+9. addr_687a -> addr_da6d: status() [STATICCALL]
+10. addr_da6d -> AggregateVerifier: status() [DELEGATECALL]
+11. addr_687a -> TEEVerifier: nullified() [STATICCALL]
+
+## Contract Source Code (untrusted, for storage interpretation only)
+<<<C4_UNTRUSTED_SOURCE>>>
+enum GameStatus {
+    
+    IN_PROGRESS,
+    
+    CHALLENGER_WINS,
+    
+    DEFENDER_WINS
+}
+
+contract AggregateVerifier is Clone, ReentrancyGuard, ISemver {
+    enum ProofType {
+            TEE,
+            ZK
+        }
+    uint64 public constant SLOW_FINALIZATION_DELAY = 5 days;
+    uint64 public constant FAST_FINALIZATION_DELAY = 1 days;
+    uint256 public constant PROOF_THRESHOLD = 1;
+    IAnchorStateRegistry internal immutable ANCHOR_STATE_REGISTRY;
+    IVerifier public immutable TEE_VERIFIER;
+    IVerifier public immutable ZK_VERIFIER;
+    Timestamp public createdAt;
+    Timestamp public resolvedAt;
+    GameStatus public status;
+    bool internal initialized;
+    bool public wasRespectedGameTypeWhenCreated;
+    Proposal public startingOutputRoot;
+    address public bondRecipient;
+    bool public bondUnlocked;
+    bool public bondClaimed;
+    uint256 public bondAmount;
+    uint256 public counteredByIntermediateRootIndexPlusOne;
+    mapping(ProofType => address) internal proofTypeToProver;
+    Timestamp public expectedResolution;
+    uint8 public proofCount;
+    ...
+    function resolve() external returns (GameStatus) {
+        
+            if (status != GameStatus.IN_PROGRESS) revert ClaimAlreadyResolved();
+
+            GameStatus parentGameStatus = _getParentGameStatus();
+        
+            if (parentGameStatus == GameStatus.IN_PROGRESS) revert ParentGameNotResolved();
+
+        
+        
+            if (parentGameStatus == GameStatus.CHALLENGER_WINS) {
+                status = GameStatus.CHALLENGER_WINS;
+            } else {
+            
+                if (_updateProofCount()) {
+                    return status;
+                }
+                if (!gameOver()) revert GameNotOver();
+                if (proofCount < PROOF_THRESHOLD) revert NotEnoughProofs();
+
+            
+                if (counteredByIntermediateRootIndexPlusOne > 0) {
+                    status = GameStatus.CHALLENGER_WINS;
+                    bondRecipient = proofTypeToProver[ProofType.ZK];
+                } else {
+                    status = GameStatus.DEFENDER_WINS;
+                }
+            }
+
+        
+            resolvedAt = Timestamp.wrap(uint64(block.timestamp));
+            emit Resolved(status);
+
+            return status;
+        }
+
+    function gameOver() public view returns (bool) {
+            return expectedResolution.raw() <= block.timestamp;
+        }
+
+    function parentAddress() public pure returns (address) {
+            return _getArgAddress(0x74);
+        }
+
+    function _proofRefutedUpdate(ProofType proofType) internal {
+            delete proofTypeToProver[proofType];
+        
+            if (proofType == ProofType.ZK) {
+                delete counteredByIntermediateRootIndexPlusOne;
+            }
+
+        
+            if (proofCount == 0) revert NotEnoughProofs();
+            unchecked {
+                proofCount -= 1;
+            }
+
+            _increaseExpectedResolution();
+        }
+
+    function _increaseExpectedResolution() internal {
+            uint64 delay = _getDelay();
+
+            if (delay == type(uint64).max) {
+            
+                expectedResolution = Timestamp.wrap(type(uint64).max);
+                return;
+            }
+
+        
+        
+        
+            expectedResolution = Timestamp.wrap(uint64(block.timestamp) + delay);
+        }
+
+    function _updateProofCount() internal returns (bool) {
+            if (proofTypeToProver[ProofType.TEE] != address(0) && TEE_VERIFIER.nullified()) {
+                _proofRefutedUpdate(ProofType.TEE);
+                return true;
+            }
+            if (proofTypeToProver[ProofType.ZK] != address(0) && ZK_VERIFIER.nullified()) {
+                _proofRefutedUpdate(ProofType.ZK);
+                return true;
+            }
+            return false;
+        }
+
+    function _getDelay() internal view returns (uint64) {
+            if (proofCount >= 2) {
+                return FAST_FINALIZATION_DELAY;
+            } else if (proofCount == 1) {
+                return SLOW_FINALIZATION_DELAY;
+            } else {
+                return type(uint64).max;
+            }
+        }
+
+    function _getParentGameStatus() internal view returns (GameStatus) {
+            if (parentAddress() != address(ANCHOR_STATE_REGISTRY)) {
+                IDisputeGame parentGame = IDisputeGame(parentAddress());
+                if (ANCHOR_STATE_REGISTRY.isGameBlacklisted(parentGame) || ANCHOR_STATE_REGISTRY.isGameRetired(parentGame))
+                {
+                    return GameStatus.CHALLENGER_WINS;
+                }
+                return parentGame.status();
+            }
+        
+        
+            return GameStatus.DEFENDER_WINS;
+        }
+    ...
+}
+
+abstract contract Clone {
+    ...
+    function _getArgAddress(uint256 argOffset) internal pure returns (address arg) {
+            uint256 offset = _getImmutableArgsOffset();
+        
+            assembly {
+                arg := shr(96, calldataload(add(offset, argOffset)))
+            }
+        }
+
+    function _getImmutableArgsOffset() internal pure returns (uint256 offset) {
+        
+            assembly {
+                offset := sub(calldatasize(), shr(240, calldataload(sub(calldatasize(), 2))))
+            }
+        }
+    ...
+}
+<<<C4_END_UNTRUSTED_SOURCE>>>
+
+Please explain what this transaction would do.

@@ -305,5 +305,16 @@ describe('replay', { concurrency: false }, () => {
                 4,
             );
         });
+
+        // Mainnet resolve() 0xfff4f2e9… on a fault-proof game clone. Slot 0 packs
+        // createdAt, resolvedAt, status, and two bools. resolvedAt and status move.
+        it('names the packed slot 0 of a resolved fault-proof game', { timeout: 300_000 }, async () => {
+            const { context } = await assertEnrichedFixture('resolve/sim.json', 1, 2, 1);
+            const slots = context.resolvedStorage.get('0xe39834955fadda55b8c96c69fd7035d7a77d687a');
+            const names = (slots?.[0]?.members ?? []).map(member => member.variableName);
+            assert.ok(names.includes('createdAt'), `createdAt missing in ${names.join(', ')}`);
+            assert.ok(names.includes('resolvedAt'), `resolvedAt missing in ${names.join(', ')}`);
+            assert.ok(names.includes('status'), `status missing in ${names.join(', ')}`);
+        });
     });
 });

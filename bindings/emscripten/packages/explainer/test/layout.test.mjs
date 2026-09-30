@@ -439,4 +439,37 @@ contract Token {
         assert.ok(entry);
         assert.equal(entry.slot, BigInt(location).toString());
     });
+
+    it('packs user-defined value types and enums into slot 0', async () => {
+        const source = `pragma solidity ^0.8.20;
+type Timestamp is uint64;
+type Hash is bytes32;
+enum GameStatus { IN_PROGRESS, CHALLENGER_WINS, DEFENDER_WINS }
+struct Proposal {
+    Hash root;
+    uint128 l2SequenceNumber;
+}
+contract Game {
+    Timestamp public createdAt;
+    Timestamp public resolvedAt;
+    GameStatus public status;
+    bool internal initialized;
+    bool public wasRespectedGameTypeWhenCreated;
+    Proposal public startingOutputRoot;
+}`;
+        const layout = await extractStorageLayout({ 'Game.sol': { content: source } }, 'Game');
+        assert.ok(layout, 'skeleton must compile when value types are aliases');
+        const at = (label) => layout.storage.find(entry => entry.label === label);
+        assert.equal(at('createdAt').slot, '0');
+        assert.equal(Number(at('createdAt').offset), 0);
+        assert.equal(at('resolvedAt').slot, '0');
+        assert.equal(Number(at('resolvedAt').offset), 8);
+        assert.equal(at('status').slot, '0');
+        assert.equal(Number(at('status').offset), 16);
+        assert.equal(at('initialized').slot, '0');
+        assert.equal(Number(at('initialized').offset), 17);
+        assert.equal(at('wasRespectedGameTypeWhenCreated').slot, '0');
+        assert.equal(Number(at('wasRespectedGameTypeWhenCreated').offset), 18);
+        assert.equal(at('startingOutputRoot').slot, '1');
+    });
 });

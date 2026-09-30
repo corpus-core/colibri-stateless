@@ -49,8 +49,11 @@ interface ContractSkeleton {
  * from the original Solidity source and compiling it with the bundled solc.
  *
  * The skeleton contains only state variable declarations, struct/enum
- * definitions, and the inheritance chain. This works for **all** Solidity
- * versions because storage layout rules have been stable since 0.4.x.
+ * definitions, user-defined value types (`type Timestamp is uint64`), and the
+ * inheritance chain. This works for **all** Solidity versions because storage
+ * layout rules have been stable since 0.4.x. Value types are required so a
+ * packed slot such as `Timestamp` + `enum` + `bool` still compiles; without
+ * them the skeleton fails and the slot stays unnamed.
  *
  * @param sources - Source files as returned by Sourcify `{ "file.sol": { content: "..." } }`
  * @param contractName - Target contract name (uses the last contract if omitted)
@@ -69,6 +72,7 @@ export async function extractStorageLayout(
 
     const structs = new Map<string, StructSkeleton>();
     const enums = new Map<string, string>();
+    const valueTypes = new Map<string, string>();
     const contracts = new Map<string, ContractSkeleton>();
     const locationConstants = new Map<string, bigint>();
     let lastContractName = '';
@@ -88,6 +92,7 @@ export async function extractStorageLayout(
             if (node.type === 'EnumDefinition' && !node.isContractPart) {
                 rememberType(enums, node.name, emitEnum(node));
             }
+            if (node.type === 'TypeDefinition') rememberValueType(valueTypes, node);
             if (node.type === 'ContractDefinition') {
                 const skeleton = extractContractSkeleton(node);
                 contracts.set(skeleton.name, skeleton);
@@ -96,6 +101,7 @@ export async function extractStorageLayout(
                 for (const sub of node.subNodes as ASTNode[]) {
                     if (sub.type === 'StructDefinition') rememberStruct(structs, sub);
                     if (sub.type === 'EnumDefinition') rememberType(enums, sub.name, emitEnum(sub));
+                    if (sub.type === 'TypeDefinition') rememberValueType(valueTypes, sub);
                     rememberLocationConstant(locationConstants, sub);
                 }
             }
@@ -110,7 +116,7 @@ export async function extractStorageLayout(
     if (!target || !contracts.has(target)) return null;
 
     const skeleton = buildSkeletonSource(
-        target, contracts, orderStructs(structs), [...enums.values()],
+        target, contracts, orderStructs(structs), [...enums.values()], [...valueTypes.values()],
     );
     const compiled = await compileSkeleton(skeleton, target);
     const namespaced = buildNamespacedLayout(structs, locationConstants);
@@ -121,6 +127,26 @@ interface StructSkeleton {
     source: string;
     deps: string[];
     members: ASTNode[];
+}
+
+const VALUE_TYPE_UNDERLYING_RE = /^(?:address|bool|uint(?:8|16|32|64|128|256)|int(?:8|16|32|64|128|256)|bytes(?:[1-9]|1[0-9]|2[0-9]|3[0-2]))$/;
+
+/**
+ * Record `type Timestamp is uint64` so the skeleton can name that alias.
+ *
+ * Solidity user-defined value types occupy the same slots as their underlying
+ * value type. The underlying type is taken from the AST, not from source text.
+ *
+ * @param types - Name → `type Name is Underlying;`
+ * @param node - `TypeDefinition` AST node
+ */
+function rememberValueType(types: Map<string, string>, node: ASTNode): void {
+    if (typeof node.name !== 'string') return;
+    if (!SOLIDITY_IDENTIFIER_RE.test(node.name) || node.name.length > 128) return;
+    if (types.has(node.name)) return;
+    const underlying = emitType(node.definition);
+    if (!underlying || !VALUE_TYPE_UNDERLYING_RE.test(underlying)) return;
+    types.set(node.name, `type ${node.name} is ${underlying};`);
 }
 
 /**
@@ -617,10 +643,13 @@ function buildSkeletonSource(
     contracts: Map<string, ContractSkeleton>,
     structs: string[],
     enums: string[],
+    valueTypes: string[] = [],
 ): string {
     const lines: string[] = ['// SPDX-License-Identifier: MIT', 'pragma solidity >=0.8.0;', ''];
 
     for (const e of enums) lines.push(e, '');
+    // After enums: a value type may alias an elementary type used by a struct.
+    for (const valueType of valueTypes) lines.push(valueType, '');
     for (const s of structs) lines.push(s, '');
 
     const emitted = new Set<string>();
