@@ -118,17 +118,25 @@ void test_simulation_result_access_list_skips_unaccessed_keys_without_code_hash(
   memset(acc.code_hash, 0xff, 32);
 
   memset(key_a.key, 0xaa, 32);
+  memset(key_a.src_value, 0x11, 32);
   key_a.accessed = true;
   key_a.next     = &key_skip;
 
   memset(key_skip.key, 0xee, 32);
+  memset(key_skip.src_value, 0xee, 32);
   key_skip.next = &key_b;
 
   memset(key_b.key, 0xbb, 32);
+  memset(key_b.src_value, 0x22, 32);
   key_b.accessed = true;
   acc.storage    = &key_a;
 
-  ssz_ob_t result = eth_build_simulation_result_ssz(NULL_BYTES, NULL, true, 21000, NULL, &acc, NULL, NULL);
+  uint8_t        preimage_bytes[] = {0x01, 0x02, 0x03, 0x04};
+  keccak_entry_t preimage         = {0};
+  memcpy(preimage.hash, key_a.key, 32);
+  preimage.input = bytes(preimage_bytes, sizeof(preimage_bytes));
+
+  ssz_ob_t result = eth_build_simulation_result_ssz(NULL_BYTES, NULL, true, 21000, NULL, &acc, &preimage, NULL);
   ssz_ob_t list   = ssz_get(&result, "accessList");
 
   TEST_ASSERT_FALSE(ssz_is_error(list));
@@ -143,6 +151,22 @@ void test_simulation_result_access_list_skips_unaccessed_keys_without_code_hash(
   TEST_ASSERT_EQUAL_UINT32_MESSAGE(2, ssz_len(keys), "unaccessed storage keys must be omitted");
   TEST_ASSERT_EQUAL_MEMORY(key_a.key, ssz_at(keys, 0).bytes.data, 32);
   TEST_ASSERT_EQUAL_MEMORY(key_b.key, ssz_at(keys, 1).bytes.data, 32);
+
+  ssz_ob_t reads = ssz_get(&entry, "storage");
+  TEST_ASSERT_EQUAL_UINT32_MESSAGE(2, ssz_len(reads), "storage reads must follow accessed keys");
+  ssz_ob_t read_a = ssz_at(reads, 0);
+  TEST_ASSERT_EQUAL_MEMORY(key_a.key, ssz_get(&read_a, "slot").bytes.data, 32);
+  TEST_ASSERT_EQUAL_MEMORY(key_a.src_value, ssz_get(&read_a, "value").bytes.data, 32);
+  ssz_ob_t source = ssz_get(&read_a, "slotSource");
+  TEST_ASSERT_EQUAL_UINT32(sizeof(preimage_bytes), source.bytes.len);
+  TEST_ASSERT_EQUAL_MEMORY(preimage_bytes, source.bytes.data, sizeof(preimage_bytes));
+
+  ssz_ob_t read_b = ssz_at(reads, 1);
+  TEST_ASSERT_EQUAL_MEMORY(key_b.key, ssz_get(&read_b, "slot").bytes.data, 32);
+  TEST_ASSERT_EQUAL_MEMORY(key_b.src_value, ssz_get(&read_b, "value").bytes.data, 32);
+  ssz_ob_t no_source = ssz_get(&read_b, "slotSource");
+  TEST_ASSERT_TRUE_MESSAGE(ssz_is_error(no_source) || no_source.bytes.len == 0,
+                           "slot without a keccak preimage must not publish slotSource");
 
   safe_free(result.bytes.data);
 }
@@ -186,6 +210,91 @@ void test_simulate_cache_deserialize_seeds_snapshot(void) {
   call_storage_free_list(out.storage);
 }
 
+void test_simulation_access_storage_uses_src_value_and_caps_preimage(void) {
+  call_account_t acc        = {0};
+  call_storage_t plain      = {0};
+  call_storage_t capped     = {0};
+  call_storage_t oversized  = {0};
+  call_storage_t empty_slot = {0};
+
+  memset(acc.address, 0x66, 20);
+  acc.flags = ACCOUNT_ACCESSED | ACCOUNT_HAS_CODE_HASH;
+  memset(acc.code_hash, 0xab, 32);
+
+  memset(plain.key, 0x10, 32);
+  memset(plain.src_value, 0x11, 32);
+  memset(plain.post_value, 0x99, 32);
+  plain.accessed = true;
+  plain.next     = &capped;
+
+  memset(capped.key, 0x20, 32);
+  memset(capped.src_value, 0x21, 32);
+  capped.accessed = true;
+  capped.next     = &oversized;
+
+  memset(oversized.key, 0x30, 32);
+  memset(oversized.src_value, 0x31, 32);
+  oversized.accessed = true;
+  oversized.next     = &empty_slot;
+
+  memset(empty_slot.key, 0x40, 32);
+  memset(empty_slot.src_value, 0x41, 32);
+  empty_slot.accessed = true;
+  acc.storage          = &plain;
+
+  uint8_t at_cap[1024];
+  uint8_t over_cap[1025];
+  uint8_t mismatch_bytes[4] = {0x01, 0x02, 0x03, 0x04};
+  memset(at_cap, 0x5a, sizeof(at_cap));
+  memset(over_cap, 0x5b, sizeof(over_cap));
+
+  keccak_entry_t mismatch = {0};
+  memset(mismatch.hash, 0xcc, 32);
+  mismatch.input = bytes(mismatch_bytes, sizeof(mismatch_bytes));
+
+  keccak_entry_t empty = {0};
+  memcpy(empty.hash, empty_slot.key, 32);
+  empty.input = bytes(NULL, 0);
+  empty.next  = &mismatch;
+
+  keccak_entry_t over = {0};
+  memcpy(over.hash, oversized.key, 32);
+  over.input = bytes(over_cap, sizeof(over_cap));
+  over.next  = &empty;
+
+  keccak_entry_t cap = {0};
+  memcpy(cap.hash, capped.key, 32);
+  cap.input = bytes(at_cap, sizeof(at_cap));
+  cap.next  = &over;
+
+  ssz_ob_t result = eth_build_simulation_result_ssz(NULL_BYTES, NULL, true, 21000, NULL, &acc, &cap, NULL);
+  ssz_ob_t list   = ssz_get(&result, "accessList");
+  ssz_ob_t entry  = ssz_at(list, 0);
+  ssz_ob_t reads  = ssz_get(&entry, "storage");
+  TEST_ASSERT_EQUAL_UINT32(4, ssz_len(reads));
+
+  ssz_ob_t read_plain = ssz_at(reads, 0);
+  TEST_ASSERT_EQUAL_MEMORY(plain.src_value, ssz_get(&read_plain, "value").bytes.data, 32);
+  TEST_ASSERT_TRUE(memcmp(ssz_get(&read_plain, "value").bytes.data, plain.post_value, 32) != 0);
+  ssz_ob_t plain_source = ssz_get(&read_plain, "slotSource");
+  TEST_ASSERT_TRUE(ssz_is_error(plain_source) || plain_source.bytes.len == 0);
+
+  ssz_ob_t read_cap = ssz_at(reads, 1);
+  ssz_ob_t source   = ssz_get(&read_cap, "slotSource");
+  TEST_ASSERT_EQUAL_UINT32(1024, source.bytes.len);
+  TEST_ASSERT_EQUAL_MEMORY(at_cap, source.bytes.data, 1024);
+
+  ssz_ob_t read_over   = ssz_at(reads, 2);
+  ssz_ob_t over_source = ssz_get(&read_over, "slotSource");
+  TEST_ASSERT_TRUE(ssz_is_error(over_source) || over_source.bytes.len == 0);
+
+  ssz_ob_t read_empty   = ssz_at(reads, 3);
+  ssz_ob_t empty_source = ssz_get(&read_empty, "slotSource");
+  TEST_ASSERT_TRUE(ssz_is_error(empty_source) || empty_source.bytes.len == 0);
+
+  safe_free(result.bytes.data);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_simulate_simple);
@@ -193,6 +302,7 @@ int main(void) {
   RUN_TEST(test_simulation_result_access_list_includes_code_hash);
   RUN_TEST(test_simulation_result_omits_access_list_when_nothing_accessed);
   RUN_TEST(test_simulation_result_access_list_skips_unaccessed_keys_without_code_hash);
+  RUN_TEST(test_simulation_access_storage_uses_src_value_and_caps_preimage);
   RUN_TEST(test_simulate_cache_deserialize_seeds_snapshot);
   return UNITY_END();
 }

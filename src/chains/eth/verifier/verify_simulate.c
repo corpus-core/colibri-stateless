@@ -224,8 +224,15 @@ static bool account_was_accessed(const call_account_t* acc) {
 /**
  * Build a Tenderly-style generated access list (`address` + `storageKeys`)
  * and attach the verified on-chain `codeHash` of each accessed account.
+ * Each accessed slot is also recorded under `storage` with its proven
+ * pre-state value (`src_value`) and, when the key was hashed during the call
+ * and the preimage is at most 1024 bytes, the keccak preimage as `slotSource`.
+ *
+ * @param builder SSZ builder for the simulation result
+ * @param accounts accounts touched while simulating (may be `NULL`)
+ * @param keccak_entries keccak preimages captured during the call (may be `NULL`)
  */
-static void build_access_list(ssz_builder_t* builder, call_account_t* accounts) {
+static void build_access_list(ssz_builder_t* builder, call_account_t* accounts, keccak_entry_t* keccak_entries) {
   size_t count = 0;
   for (call_account_t* acc = accounts; acc; acc = acc->next)
     if (account_was_accessed(acc)) count++;
@@ -261,6 +268,30 @@ static void build_access_list(ssz_builder_t* builder, call_account_t* accounts) 
 
     const uint8_t* hash = (acc->flags & ACCOUNT_HAS_CODE_HASH) ? acc->code_hash : EMPTY_HASH;
     ssz_add_bytes(&entry, "codeHash", bytes((uint8_t*) hash, 32));
+
+    if (!key_count) {
+      ssz_add_bytes(&entry, "storage", NULL_BYTES);
+    }
+    else {
+      ssz_builder_t reads = ssz_builder_for_def(ssz_get_def(entry.def, "storage"));
+      for (call_storage_t* s = acc->storage; s; s = s->next) {
+        if (!s->accessed) continue;
+
+        ssz_builder_t   slot_builder = ssz_builder_for_def(reads.def->def.vector.type);
+        keccak_entry_t* preimage     = find_keccak_preimage(keccak_entries, s->key);
+        bool            has_source   = preimage && preimage->input.len > 0 && preimage->input.len <= 1024;
+
+        uint8_t slot_mask = ETH_SIMULATION_STORAGE_READ_MASK_BASE;
+        if (has_source) slot_mask |= ETH_SIMULATION_STORAGE_READ_MASK_SLOT_SOURCE;
+        ssz_add_uint8(&slot_builder, slot_mask);
+        ssz_add_bytes(&slot_builder, "slot", bytes(s->key, 32));
+        ssz_add_bytes(&slot_builder, "value", bytes(s->src_value, 32));
+        ssz_add_bytes(&slot_builder, "slotSource", has_source ? preimage->input : NULL_BYTES);
+
+        ssz_add_dynamic_list_builders(&reads, (int) key_count, slot_builder);
+      }
+      ssz_add_builders(&entry, "storage", reads);
+    }
 
     ssz_add_dynamic_list_builders(&list_builder, (int) count, entry);
   }
@@ -341,7 +372,7 @@ ssz_ob_t eth_build_simulation_result_ssz(bytes_t call_result, emitted_log_t* log
   ssz_add_bytes(&builder, "returnValue", call_result); // returnValue (visible)
 
   build_state_changes(&builder, accounts, keccak_entries);
-  build_access_list(&builder, accounts);
+  build_access_list(&builder, accounts, keccak_entries);
 
   // Build and return the SSZ object
   return ssz_builder_to_bytes(&builder);

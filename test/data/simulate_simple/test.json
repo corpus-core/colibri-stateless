@@ -31,12 +31,14 @@
             {
                 "address": "0x0000000000000000000000000000000000000000",
                 "storageKeys": [],
-                "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+                "storage": []
             },
             {
                 "address": "0x0742d35cc6634c0532925a3b844bc9e7595f0beb",
                 "storageKeys": [],
-                "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                "codeHash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+                "storage": []
             }
         ]
     },

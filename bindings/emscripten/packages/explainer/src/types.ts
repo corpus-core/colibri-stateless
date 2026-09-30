@@ -66,11 +66,26 @@ export interface ContractStateChange {
     balance?: { previousValue: string; newValue: string };
 }
 
+/** One storage slot read or written during simulation. */
+export interface AccessedStorageSlot {
+    slot: string;
+    /** Proven pre-state value of the slot (`src_value`). */
+    value: string;
+    /** Keccak preimage of `slot`, present when the key was hashed during the call. */
+    slotSource?: string;
+}
+
 export interface AccessListEntry {
     address: string;
     storageKeys?: string[];
     /** keccak256 of the deployed runtime bytecode. Absent / empty-code hash for EOAs. */
     codeHash?: string;
+    /**
+     * Accessed slots in the same order as `storageKeys`, each with its proven
+     * pre-state value. Slots that were also written stay listed under
+     * `stateChanges`.
+     */
+    storage?: AccessedStorageSlot[];
 }
 
 /**

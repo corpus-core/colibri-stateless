@@ -357,14 +357,29 @@ static const ssz_def_t ETH_SIMULATION_ACCOUNT_CHANGE_CONTAINER = SSZ_CONTAINER("
 #define ETH_SIMULATION_ACCOUNT_CHANGE_MASK_NONCE   (1 << 3) // nonce field (i=3)
 #define ETH_SIMULATION_ACCOUNT_CHANGE_MASK_BALANCE (1 << 4) // balance field (i=4)
 
+// One accessed storage slot. `value` is the proven pre-state (`src_value`).
+// `slotSource` is the keccak preimage of `slot` when the call hashed that key.
+static const ssz_def_t ETH_SIMULATION_STORAGE_READ[] = {
+    SSZ_OPT_MASK("_optmask", 1),    // bit 3 controls slotSource visibility
+    SSZ_BYTE_VECTOR("slot", 32),    // storage key (same order as storageKeys)
+    SSZ_BYTE_VECTOR("value", 32),   // proven pre-state value
+    SSZ_BYTES("slotSource", 1024),  // keccak preimage of the slot key (when available)
+};
+static const ssz_def_t ETH_SIMULATION_STORAGE_READ_CONTAINER = SSZ_CONTAINER("StorageRead", ETH_SIMULATION_STORAGE_READ);
+
+#define ETH_SIMULATION_STORAGE_READ_MASK_BASE        ((1 << 1) | (1 << 2)) // slot + value
+#define ETH_SIMULATION_STORAGE_READ_MASK_SLOT_SOURCE (1 << 3)              // slotSource field (i=3)
+
 // Generated access-list entry (Tenderly `generated_access_list` / EIP-2930),
 // extended with the on-chain `codeHash` so downstream enrichment can verify
 // Sourcify metadata against the bytecode that was actually executed.
+// `storage` repeats each `storageKeys` entry with its proven pre-state value.
 // This type is simulation-only -- do not reuse `ETH_ACCESS_LIST_DATA` (tx encoding).
 static const ssz_def_t ETH_SIMULATION_ACCESS_ENTRY[] = {
-    SSZ_ADDRESS("address"),                    // accessed account
-    SSZ_PROG_LIST("storageKeys", ssz_bytes32), // storage keys read or written (EIP-2930)
-    SSZ_BYTES32("codeHash"),                   // keccak256 of deployed runtime bytecode (`EMPTY_HASH` for EOAs)
+    SSZ_ADDRESS("address"),                                          // accessed account
+    SSZ_PROG_LIST("storageKeys", ssz_bytes32),                       // storage keys read or written (EIP-2930)
+    SSZ_BYTES32("codeHash"),                                         // keccak256 of deployed runtime bytecode (`EMPTY_HASH` for EOAs)
+    SSZ_PROG_LIST("storage", ETH_SIMULATION_STORAGE_READ_CONTAINER), // accessed slots with pre-state value
 };
 // Container type for a generated access-list entry
 static const ssz_def_t ETH_SIMULATION_ACCESS_ENTRY_CONTAINER = SSZ_CONTAINER("SimulationAccessEntry", ETH_SIMULATION_ACCESS_ENTRY);
@@ -382,7 +397,7 @@ static const ssz_def_t ETH_SIMULATION_RESULT[] = {
     SSZ_UINT8("type"),                                                      // transaction type
     SSZ_PROG_BYTES("returnValue"),                                          // return value of the call
     SSZ_PROG_LIST("stateChanges", ETH_SIMULATION_ACCOUNT_CHANGE_CONTAINER), // per-account state diffs (Tenderly format)
-    SSZ_PROG_LIST("accessList", ETH_SIMULATION_ACCESS_ENTRY_CONTAINER),     // generated access list + codeHash (appended; i=11)
+    SSZ_PROG_LIST("accessList", ETH_SIMULATION_ACCESS_ENTRY_CONTAINER),     // generated access list + codeHash + storage values (appended; i=11)
 };
 // Container type for the complete simulation result
 static const ssz_def_t ETH_SIMULATION_RESULT_CONTAINER = SSZ_CONTAINER("SimulationResult", ETH_SIMULATION_RESULT);
