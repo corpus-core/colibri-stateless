@@ -529,8 +529,8 @@ static bool pap_verify_proof_response(verify_ctx_t* ctx, call_account_t* call_ac
   // light-client validators are in storage when c4_verify_header runs. Pending
   // WSP and validator requests must live on `ctx` because the host fulfils
   // against that list (same reason pap_tx applies sync_data before c4_verify_block).
-  ctx->sync_data          = proof_ctx.sync_data;
-  c4_status_t sd_status   = c4_update_from_sync_data(ctx);
+  ctx->sync_data        = proof_ctx.sync_data;
+  c4_status_t sd_status = c4_update_from_sync_data(ctx);
   if (sd_status == C4_PENDING) goto cleanup;
   if (sd_status != C4_SUCCESS) goto cleanup;
 

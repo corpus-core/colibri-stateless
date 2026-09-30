@@ -8,10 +8,10 @@
 #include <string>
 #include <vector>
 
+#include "evmone/vm.hpp"
 #include <evmc/evmc.h>
 #include <evmc/evmc.hpp>
 #include <evmone/evmone.h>
-#include "evmone/vm.hpp"
 
 static_assert(EVMC_ABI_VERSION == 18, "evmone wrapper requires EVMC ABI 18 (evmone >= 0.23)");
 
@@ -39,7 +39,7 @@ public:
 private:
   void on_execution_start(evmc_revision, const evmc_message&, evmone::bytes_view) noexcept override {}
 
-  void on_instruction_start(uint32_t pc, const intx::uint256*, int, int64_t,
+  void on_instruction_start(uint32_t                      pc, const intx::uint256*, int, int64_t,
                             const evmone::ExecutionState& state) noexcept override {
     if (!fn_ || !state.msg || pc >= state.original_code.size()) return;
     if (state.original_code[pc] != 0x5b) return;
@@ -62,15 +62,15 @@ struct TracerGuard {
 
 bool map_revision(int revision, evmc_revision* out) noexcept {
   switch (revision) {
-  case EVMONE_REV_OSAKA:
-    *out = EVMC_OSAKA;
-    return true;
-  case EVMONE_REV_AMSTERDAM:
-    *out = EVMC_AMSTERDAM;
-    return true;
-  default:
-    // Refuse unknown Colibri revision IDs instead of silently selecting a fork.
-    return false;
+    case EVMONE_REV_OSAKA:
+      *out = EVMC_OSAKA;
+      return true;
+    case EVMONE_REV_AMSTERDAM:
+      *out = EVMC_AMSTERDAM;
+      return true;
+    default:
+      // Refuse unknown Colibri revision IDs instead of silently selecting a fork.
+      return false;
   }
 }
 
@@ -349,7 +349,6 @@ extern "C" evmone_result evmone_execute(
     return err;
   }
 
-
   TracerGuard tracer;
   tracer.vm = vm;
   if (jumpdest_hook().fn != nullptr && vm->get_tracer() == nullptr) {
@@ -364,8 +363,8 @@ extern "C" evmone_result evmone_execute(
   const struct evmc_host_interface* interface = &evmc::Host::get_interface();
 
   evmc_message cpp_msg{};
-  cpp_msg.kind         = static_cast<evmc_call_kind>(msg->kind);
-  cpp_msg.flags        = 0;
+  cpp_msg.kind  = static_cast<evmc_call_kind>(msg->kind);
+  cpp_msg.flags = 0;
   if (msg->is_static) cpp_msg.flags |= EVMC_STATIC;
   if (msg->is_delegated) cpp_msg.flags |= EVMC_DELEGATED;
   cpp_msg.depth        = msg->depth;

@@ -187,9 +187,14 @@ void test_simulate_cache_deserialize_seeds_snapshot(void) {
   seed.flags = ACCOUNT_HAS_BALANCE | ACCOUNT_HAS_CODE_HASH | ACCOUNT_HAS_STORAGE_ROOT | ACCOUNT_HAS_NONCE;
   seed.nonce = 0x123456;
   // 2.240151 ETH mirrors the WETH-deposit example from issue #381.
-  seed.balance[24] = 0x1f; seed.balance[25] = 0x14; seed.balance[26] = 0x63;
-  seed.balance[27] = 0xc6; seed.balance[28] = 0x1e; seed.balance[29] = 0xa3;
-  seed.balance[30] = 0x60; seed.balance[31] = 0x00;
+  seed.balance[24] = 0x1f;
+  seed.balance[25] = 0x14;
+  seed.balance[26] = 0x63;
+  seed.balance[27] = 0xc6;
+  seed.balance[28] = 0x1e;
+  seed.balance[29] = 0xa3;
+  seed.balance[30] = 0x60;
+  seed.balance[31] = 0x00;
   memset(seed.storage_root, 0xaa, 32);
   memset(seed.code_hash, 0xbb, 32);
   seed.verified_at = 99;
@@ -243,7 +248,7 @@ void test_simulation_access_storage_uses_src_value_and_caps_preimage(void) {
   memset(empty_slot.key, 0x40, 32);
   memset(empty_slot.src_value, 0x41, 32);
   empty_slot.accessed = true;
-  acc.storage          = &plain;
+  acc.storage         = &plain;
 
   uint8_t at_cap[1024];
   uint8_t over_cap[1025];
@@ -401,8 +406,8 @@ void test_simulation_positions_records_each_jumpdest_once(void) {
   ctx.chain_id     = C4_CHAIN_MAINNET;
   ctx.args         = json_parse(
       "[{\"from\":\"0x2222222222222222222222222222222222222222\","
-      "\"to\":\"0x1111111111111111111111111111111111111111\","
-      "\"gas\":\"0xf4240\"},\"latest\"]");
+              "\"to\":\"0x1111111111111111111111111111111111111111\","
+              "\"gas\":\"0xf4240\"},\"latest\"]");
 
   evm_call_ctx_t evm = {0};
   evm.sim_flags      = EVM_SIM_POSITIONS;
@@ -481,8 +486,8 @@ void test_simulation_positions_follow_delegatecall_code(void) {
   ctx.chain_id     = C4_CHAIN_MAINNET;
   ctx.args         = json_parse(
       "[{\"from\":\"0x3333333333333333333333333333333333333333\","
-      "\"to\":\"0x1111111111111111111111111111111111111111\","
-      "\"gas\":\"0xf4240\"},\"latest\"]");
+              "\"to\":\"0x1111111111111111111111111111111111111111\","
+              "\"gas\":\"0xf4240\"},\"latest\"]");
 
   evm_call_ctx_t evm = {0};
   evm.sim_flags      = EVM_SIM_POSITIONS;

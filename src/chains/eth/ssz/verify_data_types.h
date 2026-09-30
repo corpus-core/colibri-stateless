@@ -361,10 +361,10 @@ static const ssz_def_t ETH_SIMULATION_ACCOUNT_CHANGE_CONTAINER = SSZ_CONTAINER("
 // One accessed storage slot. `value` is the proven pre-state (`src_value`).
 // `slotSource` is the keccak preimage of `slot` when the call hashed that key.
 static const ssz_def_t ETH_SIMULATION_STORAGE_READ[] = {
-    SSZ_OPT_MASK("_optmask", 1),    // bit 3 controls slotSource visibility
-    SSZ_BYTE_VECTOR("slot", 32),    // storage key (same order as storageKeys)
-    SSZ_BYTE_VECTOR("value", 32),   // proven pre-state value
-    SSZ_BYTES("slotSource", 1024),  // keccak preimage of the slot key (when available)
+    SSZ_OPT_MASK("_optmask", 1),   // bit 3 controls slotSource visibility
+    SSZ_BYTE_VECTOR("slot", 32),   // storage key (same order as storageKeys)
+    SSZ_BYTE_VECTOR("value", 32),  // proven pre-state value
+    SSZ_BYTES("slotSource", 1024), // keccak preimage of the slot key (when available)
 };
 static const ssz_def_t ETH_SIMULATION_STORAGE_READ_CONTAINER = SSZ_CONTAINER("StorageRead", ETH_SIMULATION_STORAGE_READ);
 
@@ -388,11 +388,11 @@ static const ssz_def_t ETH_SIMULATION_ACCESS_ENTRY[] = {
 static const ssz_def_t ETH_SIMULATION_ACCESS_ENTRY_CONTAINER = SSZ_CONTAINER("SimulationAccessEntry", ETH_SIMULATION_ACCESS_ENTRY);
 
 #define ETH_SIMULATION_ACCESS_ENTRY_MASK_BASE    ((1 << 1) | (1 << 2) | (1 << 3)) // address, storageKeys, codeHash
-#define ETH_SIMULATION_ACCESS_ENTRY_MASK_STORAGE (1 << 4)                          // storage field (i=4)
+#define ETH_SIMULATION_ACCESS_ENTRY_MASK_STORAGE (1 << 4)                         // storage field (i=4)
 
 // Unique JUMPDEST program counters executed by one code address.
 static const ssz_def_t ETH_SIMULATION_CODE_POSITIONS[] = {
-    SSZ_ADDRESS("address"),             // code address (delegatecall: the implementation)
+    SSZ_ADDRESS("address"),               // code address (delegatecall: the implementation)
     SSZ_PROG_LIST("pcs", ssz_uint32_def), // executed JUMPDEST program counters, sorted, unique
 };
 static const ssz_def_t ETH_SIMULATION_CODE_POSITIONS_CONTAINER = SSZ_CONTAINER("CodePositions", ETH_SIMULATION_CODE_POSITIONS);

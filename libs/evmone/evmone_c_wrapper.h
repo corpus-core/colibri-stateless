@@ -58,7 +58,7 @@ typedef struct {
  * explicit enumerator values, so Osaka is no longer safely hard-coded as 14.
  */
 /* Non-zero so zero-initialized callers cannot silently select a fork. */
-#define EVMONE_REV_OSAKA     1
+#define EVMONE_REV_OSAKA 1
 /* Glamsterdam. Adds SLOTNUM / DUPN / SWAPN / EXCHANGE and lifts MAX_CODE_SIZE
  * to 64 KiB, MAX_INITCODE_SIZE to 128 KiB. Storage-refund table matches
  * London/Osaka. Host callers that select this revision are responsible for

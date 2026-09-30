@@ -249,7 +249,7 @@ static void build_access_list(ssz_builder_t* builder, call_account_t* accounts, 
   for (call_account_t* acc = accounts; acc; acc = acc->next) {
     if (!account_was_accessed(acc)) continue;
 
-    ssz_builder_t entry = ssz_builder_for_def(list_builder.def->def.vector.type);
+    ssz_builder_t entry      = ssz_builder_for_def(list_builder.def->def.vector.type);
     uint8_t       entry_mask = ETH_SIMULATION_ACCESS_ENTRY_MASK_BASE;
     if (include_storage) entry_mask |= ETH_SIMULATION_ACCESS_ENTRY_MASK_STORAGE;
     ssz_add_uint8(&entry, entry_mask);

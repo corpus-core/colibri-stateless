@@ -352,9 +352,9 @@ static void host_selfdestruct(void* context, const evmc_address* addr, const evm
   if (!bytes_all_zero(bytes(acc->balance, 32)) && memcmp(addr->bytes, beneficiary->bytes, 20) != 0) {
     // Snapshot the transferred amount for the EIP-7708 log below; acc->balance
     // is zeroed after the credit so we cannot read it back afterwards.
-    bytes32_t        transferred = {0};
+    bytes32_t transferred = {0};
     memcpy(transferred, acc->balance, 32);
-    call_account_t*  ben         = call_account_get_or_create(ctx, beneficiary->bytes);
+    call_account_t* ben = call_account_get_or_create(ctx, beneficiary->bytes);
     uint256_add(ben->balance, acc->balance);
     ben->flags |= ACCOUNT_HAS_BALANCE;
     memset(acc->balance, 0, 32);
