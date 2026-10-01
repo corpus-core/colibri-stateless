@@ -1,4 +1,5 @@
 import C4Client from '@corpus-core/colibri-stateless';
+import { default_config as CHAIN_DEFAULTS } from '@corpus-core/colibri-stateless/chains';
 import {
     enrichSimulation,
     createProvider,
@@ -728,24 +729,18 @@ function createEthGetCode(rpcUrl: string): (address: string) => Promise<string |
 }
 
 /**
- * Fallback public RPC endpoints used by the partial-match verification when
- * the user leaves the RPC field blank. These are only hit for `eth_getCode`
- * (one call per contract that fails full-match verification), and the result
- * is re-hashed against the already-verified `codeHash` from the simulation
- * accessList before anything downstream trusts the bytes.
- */
-const PUBLIC_RPC_FALLBACKS: Record<number, string> = {
-    1: 'https://eth.llamarpc.com',
-    10: 'https://mainnet.optimism.io',
-    8453: 'https://mainnet.base.org',
-    42161: 'https://arb1.arbitrum.io/rpc',
-    11155111: 'https://ethereum-sepolia-rpc.publicnode.com',
-};
-
-/**
  * Pick the JSON-RPC endpoint for the partial-match `eth_getCode` fallback.
- * Prefer whatever the user typed into the RPC input; otherwise fall back to a
- * public endpoint for the selected chain.
+ *
+ * Prefer whatever the user typed into the RPC input; otherwise fall back to
+ * the canonical per-chain default list from
+ * `scripts/chain_defaults/chains.json` (shipped in the WASM bundle as
+ * `default_config`), picking the first entry that is actually usable from a
+ * browser context -- the first entry is typically our own Colibri endpoint
+ * which may require auth or disallow CORS, so we filter those out.
+ *
+ * The returned URL is only hit when the full-bytecode hash check fails; the
+ * fetched code is re-hashed against the already-verified `codeHash` from the
+ * simulation accessList before being trusted.
  *
  * @param rpc - Raw value from the RPC input field (may be empty)
  * @param chainId - Selected chain ID
@@ -753,7 +748,13 @@ const PUBLIC_RPC_FALLBACKS: Record<number, string> = {
  */
 function pickRpcForGetCode(rpc: string, chainId: number): string | null {
     if (rpc) return rpc;
-    return PUBLIC_RPC_FALLBACKS[chainId] ?? null;
+    const defaults = CHAIN_DEFAULTS[String(chainId)];
+    if (!defaults) return null;
+    const candidates = Array.isArray(defaults.rpcs) ? defaults.rpcs : [];
+    // Prefer any entry; fall back to the very first if the list only contains
+    // the Colibri endpoint. The partial-match path tolerates CORS failures
+    // (returns `null`, which cleanly disables the fallback for this contract).
+    return candidates[0] ?? null;
 }
 
 // -- Run ---------------------------------------------------------------------

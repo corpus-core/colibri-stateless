@@ -26,6 +26,9 @@ const colibriDir = dirname(colibriDist);
 export default defineConfig({
     resolve: {
         alias: {
+            // `/chains` must come first so Vite matches it before the bare
+            // top-level alias (aliases are tried in insertion order).
+            '@corpus-core/colibri-stateless/chains': resolve(colibriDir, 'chains.js'),
             '@corpus-core/colibri-stateless': colibriDist,
         },
     },
