@@ -38,7 +38,7 @@ describe('explainSimulation', () => {
         globalThis.fetch = async (_url, opts) => {
             const body = JSON.parse(opts?.body);
             assert.equal(body.model, 'gpt-4o-mini');
-            assert.ok(body.messages[0].content.includes('blockchain transaction analyst'));
+            assert.ok(body.messages[0].content.includes('outcome for the sender'));
             assert.ok(body.messages[1].content.includes('WETH'));
             assert.equal(body.temperature, 0.2);
 
