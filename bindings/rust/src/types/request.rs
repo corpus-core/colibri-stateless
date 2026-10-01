@@ -44,6 +44,16 @@ pub enum Encoding {
     Ssz,
 }
 
+impl Encoding {
+    /// `Accept` / content type advertised for this encoding.
+    pub fn accept_header(self) -> &'static str {
+        match self {
+            Encoding::Json => "application/json",
+            Encoding::Ssz => "application/octet-stream",
+        }
+    }
+}
+
 impl fmt::Display for Encoding {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

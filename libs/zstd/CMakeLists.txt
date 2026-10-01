@@ -56,6 +56,12 @@ set(ZSTD_BUILD_SHARED OFF CACHE BOOL "Build shared libraries" FORCE)
 set(ZSTD_BUILD_STATIC ON CACHE BOOL "Build static libraries" FORCE)
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build shared libraries" FORCE)
 
+# WASI (wasm32-wasip1) has no pthread support in the default sysroot: force
+# single-threaded zstd, otherwise pool.c refuses to compile.
+if(CMAKE_SYSTEM_NAME STREQUAL "WASI")
+    set(ZSTD_MULTITHREAD_SUPPORT OFF CACHE BOOL "Disable zstd multithreading on WASI" FORCE)
+endif()
+
 # Make the content available
 FetchContent_MakeAvailable(zstd)
 

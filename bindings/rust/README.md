@@ -69,7 +69,7 @@ let balance = client
 | **Verified RPC** | `eth_call`, `eth_getBalance`, `eth_getLogs`, `eth_getProof`, `eth_getTransactionReceipt`, etc. |
 | **Multiple modes** | `Local`, `Remote`, `Hybrid`, `Proxy` proof strategies |
 | **Pluggable storage** | In-memory, file-system, or a custom `Storage` impl |
-| **Pluggable transport** | Default `reqwest` handler, or your own `RequestHandler` |
+| **Pluggable transport** | Default `reqwest` (native), `http_fetch` (wasm), or a full `RequestHandler` |
 | **PAP privacy** | Optional Pragmatic Adaptive Privacy mode (experimental) |
 | **Shared fixtures** | Replays the monorepo `test/data/*` corpus via `colibri_stateless::testing` |
 
@@ -86,7 +86,8 @@ static archive. Where that archive comes from depends on your build:
   `colibri-native-<target>.tar.gz` from the GitHub Release matching
   the crate version. Supported targets: `x86_64-unknown-linux-gnu`,
   `aarch64-apple-darwin`, `x86_64-apple-darwin`,
-  `x86_64-pc-windows-msvc`.
+  `x86_64-pc-windows-msvc`, `wasm32-wasip1` (WASI Preview 1, see
+  [WebAssembly (wasm32-wasip1)](#webassembly-wasm32-wasip1) below).
 - **Monorepo checkout** -- `build.rs` shells out to CMake and links
   the just-built archives. Requires CMake ≥ 3.20 and a C compiler. The
   CMake tree is placed in `build-rust/<target>/` at the repository
@@ -99,6 +100,80 @@ static archive. Where that archive comes from depends on your build:
   or cross-compilation targets not covered by the Release matrix.
 - **docs.rs** -- the native build is skipped (`DOCS_RS` env var);
   only the API docs are produced.
+
+## WebAssembly (wasm32-wasip1)
+
+The crate compiles for `wasm32-wasip1` (WASI Preview 1) via the
+[wasi-sdk][wasi-sdk] toolchain. Verifier and prover state machines
+run inside the sandbox; TLS, DNS and sockets are not available under
+WASI, so the built-in `reqwest` transport is **not** compiled for
+wasm. Call [`ColibriBuilder::http_fetch`][http-fetch] with a host HTTP
+function -- Colibri keeps endpoint routing, URL joining and retries --
+or supply a full [`RequestHandler`][request-handler] to override
+everything. Without either, every pending request is answered with an
+error. Return `Ok(body)` from `http_fetch` only for HTTP 2xx; timeouts
+are the host's job.
+
+- **crates.io**: the release asset `colibri-native-wasm32-wasip1.tar.gz`
+  ships the static archives plus `libc++.a` / `libc++abi.a`; `wasi-libc`
+  itself comes from `rustc`'s wasm sysroot. Nothing extra is needed
+  on the consumer side.
+- **Monorepo checkout**: set `WASI_SDK_PATH` to an unpacked
+  [wasi-sdk][wasi-sdk] release (>= 22) so `build.rs` can pick up the
+  `wasi-sdk-p1.cmake` toolchain file.
+- **Runtime**: use `tokio` with `flavor = "current_thread"` (wasm has
+  no `rt-multi-thread` feature). Storage defaults to `MemoryStorage`;
+  `FileStorage` only works under runtimes that mount host directories
+  via preopens (`wasmtime --dir=<host>::<guest>`).
+
+```rust,ignore
+use colibri_stateless::{Colibri, ColibriError, HttpError, MAINNET};
+use serde_json::json;
+
+/// HTTP transport supplied by the wasm host (e.g. a WASI import or the
+/// `wasi:http` component). Replace with whatever your runtime offers.
+async fn host_http(
+    method: &str,
+    url: &str,
+    headers: &[(&str, String)],
+    body: Option<Vec<u8>>,
+) -> Result<Vec<u8>, ColibriError> {
+    let _ = (method, headers, body);
+    Err(HttpError::new(format!("TODO: fetch {url}")).into())
+}
+
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), ColibriError> {
+    let client = Colibri::builder(MAINNET)
+        .provers(vec!["https://mainnet.colibri-proof.tech".to_string()])
+        .http_fetch(|req| async move {
+            host_http(
+                req.method.as_str(),
+                &req.url,
+                &req.headers(),
+                req.body,
+            )
+            .await
+        })
+        .build();
+
+    let block = client.rpc("eth_blockNumber", &json!([])).await?;
+    println!("verified block: {block}");
+    Ok(())
+}
+```
+
+Build and run:
+
+```bash
+rustup target add wasm32-wasip1
+cargo build --release --target wasm32-wasip1
+wasmtime target/wasm32-wasip1/release/app.wasm
+```
+
+[wasi-sdk]: https://github.com/WebAssembly/wasi-sdk
+[request-handler]: https://docs.rs/colibri-stateless/latest/colibri_stateless/trait.RequestHandler.html
+[http-fetch]: https://docs.rs/colibri-stateless/latest/colibri_stateless/struct.ColibriBuilder.html#method.http_fetch
 
 ## Testing against shared fixtures
 

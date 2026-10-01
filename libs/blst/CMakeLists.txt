@@ -46,7 +46,7 @@ FetchContent_MakeAvailable(blst)
 # Set up initial flags
 # Always use -fPIC for static libraries that might be linked into shared libraries or PIE executables.
 # IMPORTANT: Do not force -fPIC for EMBEDDED builds (e.g. ESP32 toolchains may not support it).
-if(NOT WIN32 AND NOT EMSCRIPTEN AND NOT EMBEDDED)
+if(NOT WIN32 AND NOT EMSCRIPTEN AND NOT EMBEDDED AND NOT CMAKE_SYSTEM_NAME STREQUAL "WASI")
     set(EXTRA_C_FLAGS "-fPIC ")
 endif()
 
@@ -94,6 +94,22 @@ elseif(EMBEDDED)
         COMMAND ${CMAKE_COMMAND} -E rename ${blst_SOURCE_DIR}/libblst.a ${BLST_LIB}
         WORKING_DIRECTORY ${blst_SOURCE_DIR}
         COMMENT "Building blst for embedded target"
+        VERBATIM
+    )
+elseif(CMAKE_SYSTEM_NAME STREQUAL "WASI")
+    # WASI (wasm32-wasip1) via wasi-sdk. blst's own build.sh does not
+    # understand the wasi target; compile server.c directly with the
+    # portable / no-ASM path, mirroring what the EMSCRIPTEN branch does.
+    add_custom_command(
+        OUTPUT ${BLST_LIB}
+        COMMAND ${CMAKE_C_COMPILER} -I..
+                -D__BLST_PORTABLE__ -D__BLST_NO_ASM__
+                -include stddef.h
+                -ffunction-sections -fdata-sections -Os -g0
+                -c ${blst_SOURCE_DIR}/src/server.c -o ${CMAKE_CURRENT_BINARY_DIR}/blst_server.o
+        COMMAND ${CMAKE_AR} crs ${BLST_LIB} ${CMAKE_CURRENT_BINARY_DIR}/blst_server.o
+        WORKING_DIRECTORY ${blst_SOURCE_DIR}
+        COMMENT "Building blst as a static library for wasm32-wasip1 (wasi-sdk)"
         VERBATIM
     )
 elseif(WIN32)
