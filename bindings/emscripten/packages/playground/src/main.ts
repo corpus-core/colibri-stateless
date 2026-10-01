@@ -11,6 +11,7 @@ import {
     hexToBigInt,
     DEFAULT_SYSTEM_PROMPT,
     TSA_EXPLAINER_MODELS,
+    resolveAddressLinks,
 } from '@corpus-core/colibri-explainer';
 import type {
     ExplainerConfig,
@@ -19,6 +20,7 @@ import type {
     EnhancedLog,
     TxParams,
     LLMProviderType,
+    AddressBook,
 } from '@corpus-core/colibri-explainer';
 import { Transaction } from 'ethers';
 import { marked } from 'marked';
@@ -671,6 +673,39 @@ function buildSimulationConfig(flags: SimulationFlags): Record<string, boolean> 
     return Object.keys(cfg).length > 0 ? cfg : null;
 }
 
+/**
+ * Block-explorer base URLs for the chains supported by the playground.
+ * `resolveAddressLinks` is called with `addressBookResolver` below; chains
+ * missing from this table fall through to `null` and the model's
+ * `eth://<label>` links are stripped (plain text remains).
+ */
+const EXPLORERS: Record<number, string> = {
+    1: 'https://etherscan.io/address/',
+    10: 'https://optimistic.etherscan.io/address/',
+    100: 'https://gnosisscan.io/address/',
+    8453: 'https://basescan.org/address/',
+    11155111: 'https://sepolia.etherscan.io/address/',
+};
+
+/**
+ * State for the current run so `onToken` (set up before `buildPrompt`
+ * runs) can still linkify the streamed output. A single run is active at
+ * a time (the Run button is disabled), so a module-level pair is enough.
+ */
+let currentAddressBook: AddressBook = {};
+let currentChainId = 0;
+
+/** Explorer URL for one address on the active chain, or `null`. */
+function addressBookResolver(address: string): string | null {
+    const base = EXPLORERS[currentChainId];
+    return base ? base + address : null;
+}
+
+/** Render `markdown` into `#explanation`, after resolving `eth://` placeholders. */
+function renderExplanation(markdown: string): void {
+    renderMarkdown('explanation', resolveAddressLinks(markdown, currentAddressBook, addressBookResolver));
+}
+
 async function buildExplainerConfig(useEnrichment: boolean, chainId: number): Promise<ExplainerConfig> {
     const provider = ($('provider') as HTMLSelectElement).value as LLMProviderType;
     const model = ($('model') as HTMLSelectElement).value;
@@ -698,9 +733,13 @@ async function buildExplainerConfig(useEnrichment: boolean, chainId: number): Pr
         config.onModelProgress = ({ progress, text }) => setProgress(progress, text);
         // Render the answer live as the local model streams it. Once tokens
         // arrive the download/load is finished, so the progress bar can go away.
+        // `renderExplanation` resolves `eth://<label>` placeholders against
+        // the address book captured in `run()` before the model started.
+        // Half-written links like `[WETH](eth:` just do not match yet and
+        // snap into real links once the closing `)` streams in.
         config.onToken = (_delta, full) => {
             show('progress-wrap', false);
-            renderMarkdown('explanation', full);
+            renderExplanation(full);
         };
     }
     return config;
@@ -785,6 +824,10 @@ async function run(): Promise<void> {
     show('error', false);
     show('progress-wrap', false);
     modelDownloadStart = 0;
+    // Drop state captured by the previous run so a mid-stream token never
+    // resolves against a stale address book.
+    currentAddressBook = {};
+    currentChainId = 0;
     clearDebug();
     resetSteps();
     const runBtn = $('run') as HTMLButtonElement;
@@ -860,6 +903,11 @@ async function run(): Promise<void> {
         // so render them now -- they remain visible even if the LLM step fails.
         renderDecoded(sim, context);
         const prompt = buildPrompt(sim, tx, config, context);
+        // Capture the address book + chain for `renderExplanation` so the
+        // streamed `onToken` callback (and the final render below) can turn
+        // `[WETH](eth://WETH)` placeholders into real explorer links.
+        currentAddressBook = prompt.addressBook;
+        currentChainId = chainId;
         showPrompt(prompt.systemPrompt, prompt.userPrompt);
         show('result', true);
 
@@ -870,7 +918,10 @@ async function run(): Promise<void> {
         const explanation = await provider.complete(prompt.systemPrompt, prompt.userPrompt);
         setStep(4, 'done');
 
-        renderMarkdown('explanation', explanation);
+        renderExplanation(explanation);
+        // The enhanced JSON intentionally stores the raw model output, with
+        // `eth://<label>` placeholders unresolved, so the artefact stays
+        // chain-agnostic and portable across hosts.
         $('enhanced-json').textContent = JSON.stringify(toEnhancedResult(sim, context, explanation), null, 2);
         show('progress-wrap', false);
         setStatus('Done.');

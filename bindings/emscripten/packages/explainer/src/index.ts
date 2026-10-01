@@ -62,9 +62,11 @@ export type {
     EthCallFn,
     EthGetCodeFn,
     TokenInfo,
+    AddressBook,
 } from './types.js';
 
-export { buildPrompt, DEFAULT_SYSTEM_PROMPT } from './prompt.js';
+export { buildPrompt, DEFAULT_SYSTEM_PROMPT, resolveAddressLinks } from './prompt.js';
+export type { AddressLinkResolver } from './prompt.js';
 export { createProvider } from './providers/index.js';
 export {
     WebLLMProvider, DEFAULT_WEBLLM_MODEL, TSA_EXPLAINER_MODELS,

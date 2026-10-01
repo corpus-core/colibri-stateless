@@ -507,6 +507,15 @@ export interface EnhancedTraceEntry extends TraceEntry {
 }
 
 /**
+ * Label → checksummed address mapping produced by `buildPrompt`. The labels
+ * are the same display names used in the user prompt's `## Addresses`
+ * section (`sender`, `WETH`, `addr_fffe`, …). Hosts use this map to turn
+ * `eth://<label>` placeholder links the model emits in Markdown into real
+ * explorer URLs, via `resolveAddressLinks`.
+ */
+export type AddressBook = Record<string, string>;
+
+/**
  * The original `SimulationResult` enriched with decoded metadata and
  * a natural-language explanation. All fields are JSON-serializable,
  * making this suitable for direct use in UIs or APIs.

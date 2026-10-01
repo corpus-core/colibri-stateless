@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildPrompt, sanitizeSourceForPrompt } from '../dist/prompt.js';
+import { buildPrompt, sanitizeSourceForPrompt, resolveAddressLinks } from '../dist/prompt.js';
 import { WETH_DEPOSIT_RESULT, TX_PARAMS, REVERTED_TX_RESULT } from './fixtures.mjs';
 
 describe('buildPrompt', () => {
@@ -1331,6 +1331,121 @@ describe('buildPrompt state reads', () => {
         assert.ok(userPrompt.includes('## State Reads'));
         assert.ok(userPrompt.includes('reserves.amount0'), 'named packed member must be printed');
         assert.ok(!/reserves\.\s|reserves\.$/m.test(userPrompt), 'anonymous member must not print a bare "reserves." label');
+    });
+});
+
+describe('buildPrompt addressBook export', () => {
+    const SENDER = '0x3610bad33aac567d2c5fb03e47eec5c2172fd42a';
+    const WETH = '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2';
+
+    it('returns a label → address map matching the ## Addresses section', () => {
+        const { addressBook, userPrompt } = buildPrompt(WETH_DEPOSIT_RESULT, TX_PARAMS, {});
+        assert.equal(addressBook.sender, SENDER);
+        assert.equal(addressBook.WETH, WETH);
+        // Every label in the book must appear as a bullet in the prompt.
+        for (const [label, address] of Object.entries(addressBook)) {
+            assert.ok(
+                userPrompt.includes(`- ${label} = ${address}`),
+                `label ${label}=${address} missing from ## Addresses section`,
+            );
+        }
+    });
+
+    it('reflects collision suffixes (Token, Token2) exactly once each', () => {
+        const a = '0x1111111111111111111111111111111111111111';
+        const b = '0x2222222222222222222222222222222222222222';
+        const result = {
+            gasUsed: '0x1', status: '0x1', returnValue: '0x', logs: [],
+            trace: [
+                { from: SENDER, to: a, type: 'CALL' },
+                { from: SENDER, to: b, type: 'CALL' },
+            ],
+        };
+        const ctx = {
+            contracts: new Map([
+                [a, { abi: null, sources: null, storageLayout: null, contractName: 'Token' }],
+                [b, { abi: null, sources: null, storageLayout: null, contractName: 'Token' }],
+            ]),
+            resolvedStorage: new Map(),
+            decodedTrace: [],
+            decodedEvents: [],
+        };
+        const { addressBook } = buildPrompt(result, { to: a, from: SENDER }, {}, ctx);
+        assert.equal(addressBook.Token, a);
+        assert.equal(addressBook.Token2, b);
+    });
+});
+
+describe('resolveAddressLinks', () => {
+    const WETH = '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2';
+    const SENDER = '0x3610bad33aac567d2c5fb03e47eec5c2172fd42a';
+    const BOOK = { WETH, sender: SENDER };
+    const linkFor = (addr) => `https://explorer.test/address/${addr}`;
+
+    it('replaces [text](eth://LABEL) with linkFor(address) when the label is known', () => {
+        const out = resolveAddressLinks(
+            'You deposit 0.1 ETH into [WETH](eth://WETH).',
+            BOOK, linkFor,
+        );
+        assert.equal(out, `You deposit 0.1 ETH into [WETH](https://explorer.test/address/${WETH}).`);
+    });
+
+    it('strips the Markdown link for an unknown label (fail-soft)', () => {
+        const out = resolveAddressLinks(
+            'The [MYSTERY](eth://MYSTERY) contract did something.',
+            BOOK, linkFor,
+        );
+        assert.equal(out, 'The MYSTERY contract did something.');
+    });
+
+    it('strips the Markdown link when linkFor returns null (no explorer for chain)', () => {
+        const out = resolveAddressLinks(
+            '[WETH](eth://WETH) wraps ETH.',
+            BOOK, () => null,
+        );
+        assert.equal(out, 'WETH wraps ETH.');
+    });
+
+    it('keeps the model-written link text, even when it differs from the label', () => {
+        const out = resolveAddressLinks(
+            'The [Wrapped Ether contract](eth://WETH) credited the balance.',
+            BOOK, linkFor,
+        );
+        assert.equal(out, `The [Wrapped Ether contract](https://explorer.test/address/${WETH}) credited the balance.`);
+    });
+
+    it('resolves multiple links in one Markdown string', () => {
+        const out = resolveAddressLinks(
+            '[sender](eth://sender) deposits into [WETH](eth://WETH) and gets WETH back.',
+            BOOK, linkFor,
+        );
+        assert.ok(out.includes(`[sender](https://explorer.test/address/${SENDER})`));
+        assert.ok(out.includes(`[WETH](https://explorer.test/address/${WETH})`));
+    });
+
+    it('is case-insensitive on the eth:// scheme but strict on the label', () => {
+        const matchedScheme = resolveAddressLinks('[WETH](ETH://WETH)', BOOK, linkFor);
+        assert.equal(matchedScheme, `[WETH](https://explorer.test/address/${WETH})`);
+        // Lower-case `weth` is not in the book, so the link is stripped.
+        const strictLabel = resolveAddressLinks('[WETH](eth://weth)', BOOK, linkFor);
+        assert.equal(strictLabel, 'WETH');
+    });
+
+    it('leaves non-eth URLs and plain Markdown unchanged', () => {
+        const src = 'See [docs](https://example.com) and this `code` block.';
+        assert.equal(resolveAddressLinks(src, BOOK, linkFor), src);
+    });
+
+    it('handles a half-written streamed link by leaving it alone (no partial match)', () => {
+        // One chunk arrived before the closing `)` of the Markdown link.
+        const partial = 'You deposit into [WETH](eth://WET';
+        const out = resolveAddressLinks(partial, BOOK, linkFor);
+        assert.equal(out, partial);
+    });
+
+    it('is a no-op on text with no Markdown links', () => {
+        const src = 'The transaction succeeded.';
+        assert.equal(resolveAddressLinks(src, BOOK, linkFor), src);
     });
 });
 
