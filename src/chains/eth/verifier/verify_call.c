@@ -87,6 +87,14 @@ static call_account_t* call_accounts_from_ssz(ssz_ob_t ssz_accounts) {
       memcpy(ca->storage_root, EMPTY_ROOT_HASH, 32);
     }
 
+    // Pre-simulation snapshot: `src_balance` / `src_nonce` back the
+    // `previousValue` fields in the SSZ `stateChanges` output. Initialising
+    // them here (rather than relying on `call_account_reset_accessed`) keeps
+    // the invariant even for accounts that are materialised without going
+    // through the reset path.
+    memcpy(ca->src_balance, ca->balance, 32);
+    ca->src_nonce = ca->nonce;
+
     // The SSZ "code" field is a union: either a byte list (full contract
     // code) or a boolean "code_used" flag (false = no code, true = code
     // exists but was not included in the proof).
@@ -216,7 +224,7 @@ static bool match_simulate_result(verify_ctx_t* ctx, evm_call_ctx_t* evm) {
   // The revert bytes are already in `evm->call_result` and are carried as
   // the call output for callers that want to decode them.
   bool     evm_success       = ctx->state.error == NULL && !evm->reverted;
-  ssz_ob_t simulation_result = eth_build_simulation_result_ssz(evm->call_result, evm->logs, evm_success, evm->gas_used, NULL, evm->accounts, evm->keccak_entries, evm->traces);
+  ssz_ob_t simulation_result = eth_build_simulation_result_ssz(evm->call_result, evm->logs, evm_success, evm->gas_used, NULL, evm->accounts, evm->keccak_entries, evm->traces, evm->sim_flags, evm->positions);
 
   if (ctx->data.def == NULL || ctx->data.def->type == SSZ_TYPE_NONE) {
     ctx->data = simulation_result;
@@ -521,8 +529,8 @@ static bool pap_verify_proof_response(verify_ctx_t* ctx, call_account_t* call_ac
   // light-client validators are in storage when c4_verify_header runs. Pending
   // WSP and validator requests must live on `ctx` because the host fulfils
   // against that list (same reason pap_tx applies sync_data before c4_verify_block).
-  ctx->sync_data          = proof_ctx.sync_data;
-  c4_status_t sd_status   = c4_update_from_sync_data(ctx);
+  ctx->sync_data        = proof_ctx.sync_data;
+  c4_status_t sd_status = c4_update_from_sync_data(ctx);
   if (sd_status == C4_PENDING) goto cleanup;
   if (sd_status != C4_SUCCESS) goto cleanup;
 
@@ -725,7 +733,11 @@ bool verify_call_proof(verify_ctx_t* ctx) {
     if (!(success && !evm->evm_done)) return success;
   }
 
-  CHECK_JSON_VERIFY(ctx->args, "[{to:address,data:bytes,gas?:hexuint,value?:hexuint,gasPrice?:hexuint,from?:address},block,{*:{balance?:hexuint,code?:bytes,state?:{*:bytes32},stateDiff?:{*:bytes32}}}]", "Invalid transaction");
+  if (is_simulate)
+    CHECK_JSON_VERIFY(ctx->args, C4_SIMULATE_TX_PARAMS, "Invalid transaction");
+  else
+    CHECK_JSON_VERIFY(ctx->args, "[{to:address,data:bytes,gas?:hexuint,value?:hexuint,gasPrice?:hexuint,from?:address},block,{*:{balance?:hexuint,code?:bytes,state?:{*:bytes32},stateDiff?:{*:bytes32}}}]", "Invalid transaction");
+  evm->sim_flags = is_simulate ? c4_eth_sim_flags_from_args(ctx->args) : 0;
 
   if (has_proof && !verify_call_freshness(ctx, ctx)) return false;
 

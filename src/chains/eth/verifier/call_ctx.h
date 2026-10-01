@@ -46,6 +46,26 @@ typedef struct keccak_entry {
   struct keccak_entry* next;
 } keccak_entry_t;
 
+// Optional `colibri_simulateTransaction` config (4th params object). Both off unless set.
+#define EVM_SIM_POSITIONS    (1u << 0) // record each executed JUMPDEST program counter once
+#define EVM_SIM_STATE_VALUES (1u << 1) // include proven pre-state values on the access list
+
+// JUMPDEST program counters are bounded by the largest code evmone will execute.
+#define EVM_JUMPDEST_PC_LIMIT 65536u
+
+/**
+ * Unique JUMPDEST program counters executed by one code address.
+ *
+ * `bits` is a bitmap of `EVM_JUMPDEST_PC_LIMIT` bits (bit `pc` set once the
+ * destination has run). `count` is the number of set bits.
+ */
+typedef struct jumpdest_set {
+  address_t             address; // code address (delegatecall: the implementation)
+  uint8_t*              bits;
+  uint32_t              count;
+  struct jumpdest_set*  next;
+} jumpdest_set_t;
+
 // :: Trace call kind (mirrors evmone call kinds + STATICCALL)
 
 typedef enum {
@@ -91,21 +111,43 @@ typedef struct emitted_log {
  * In PAP mode this struct is heap-allocated and attached to `verify_ctx_t.user_data`
  * so it survives across multiple `C4_PENDING` rounds. For non-PAP paths (e.g. OP-Stack)
  * it may be stack-allocated with a single-pass lifetime.
+ *
+ * `sim_flags` is read from the optional 4th argument of `colibri_simulateTransaction`
+ * (`positions`, `state_values`). `positions` holds the unique JUMPDEST program
+ * counters captured while `EVM_SIM_POSITIONS` is set.
  */
 typedef struct evm_call_ctx {
-  call_account_t* accounts;
-  bytes_t         call_result;
-  emitted_log_t*  logs;
-  keccak_entry_t* keccak_entries;
-  trace_entry_t*  traces;
-  uint64_t        gas_used;
-  bytes32_t       state_root;
-  bool            pap_mode;
-  bool            evm_done;
-  bool            reverted;  // set to true when the EVM execution reverted; `call_result` then holds the revert data
-  bytes_t         el_header; // header of the execution payload
-  bytes32_t       el_block_hash;
+  call_account_t*  accounts;
+  bytes_t          call_result;
+  emitted_log_t*   logs;
+  keccak_entry_t*  keccak_entries;
+  trace_entry_t*   traces;
+  jumpdest_set_t*  positions;
+  uint64_t         gas_used;
+  bytes32_t        state_root;
+  uint32_t         sim_flags;
+  bool             pap_mode;
+  bool             evm_done;
+  bool             reverted;  // set to true when the EVM execution reverted; `call_result` then holds the revert data
+  bytes_t          el_header; // header of the execution payload
+  bytes32_t        el_block_hash;
 } evm_call_ctx_t;
+
+/**
+ * JSON schema for `colibri_simulateTransaction` params.
+ *
+ * ```
+ * [tx, block, overrides | null, { positions?: bool, state_values?: bool } | null]
+ * ```
+ *
+ * The 3rd element is the state-override object (or `null`). The 4th element is
+ * optional and selects extra simulation output.
+ */
+#define C4_SIMULATE_TX_PARAMS                                                                                                      \
+  "[{to:address,data:bytes,gas?:hexuint,value?:hexuint,gasPrice?:hexuint,from?:address},"                                          \
+  "block,"                                                                                                                         \
+  "null|{*:{balance?:hexuint,code?:bytes,state?:{*:bytes32},stateDiff?:{*:bytes32}}},"                                             \
+  "null|{positions?:bool,state_values?:bool}]"
 
 /**
  * EVM execution context passed as host context to evmone (or a future light-EVM).
@@ -217,6 +259,25 @@ c4_status_t call_apply_state_overrides(verify_ctx_t* ctx, call_account_t** accou
 // :: Emitted log helpers
 
 void free_keccak_entries(keccak_entry_t* entries);
+
+/**
+ * Releases a list of JUMPDEST sets, including each bitmap.
+ *
+ * @param sets list head, or `NULL`
+ */
+void free_jumpdest_sets(jumpdest_set_t* sets);
+
+/**
+ * Reads the optional 4th `colibri_simulateTransaction` argument.
+ *
+ * A missing argument, `null`, or a boolean `false` leaves the corresponding
+ * flag clear. Only JSON booleans `true` set `EVM_SIM_POSITIONS` or
+ * `EVM_SIM_STATE_VALUES`.
+ *
+ * @param args RPC params array
+ * @return combination of `EVM_SIM_POSITIONS` and `EVM_SIM_STATE_VALUES`
+ */
+uint32_t c4_eth_sim_flags_from_args(json_t args);
 void free_emitted_logs(emitted_log_t* logs);
 
 // :: Trace helpers
@@ -266,7 +327,26 @@ void init_evmone_context(evmone_context_t* out, verify_ctx_t* ctx, evm_call_ctx_
 
 // :: Shared builders
 
-ssz_ob_t eth_build_simulation_result_ssz(bytes_t call_result, emitted_log_t* logs, bool success, uint64_t gas_used, ssz_ob_t* execution_payload, call_account_t* accounts, keccak_entry_t* keccak_entries, trace_entry_t* traces);
+/**
+ * Builds the `colibri_simulateTransaction` result.
+ *
+ * `storage` on each access-list entry is included only when `sim_flags`
+ * contains `EVM_SIM_STATE_VALUES`. `positions` is included only when
+ * `sim_flags` contains `EVM_SIM_POSITIONS`.
+ *
+ * @param call_result return data of the call
+ * @param logs emitted logs in chronological order
+ * @param success `true` when the call did not revert
+ * @param gas_used gas consumed by the call
+ * @param execution_payload verified execution payload, or `NULL`
+ * @param accounts accounts touched by the call
+ * @param keccak_entries keccak preimages captured during the call
+ * @param traces call trace, or `NULL`
+ * @param sim_flags `EVM_SIM_POSITIONS` and `EVM_SIM_STATE_VALUES`
+ * @param positions unique JUMPDEST program counters, or `NULL`
+ * @return SSZ simulation result (caller frees `bytes.data`)
+ */
+ssz_ob_t eth_build_simulation_result_ssz(bytes_t call_result, emitted_log_t* logs, bool success, uint64_t gas_used, ssz_ob_t* execution_payload, call_account_t* accounts, keccak_entry_t* keccak_entries, trace_entry_t* traces, uint32_t sim_flags, jumpdest_set_t* positions);
 
 /**
  * Runs an EVM call with optional event capture and gas metering.

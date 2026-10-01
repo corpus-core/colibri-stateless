@@ -291,5 +291,30 @@ describe('replay', { concurrency: false }, () => {
                 1,
             );
         });
+
+        // Mainnet withdraw 0x27e645de… of stUSR (TransparentUpgradeableProxy
+        // 0x6c89…) via StUSR, paying out the underlying token on a second
+        // proxy. All 4 logs and 8 trace frames should decode. The 4 storage
+        // writes are ERC-7201 slots: shares balance, total shares, and the
+        // underlying token's balances.
+        it('decodes stUSR withdraw events, calls and namespaced storage', { timeout: 300_000 }, async () => {
+            await assertEnrichedFixture(
+                'withdraw/long_prompt_sim.json',
+                4,
+                8,
+                4,
+            );
+        });
+
+        // Mainnet resolve() 0xfff4f2e9… on a fault-proof game clone. Slot 0 packs
+        // createdAt, resolvedAt, status, and two bools. resolvedAt and status move.
+        it('names the packed slot 0 of a resolved fault-proof game', { timeout: 300_000 }, async () => {
+            const { context } = await assertEnrichedFixture('resolve/sim.json', 1, 2, 1);
+            const slots = context.resolvedStorage.get('0xe39834955fadda55b8c96c69fd7035d7a77d687a');
+            const names = (slots?.[0]?.members ?? []).map(member => member.variableName);
+            assert.ok(names.includes('createdAt'), `createdAt missing in ${names.join(', ')}`);
+            assert.ok(names.includes('resolvedAt'), `resolvedAt missing in ${names.join(', ')}`);
+            assert.ok(names.includes('status'), `status missing in ${names.join(', ')}`);
+        });
     });
 });

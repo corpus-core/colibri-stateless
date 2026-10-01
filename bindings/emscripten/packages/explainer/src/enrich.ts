@@ -25,15 +25,23 @@ import type {
     SimulationResult, TxParams, EnrichedContext, ContractMetadata,
     DecodedCall, DecodedEvent, DecodedError, ResolvedSlot, TraceEntry,
     EnhancedSimulationResult, EnhancedLog, EnhancedTraceEntry, EnhancedContractStateChange,
+    EnhancedContractStateReads,
     ContractCache, VerifiedContract, AccessListEntry, ContractStateChange,
+    EthCallFn, TokenInfo, CoveredDefinition, ResolvedStateRead, ExecutedPositions,
+    ContractSourceMap,
 } from './types.js';
+import { AbiCoder } from 'ethers';
 import { fetchCompilationInput } from './sourcify.js';
 import { decodeFunctionCall, decodeEventLog, decodeRevertData } from './decoder.js';
 import { resolveStorageSlot, resolveDirectSlot } from './storage.js';
 import { compileAndVerify } from './compiler.js';
 import { extractStorageLayout } from './layout.js';
-import { cacheGet, cacheSet, cacheGetLayout, cacheSetLayout, getDefaultCache } from './cache.js';
+import { cacheGet, cacheSet, cacheGetLayout, cacheSetLayout, cacheGetToken, cacheSetToken, getDefaultCache, isSafeTokenSymbol } from './cache.js';
 import { elapsedMs, explainerLog } from './log.js';
+import { collectUsedAddresses } from './addresses.js';
+import { lookupAddress } from './known_addresses.js';
+import { resolvePcs } from './source_map.js';
+import { findCoveredDefinitions } from './source_slice.js';
 
 /**
  * Enrich a simulation result with decoded contract metadata.
@@ -55,7 +63,7 @@ export async function enrichSimulation(
     result: SimulationResult,
     txParams: TxParams,
     chainId: number,
-    options?: { sourcifyBaseUrl?: string; cache?: ContractCache },
+    options?: { sourcifyBaseUrl?: string; cache?: ContractCache; ethCall?: EthCallFn },
 ): Promise<EnrichedContext> {
     const cache = options?.cache || await getDefaultCache();
     const { hashes: codeHashes, eoas } = buildCodeHashMap(result.accessList);
@@ -78,8 +86,33 @@ export async function enrichSimulation(
     const decodedTrace = decodeTraceEntries(result.trace, contracts, result.accessList, implementations);
     const decodedEvents = decodeEventLogs(result.logs, contracts, implementations);
     const resolvedStorage = resolveAllStorage(result, contracts, implementations);
+    const resolvedReads = resolveAllReads(result, contracts, implementations);
+    await attachSourceMaps(result.positions, contracts, codeHashes, chainId, cache, options?.sourcifyBaseUrl);
+    const coveredDefinitions = buildCoveredDefinitions(result.positions, contracts, implementations);
+    const tokens = await resolveErc20Tokens(
+        collectUsedAddresses(result, txParams, {
+            decodedCall, decodedTrace, decodedEvents, resolvedStorage,
+        }),
+        txParams.from,
+        chainId,
+        contracts,
+        implementations,
+        cache,
+        options?.ethCall,
+    );
 
-    return { contracts, decodedCall, decodedError, resolvedStorage, decodedTrace, decodedEvents };
+    return {
+        contracts,
+        decodedCall,
+        decodedError,
+        resolvedStorage,
+        resolvedReads,
+        decodedTrace,
+        decodedEvents,
+        implementations,
+        tokens,
+        coveredDefinitions,
+    };
 }
 
 /** keccak256("") -- code hash of accounts without bytecode. */
@@ -188,6 +221,7 @@ function verifiedToMeta(cached: VerifiedContract): ContractMetadata {
         abi: cached.abi,
         sources: cached.sources,
         storageLayout: cached.storageLayout,
+        contractName: cached.contractName || null,
     };
 }
 
@@ -286,7 +320,7 @@ async function resolveFromSourcify(
             );
         } catch {
             explainerLog('warn', 'bytecode verify threw', { scope: 'enrich', address: addr });
-            return { abi: comp.abi, sources: comp.sources, storageLayout };
+            return { abi: comp.abi, sources: comp.sources, storageLayout, contractName: comp.contractName ?? null };
         }
 
         explainerLog('info', 'bytecode verify', {
@@ -309,10 +343,10 @@ async function resolveFromSourcify(
             await cacheSet(cache, codeHash, verifiedContract);
         }
 
-        return { abi, sources: comp.sources, storageLayout };
+        return { abi, sources: comp.sources, storageLayout, contractName: comp.contractName ?? null };
     }
 
-    return { abi: comp.abi, sources: comp.sources, storageLayout };
+    return { abi: comp.abi, sources: comp.sources, storageLayout, contractName: comp.contractName ?? null };
 }
 
 /**
@@ -615,12 +649,23 @@ export function toEnhancedResult(
         return { address: change.address, storage, balance: change.balance };
     });
 
+    let stateReads: EnhancedContractStateReads[] | undefined;
+    if (context.resolvedReads && context.resolvedReads.size > 0) {
+        stateReads = [];
+        for (const [address, reads] of context.resolvedReads) {
+            if (!reads.length) continue;
+            stateReads.push({ address, reads });
+        }
+        if (!stateReads.length) stateReads = undefined;
+    }
+
     return {
         gasUsed: result.gasUsed,
         status: result.status,
         returnValue: result.returnValue,
         logs,
         stateChanges,
+        stateReads,
         trace,
         explanation,
         decodedCall: context.decodedCall,
@@ -639,9 +684,12 @@ function resolveAllStorage(
 
     for (const change of result.stateChanges) {
         const addr = change.address.toLowerCase();
+        // Delegated storage lives in the implementation. The proxy contract's
+        // own layout (ERC-1967 admin slots) does not describe those variables.
         const implAddr = implementations?.get(addr);
-        const implLayout = implAddr ? contracts.get(implAddr)?.storageLayout : undefined;
-        const layout = implLayout ?? contracts.get(addr)?.storageLayout ?? null;
+        const layout = implAddr
+            ? (contracts.get(implAddr)?.storageLayout ?? null)
+            : (contracts.get(addr)?.storageLayout ?? null);
 
         if (!change.storage) {
             resolved.set(addr, []);
@@ -660,6 +708,239 @@ function resolveAllStorage(
     }
 
     return resolved;
+}
+
+/**
+ * Resolve `accessList[].storage` entries the same way `resolveAllStorage`
+ * treats `stateChanges`, skipping slots that also appear in `stateChanges`
+ * (writes trump reads — a written slot is already shown under "State Changes").
+ *
+ * Returns an empty map when the simulation was not asked for `state_values`.
+ *
+ * @param result - Simulation result
+ * @param contracts - Resolved metadata
+ * @param implementations - Proxy → implementation
+ * @return Lowercase address → per-slot resolutions
+ */
+function resolveAllReads(
+    result: SimulationResult,
+    contracts: Map<string, ContractMetadata>,
+    implementations?: Map<string, string>,
+): Map<string, ResolvedStateRead[]> {
+    const resolved = new Map<string, ResolvedStateRead[]>();
+    if (!result.accessList?.length) return resolved;
+
+    const writtenSlots = collectWrittenSlots(result.stateChanges);
+    const globalCandidates = collectGlobalMappingKeyCandidates(result);
+
+    for (const entry of result.accessList) {
+        if (!entry.address || !entry.storage?.length) continue;
+        const addr = entry.address.toLowerCase();
+        const written = writtenSlots.get(addr);
+        const implAddr = implementations?.get(addr);
+        const layout = implAddr
+            ? (contracts.get(implAddr)?.storageLayout ?? null)
+            : (contracts.get(addr)?.storageLayout ?? null);
+
+        const candidates = [addr, ...globalCandidates];
+        const reads: ResolvedStateRead[] = [];
+        for (const slot of entry.storage) {
+            if (!slot || typeof slot.slot !== 'string') continue;
+            if (written && written.has(slot.slot.toLowerCase())) continue;
+            const resolvedSlot = slot.slotSource
+                ? resolveStorageSlot(slot.slotSource, layout, candidates)
+                : resolveDirectSlot(slot.slot, layout);
+            reads.push({ slot: slot.slot, value: slot.value, resolved: resolvedSlot });
+        }
+        if (reads.length) resolved.set(addr, reads);
+    }
+    return resolved;
+}
+
+/**
+ * Index every written storage slot by contract so read-only slots can be
+ * subtracted from the access list.
+ *
+ * @param changes - `SimulationResult.stateChanges`
+ * @return Lowercase address → set of written raw slot keys (lowercase)
+ */
+function collectWrittenSlots(
+    changes: SimulationResult['stateChanges'],
+): Map<string, Set<string>> {
+    const out = new Map<string, Set<string>>();
+    if (!changes) return out;
+    for (const change of changes) {
+        if (!change.storage?.length) continue;
+        const addr = change.address.toLowerCase();
+        let set = out.get(addr);
+        if (!set) { set = new Set<string>(); out.set(addr, set); }
+        for (const slot of change.storage) {
+            if (typeof slot.slot === 'string') set.add(slot.slot.toLowerCase());
+        }
+    }
+    return out;
+}
+
+/**
+ * Address candidates for mapping-key detection, computed once per tx from
+ * logs, trace, and access list.
+ *
+ * @param result - Simulation result
+ * @return Deduplicated lowercase addresses
+ */
+function collectGlobalMappingKeyCandidates(result: SimulationResult): string[] {
+    const keys = new Set<string>();
+    const add = (value?: string): void => {
+        if (!value) return;
+        const v = value.toLowerCase();
+        if (ADDRESS_CANDIDATE_RE.test(v)) keys.add(v);
+    };
+    for (const log of result.logs ?? []) {
+        add(log.raw?.address);
+        for (const input of log.inputs ?? []) {
+            if (input.type === 'address') add(input.value);
+        }
+        for (const topic of (log.raw?.topics ?? []).slice(1)) {
+            if (INDEXED_ADDRESS_TOPIC_RE.test(topic)) add('0x' + topic.slice(26));
+        }
+    }
+    for (const t of result.trace ?? []) {
+        add(t.from);
+        add(t.to);
+    }
+    for (const entry of result.accessList ?? []) {
+        add(entry.address);
+    }
+    return [...keys];
+}
+
+/**
+ * Recompile every contract referenced by `positions` a second time with
+ * `evm.deployedBytecode.sourceMap` requested, and attach the result to the
+ * matching `ContractMetadata`. Contracts without cached compilation input or
+ * without sources are left untouched.
+ *
+ * @param positions - `SimulationResult.positions`
+ * @param contracts - Resolved metadata (mutated in place)
+ * @param chainId - EVM chain ID (for the compilation-input cache)
+ * @param cache - Persistent cache backend
+ * @param baseUrl - Optional Sourcify override
+ */
+async function attachSourceMaps(
+    positions: ExecutedPositions[] | undefined,
+    contracts: Map<string, ContractMetadata>,
+    codeHashes: Map<string, string>,
+    chainId: number,
+    cache: ContractCache,
+    baseUrl?: string,
+): Promise<void> {
+    if (!positions?.length) return;
+    const seen = new Set<string>();
+    for (const pos of positions) {
+        if (!pos?.address) continue;
+        const addr = pos.address.toLowerCase();
+        if (seen.has(addr)) continue;
+        seen.add(addr);
+        const meta = contracts.get(addr);
+        if (!meta || meta.sourceMap || !meta.sources) continue;
+
+        // Without a codeHash the second solc pass has nothing to verify
+        // against — the first pass ran with the same input, so the second
+        // one either produces the same runtime bytecode or the toolchain is
+        // non-deterministic and we should not attribute source ranges either.
+        const codeHash = codeHashes.get(addr);
+        if (!codeHash) continue;
+
+        const comp = await fetchCompilationInput(addr, chainId, baseUrl, cache);
+        if (!comp.stdJsonInput || !comp.compilerVersion) continue;
+
+        try {
+            const started = Date.now();
+            const verification = await compileAndVerify(
+                comp.stdJsonInput, comp.compilerVersion, codeHash, meta.sources,
+                { includeSourceMap: true },
+            );
+            explainerLog('info', 'source-map compile', {
+                scope: 'positions',
+                address: addr,
+                ms: elapsedMs(started),
+                verified: verification.verified,
+                mapped: !!verification.sourceMap,
+            });
+            if (verification.verified && verification.sourceMap) {
+                meta.sourceMap = {
+                    sourceMap: verification.sourceMap.sourceMap,
+                    runtimeBytecode: verification.sourceMap.runtimeBytecode,
+                    sourceIndex: verification.sourceMap.sourceIndex,
+                };
+            }
+        } catch (err) {
+            explainerLog('warn', 'source-map compile threw', {
+                scope: 'positions',
+                address: addr,
+                error: err instanceof Error ? err.message : String(err),
+            });
+        }
+    }
+}
+
+/**
+ * Map each contract with a source-map to the set of Solidity functions and
+ * modifiers whose parser range covers at least one executed JUMPDEST.
+ *
+ * @param positions - `SimulationResult.positions`
+ * @param contracts - Resolved metadata (must already carry `sourceMap` where possible)
+ * @param implementations - Proxy → implementation
+ * @return Lowercase address → covered definitions
+ */
+function buildCoveredDefinitions(
+    positions: ExecutedPositions[] | undefined,
+    contracts: Map<string, ContractMetadata>,
+    implementations?: Map<string, string>,
+): Map<string, CoveredDefinition[]> {
+    const out = new Map<string, CoveredDefinition[]>();
+    if (!positions?.length) return out;
+
+    for (const pos of positions) {
+        if (!pos?.address || !Array.isArray(pos.pcs) || pos.pcs.length === 0) continue;
+        const addr = pos.address.toLowerCase();
+        // A proxy's positions belong to the implementation, but the C-core
+        // already records the *code* address for every frame, so `addr` is
+        // the correct lookup key without proxy chasing.
+        const meta = contracts.get(addr);
+        if (!meta || !meta.sourceMap || !meta.sources) continue;
+
+        const hits = resolvePcs(pos.pcs, meta.sourceMap as ContractSourceMap);
+        if (!hits.length) continue;
+
+        const covered = findCoveredDefinitions({
+            sources: meta.sources,
+            hits: hits.map(h => ({ filename: h.filename, offset: h.start })),
+            includeFile: isEmbeddableCoverageSource,
+        });
+        if (covered.length) out.set(addr, covered);
+    }
+    // Silence the lint about unused `implementations`; it is kept in the
+    // signature because proxy handling may need it in a future revision.
+    void implementations;
+    return out;
+}
+
+/**
+ * Coverage-only source filter. Mirrors `isEmbeddableSource` in `prompt.ts`
+ * but is duplicated here so `enrich.ts` does not import from the prompt path.
+ *
+ * @param filename - Source filename
+ * @param content - Raw file text
+ * @return `true` when the file looks like Solidity source
+ */
+function isEmbeddableCoverageSource(filename: string, content: string): boolean {
+    const name = String(filename ?? '').toLowerCase();
+    if (name.endsWith('.yul') || name.endsWith('.bin') || name.endsWith('.abi')) return false;
+    const head = String(content ?? '').slice(0, 2000);
+    if (/(^|\n)\s*object\s+["'][^"']+["']\s*\{/.test(head)) return false;
+    if (!name || name.endsWith('.sol')) return true;
+    return false;
 }
 
 const ADDRESS_CANDIDATE_RE = /^0x[0-9a-fA-F]{40}$/;
@@ -700,4 +981,241 @@ function collectMappingKeyCandidates(
         add(t.to);
     }
     return [...keys];
+}
+
+const SYMBOL_CALL = '0x95d89b41';
+const DECIMALS_CALL = '0x313ce567';
+
+interface Erc20Abi {
+    symbol: 'string' | 'bytes32';
+}
+
+/**
+ * Resolve ERC-20 symbol and decimals for addresses the prompt will name.
+ *
+ * Known addresses that already carry both fields are skipped. The transaction
+ * sender is skipped because the prompt always calls that address `sender`.
+ * A cache hit skips `ethCall`. Only a validated pair is written back.
+ *
+ * @param addresses - Lowercase addresses used in the prompt
+ * @param sender - `tx.from`, when present
+ * @param chainId - EVM chain ID
+ * @param contracts - Resolved metadata
+ * @param implementations - Proxy → implementation
+ * @param cache - Persistent cache
+ * @param ethCall - Host callback, optional
+ * @return Token info keyed by lowercase address
+ */
+async function resolveErc20Tokens(
+    addresses: string[],
+    sender: string | undefined,
+    chainId: number,
+    contracts: Map<string, ContractMetadata>,
+    implementations: Map<string, string>,
+    cache: ContractCache,
+    ethCall?: EthCallFn,
+): Promise<Map<string, TokenInfo>> {
+    const tokens = new Map<string, TokenInfo>();
+    const senderAddr = sender?.toLowerCase();
+
+    for (const addr of addresses) {
+        if (addr === senderAddr) continue;
+        const known = lookupAddress(addr);
+        if (known?.symbol && known.decimals != null) continue;
+        const shape = erc20Abi(addr, contracts, implementations);
+        if (!shape) continue;
+
+        const cached = await cacheGetToken(cache, chainId, addr);
+        if (cached) {
+            tokens.set(addr, cached);
+            continue;
+        }
+        if (!ethCall) continue;
+
+        const resolved = await readErc20(ethCall, addr, shape);
+        if (!resolved) continue;
+        tokens.set(addr, resolved);
+        await cacheSetToken(cache, chainId, addr, resolved);
+    }
+
+    return tokens;
+}
+
+/**
+ * `symbol()` / `decimals()` shape when both view functions take no arguments.
+ *
+ * The proxy ABI is tried first. When it is not an ERC-20 surface, the
+ * implementation ABI is used. The call itself still goes to the proxy so
+ * `symbol()` reads the proxy's storage.
+ *
+ * @param address - Lowercase address
+ * @param contracts - Resolved metadata
+ * @param implementations - Proxy → implementation
+ * @return Symbol return type, or `null` when the ABI is not an ERC-20
+ */
+function erc20Abi(
+    address: string,
+    contracts: Map<string, ContractMetadata>,
+    implementations: Map<string, string>,
+): Erc20Abi | null {
+    const own = erc20Shape(contracts.get(address)?.abi);
+    if (own) return own;
+    const impl = implementations.get(address);
+    if (!impl) return null;
+    return erc20Shape(contracts.get(impl)?.abi);
+}
+
+/**
+ * Detect parameterless `symbol()` and `decimals()` on an ABI.
+ *
+ * @param abi - Contract ABI, possibly missing
+ * @return Symbol return type, or `null`
+ */
+function erc20Shape(abi: unknown[] | null | undefined): Erc20Abi | null {
+    if (!Array.isArray(abi)) return null;
+    const symbol = viewReturn(abi, 'symbol');
+    const decimals = viewReturn(abi, 'decimals');
+    if ((symbol !== 'string' && symbol !== 'bytes32') || (decimals !== 'uint8' && decimals !== 'uint256')) {
+        return null;
+    }
+    return { symbol };
+}
+
+/**
+ * Return type of a no-argument function, if the ABI declares one.
+ *
+ * @param abi - Contract ABI
+ * @param name - Function name
+ * @return ABI output type, or `null`
+ */
+function viewReturn(abi: unknown[], name: string): string | null {
+    for (const item of abi) {
+        if (!item || typeof item !== 'object') continue;
+        const fn = item as Record<string, unknown>;
+        if (fn.type !== 'function' || fn.name !== name) continue;
+        if (Array.isArray(fn.inputs) && fn.inputs.length > 0) continue;
+        if (!Array.isArray(fn.outputs) || fn.outputs.length < 1) continue;
+        const out = fn.outputs[0] as Record<string, unknown> | undefined;
+        if (typeof out?.type === 'string') return out.type;
+    }
+    return null;
+}
+
+/**
+ * Call `symbol()` and `decimals()`. A failure of either drops the token.
+ *
+ * @param ethCall - Host callback
+ * @param address - Token address
+ * @param shape - Which symbol encoding the ABI declares
+ * @return Validated token info, or `null`
+ */
+async function readErc20(ethCall: EthCallFn, address: string, shape: Erc20Abi): Promise<TokenInfo | null> {
+    const symbolData = await callContract(ethCall, address, SYMBOL_CALL);
+    const decimalsData = await callContract(ethCall, address, DECIMALS_CALL);
+    // A 32-character symbol ABI-encodes to 96 bytes; bytes32 and decimals are
+    // 32. Anything larger is not a symbol we would keep, and decoding it
+    // would let a contract spend arbitrary memory in the client.
+    if (!symbolData || !decimalsData || !fitsReturn(symbolData, 128) || !fitsReturn(decimalsData, 32)) return null;
+    const symbol = shape.symbol === 'bytes32' ? decodeBytes32(symbolData) : decodeAbiString(symbolData);
+    const decimals = decodeDecimals(decimalsData);
+    if (!symbol || decimals == null || !isSafeTokenSymbol(symbol)) return null;
+    return { symbol, decimals };
+}
+
+/**
+ * Invoke `ethCall` and normalize a hex return value.
+ *
+ * @param ethCall - Host callback
+ * @param to - Contract address
+ * @param data - Calldata
+ * @return Hex return data, or `null` on failure or empty data
+ */
+async function callContract(ethCall: EthCallFn, to: string, data: string): Promise<string | null> {
+    try {
+        const out = await ethCall(to, data);
+        if (typeof out !== 'string') return null;
+        const hex = out.startsWith('0x') || out.startsWith('0X') ? out : `0x${out}`;
+        if (hex === '0x' || hex === '0X') return null;
+        return hex;
+    } catch (err) {
+        explainerLog('debug', 'eth_call failed', {
+            scope: 'enrich',
+            address: to,
+            error: err instanceof Error ? err.message : String(err),
+        });
+        return null;
+    }
+}
+
+/**
+ * `true` when hex return data is at most `maxBytes` long.
+ *
+ * @param data - Hex return data
+ * @param maxBytes - Maximum decoded byte length
+ * @return Whether the payload is small enough to decode
+ */
+function fitsReturn(data: string, maxBytes: number): boolean {
+    const hex = data.replace(/^0x/i, '');
+    if (hex.length % 2 !== 0) return false;
+    return hex.length / 2 <= maxBytes;
+}
+
+/**
+ * Decode an ABI `string` return.
+ *
+ * @param data - Hex return data
+ * @return Decoded string, or `null`
+ */
+function decodeAbiString(data: string): string | null {
+    try {
+        const [value] = AbiCoder.defaultAbiCoder().decode(['string'], data);
+        return typeof value === 'string' ? value : null;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Decode a `bytes32` symbol, stopping at the first zero byte.
+ *
+ * Non-ASCII bytes are rejected. The prompt sanitizer would drop them anyway,
+ * and a partial symbol would be misleading.
+ *
+ * @param data - Hex return data
+ * @return ASCII symbol, or `null`
+ */
+function decodeBytes32(data: string): string | null {
+    try {
+        const [value] = AbiCoder.defaultAbiCoder().decode(['bytes32'], data);
+        if (typeof value !== 'string') return null;
+        const hex = value.replace(/^0x/i, '');
+        let out = '';
+        for (let i = 0; i < hex.length; i += 2) {
+            const byte = parseInt(hex.slice(i, i + 2), 16);
+            if (!byte) break;
+            if (byte < 32 || byte > 126) return null;
+            out += String.fromCharCode(byte);
+        }
+        return out || null;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Decode `decimals()` as an integer in `0..255`.
+ *
+ * Both `uint8` and `uint256` ABI returns are a single 32-byte word.
+ *
+ * @param data - Hex return data
+ * @return Decimals, or `null` when the word is out of range
+ */
+function decodeDecimals(data: string): number | null {
+    try {
+        const [value] = AbiCoder.defaultAbiCoder().decode(['uint256'], data);
+        if (typeof value !== 'bigint' || value < 0n || value > 255n) return null;
+        return Number(value);
+    } catch {
+        return null;
+    }
 }

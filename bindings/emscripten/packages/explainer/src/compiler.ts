@@ -35,11 +35,38 @@ interface CompileResult {
     verified: boolean;
     abi: unknown[] | null;
     sources: Record<string, { content: string }> | null;
+    /**
+     * Runtime bytecode + `sourceMap` string of the verified contract, when the
+     * caller passed `includeSourceMap: true` and the compilation succeeded.
+     * Callers use these to map executed JUMPDEST PCs to Solidity ranges.
+     */
+    sourceMap?: {
+        sourceMap: string;
+        runtimeBytecode: string;
+        sourceIndex: Map<number, string>;
+    } | null;
+}
+
+/** Additional compilation controls. */
+export interface CompileOptions {
+    /** Request `evm.deployedBytecode.sourceMap` and expose the runtime bytecode. */
+    includeSourceMap?: boolean;
 }
 
 const MAX_CACHED_COMPILERS = 1;
 const SOLC_WASM_BASE = 'https://binaries.soliditylang.org/wasm';
 const SOLC_BIN_BASE = 'https://binaries.soliditylang.org/bin';
+/**
+ * npm `solc` release used for skeleton layout.
+ * Must stay equal to the installed `solc` package version (asserted in tests).
+ * The browser cannot `import('solc')`: `soljson.js` assigns `module.exports`
+ * only when `process.versions.node` is set, so the page loads this same release
+ * from `binaries.soliditylang.org` into a worker instead.
+ */
+export const BUNDLED_SOLC_RELEASE = '0.8.36';
+/** Reject a compromised list.json entry or an unexpectedly huge binary. */
+const SOLJSON_FILE_RE = /^soljson-v\d+\.\d+\.\d+\+commit\.[0-9a-f]{6,10}\.js$/;
+const MAX_SOLJSON_CHARS = 30_000_000;
 
 /** Process events Emscripten soljson typically registers (each holds the wasm heap). */
 const SOLC_PROCESS_EVENTS = [
@@ -58,6 +85,7 @@ interface CachedCompiler {
 const compilerCache = new Map<string, CachedCompiler>();
 const compilerLoads = new Map<string, Promise<SolcInstance>>();
 let bundledVersion: string | null = null;
+let browserBundledLoad: Promise<CachedCompiler> | null = null;
 
 const COMPILER_VERSION_RE = /^v?\d+\.\d+\.\d+\+commit\.[0-9a-f]{6,10}(\.Emscripten\.clang)?$/;
 const HEX_BYTECODE_RE = /^(?:0x)?[0-9a-fA-F]+$/;
@@ -89,14 +117,33 @@ function evictOldestCompiler(): void {
 function releaseAllCompilers(): void {
     for (const entry of compilerCache.values()) entry.release();
     compilerCache.clear();
+    const pendingBrowser = browserBundledLoad;
+    browserBundledLoad = null;
+    if (pendingBrowser) void pendingBrowser.then(entry => entry.release()).catch(() => { /* load already failed */ });
 }
 
 /**
  * Get the bundled solc compiler (shipped with the `solc` npm package).
  *
+ * On Node this is `import('solc')`. In the browser that import does not yield a
+ * compiler: `soljson.js` writes `module.exports` only under Node. The browser
+ * path downloads the wasm build of `BUNDLED_SOLC_RELEASE` from
+ * `binaries.soliditylang.org` and runs it in a worker (`compileAsync`).
+ *
  * @return Bundled compiler instance
  */
 export async function getBundledCompiler(): Promise<SolcInstance> {
+    if (!isNodeEnvironment()) {
+        if (!browserBundledLoad) {
+            browserBundledLoad = loadBundledCompilerBrowser().catch(err => {
+                browserBundledLoad = null;
+                throw err;
+            });
+        }
+        const loaded = await browserBundledLoad;
+        bundledVersion = extractShortVersion(loaded.compiler.version());
+        return loaded.compiler;
+    }
     const solc = await import('solc');
     const compiler = solc.default as unknown as SolcInstance;
     bundledVersion = extractShortVersion(compiler.version());
@@ -163,6 +210,9 @@ function isNodeEnvironment(): boolean {
  * modern V8) and fall back to `/bin/` if the wasm build is missing. Disk cache
  * lives under `{cacheDir}/solc/wasm/` so older asm.js files are not reused.
  * Remote compilers run in a worker thread on Node (`compileAsync`).
+ * In the browser they run in a dedicated worker as well: the npm `solc` package
+ * cannot be imported there, so the official soljson binary is fetched and
+ * evaluated with `importScripts` inside that worker.
  * Emscripten heaps are not reclaimable in-process. At most one remote version
  * is kept; switching versions terminates the previous worker.
  * Set `C4_SOLC_IN_PROCESS=1` to load soljson in the main thread instead.
@@ -645,23 +695,283 @@ async function loadRemoteCompilerNode(versionStr: string): Promise<CachedCompile
 async function downloadSoljson(versionStr: string): Promise<string> {
     const file = `soljson-${versionStr}.js`;
     const wasmResponse = await fetch(`${SOLC_WASM_BASE}/${file}`);
-    if (wasmResponse.ok) return wasmResponse.text();
+    if (wasmResponse.ok) return readSoljsonBody(wasmResponse, versionStr);
 
     const binResponse = await fetch(`${SOLC_BIN_BASE}/${file}`);
-    if (binResponse.ok) return binResponse.text();
+    if (binResponse.ok) return readSoljsonBody(binResponse, versionStr);
 
     throw new Error(`Failed to load solc ${versionStr}: HTTP ${binResponse.status}`);
 }
 
-async function loadRemoteCompilerBrowser(versionStr: string): Promise<CachedCompiler> {
-    const solc = await import('solc');
-    const compiler = await new Promise<SolcInstance>((resolve, reject) => {
-        solc.default.loadRemoteVersion(versionStr, (err: Error | null, instance: SolcInstance) => {
-            if (err) reject(new Error(`Failed to load solc ${versionStr}: ${err.message}`));
-            else resolve(instance);
-        });
+/**
+ * Read a soljson response, rejecting bodies above `MAX_SOLJSON_CHARS`.
+ *
+ * `Content-Length` is checked first. The body is then read in chunks so an
+ * oversized or chunked response is cancelled before it is buffered whole.
+ * soljson is ASCII, so the byte cap and the character cap match.
+ *
+ * @param response - Successful fetch of a soljson binary
+ * @param versionStr - Version used in the error message
+ * @return JavaScript source of the compiler
+ */
+async function readSoljsonBody(response: Response, versionStr: string): Promise<string> {
+    const tooLarge = `Failed to load solc ${versionStr}: binary exceeds ${MAX_SOLJSON_CHARS} chars`;
+    const declared = Number(response.headers.get('content-length'));
+    if (Number.isFinite(declared) && declared > MAX_SOLJSON_CHARS) {
+        await response.body?.cancel();
+        throw new Error(tooLarge);
+    }
+    const reader = response.body?.getReader();
+    if (!reader) {
+        const source = await response.text();
+        if (source.length > MAX_SOLJSON_CHARS) throw new Error(tooLarge);
+        return source;
+    }
+    const decoder = new TextDecoder();
+    let source = '';
+    let total = 0;
+    try {
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            total += value.byteLength;
+            if (total > MAX_SOLJSON_CHARS) {
+                await reader.cancel();
+                throw new Error(tooLarge);
+            }
+            source += decoder.decode(value, { stream: true });
+        }
+    } catch (err) {
+        await reader.cancel().catch(() => { /* already cancelled or closed */ });
+        throw err;
+    }
+    source += decoder.decode();
+    if (source.length > MAX_SOLJSON_CHARS) throw new Error(tooLarge);
+    return source;
+}
+
+/**
+ * Resolve `soljson-vX.Y.Z+commit….js` for an npm-style release (`0.8.36`).
+ * Prefers the wasm list, then the asm.js list. The filename must be
+ * `soljson-v{release}+commit….js` on those hosts; a list entry for another
+ * compiler version is rejected.
+ *
+ * @param release - `major.minor.patch` release, no commit suffix
+ * @return Filename such as `soljson-v0.8.36+commit.8a079791.js`
+ */
+async function soljsonFileForRelease(release: string): Promise<string> {
+    if (!/^\d+\.\d+\.\d+$/.test(release)) {
+        throw new Error(`Invalid solc release: ${release}`);
+    }
+    for (const base of [SOLC_WASM_BASE, SOLC_BIN_BASE]) {
+        const response = await fetch(`${base}/list.json`);
+        if (!response.ok) continue;
+        const list = await response.json() as { releases?: Record<string, unknown> };
+        const fileName = list.releases?.[release];
+        const releasePrefix = `soljson-v${release}+commit.`;
+        if (
+            typeof fileName === 'string'
+            && fileName.startsWith(releasePrefix)
+            && SOLJSON_FILE_RE.test(fileName)
+        ) return fileName;
+    }
+    throw new Error(`No soljson build listed for ${release}`);
+}
+
+/**
+ * Full `vX.Y.Z+commit…` version of `BUNDLED_SOLC_RELEASE` from the official list.
+ *
+ * @return Version string including the leading `v`
+ */
+async function bundledWasmVersion(): Promise<string> {
+    const fileName = await soljsonFileForRelease(BUNDLED_SOLC_RELEASE);
+    const version = fileName.slice('soljson-'.length, -'.js'.length);
+    validateCompilerVersion(version);
+    return version.startsWith('v') ? version : `v${version}`;
+}
+
+/**
+ * Download the wasm (or bin) build of the npm `solc` release and start it
+ * in a browser worker.
+ *
+ * @return Compiler whose `compileAsync` posts standard JSON to that worker
+ */
+async function loadBundledCompilerBrowser(): Promise<CachedCompiler> {
+    const versionStr = await bundledWasmVersion();
+    explainerLog('info', 'loading bundled compiler for browser', { scope: 'solc', version: versionStr });
+    const source = await downloadSoljson(versionStr);
+    return createBrowserCompiler(source, versionStr);
+}
+
+/**
+ * Classic worker source. Loads soljson via `importScripts` so `var Module`
+ * becomes the worker global and does not replace the page's Emscripten `Module`
+ * (the Colibri wasm bundle). Compilation goes through `solidity_compile`.
+ * The import callback only reports failure: skeleton layout and Sourcify
+ * standard JSON both inline every source, so a missing file is an error.
+ */
+const BROWSER_SOLC_WORKER = `
+var compileBound = null;
+self.onmessage = function (event) {
+    var msg = event.data;
+    if (!msg || typeof msg !== 'object') return;
+    if (msg.type === 'init') {
+        try {
+            var version = initSoljson(msg.source);
+            self.postMessage({ type: 'ready', version: version });
+        } catch (err) {
+            self.postMessage({ type: 'error', error: err && err.message ? err.message : String(err) });
+        }
+        return;
+    }
+    if (msg.type === 'compile') {
+        try {
+            if (!compileBound) throw new Error('compiler is not initialized');
+            self.postMessage({ type: 'result', id: msg.id, ok: true, output: compileBound(msg.input) });
+        } catch (err) {
+            self.postMessage({ type: 'result', id: msg.id, ok: false, error: err && err.message ? err.message : String(err) });
+        }
+    }
+};
+function initSoljson(source) {
+    if (typeof source !== 'string' || source.length < 1000 || source.length > ${MAX_SOLJSON_CHARS}) {
+        throw new Error('invalid soljson source');
+    }
+    var blob = new Blob([source], { type: 'text/javascript' });
+    var url = URL.createObjectURL(blob);
+    try {
+        importScripts(url);
+    } finally {
+        URL.revokeObjectURL(url);
+    }
+    var Module = self.Module;
+    if (!Module || typeof Module.cwrap !== 'function' || typeof Module.addFunction !== 'function') {
+        throw new Error('soljson did not initialize');
+    }
+    var version = Module.cwrap('solidity_version', 'string', [])();
+    var alloc = Module.cwrap('solidity_alloc', 'number', ['number']);
+    var compile = Module.cwrap('solidity_compile', 'string', ['string', 'number', 'number']);
+    var reset = Module['_solidity_reset'] ? Module.cwrap('solidity_reset', null, []) : null;
+    compileBound = function (input) {
+        var cb = Module.addFunction(function (context, kind, data, contents, error) {
+            var kindStr = Module.UTF8ToString(kind);
+            var message = kindStr === 'smt-query'
+                ? 'SMT solver callback not supported'
+                : 'File import callback not supported';
+            var length = Module.lengthBytesUTF8(message);
+            var buffer = alloc(length + 1);
+            Module.stringToUTF8(message, buffer, length + 1);
+            Module.setValue(error, buffer, '*');
+        }, 'viiiii');
+        try {
+            return compile(input, cb, 0);
+        } finally {
+            Module.removeFunction(cb);
+            if (reset) reset();
+        }
+    };
+    return version;
+}
+`;
+
+/**
+ * Run a soljson binary in a browser worker.
+ *
+ * `compile()` throws: callers must use `compileAsync`, same as the Node worker.
+ *
+ * @param source - soljson JavaScript source fetched from soliditylang.org
+ * @param versionStr - Version string including the leading `v`, for logs
+ * @return Compiler proxy plus a `release` hook that terminates the worker
+ */
+function createBrowserCompiler(source: string, versionStr: string): Promise<CachedCompiler> {
+    if (typeof Worker === 'undefined') {
+        return Promise.reject(new Error(`Failed to load solc ${versionStr}: Worker is not available`));
+    }
+    const workerUrl = URL.createObjectURL(new Blob([BROWSER_SOLC_WORKER], { type: 'text/javascript' }));
+    const worker = new Worker(workerUrl);
+    const pending = new Map<number, { resolve: (out: string) => void; reject: (err: Error) => void }>();
+    let nextId = 1;
+
+    const failAll = (err: Error): void => {
+        for (const wait of pending.values()) wait.reject(err);
+        pending.clear();
+    };
+
+    return new Promise<CachedCompiler>((resolve, reject) => {
+        let settled = false;
+        const fail = (err: Error): void => {
+            if (!settled) {
+                settled = true;
+                reject(err);
+            }
+            failAll(err);
+            worker.terminate();
+            URL.revokeObjectURL(workerUrl);
+        };
+
+        worker.onmessage = (event: MessageEvent) => {
+            const data = event.data;
+            if (!data || typeof data !== 'object') return;
+            const msg = data as { type?: string; id?: number; ok?: boolean; output?: string; error?: string; version?: string };
+            if (msg.type === 'ready' && !settled) {
+                settled = true;
+                URL.revokeObjectURL(workerUrl);
+                const version = typeof msg.version === 'string' && msg.version.length > 0
+                    ? msg.version
+                    : (versionStr.startsWith('v') ? versionStr.slice(1) : versionStr);
+                explainerLog('info', 'browser compiler ready', { scope: 'solc', version });
+                resolve({
+                    compiler: {
+                        compile: () => {
+                            throw new Error('browser compiler requires compileAsync');
+                        },
+                        compileAsync: (input: string) => new Promise<string>((res, rej) => {
+                            const id = nextId++;
+                            pending.set(id, { resolve: res, reject: rej });
+                            worker.postMessage({ type: 'compile', id, input });
+                        }),
+                        version: () => version,
+                    },
+                    release: () => {
+                        failAll(new Error('browser compiler released'));
+                        worker.terminate();
+                    },
+                });
+                return;
+            }
+            if (msg.type === 'error' && !settled) {
+                fail(new Error(msg.error || `Failed to load solc ${versionStr}`));
+                return;
+            }
+            if (msg.type === 'result' && msg.id != null) {
+                const wait = pending.get(msg.id);
+                if (!wait) return;
+                pending.delete(msg.id);
+                if (msg.ok && typeof msg.output === 'string') wait.resolve(msg.output);
+                else wait.reject(new Error(msg.error || 'compile failed'));
+            }
+        };
+        worker.onerror = (event) => {
+            fail(new Error(event.message || `Failed to load solc ${versionStr}`));
+        };
+        worker.postMessage({ type: 'init', source });
     });
-    return { compiler, release: () => { /* browser: no process-listener leak */ } };
+}
+
+/**
+ * Load a remote solc version in the browser.
+ *
+ * The npm package's `loadRemoteVersion` uses Node's `https` and `Module._compile`,
+ * which the Vite bundle cannot run. The binary is fetched (wasm, then bin) and
+ * started in a worker instead.
+ *
+ * @param versionStr - Version string including the leading `v`
+ * @return Worker-backed compiler
+ */
+async function loadRemoteCompilerBrowser(versionStr: string): Promise<CachedCompiler> {
+    explainerLog('info', 'loading remote compiler for browser', { scope: 'solc', version: versionStr });
+    const source = await downloadSoljson(versionStr);
+    return createBrowserCompiler(source, versionStr);
 }
 
 /**
@@ -682,6 +992,7 @@ export async function compileAndVerify(
     compilerVersion: string,
     expectedCodeHash: string,
     sources: Record<string, { content: string }>,
+    options?: CompileOptions,
 ): Promise<CompileResult> {
     let compiler: SolcInstance;
     try {
@@ -695,21 +1006,30 @@ export async function compileAndVerify(
         return { verified: false, abi: null, sources: null };
     }
 
+    const wantSourceMap = options?.includeSourceMap === true;
     const input = { ...stdJsonInput } as Record<string, unknown>;
     const settings = { ...(input.settings as Record<string, unknown> || {}) };
     const outputSelection = { ...(settings.outputSelection as Record<string, Record<string, string[]>> || {}) };
 
+    const ensure = (existing: string[]): string[] => {
+        if (!existing.includes('abi')) existing.push('abi');
+        if (!existing.includes('evm.deployedBytecode.object')) existing.push('evm.deployedBytecode.object');
+        if (wantSourceMap && !existing.includes('evm.deployedBytecode.sourceMap')) {
+            existing.push('evm.deployedBytecode.sourceMap');
+        }
+        return existing;
+    };
+
     for (const file of Object.keys(outputSelection)) {
         for (const contract of Object.keys(outputSelection[file])) {
-            const existing = outputSelection[file][contract] || [];
-            if (!existing.includes('abi')) existing.push('abi');
-            if (!existing.includes('evm.deployedBytecode.object')) existing.push('evm.deployedBytecode.object');
-            outputSelection[file][contract] = existing;
+            outputSelection[file][contract] = ensure(outputSelection[file][contract] || []);
         }
     }
 
     if (!Object.keys(outputSelection).length) {
-        outputSelection['*'] = { '*': ['abi', 'evm.deployedBytecode.object'] };
+        const base = ['abi', 'evm.deployedBytecode.object'];
+        if (wantSourceMap) base.push('evm.deployedBytecode.sourceMap');
+        outputSelection['*'] = { '*': base };
     }
 
     settings.outputSelection = outputSelection;
@@ -743,6 +1063,8 @@ export async function compileAndVerify(
     const contracts = output.contracts as Record<string, Record<string, Record<string, unknown>>> | undefined;
     if (!contracts) return { verified: false, abi: null, sources: null };
 
+    const sourceIndex = wantSourceMap ? buildSourceIndex(output) : null;
+
     const normalizedHash = expectedCodeHash.toLowerCase();
     for (const file of Object.values(contracts)) {
         for (const contractData of Object.values(file)) {
@@ -754,10 +1076,58 @@ export async function compileAndVerify(
             if (!hash) continue;
             if (hash.toLowerCase() === normalizedHash) {
                 const abi = Array.isArray(contractData.abi) ? contractData.abi : null;
-                return { verified: true, abi, sources };
+                let sourceMap: CompileResult['sourceMap'] = null;
+                if (wantSourceMap && sourceIndex) {
+                    const map = typeof evm?.deployedBytecode?.sourceMap === 'string'
+                        ? evm.deployedBytecode.sourceMap
+                        : '';
+                    if (map) {
+                        sourceMap = {
+                            sourceMap: map,
+                            runtimeBytecode: normalizeBytecode(bytecodeHex),
+                            sourceIndex,
+                        };
+                    }
+                }
+                return { verified: true, abi, sources, sourceMap };
             }
         }
     }
 
     return { verified: false, abi: null, sources: null };
+}
+
+/**
+ * Build the `sourceId → filename` table from a solc standard-json output.
+ *
+ * The compiler numbers sources sequentially. The number is what appears in
+ * source-map entries (`s:l:f:...`).
+ *
+ * @param output - Parsed solc output
+ * @return Map from source id to filename (may be empty on malformed output)
+ */
+function buildSourceIndex(output: Record<string, unknown>): Map<number, string> {
+    const result = new Map<number, string>();
+    const sources = output.sources as Record<string, Record<string, unknown>> | undefined;
+    if (!sources) return result;
+    for (const [name, meta] of Object.entries(sources)) {
+        const id = meta?.id;
+        if (typeof id === 'number' && Number.isFinite(id) && id >= 0) {
+            result.set(id, name);
+        }
+    }
+    return result;
+}
+
+/**
+ * Ensure the bytecode is a `0x`-prefixed lowercase hex string.
+ *
+ * @param bytecodeHex - Runtime bytecode as returned by solc
+ * @return Normalized `0x...` form
+ */
+function normalizeBytecode(bytecodeHex: string): string {
+    const trimmed = bytecodeHex.startsWith('0x') || bytecodeHex.startsWith('0X')
+        ? bytecodeHex.slice(2)
+        : bytecodeHex;
+    return '0x' + trimmed.toLowerCase();
 }

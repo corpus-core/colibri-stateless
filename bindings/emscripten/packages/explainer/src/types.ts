@@ -66,11 +66,35 @@ export interface ContractStateChange {
     balance?: { previousValue: string; newValue: string };
 }
 
+/** One storage slot read or written during simulation. */
+export interface AccessedStorageSlot {
+    slot: string;
+    /** Proven pre-state value of the slot (`src_value`). */
+    value: string;
+    /** Keccak preimage of `slot`, present when the key was hashed during the call. */
+    slotSource?: string;
+}
+
 export interface AccessListEntry {
     address: string;
     storageKeys?: string[];
     /** keccak256 of the deployed runtime bytecode. Absent / empty-code hash for EOAs. */
     codeHash?: string;
+    /**
+     * Accessed slots in the same order as `storageKeys`, each with its proven
+     * pre-state value. Present only when the simulation request set
+     * `state_values`. Slots that were also written stay listed under
+     * `stateChanges`.
+     */
+    storage?: AccessedStorageSlot[];
+}
+
+/** Unique JUMPDEST program counters executed by one code address. */
+export interface ExecutedPositions {
+    /** Code address. On a delegatecall this is the implementation. */
+    address: string;
+    /** Sorted unique program counters. Hex quantities. */
+    pcs: string[];
 }
 
 /**
@@ -86,6 +110,11 @@ export interface SimulationResult {
     stateChanges?: ContractStateChange[];
     trace?: TraceEntry[];
     accessList?: AccessListEntry[];
+    /**
+     * Unique executed JUMPDEST program counters, grouped by code address.
+     * Present only when the simulation request set `positions`.
+     */
+    positions?: ExecutedPositions[];
 }
 
 /** Transaction parameters as passed to `colibri_simulateTransaction`. */
@@ -130,11 +159,24 @@ export interface PromptConfig {
     language?: string;
     /**
      * Maximum number of source-code characters embedded into the prompt
-     * (after license-header stripping). Lower this for local models with a
-     * small context window. `0` disables the cap and includes every source
-     * file in full. Default: `10000`.
+     * (after comment stripping). Lower this for local models with a small
+     * context window. `0` disables the cap. Default: `10000`.
+     *
+     * When the trace identifies entry functions, those functions and the
+     * modifiers and internal calls reachable from them are embedded as Solidity
+     * contracts, together with the storage variables of those contracts and the
+     * enums and structs the functions reference. Whole definitions are kept
+     * until this budget is spent. When no entry can be matched, source files
+     * are windowed into the same budget.
      */
     maxSourceChars?: number;
+    /**
+     * Maximum number of resolved storage reads printed per contract under
+     * `## State Reads`. `0` disables the cap. Default: `8`. Reads that could
+     * not be named or that already appear in `stateChanges` are omitted before
+     * the cap.
+     */
+    maxStateValues?: number;
 }
 
 /** Configuration shared by all LLM provider implementations. */
@@ -198,6 +240,31 @@ export interface ExplainerConfig extends PromptConfig, LLMProviderConfig {
     sourcifyBaseUrl?: string;
     /** Custom cache implementation. Uses localStorage (browser), fs (Node.js), or in-memory fallback by default. */
     cache?: ContractCache;
+    /**
+     * Read contract return data during enrichment. `data` is hex calldata
+     * (`0x` + selector + ABI args). Used to resolve ERC-20 `symbol()` and
+     * `decimals()` for addresses that are not in `known_addresses.ts`.
+     * Return hex return-data, or `null` when the call fails.
+     *
+     * Successful reads are stored in `cache` under `c4e_{chainId}_{address}`.
+     */
+    ethCall?: EthCallFn;
+}
+
+/**
+ * Host-supplied contract call used by enrichment.
+ *
+ * @param to - Contract address
+ * @param data - Hex calldata (`0x` + selector + ABI-encoded args)
+ * @return Hex return data, or `null` when the call fails
+ */
+export type EthCallFn = (to: string, data: string) => Promise<string | null>;
+
+/** ERC-20 `symbol()` / `decimals()` resolved for one address. */
+export interface TokenInfo {
+    symbol: string;
+    /** Token decimals in the range `0..255`. */
+    decimals: number;
 }
 
 /** Persistent cache for verified contract metadata, keyed by `codeHash`. */
@@ -251,6 +318,25 @@ export interface ContractMetadata {
     abi: unknown[] | null;
     sources: Record<string, { content: string }> | null;
     storageLayout: SolidityStorageLayout | null;
+    /** Solidity contract name from Sourcify compilation metadata, when known. */
+    contractName?: string | null;
+    /**
+     * Solidity source-map (`s:l:f:j:m`, ...) of the deployed runtime bytecode,
+     * paired with the runtime bytecode itself. Present when the compilation
+     * was rerun with `evm.deployedBytecode.sourceMap` because
+     * `SimulationResult.positions` referenced this contract.
+     */
+    sourceMap?: ContractSourceMap | null;
+}
+
+/** Deployed runtime bytecode plus its Solidity source map, keyed by source id. */
+export interface ContractSourceMap {
+    /** Raw source map string from `evm.deployedBytecode.sourceMap`. */
+    sourceMap: string;
+    /** Runtime bytecode as `0x...`. Used to walk PUSH immediates. */
+    runtimeBytecode: string;
+    /** Solidity source id → filename, taken from the compilation output. */
+    sourceIndex: Map<number, string>;
 }
 
 /** Compilation artifacts returned by the Sourcify v2 `stdJsonInput` endpoint. */
@@ -286,6 +372,20 @@ export interface ParsedKey {
     value: string;
 }
 
+/**
+ * A single value packed into a 32-byte storage word. Multiple members share
+ * the same slot when the compiler packs them (e.g. `uint112 reserve0` and
+ * `uint112 reserve1` at slot 8 of `UniswapV2Pair`).
+ */
+export interface ResolvedSlotMember {
+    variableName: string;
+    variableType: string;
+    /** Byte offset from the low-order end of the slot word. */
+    offset: number;
+    /** Width in bytes (1..32). */
+    numberOfBytes: number;
+}
+
 export interface ResolvedSlot {
     variableName?: string;
     variableType?: string;
@@ -294,6 +394,12 @@ export interface ResolvedSlot {
     raw: string;
     arrayIndex?: number;
     structField?: string;
+    /**
+     * Packed members that share this slot word. When present, the storage
+     * change should be printed per-member (only members whose extracted value
+     * changed) instead of dumping the whole 32-byte word under one name.
+     */
+    members?: ResolvedSlotMember[];
 }
 
 export interface EnrichedContext {
@@ -301,8 +407,57 @@ export interface EnrichedContext {
     decodedCall?: DecodedCall;
     decodedError?: DecodedError;
     resolvedStorage: Map<string, ResolvedSlot[]>;
+    /**
+     * Lowercase address → per-slot resolution of the accessed reads that are
+     * NOT part of `stateChanges`. Filled from `SimulationResult.accessList`
+     * when the request opted into `state_values`.
+     */
+    resolvedReads?: Map<string, ResolvedStateRead[]>;
     decodedTrace: (DecodedCall | null)[];
     decodedEvents: (DecodedEvent | null)[];
+    /**
+     * Lowercase proxy address → lowercase implementation address, taken from
+     * `DELEGATECALL` frames. Storage layout and source for a proxy state change
+     * come from the implementation.
+     */
+    implementations?: Map<string, string>;
+    /**
+     * Lowercase address → ERC-20 symbol and decimals. Filled by
+     * `enrichSimulation` from the token cache or from `ethCall`. Known
+     * addresses in `known_addresses.ts` are not repeated here.
+     */
+    tokens?: Map<string, TokenInfo>;
+    /**
+     * Lowercase code address → set of function or modifier definitions covered
+     * by at least one executed `JUMPDEST`. Empty map when no positions were
+     * captured or no source-map was available. Callers use these definitions
+     * as the seed set for `sliceUsedFunctions`.
+     */
+    coveredDefinitions?: Map<string, CoveredDefinition[]>;
+}
+
+/** One executed slot beyond `stateChanges`. */
+export interface ResolvedStateRead {
+    /** Raw storage key, matches the corresponding `accessList[].storage[].slot`. */
+    slot: string;
+    /** Proven pre-state value. */
+    value: string;
+    /** Resolved variable name and (optional) mapping keys, when a layout matched. */
+    resolved?: ResolvedSlot;
+}
+
+/**
+ * A Solidity function or modifier whose parser range covers a JUMPDEST that
+ * ran during the simulation. `contractName` is the Solidity contract (empty
+ * for a file-level definition).
+ */
+export interface CoveredDefinition {
+    filename: string;
+    contractName: string;
+    name: string;
+    kind: 'function' | 'modifier';
+    start: number;
+    end: number;
 }
 
 // -- Enhanced result types (JSON-serializable, for UI consumption) --
@@ -321,6 +476,12 @@ export interface EnhancedContractStateChange {
     balance?: { previousValue: string; newValue: string };
 }
 
+/** Resolved read on one contract, published under `stateReads`. */
+export interface EnhancedContractStateReads {
+    address: string;
+    reads: ResolvedStateRead[];
+}
+
 export interface EnhancedTraceEntry extends TraceEntry {
     decoded?: DecodedCall;
 }
@@ -336,6 +497,13 @@ export interface EnhancedSimulationResult {
     returnValue: string;
     logs: EnhancedLog[];
     stateChanges?: EnhancedContractStateChange[];
+    /**
+     * Slots that were only read (part of `accessList`) and are not present in
+     * `stateChanges`. Populated when the simulation request set `state_values`
+     * and at least one slot could be resolved or carries a proven pre-state
+     * value. Same address grouping as `stateChanges`.
+     */
+    stateReads?: EnhancedContractStateReads[];
     trace?: EnhancedTraceEntry[];
     explanation: string;
     decodedCall?: DecodedCall;

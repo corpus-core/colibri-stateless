@@ -114,3 +114,19 @@ export function formatSelector(data: string | undefined): string {
     const selector = data.slice(0, 10).toLowerCase();
     return KNOWN_SELECTORS[selector] || selector;
 }
+
+/**
+ * Return calldata size in bytes, e.g. `"56 bytes"`. Used when the target has
+ * no ABI so the model receives a factual size instead of an invented selector
+ * (issue #382: EIP-7002 predeploy input is a 48-byte BLS pubkey, not a call).
+ *
+ * @param data - Hex-encoded calldata (`0x` prefix optional)
+ * @return `"<n> bytes"`, or `"0 bytes"` for empty input
+ */
+export function formatCalldataSize(data: string | undefined | null): string {
+    if (!data) return '0 bytes';
+    const raw = String(data);
+    const hex = raw.startsWith('0x') || raw.startsWith('0X') ? raw.slice(2) : raw;
+    const len = Math.floor(hex.length / 2);
+    return `${len} bytes`;
+}

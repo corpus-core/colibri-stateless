@@ -352,9 +352,9 @@ static void host_selfdestruct(void* context, const evmc_address* addr, const evm
   if (!bytes_all_zero(bytes(acc->balance, 32)) && memcmp(addr->bytes, beneficiary->bytes, 20) != 0) {
     // Snapshot the transferred amount for the EIP-7708 log below; acc->balance
     // is zeroed after the credit so we cannot read it back afterwards.
-    bytes32_t        transferred = {0};
+    bytes32_t transferred = {0};
     memcpy(transferred, acc->balance, 32);
-    call_account_t*  ben         = call_account_get_or_create(ctx, beneficiary->bytes);
+    call_account_t* ben = call_account_get_or_create(ctx, beneficiary->bytes);
     uint256_add(ben->balance, acc->balance);
     ben->flags |= ACCOUNT_HAS_BALANCE;
     memset(acc->balance, 0, 32);
@@ -838,6 +838,50 @@ static void set_message(evmone_message* message, json_t tx, buffer_t* buffer) {
   debug_print_bytes32("  value", &message->value);
 }
 
+/**
+ * Returns the JUMPDEST set for `address`, creating an empty bitmap on first use.
+ *
+ * Sets are appended so the first code address that runs stays first.
+ *
+ * @param head list head
+ * @param address 20-byte code address
+ * @return the set for `address`
+ */
+static jumpdest_set_t* jumpdest_set_get(jumpdest_set_t** head, const uint8_t address[20]) {
+  jumpdest_set_t* tail = NULL;
+  for (jumpdest_set_t* set = *head; set; set = set->next) {
+    if (memcmp(set->address, address, 20) == 0) return set;
+    tail = set;
+  }
+
+  jumpdest_set_t* created = safe_calloc(1, sizeof(*created));
+  memcpy(created->address, address, 20);
+  created->bits = safe_calloc(EVM_JUMPDEST_PC_LIMIT / 8, 1);
+  if (tail)
+    tail->next = created;
+  else
+    *head = created;
+  return created;
+}
+
+/**
+ * Records one executed JUMPDEST. Repeated hits of the same program counter
+ * stay a single bit.
+ *
+ * @param context pointer to the `jumpdest_set_t*` list head
+ * @param code_address bytecode address reported by evmone
+ * @param pc program counter of the JUMPDEST
+ */
+static void jumpdest_hook_cb(void* context, const evmc_address* code_address, uint32_t pc) {
+  if (!context || !code_address || pc >= EVM_JUMPDEST_PC_LIMIT) return;
+
+  jumpdest_set_t* set = jumpdest_set_get((jumpdest_set_t**) context, code_address->bytes);
+  uint8_t         bit = (uint8_t) (1u << (pc & 7));
+  if (set->bits[pc >> 3] & bit) return;
+  set->bits[pc >> 3] |= bit;
+  set->count++;
+}
+
 static void keccak_hook_cb(void* context, const uint8_t* data, size_t size, const uint8_t* hash) {
   keccak_entry_t** head  = (keccak_entry_t**) context;
   keccak_entry_t*  entry = safe_calloc(1, sizeof(keccak_entry_t));
@@ -977,6 +1021,17 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
     context.traces = root_trace;
   }
 
+  bool track_positions = (evm->sim_flags & EVM_SIM_POSITIONS) != 0;
+  if (track_positions) {
+    free_jumpdest_sets(evm->positions);
+    evm->positions = NULL;
+    evmone_set_jumpdest_hook(jumpdest_hook_cb, &evm->positions);
+  }
+  else {
+    // Drop a hook left behind by an earlier call on this thread before this run.
+    evmone_set_jumpdest_hook(NULL, NULL);
+  }
+
   evmone_result result = evmone_execute(
       executor,
       &host_interface,
@@ -986,6 +1041,7 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
       code.data,
       code.len);
 
+  evmone_set_jumpdest_hook(NULL, NULL);
   if (capture_events)
     evmone_set_keccak_hook(NULL, NULL);
 

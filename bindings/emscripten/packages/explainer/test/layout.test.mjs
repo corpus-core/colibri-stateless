@@ -381,4 +381,95 @@ contract Token is ERC20Upgradeable {}`;
         assert.equal(typeInfo.encoding, 'mapping');
         assert.ok(layout.types[typeInfo.value]?.encoding === 'mapping');
     });
+
+    it('maps ERC20_STORAGE_LOCATION onto the ERC20Storage struct', async () => {
+        const location = '0x52c63247e1f47db19d5ce0460030c497f067ca4cebf71ba98eeadabe20bace00';
+        const source = `pragma solidity ^0.8.25;
+abstract contract ERC20RebasingUpgradeable {
+    struct ERC20Storage {
+        mapping(address account => uint256) _sharesBalances;
+        mapping(address account => mapping(address spender => uint256)) _allowances;
+        uint256 _totalSharesSupply;
+    }
+    bytes32 private constant ERC20_STORAGE_LOCATION = ${location};
+}
+contract Token is ERC20RebasingUpgradeable {}`;
+
+        const layout = await extractStorageLayout({ 'Token.sol': { content: source } }, 'Token');
+        assert.ok(layout);
+        const shares = layout.storage.find(s => s.label === '_sharesBalances');
+        const supply = layout.storage.find(s => s.label === '_totalSharesSupply');
+        assert.ok(shares);
+        assert.ok(supply);
+        assert.equal(shares.slot, BigInt(location).toString());
+        assert.equal(supply.slot, (BigInt(location) + 2n).toString());
+        assert.equal(layout.types[shares.type].encoding, 'mapping');
+    });
+
+    it('pairs a snake_case prefix with a camelCase storage struct', async () => {
+        const location = '0x52c63247e1f47db19d5ce0460030c497f067ca4cebf71ba98eeadabe20bace00';
+        const source = `pragma solidity ^0.8.20;
+contract Token {
+    struct FooBarStorage {
+        uint256 value;
+    }
+    bytes32 private constant FOO_BAR_STORAGE_LOCATION = ${location};
+}`;
+
+        const layout = await extractStorageLayout({ 'Token.sol': { content: source } }, 'Token');
+        assert.ok(layout);
+        const entry = layout.storage.find(s => s.label === 'value');
+        assert.ok(entry);
+        assert.equal(entry.slot, BigInt(location).toString());
+    });
+
+    it('pairs a camelCase location constant with a snake_case storage struct', async () => {
+        const location = '0x52c63247e1f47db19d5ce0460030c497f067ca4cebf71ba98eeadabe20bace00';
+        const source = `pragma solidity ^0.8.20;
+contract Token {
+    struct FOO_BAR_STORAGE {
+        uint256 value;
+    }
+    bytes32 private constant FooBarStorageLocation = ${location};
+}`;
+
+        const layout = await extractStorageLayout({ 'Token.sol': { content: source } }, 'Token');
+        assert.ok(layout);
+        const entry = layout.storage.find(s => s.label === 'value');
+        assert.ok(entry);
+        assert.equal(entry.slot, BigInt(location).toString());
+    });
+
+    it('packs user-defined value types and enums into slot 0', async () => {
+        const source = `pragma solidity ^0.8.20;
+type Timestamp is uint64;
+type Hash is bytes32;
+enum GameStatus { IN_PROGRESS, CHALLENGER_WINS, DEFENDER_WINS }
+struct Proposal {
+    Hash root;
+    uint128 l2SequenceNumber;
+}
+contract Game {
+    Timestamp public createdAt;
+    Timestamp public resolvedAt;
+    GameStatus public status;
+    bool internal initialized;
+    bool public wasRespectedGameTypeWhenCreated;
+    Proposal public startingOutputRoot;
+}`;
+        const layout = await extractStorageLayout({ 'Game.sol': { content: source } }, 'Game');
+        assert.ok(layout, 'skeleton must compile when value types are aliases');
+        const at = (label) => layout.storage.find(entry => entry.label === label);
+        assert.equal(at('createdAt').slot, '0');
+        assert.equal(Number(at('createdAt').offset), 0);
+        assert.equal(at('resolvedAt').slot, '0');
+        assert.equal(Number(at('resolvedAt').offset), 8);
+        assert.equal(at('status').slot, '0');
+        assert.equal(Number(at('status').offset), 16);
+        assert.equal(at('initialized').slot, '0');
+        assert.equal(Number(at('initialized').offset), 17);
+        assert.equal(at('wasRespectedGameTypeWhenCreated').slot, '0');
+        assert.equal(Number(at('wasRespectedGameTypeWhenCreated').offset), 18);
+        assert.equal(at('startingOutputRoot').slot, '1');
+    });
 });

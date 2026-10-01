@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "evmone/vm.hpp"
 #include <evmc/evmc.h>
 #include <evmc/evmc.hpp>
 #include <evmone/evmone.h>
@@ -16,21 +17,69 @@ static_assert(EVMC_ABI_VERSION == 18, "evmone wrapper requires EVMC ABI 18 (evmo
 
 namespace {
 
+struct JumpdestHook {
+  evmone_jumpdest_fn fn  = nullptr;
+  void*              ctx = nullptr;
+};
+
+JumpdestHook& jumpdest_hook() noexcept {
+  static thread_local JumpdestHook hook;
+  return hook;
+}
+
+// Records executed JUMPDEST opcodes. Installed only while a hook is set, so the
+// default computed-goto interpreter stays in place for ordinary calls.
+class JumpdestTracer final : public evmone::Tracer {
+  evmone_jumpdest_fn fn_;
+  void*              ctx_;
+
+public:
+  JumpdestTracer(evmone_jumpdest_fn fn, void* ctx) noexcept : fn_(fn), ctx_(ctx) {}
+
+private:
+  void on_execution_start(evmc_revision, const evmc_message&, evmone::bytes_view) noexcept override {}
+
+  void on_instruction_start(uint32_t                      pc, const intx::uint256*, int, int64_t,
+                            const evmone::ExecutionState& state) noexcept override {
+    if (!fn_ || !state.msg || pc >= state.original_code.size()) return;
+    if (state.original_code[pc] != 0x5b) return;
+    fn_(ctx_, &state.msg->code_address, pc);
+  }
+
+  void on_execution_end(const evmc_result&) noexcept override {}
+};
+
+// Removes a tracer this call installed. Nested executes see the tracer already
+// present and must not drop it while the outer frame is still running.
+struct TracerGuard {
+  evmone::VM* vm        = nullptr;
+  bool        installed = false;
+
+  ~TracerGuard() {
+    if (installed && vm) vm->remove_tracers();
+  }
+};
+
 bool map_revision(int revision, evmc_revision* out) noexcept {
   switch (revision) {
-  case EVMONE_REV_OSAKA:
-    *out = EVMC_OSAKA;
-    return true;
-  case EVMONE_REV_AMSTERDAM:
-    *out = EVMC_AMSTERDAM;
-    return true;
-  default:
-    // Refuse unknown Colibri revision IDs instead of silently selecting a fork.
-    return false;
+    case EVMONE_REV_OSAKA:
+      *out = EVMC_OSAKA;
+      return true;
+    case EVMONE_REV_AMSTERDAM:
+      *out = EVMC_AMSTERDAM;
+      return true;
+    default:
+      // Refuse unknown Colibri revision IDs instead of silently selecting a fork.
+      return false;
   }
 }
 
 } // namespace
+
+extern "C" void evmone_set_jumpdest_hook(evmone_jumpdest_fn fn, void* ctx) {
+  jumpdest_hook().fn  = fn;
+  jumpdest_hook().ctx = ctx;
+}
 
 /* C++ to C host interface adapter */
 struct HostInterfaceAdapter {
@@ -290,7 +339,7 @@ extern "C" evmone_result evmone_execute(
     const uint8_t*               code,
     size_t                       code_size) {
 
-  auto* vm = static_cast<struct evmc_vm*>(executor);
+  auto* vm = static_cast<evmone::VM*>(executor);
 
   // Default overridden by map_revision on success; failure returns before use.
   evmc_revision rev = EVMC_OSAKA;
@@ -300,6 +349,13 @@ extern "C" evmone_result evmone_execute(
     return err;
   }
 
+  TracerGuard tracer;
+  tracer.vm = vm;
+  if (jumpdest_hook().fn != nullptr && vm->get_tracer() == nullptr) {
+    vm->add_tracer(std::make_unique<JumpdestTracer>(jumpdest_hook().fn, jumpdest_hook().ctx));
+    tracer.installed = true;
+  }
+
   HostInterfaceAdapter adapter(host_interface, host_context);
   EvmoneHostAdapter    host(adapter);
 
@@ -307,8 +363,8 @@ extern "C" evmone_result evmone_execute(
   const struct evmc_host_interface* interface = &evmc::Host::get_interface();
 
   evmc_message cpp_msg{};
-  cpp_msg.kind         = static_cast<evmc_call_kind>(msg->kind);
-  cpp_msg.flags        = 0;
+  cpp_msg.kind  = static_cast<evmc_call_kind>(msg->kind);
+  cpp_msg.flags = 0;
   if (msg->is_static) cpp_msg.flags |= EVMC_STATIC;
   if (msg->is_delegated) cpp_msg.flags |= EVMC_DELEGATED;
   cpp_msg.depth        = msg->depth;

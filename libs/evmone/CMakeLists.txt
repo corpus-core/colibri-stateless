@@ -194,7 +194,7 @@ add_library(evmone_wrapper STATIC EXCLUDE_FROM_ALL
 
 # Set properties
 set_target_properties(evmone_wrapper PROPERTIES
-    CXX_STANDARD 17
+    CXX_STANDARD 20
     CXX_STANDARD_REQUIRED ON
     CXX_EXTENSIONS OFF
 )
@@ -202,7 +202,8 @@ set_target_properties(evmone_wrapper PROPERTIES
 # Add include directories - make EVMC includes PUBLIC so they propagate
 target_include_directories(evmone_wrapper 
     PRIVATE
-        ${evmone_external_SOURCE_DIR}/include       # evmone private headers
+        ${evmone_external_SOURCE_DIR}/include       # evmone public headers
+        ${evmone_external_SOURCE_DIR}/lib           # evmone::VM tracer (lib/evmone/vm.hpp)
     PUBLIC
         ${evmone_external_SOURCE_DIR}/evmc/include  # EVMC headers needed by clients
         ${CMAKE_CURRENT_SOURCE_DIR} # Our wrapper header

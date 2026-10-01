@@ -21,7 +21,14 @@
  * SPDX-License-Identifier: MIT
  */
 
-import type { SolidityStorageLayout, ParsedKey, ResolvedSlot, SolidityStorageEntry } from './types.js';
+import type {
+    SolidityStorageLayout,
+    ParsedKey,
+    ResolvedSlot,
+    ResolvedSlotMember,
+    SolidityStorageEntry,
+    SolidityStorageType,
+} from './types.js';
 import { keccak256, AbiCoder } from 'ethers';
 
 const MAX_SAFE = BigInt(Number.MAX_SAFE_INTEGER);
@@ -93,12 +100,14 @@ export function resolveStorageSlot(
             const typeInfo = layout.types[entry.type];
             if (typeInfo) {
                 const resolvedKeys = resolveKeysFromType(keys, typeInfo, layout);
+                const members = mappingValueMembers(typeInfo, layout);
                 return {
                     variableName: entry.label,
                     variableType: typeInfo.label,
                     keys: resolvedKeys,
                     baseSlot: safeBaseSlot(baseSlot),
                     raw: slotSource,
+                    ...(members ? { members } : {}),
                 };
             }
         }
@@ -184,12 +193,14 @@ function matchNestedMapping(
                 layout,
             );
             const inner = resolveKeysFromType([innerKey], valueType, layout);
+            const members = mappingValueMembers(valueType, layout);
             return {
                 variableName: entry.label,
                 variableType: typeInfo.label,
                 keys: [...outer, ...inner],
                 baseSlot: safeBaseSlot(base),
                 raw: '',
+                ...(members ? { members } : {}),
             };
         }
     }
@@ -249,17 +260,35 @@ export function resolveDirectSlot(
         return { baseSlot: safeBaseSlot(slotBigInt), raw: slotHex };
     }
 
-    const entry = layout.storage.find(s => {
+    // Collect every layout entry mapped to this slot. Multiple entries at the
+    // same slot are packed sub-words (issue #380: UniswapV2Pair reserve0/1/ts).
+    const entries = layout.storage.filter(s => {
         const n = parseLayoutSlot(s.slot);
         return n !== null && n === slotBigInt;
     });
-    if (entry) {
+
+    if (entries.length > 0) {
+        const packedMembers = buildPackedMembers(entries, layout);
+        if (packedMembers.length > 1) {
+            return {
+                baseSlot: safeBaseSlot(slotBigInt),
+                raw: slotHex,
+                members: packedMembers,
+            };
+        }
+        const entry = entries[0];
         const typeInfo = layout.types[entry.type];
+        // A single member with numberOfBytes < 32 still needs the packed
+        // extractor so the printer can strip the padding bytes. A full-width
+        // entry (uint256, bytes32, mapping/dynamic-array head) is printed
+        // as-is without a members array.
+        const needsMembers = packedMembers.length === 1 && packedMembers[0].numberOfBytes < 32;
         return {
             variableName: entry.label,
             variableType: typeInfo?.label ?? entry.type,
             baseSlot: safeBaseSlot(slotBigInt),
             raw: slotHex,
+            ...(needsMembers ? { members: packedMembers } : {}),
         };
     }
 
@@ -267,6 +296,101 @@ export function resolveDirectSlot(
     if (arrayResult) return arrayResult;
 
     return { baseSlot: safeBaseSlot(slotBigInt), raw: slotHex };
+}
+
+/**
+ * Extract a packed sub-word from a 32-byte storage word.
+ *
+ * Solidity storage packs values from the low-order end: the first item has
+ * `offset = 0` and lives in the lowest bytes of the word. Read the whole
+ * word as a big-endian bigint, then shift and mask:
+ * `value = (word >> (offset * 8)) & ((1 << (numberOfBytes * 8)) - 1)`.
+ *
+ * @param word - Hex string of the full 32-byte storage word (with or without `0x`)
+ * @param offset - Byte offset from the low-order end (0..31)
+ * @param numberOfBytes - Width of the packed value in bytes (1..32)
+ * @return Extracted value, or `null` when the input cannot be parsed
+ */
+export function extractPackedValue(word: string, offset: number, numberOfBytes: number): bigint | null {
+    // Reject non-integer widths / offsets. `Number.isFinite(2.1)` is true but
+    // `BigInt(16.8)` throws a `RangeError`, so a Sourcify-supplied layout with
+    // fractional offsets would otherwise crash the prompt builder.
+    if (!Number.isInteger(offset) || !Number.isInteger(numberOfBytes)) return null;
+    if (numberOfBytes <= 0 || numberOfBytes > 32) return null;
+    if (offset < 0 || offset + numberOfBytes > 32) return null;
+    if (word == null) return null;
+    const raw = String(word).trim();
+    if (!raw || raw.startsWith('[') || raw.startsWith('-') || /^0x-/i.test(raw)) return null;
+    const hex = raw.startsWith('0x') || raw.startsWith('0X') ? raw.slice(2) : raw;
+    if (!/^[0-9a-fA-F]*$/.test(hex) || hex.length === 0 || hex.length > 64) return null;
+    try {
+        const big = BigInt('0x' + hex);
+        const shift = BigInt(offset * 8);
+        const mask = (1n << BigInt(numberOfBytes * 8)) - 1n;
+        return (big >> shift) & mask;
+    } catch {
+        // Belt-and-suspenders: any late BigInt conversion failure yields null.
+        return null;
+    }
+}
+
+/**
+ * Turn a list of layout entries that share a slot into `ResolvedSlotMember[]`.
+ * Silently drops entries whose type is missing, has a non-positive size, or
+ * spans more than 32 bytes (those are not packable sub-words).
+ *
+ * @param entries - Layout entries with the same slot number
+ * @param layout - Full storage layout for type lookup
+ * @return Members sorted by ascending offset
+ */
+function buildPackedMembers(
+    entries: SolidityStorageEntry[],
+    layout: SolidityStorageLayout,
+): ResolvedSlotMember[] {
+    const members: ResolvedSlotMember[] = [];
+    for (const e of entries) {
+        const t = layout.types?.[e.type];
+        const size = t ? Number(t.numberOfBytes) : NaN;
+        // `Number.isInteger` (not `isFinite`) guards against fractional layout
+        // values that would later throw in `BigInt(size * 8)`.
+        if (!Number.isInteger(size) || size <= 0 || size > 32) continue;
+        const offset = Number(e.offset);
+        if (!Number.isInteger(offset) || offset < 0 || offset + size > 32) continue;
+        members.push({
+            variableName: e.label,
+            variableType: t?.label ?? e.type,
+            offset,
+            numberOfBytes: size,
+        });
+    }
+    members.sort((a, b) => a.offset - b.offset);
+    return members;
+}
+
+/**
+ * If a mapping's value type is a struct with packed members at slot 0, expose
+ * those so the builder can print `mapping[key].a` and `mapping[key].b`
+ * separately instead of dumping the whole 32-byte word under the mapping
+ * name. Only slot-0 members are handled here: higher struct slots do not
+ * share a keccak preimage and end up in a different `StorageSlotChange`.
+ *
+ * @param typeInfo - Type of the layout entry (usually a mapping)
+ * @param layout - Full storage layout for type lookup
+ * @return Members, or `null` when nothing packable was found
+ */
+function mappingValueMembers(
+    typeInfo: SolidityStorageType,
+    layout: SolidityStorageLayout,
+): ResolvedSlotMember[] | null {
+    if (!layout.types) return null;
+    const valueTypeId = typeInfo.encoding === 'mapping' ? typeInfo.value : undefined;
+    if (!valueTypeId) return null;
+    const valueType = layout.types[valueTypeId];
+    if (!valueType?.members?.length) return null;
+    const slotZero = valueType.members.filter(m => Number(m.slot) === 0);
+    if (slotZero.length <= 1) return null;
+    const members = buildPackedMembers(slotZero, layout);
+    return members.length > 1 ? members : null;
 }
 
 /**
@@ -297,9 +421,14 @@ function resolveArraySlot(
             if (index > MAX_ARRAY_ELEMENTS) continue;
             const remainder = Number(offset % BigInt(elementSize));
 
-            const structField = (remainder > 0 && typeInfo.base)
-                ? resolveStructField(remainder, typeInfo.base, layout)
-                : undefined;
+            const structMembers = typeInfo.base
+                ? structPackedMembersAtSlot(typeInfo.base, remainder, layout)
+                : [];
+            const structField = structMembers.length === 1
+                ? structMembers[0].variableName
+                : (remainder > 0 && typeInfo.base)
+                    ? resolveStructField(remainder, typeInfo.base, layout)
+                    : undefined;
 
             return {
                 variableName: entry.label,
@@ -308,6 +437,7 @@ function resolveArraySlot(
                 raw: '0x' + slot.toString(16).padStart(64, '0'),
                 arrayIndex: index,
                 structField,
+                ...(structMembers.length > 1 ? { members: structMembers } : {}),
             };
         }
     }
@@ -354,6 +484,26 @@ function resolveStructField(
         (m: SolidityStorageEntry) => Number(m.slot) === slotOffset,
     );
     return member?.label;
+}
+
+/**
+ * All struct fields that share the given struct-slot (packed sub-words).
+ *
+ * @param baseType - Struct type id
+ * @param slotOffset - Struct-relative slot number
+ * @param layout - Full storage layout
+ * @return Packed members at that struct-slot (may be empty)
+ */
+function structPackedMembersAtSlot(
+    baseType: string,
+    slotOffset: number,
+    layout: SolidityStorageLayout,
+): ResolvedSlotMember[] {
+    if (!layout.types) return [];
+    const typeInfo = layout.types[baseType];
+    if (!typeInfo?.members?.length) return [];
+    const matches = typeInfo.members.filter(m => Number(m.slot) === slotOffset);
+    return buildPackedMembers(matches, layout);
 }
 
 /**

@@ -1056,6 +1056,280 @@ describe('enrichSimulation', () => {
         assert.ok(slots);
         assert.equal(slots[0].variableName, 'allowances');
         assert.equal(slots[0].keys?.length, 2);
+        assert.equal(ctx.implementations.get(proxy), impl);
+    });
+
+    it('does not label proxy storage with the proxy layout when the implementation has none', async () => {
+        mockSourcify({});
+        const proxy = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+        const impl = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+        const proxyHash = '0x' + '44'.repeat(32);
+        const implHash = '0x' + '55'.repeat(32);
+        const verified = JSON.stringify({
+            abi: [],
+            storageLayout: UNI_STORAGE_LAYOUT,
+            sources: { 'Proxy.sol': { content: 'contract Proxy {}' } },
+            compilerVersion: '0.8.0',
+            contractName: 'Proxy',
+        });
+        const cache = {
+            get: async (key) => (typeof key === 'string' && key.includes(proxyHash) ? verified : null),
+            set: async () => { },
+        };
+        const result = {
+            gasUsed: '0x1',
+            status: '0x1',
+            returnValue: '0x',
+            logs: [],
+            stateChanges: [{
+                address: proxy,
+                storage: [{
+                    slot: '0x0',
+                    previousValue: '0x0',
+                    newValue: '0x1',
+                }],
+            }],
+            trace: [
+                { type: 'CALL', to: proxy, traceAddress: [] },
+                { type: 'DELEGATECALL', to: impl, traceAddress: [0] },
+            ],
+            accessList: [
+                { address: proxy, codeHash: proxyHash, storageKeys: [] },
+                { address: impl, codeHash: implHash, storageKeys: [] },
+            ],
+        };
+
+        const ctx = await enrichSimulation(result, { to: proxy, data: '0x' }, 1, { cache });
+        const slots = ctx.resolvedStorage.get(proxy);
+        assert.ok(slots);
+        assert.equal(slots[0].variableName, undefined);
+        assert.equal(ctx.implementations.get(proxy), impl);
+    });
+
+    it('prefers the implementation layout when the proxy layout also matches the slot', async () => {
+        mockSourcify({});
+        const proxy = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+        const impl = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+        const proxyHash = '0x' + '66'.repeat(32);
+        const implHash = '0x' + '77'.repeat(32);
+        const proxyVerified = JSON.stringify({
+            abi: [],
+            storageLayout: {
+                storage: [{ slot: '0', type: 't_uint256', astId: 1, label: 'adminSlot', offset: 0, contract: 'Proxy' }],
+                types: { t_uint256: { label: 'uint256', encoding: 'inplace', numberOfBytes: '32' } },
+            },
+            sources: {},
+            compilerVersion: '0.8.0',
+            contractName: 'Proxy',
+        });
+        const implVerified = JSON.stringify({
+            abi: [],
+            storageLayout: UNI_STORAGE_LAYOUT,
+            sources: {},
+            compilerVersion: '0.8.0',
+            contractName: 'Uni',
+        });
+        const cache = {
+            get: async (key) => {
+                if (typeof key !== 'string') return null;
+                if (key.includes(proxyHash)) return proxyVerified;
+                if (key.includes(implHash)) return implVerified;
+                return null;
+            },
+            set: async () => { },
+        };
+        const result = {
+            gasUsed: '0x1',
+            status: '0x1',
+            returnValue: '0x',
+            logs: [],
+            stateChanges: [{
+                address: proxy,
+                storage: [{ slot: '0x0', previousValue: '0x0', newValue: '0x1' }],
+            }],
+            trace: [
+                { type: 'CALL', to: proxy, traceAddress: [] },
+                { type: 'DELEGATECALL', to: impl, traceAddress: [0] },
+            ],
+            accessList: [
+                { address: proxy, codeHash: proxyHash, storageKeys: [] },
+                { address: impl, codeHash: implHash, storageKeys: [] },
+            ],
+        };
+
+        const ctx = await enrichSimulation(result, { to: proxy, data: '0x' }, 1, { cache });
+        assert.equal(ctx.resolvedStorage.get(proxy)?.[0].variableName, 'totalSupply');
+    });
+
+    it('resolves ERC-20 symbol and decimals, caches them, and skips known addresses', async () => {
+        const token = '0x1111111111111111111111111111111111111111';
+        const from = '0x2222222222222222222222222222222222222222';
+        const erc20Abi = [
+            { type: 'function', name: 'symbol', inputs: [], outputs: [{ type: 'string' }], stateMutability: 'view' },
+            { type: 'function', name: 'decimals', inputs: [], outputs: [{ type: 'uint8' }], stateMutability: 'view' },
+        ];
+        globalThis.fetch = async (url) => {
+            const match = String(url).match(/\/v2\/contract\/\d+\/([^?]+)/);
+            const addr = match?.[1]?.toLowerCase();
+            const body = addr === token
+                ? {
+                    abi: erc20Abi,
+                    sources: { 'MyToken.sol': { content: 'contract MyToken {}' } },
+                    compilation: { compilerVersion: '0.8.0', name: 'MyToken' },
+                    stdJsonInput: null,
+                }
+                : { abi: null, sources: null };
+            return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        };
+        const coder = AbiCoder.defaultAbiCoder();
+        let calls = 0;
+        const ethCall = async (to, data) => {
+            calls += 1;
+            assert.equal(to.toLowerCase(), token);
+            if (data === '0x95d89b41') return coder.encode(['string'], ['USDC']);
+            if (data === '0x313ce567') return coder.encode(['uint8'], [6]);
+            return null;
+        };
+        const result = {
+            gasUsed: '0x1', status: '0x1', returnValue: '0x', logs: [],
+            trace: [{ from, to: token, type: 'CALL', input: '0x' }],
+        };
+        const tx = { to: token, from, data: '0x' };
+        const cache = memoryCache();
+        const ctx = await enrichSimulation(result, tx, 1, { cache, ethCall });
+        assert.equal(ctx.contracts.get(token).contractName, 'MyToken');
+        assert.deepEqual(ctx.tokens.get(token), { symbol: 'USDC', decimals: 6 });
+        assert.equal(calls, 2);
+
+        const again = await enrichSimulation(result, tx, 1, { cache, ethCall });
+        assert.equal(calls, 2, 'cache hit must not call ethCall again');
+        assert.deepEqual(again.tokens.get(token), { symbol: 'USDC', decimals: 6 });
+
+        let failed = 0;
+        const failing = async () => {
+            failed += 1;
+            throw new Error('rpc down');
+        };
+        const emptyCache = memoryCache();
+        const missed = await enrichSimulation(result, tx, 1, { cache: emptyCache, ethCall: failing });
+        assert.equal(missed.tokens.has(token), false);
+        assert.ok(![...emptyCache.store.keys()].some(key => key.startsWith('c4e_')));
+        assert.ok(failed > 0);
+
+        mockSourcify({ '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2': erc20Abi });
+        let knownCalls = 0;
+        await enrichSimulation(WETH_DEPOSIT_RESULT, TX_PARAMS, 1, {
+            cache: memoryCache(),
+            ethCall: async () => { knownCalls += 1; return '0x'; },
+        });
+        assert.equal(knownCalls, 0);
+    });
+
+    it('resolves bytes32 symbols and skips ethCall when absent or sender-only', async () => {
+        const token = '0x1111111111111111111111111111111111111111';
+        const from = '0x2222222222222222222222222222222222222222';
+        const bytes32Abi = [
+            { type: 'function', name: 'symbol', inputs: [], outputs: [{ type: 'bytes32' }], stateMutability: 'view' },
+            { type: 'function', name: 'decimals', inputs: [], outputs: [{ type: 'uint256' }], stateMutability: 'view' },
+        ];
+        mockSourcify({ [token]: bytes32Abi, [from]: bytes32Abi });
+        const coder = AbiCoder.defaultAbiCoder();
+        const symbolWord = Buffer.alloc(32);
+        symbolWord.write('MKR');
+        let calls = 0;
+        const ethCall = async (to, data) => {
+            calls += 1;
+            assert.equal(to.toLowerCase(), token, 'must call the token, never the sender');
+            if (data === '0x95d89b41') return coder.encode(['bytes32'], [symbolWord]);
+            if (data === '0x313ce567') return coder.encode(['uint256'], [18]);
+            return null;
+        };
+        const result = {
+            gasUsed: '0x1', status: '0x1', returnValue: '0x', logs: [],
+            trace: [{ from, to: token, type: 'CALL', input: '0x' }],
+        };
+        const tx = { to: token, from, data: '0x' };
+        const ctx = await enrichSimulation(result, tx, 1, { cache: memoryCache(), ethCall });
+        assert.deepEqual(ctx.tokens.get(token), { symbol: 'MKR', decimals: 18 });
+        assert.equal(ctx.tokens.has(from), false);
+        assert.equal(calls, 2);
+
+        const noCall = await enrichSimulation(result, tx, 1, { cache: memoryCache() });
+        assert.equal(noCall.tokens.size, 0);
+    });
+
+    it('uses the implementation ERC-20 ABI but ethCalls the proxy address', async () => {
+        const proxy = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+        const impl = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+        const from = '0x1111111111111111111111111111111111111111';
+        const proxyAbi = [
+            { type: 'function', name: 'upgradeTo', inputs: [{ type: 'address' }], outputs: [], stateMutability: 'nonpayable' },
+        ];
+        const implAbi = [
+            { type: 'function', name: 'symbol', inputs: [], outputs: [{ type: 'string' }], stateMutability: 'view' },
+            { type: 'function', name: 'decimals', inputs: [], outputs: [{ type: 'uint8' }], stateMutability: 'view' },
+        ];
+        mockSourcify({ [proxy]: proxyAbi, [impl]: implAbi });
+        const coder = AbiCoder.defaultAbiCoder();
+        const called = [];
+        const ethCall = async (to, data) => {
+            called.push(to.toLowerCase());
+            if (data === '0x95d89b41') return coder.encode(['string'], ['pUSDC']);
+            if (data === '0x313ce567') return coder.encode(['uint8'], [6]);
+            return null;
+        };
+        const result = {
+            gasUsed: '0x1', status: '0x1', returnValue: '0x', logs: [],
+            trace: [
+                { from, to: proxy, type: 'CALL', input: '0x', traceAddress: [] },
+                { from, to: impl, type: 'DELEGATECALL', input: '0x', traceAddress: [0] },
+            ],
+            accessList: [
+                { address: proxy, codeHash: '0x' + 'aa'.repeat(32), storageKeys: [] },
+                { address: impl, codeHash: '0x' + 'bb'.repeat(32), storageKeys: [] },
+            ],
+        };
+        const ctx = await enrichSimulation(result, { to: proxy, from, data: '0x' }, 1, {
+            cache: memoryCache(),
+            ethCall,
+        });
+        assert.deepEqual(ctx.tokens.get(proxy), { symbol: 'pUSDC', decimals: 6 });
+        assert.ok(called.includes(proxy), 'proxy must be ethCalled so symbol reads proxy storage');
+        assert.equal(called.filter(addr => addr === proxy).length, 2);
+    });
+
+    it('does not cache empty returns, unsafe symbols, or out-of-range decimals', async () => {
+        const token = '0x1111111111111111111111111111111111111111';
+        const from = '0x2222222222222222222222222222222222222222';
+        const erc20Abi = [
+            { type: 'function', name: 'symbol', inputs: [], outputs: [{ type: 'string' }], stateMutability: 'view' },
+            { type: 'function', name: 'decimals', inputs: [], outputs: [{ type: 'uint8' }], stateMutability: 'view' },
+        ];
+        mockSourcify({ [token]: erc20Abi });
+        const coder = AbiCoder.defaultAbiCoder();
+        const result = {
+            gasUsed: '0x1', status: '0x1', returnValue: '0x', logs: [],
+            trace: [{ from, to: token, type: 'CALL', input: '0x' }],
+        };
+        const tx = { to: token, from, data: '0x' };
+
+        for (const ethCall of [
+            async (_to, data) => (data === '0x95d89b41' ? '0x' : coder.encode(['uint8'], [6])),
+            async (_to, data) => (data === '0x95d89b41'
+                ? coder.encode(['string'], ['bad symbol'])
+                : coder.encode(['uint8'], [6])),
+            async (_to, data) => (data === '0x95d89b41'
+                ? coder.encode(['string'], ['OK'])
+                : coder.encode(['uint256'], [256])),
+            async (_to, data) => (data === '0x95d89b41'
+                ? coder.encode(['string'], ['S'.repeat(200)])
+                : coder.encode(['uint8'], [6])),
+        ]) {
+            const cache = memoryCache();
+            const ctx = await enrichSimulation(result, tx, 1, { cache, ethCall });
+            assert.equal(ctx.tokens.has(token), false);
+            assert.ok(![...cache.store.keys()].some(key => key.startsWith('c4e_')));
+        }
     });
 });
 
@@ -1141,5 +1415,190 @@ describe('toEnhancedResult', () => {
         assert.equal(enhanced.error.name, 'Error');
         assert.equal(enhanced.error.reason, 'Insufficient balance');
         assert.equal(enhanced.status, '0x0');
+    });
+
+    it('exposes stateReads and skips slots that are already in stateChanges', () => {
+        const address = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+        const writtenSlot = '0x' + '00'.repeat(32);
+        const readSlot = '0x' + '00'.repeat(31) + '01';
+        const result = {
+            gasUsed: '0x1', status: '0x1', returnValue: '0x', logs: [],
+            stateChanges: [{
+                address,
+                storage: [{ slot: writtenSlot, previousValue: '0x', newValue: '0x1' }],
+            }],
+            accessList: [{
+                address,
+                storageKeys: [writtenSlot, readSlot],
+                storage: [
+                    { slot: writtenSlot, value: '0x0' },
+                    { slot: readSlot, value: '0x2a' },
+                ],
+            }],
+        };
+        const ctx = {
+            contracts: new Map(),
+            resolvedStorage: new Map(),
+            resolvedReads: new Map([[
+                address,
+                [{ slot: readSlot, value: '0x2a', resolved: { variableName: 'counter', variableType: 'uint256', baseSlot: 1, raw: readSlot } }],
+            ]]),
+            decodedTrace: [],
+            decodedEvents: [],
+        };
+        const enhanced = toEnhancedResult(result, ctx, 'ok');
+        assert.ok(enhanced.stateReads);
+        assert.equal(enhanced.stateReads.length, 1);
+        assert.equal(enhanced.stateReads[0].address, address);
+        assert.equal(enhanced.stateReads[0].reads.length, 1);
+        assert.equal(enhanced.stateReads[0].reads[0].slot, readSlot);
+    });
+});
+
+describe('enrichSimulation state reads', () => {
+    let originalFetch;
+    beforeEach(() => {
+        originalFetch = globalThis.fetch;
+        resetSourcifyStateForTests();
+        setSourcifyClockForTests(() => Date.now(), async () => { });
+        // Sourcify is not needed for these tests; return a synthetic miss.
+        globalThis.fetch = async () => new Response(JSON.stringify({
+            abi: null, sources: null, compilation: null, stdJsonInput: null,
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    });
+    afterEach(() => {
+        globalThis.fetch = originalFetch;
+        resetSourcifyStateForTests();
+        resetExplainerLogForTests();
+    });
+
+    /**
+     * Cache backend that pretends every verified contract has UNI's storage
+     * layout. Bypasses Sourcify + the real solc extraction, which are neither
+     * needed nor stable enough for a targeted unit test.
+     */
+    function layoutOnlyCache(codeHash) {
+        const store = new Map();
+        const verified = JSON.stringify({
+            abi: [],
+            storageLayout: UNI_STORAGE_LAYOUT,
+            sources: {},
+            compilerVersion: '0.8.0',
+            contractName: 'Uni',
+        });
+        return {
+            store,
+            get: async (key) => {
+                if (typeof key === 'string' && key.includes(codeHash)) return verified;
+                return store.get(key) ?? null;
+            },
+            set: async (key, value) => { store.set(key, value); },
+        };
+    }
+
+    it('resolves accessList[].storage using the same layout as stateChanges', async () => {
+        const token = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+        const codeHash = '0x' + '55'.repeat(32);
+        const totalSupplySlot = '0x' + '00'.repeat(32);
+        const result = {
+            gasUsed: '0x1', status: '0x1', returnValue: '0x', logs: [],
+            accessList: [{
+                address: token, codeHash,
+                storageKeys: [totalSupplySlot],
+                storage: [{ slot: totalSupplySlot, value: '0x2a' }],
+            }],
+        };
+        const ctx = await enrichSimulation(result, { to: token, data: '0x' }, 1, {
+            cache: layoutOnlyCache(codeHash),
+        });
+        assert.ok(ctx.resolvedReads);
+        const reads = ctx.resolvedReads.get(token);
+        assert.equal(reads?.length, 1);
+        assert.equal(reads[0].resolved?.variableName, 'totalSupply');
+    });
+
+    it('drops read slots that are also in stateChanges', async () => {
+        const token = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+        const codeHash = '0x' + '66'.repeat(32);
+        const writtenSlot = '0x' + '00'.repeat(32);
+        const readOnlySlot = '0x' + '00'.repeat(31) + '02';
+        const result = {
+            gasUsed: '0x1', status: '0x1', returnValue: '0x', logs: [],
+            stateChanges: [{
+                address: token,
+                storage: [{ slot: writtenSlot, previousValue: '0x0', newValue: '0x1' }],
+            }],
+            accessList: [{
+                address: token, codeHash,
+                storageKeys: [writtenSlot, readOnlySlot],
+                storage: [
+                    { slot: writtenSlot, value: '0x1' },
+                    { slot: readOnlySlot, value: '0x9' },
+                ],
+            }],
+        };
+        const ctx = await enrichSimulation(result, { to: token, data: '0x' }, 1, {
+            cache: layoutOnlyCache(codeHash),
+        });
+        const reads = ctx.resolvedReads.get(token);
+        assert.equal(reads?.length, 1);
+        assert.equal(reads[0].slot.toLowerCase(), readOnlySlot);
+    });
+
+    it('leaves resolvedReads empty when the request did not carry state_values', async () => {
+        const token = '0xcccccccccccccccccccccccccccccccccccccccc';
+        const codeHash = '0x' + '77'.repeat(32);
+        const result = {
+            gasUsed: '0x1', status: '0x1', returnValue: '0x', logs: [],
+            accessList: [{ address: token, codeHash, storageKeys: [] }],
+        };
+        const ctx = await enrichSimulation(result, { to: token, data: '0x' }, 1, {
+            cache: layoutOnlyCache(codeHash),
+        });
+        assert.equal(ctx.resolvedReads.size, 0);
+    });
+});
+
+describe('enrichSimulation coverage plumbing', () => {
+    let originalFetch;
+    beforeEach(() => {
+        originalFetch = globalThis.fetch;
+        resetSourcifyStateForTests();
+        setSourcifyClockForTests(() => Date.now(), async () => { });
+        globalThis.fetch = async () => new Response(JSON.stringify({
+            abi: null, sources: null, compilation: null, stdJsonInput: null,
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    });
+    afterEach(() => {
+        globalThis.fetch = originalFetch;
+        resetSourcifyStateForTests();
+        resetExplainerLogForTests();
+    });
+
+    it('publishes an empty coveredDefinitions when no address in positions has a source map', async () => {
+        const token = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+        const result = {
+            gasUsed: '0x1', status: '0x1', returnValue: '0x', logs: [],
+            accessList: [],
+            positions: [{ address: token, pcs: ['0x0', '0x5', '0xa'] }],
+        };
+        const ctx = await enrichSimulation(result, { to: token, data: '0x' }, 1, { cache: memoryCache() });
+        assert.ok(ctx.coveredDefinitions);
+        assert.equal(ctx.coveredDefinitions.size, 0);
+    });
+
+    it('does not attempt a source-map compile when the address has no codeHash', async () => {
+        // No `accessList[].codeHash` entry for `token` → `attachSourceMaps`
+        // cannot verify a recompile and must skip. Because the ContractMetadata
+        // never carries a sourceMap in that scenario, coveredDefinitions stays empty.
+        const token = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+        const result = {
+            gasUsed: '0x1', status: '0x1', returnValue: '0x', logs: [],
+            accessList: [{ address: token, storageKeys: [] }], // no codeHash
+            positions: [{ address: token, pcs: ['0x0'] }],
+        };
+        const ctx = await enrichSimulation(result, { to: token, data: '0x' }, 1, { cache: memoryCache() });
+        assert.equal(ctx.coveredDefinitions.size, 0);
+        assert.equal(ctx.contracts.get(token)?.sourceMap ?? null, null);
     });
 });

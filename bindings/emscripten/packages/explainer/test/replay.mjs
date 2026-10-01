@@ -80,7 +80,8 @@ export function txParamsFromSimulation(result) {
  *
  * Events already named by the C-core count as decoded. Calls count when
  * `enrichSimulation` attached an ABI-decoded trace entry. State changes count
- * only when the resolved slot has a `variableName` (layout match).
+ * only when the resolved slot has a `variableName` or packed `members`
+ * (layout match).
  *
  * @param result - Original simulation result
  * @param context - Enrichment context from `enrichSimulation`
@@ -117,6 +118,9 @@ export function countDecoded(result, context) {
             const resolved = slots[i];
             if (resolved?.variableName) {
                 storageNames.push(`${addr}:${resolved.variableName}`);
+            } else if (resolved?.members?.length) {
+                const packed = resolved.members.map(member => member.variableName).join(',');
+                storageNames.push(`${addr}:${packed}`);
             } else {
                 unnamedStorage.push({
                     address: change.address,

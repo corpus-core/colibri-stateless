@@ -166,6 +166,16 @@ bool eth_call_account_deserialize(bytes_t data, call_account_t* out) {
   memcpy(out->code_hash, p, 32);
   p += 32;
 
+  // Simulation baseline: `src_balance` / `src_nonce` are the pre-simulation
+  // values reported as `previousValue` in `stateChanges`. `call_account_reset_accessed`
+  // is only ever called for accounts already present at the start of the
+  // top-level frame; accounts materialised later (from cache or fetched via
+  // `host_access_account`) skip that reset and would otherwise ship
+  // `previousValue = 0` in the SSZ result — a plausible but wrong "started
+  // from zero" claim.
+  memcpy(out->src_balance, out->balance, 32);
+  out->src_nonce = out->nonce;
+
   uint32_t num_storage = uint32_from_le(p);
   p += 4;
 

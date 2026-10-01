@@ -39,6 +39,10 @@ export type {
     ContractCache,
     VerifiedContract,
     ContractMetadata,
+    ContractSourceMap,
+    CoveredDefinition,
+    ResolvedStateRead,
+    EnhancedContractStateReads,
     CompilationInput,
     SolidityStorageLayout,
     SolidityStorageEntry,
@@ -48,19 +52,22 @@ export type {
     DecodedError,
     ParsedKey,
     ResolvedSlot,
+    ResolvedSlotMember,
     EnrichedContext,
     EnhancedSimulationResult,
     EnhancedLog,
     EnhancedTraceEntry,
     EnhancedStorageSlotChange,
     EnhancedContractStateChange,
+    EthCallFn,
+    TokenInfo,
 } from './types.js';
 
 export { buildPrompt, DEFAULT_SYSTEM_PROMPT } from './prompt.js';
 export { createProvider } from './providers/index.js';
 export {
     WebLLMProvider, DEFAULT_WEBLLM_MODEL, TSA_EXPLAINER_MODELS,
-    shouldDisableThinking, resolveModelRecord, buildAppConfig,
+    shouldDisableThinking, resolveModelRecord, buildAppConfig, isDeadEngineError,
 } from './providers/webllm.js';
 export type { WebLLMModelRecord } from './providers/webllm.js';
 export { hexToBigInt, weiToEth, formatTokenAmount, formatGas, shortenAddress } from './format.js';
@@ -72,15 +79,16 @@ export {
 } from './log.js';
 export type { LogLevel, ExplainerLogFn } from './log.js';
 export { decodeFunctionCall, decodeEventLog, decodeFunctionResult, decodeRevertData } from './decoder.js';
-export { parseSlotSource, resolveStorageSlot, resolveDirectSlot } from './storage.js';
+export { parseSlotSource, resolveStorageSlot, resolveDirectSlot, extractPackedValue } from './storage.js';
 export { enrichSimulation, toEnhancedResult } from './enrich.js';
 export { compileAndVerify, loadCompiler, getBundledCompiler, hashRuntimeBytecode } from './compiler.js';
 export { extractStorageLayout } from './layout.js';
 export {
     getDefaultCache, get_default_cache, cacheGet, cacheSet, getCacheDirectory,
     sanitizeKey, sourcifyCompilationKey, sourcifyMetadataKey, layoutCacheKey,
+    tokenCacheKey, isSafeTokenSymbol,
     cacheGetCompilation, cacheSetCompilation, cacheGetMetadata, cacheSetMetadata,
-    cacheGetLayout, cacheSetLayout,
+    cacheGetLayout, cacheSetLayout, cacheGetToken, cacheSetToken,
 } from './cache.js';
 
 import type { SimulationResult, TxParams, ExplainerConfig, EnhancedSimulationResult } from './types.js';
@@ -122,6 +130,7 @@ export async function explainSimulation(
         ? await enrichSimulation(result, txParams, config.chainId, {
             sourcifyBaseUrl: config.sourcifyBaseUrl,
             cache: config.cache,
+            ethCall: config.ethCall,
         })
         : undefined;
 
@@ -168,8 +177,9 @@ export async function enhanceSimulation(
         ? await enrichSimulation(result, txParams, config.chainId, {
             sourcifyBaseUrl: config.sourcifyBaseUrl,
             cache: config.cache,
+            ethCall: config.ethCall,
         })
-        : { contracts: new Map(), resolvedStorage: new Map(), decodedTrace: [], decodedEvents: [] };
+        : { contracts: new Map(), resolvedStorage: new Map(), decodedTrace: [], decodedEvents: [], tokens: new Map() };
 
     const provider = createProvider(config);
     const { systemPrompt, userPrompt } = buildPrompt(result, txParams, config, context);
