@@ -1181,6 +1181,12 @@ export async function compileAndVerify(
     // supplied the on-chain bytecode: strip the CBOR metadata trailer from
     // both sides and compare the remaining code.
     const fetchOnChain = options?.fetchOnChainBytecode;
+    explainerLog('debug', 'full-match failed, considering partial match', {
+        scope: 'solc',
+        version: compilerVersion,
+        candidates: partialCandidates.length,
+        hasFetcher: !!fetchOnChain,
+    });
     if (fetchOnChain && partialCandidates.length > 0) {
         let onChainHex: string | null = null;
         try {

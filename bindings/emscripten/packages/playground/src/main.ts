@@ -692,12 +692,19 @@ async function buildExplainerConfig(useEnrichment: boolean, chainId: number): Pr
 }
 
 /**
- * Build an `ethGetCode` callback that talks JSON-RPC to the configured node.
- * Enrichment only invokes it when the full-bytecode hash comparison fails and
- * re-hashes the returned bytes against the already-verified `codeHash` before
- * trusting them, so a malicious or inconsistent RPC cannot inject code.
+ * Build an `ethGetCode` callback that fetches the on-chain runtime bytecode of
+ * a contract via plain JSON-RPC (`eth_getCode(addr, 'latest')`).
  *
- * @param rpcUrl - JSON-RPC endpoint (same URL used for `colibri_simulateTransaction`)
+ * Enrichment only invokes this fallback when the full-bytecode hash comparison
+ * fails and re-hashes the returned bytes against the already-verified
+ * `codeHash` before trusting them, so a malicious or inconsistent RPC cannot
+ * inject code into the explainer.
+ *
+ * `rpcUrl` is the plain JSON-RPC endpoint (same URL used for
+ * `colibri_simulateTransaction`). When the UI field is empty the caller may
+ * pass a well-known default so the callback still works for sample traces.
+ *
+ * @param rpcUrl - JSON-RPC endpoint URL (must not be empty)
  * @return Callback that returns `0x`-prefixed bytecode, or `null` on failure
  */
 function createEthGetCode(rpcUrl: string): (address: string) => Promise<string | null> {
@@ -718,6 +725,35 @@ function createEthGetCode(rpcUrl: string): (address: string) => Promise<string |
             return null;
         }
     };
+}
+
+/**
+ * Fallback public RPC endpoints used by the partial-match verification when
+ * the user leaves the RPC field blank. These are only hit for `eth_getCode`
+ * (one call per contract that fails full-match verification), and the result
+ * is re-hashed against the already-verified `codeHash` from the simulation
+ * accessList before anything downstream trusts the bytes.
+ */
+const PUBLIC_RPC_FALLBACKS: Record<number, string> = {
+    1: 'https://eth.llamarpc.com',
+    10: 'https://mainnet.optimism.io',
+    8453: 'https://mainnet.base.org',
+    42161: 'https://arb1.arbitrum.io/rpc',
+    11155111: 'https://ethereum-sepolia-rpc.publicnode.com',
+};
+
+/**
+ * Pick the JSON-RPC endpoint for the partial-match `eth_getCode` fallback.
+ * Prefer whatever the user typed into the RPC input; otherwise fall back to a
+ * public endpoint for the selected chain.
+ *
+ * @param rpc - Raw value from the RPC input field (may be empty)
+ * @param chainId - Selected chain ID
+ * @return Endpoint URL, or `null` when nothing is available
+ */
+function pickRpcForGetCode(rpc: string, chainId: number): string | null {
+    if (rpc) return rpc;
+    return PUBLIC_RPC_FALLBACKS[chainId] ?? null;
 }
 
 // -- Run ---------------------------------------------------------------------
@@ -792,8 +828,10 @@ async function run(): Promise<void> {
             // differs from the on-chain code only in the CBOR metadata trailer
             // (typical for Sourcify partial matches), enrichment can strip the
             // trailer and retry. Enrichment re-hashes the returned bytes
-            // against the already-verified codeHash before trusting them.
-            const ethGetCode = rpc ? createEthGetCode(rpc) : undefined;
+            // against the already-verified codeHash before trusting them, so a
+            // public RPC fallback here is safe.
+            const rpcForGetCode = pickRpcForGetCode(rpc, chainId);
+            const ethGetCode = rpcForGetCode ? createEthGetCode(rpcForGetCode) : undefined;
             context = await enrichSimulation(sim, tx, chainId, {
                 sourcifyBaseUrl: config.sourcifyBaseUrl,
                 ethGetCode,
