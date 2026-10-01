@@ -59,7 +59,7 @@ Colibri Stateless is a high-performance prover/verifier for Ethereum and Layer-2
 | `src/chains/op/` | OP-Stack chain module | See [src/chains/op/AGENTS.md](src/chains/op/AGENTS.md) |
 | `src/util/` | Utilities (SSZ, bytes, crypto, state, JSON) | See [src/util/AGENTS.md](src/util/AGENTS.md) |
 | `src/server/` | HTTP prover server (libuv/llhttp). Do not block the event loop -- use `REQUEST_WORKER_THREAD` for CPU work | See [src/server/AGENTS.md](src/server/AGENTS.md) |
-| `src/cli/` | CLI tools (prover, verifier, ssz) | Three executables |
+| `src/cli/` | CLI tools (prover, verifier, ssz) | See [src/cli/AGENTS.md](src/cli/AGENTS.md) |
 | `src/api/` | Host / FFI API (`colibri.h`, `c4_rpc_ctx_t`) | JSON-based status protocol used by all bindings |
 | `bindings/` | Language bindings | See [bindings/AGENTS.md](bindings/AGENTS.md) |
 | `libs/` | Bundled third-party libraries | blst, evmone, libuv, llhttp, zstd, mcl, etc. |
