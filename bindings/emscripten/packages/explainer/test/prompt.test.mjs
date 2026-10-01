@@ -1447,5 +1447,224 @@ describe('resolveAddressLinks', () => {
         const src = 'The transaction succeeded.';
         assert.equal(resolveAddressLinks(src, BOOK, linkFor), src);
     });
+
+    it('accepts a hex address in the URL when it is a value in the book', () => {
+        // Real-world 4B slip: the model wrote the hex address into the URL
+        // instead of the label. The address is one we handed it, so we still
+        // want a link.
+        const out = resolveAddressLinks(
+            `Sent to [addr_f719](eth://${WETH}).`,
+            BOOK, linkFor,
+        );
+        assert.equal(out, `Sent to [addr_f719](https://explorer.test/address/${WETH}).`);
+    });
+
+    it('rejects a hex address that is not in the book (hallucination)', () => {
+        const unknown = '0xdeaddeaddeaddeaddeaddeaddeaddeaddeaddead';
+        const out = resolveAddressLinks(
+            `Mystery link to [here](eth://${unknown}).`,
+            BOOK, linkFor,
+        );
+        assert.equal(out, 'Mystery link to here.');
+    });
+
+    it('accepts a checksummed hex address in the URL and still resolves it', () => {
+        // Same WETH address as in BOOK, but with mixed case (EIP-55-ish).
+        const checksummed = '0xC02aaa39b223FE8D0A0e5C4F27eAD9083C756Cc2';
+        const out = resolveAddressLinks(
+            `Deposited into [WETH](eth://${checksummed}).`,
+            BOOK, linkFor,
+        );
+        assert.equal(out, `Deposited into [WETH](https://explorer.test/address/${WETH}).`);
+    });
+
+    it('rejects a short or malformed hex in the URL', () => {
+        const out = resolveAddressLinks(
+            'See [short](eth://0xdeadbeef) and [long](eth://0x' + 'ab'.repeat(21) + ').',
+            BOOK, linkFor,
+        );
+        assert.equal(out, 'See short and long.');
+    });
+
+    describe('addr_xxxx fallback labels', () => {
+        const RECIPIENT = '0x07ad29705044203840ef1be2eb2b6a5c6c91f719';
+        const SHORT = '0x07ad...f719';
+        const BOOK_WITH_FALLBACK = { WETH, sender: SENDER, addr_f719: RECIPIENT };
+
+        it('shortens the link text when the model copies the addr_xxxx fallback verbatim', () => {
+            const out = resolveAddressLinks(
+                'Sent to [addr_f719](eth://addr_f719).',
+                BOOK_WITH_FALLBACK, linkFor,
+            );
+            assert.equal(out, `Sent to [${SHORT}](https://explorer.test/address/${RECIPIENT}).`);
+        });
+
+        it('shortens the link text when the model puts the hex in the URL instead of the label', () => {
+            // The real-world 4B slip we saw in the playground: both the link
+            // text and the URL are the fallback label / its hex, and the user
+            // wants to see `0x07ad...f719` on the page, not `addr_f719`.
+            const out = resolveAddressLinks(
+                `Sent to [addr_f719](eth://${RECIPIENT}).`,
+                BOOK_WITH_FALLBACK, linkFor,
+            );
+            assert.equal(out, `Sent to [${SHORT}](https://explorer.test/address/${RECIPIENT}).`);
+        });
+
+        it('keeps a descriptive link text unchanged even when it mentions addr_xxxx', () => {
+            // The model wrote prose in the brackets; replacing part of that
+            // text would be an eager rewrite we want to avoid.
+            const out = resolveAddressLinks(
+                'Sent to [the addr_f719 contract](eth://addr_f719).',
+                BOOK_WITH_FALLBACK, linkFor,
+            );
+            assert.equal(out, `Sent to [the addr_f719 contract](https://explorer.test/address/${RECIPIENT}).`);
+        });
+
+        it('linkifies a stand-alone addr_xxxx the model wrote without link syntax', () => {
+            const out = resolveAddressLinks(
+                'The recipient addr_f719 received the funds.',
+                BOOK_WITH_FALLBACK, linkFor,
+            );
+            assert.equal(out, `The recipient [${SHORT}](https://explorer.test/address/${RECIPIENT}) received the funds.`);
+        });
+
+        it('does not linkify a bare addr_xxxx that is not in the book', () => {
+            const out = resolveAddressLinks(
+                'Mystery addr_dead stays plain.',
+                BOOK_WITH_FALLBACK, linkFor,
+            );
+            assert.equal(out, 'Mystery addr_dead stays plain.');
+        });
+
+        it('does not touch an addr_xxxx that is already inside a Markdown link', () => {
+            // The stand-alone pass must skip anything inside existing links,
+            // otherwise it would try to nest a link inside a link.
+            const src = 'See [the addr_f719 contract](https://example.com) for details.';
+            assert.equal(resolveAddressLinks(src, BOOK_WITH_FALLBACK, linkFor), src);
+        });
+
+        it('does not match addr_ without the 4-hex suffix', () => {
+            const src = 'The word addr_ by itself is not a label.';
+            assert.equal(resolveAddressLinks(src, BOOK_WITH_FALLBACK, linkFor), src);
+        });
+
+        it('leaves addr_xxxx alone when linkFor returns null (no explorer for chain)', () => {
+            const out = resolveAddressLinks(
+                'The recipient addr_f719 received the funds.',
+                BOOK_WITH_FALLBACK, () => null,
+            );
+            assert.equal(out, 'The recipient addr_f719 received the funds.');
+        });
+
+        it('resolves multiple bare addr_xxxx occurrences in one string', () => {
+            const other = '0xabcdef1234567890abcdef1234567890abcdabcd';
+            const book = { ...BOOK_WITH_FALLBACK, addr_abcd: other };
+            const out = resolveAddressLinks(
+                'addr_f719 sent funds to addr_abcd.',
+                book, linkFor,
+            );
+            assert.equal(
+                out,
+                `[${SHORT}](https://explorer.test/address/${RECIPIENT}) sent funds to [0xabcd...abcd](https://explorer.test/address/${other}).`,
+            );
+        });
+
+        it('keeps real labels (sender, WETH) as prose even when they appear outside links', () => {
+            // Only addr_xxxx fallback labels get the bare-text linkify pass;
+            // real English words like `sender` or token symbols stay plain.
+            const src = 'The sender deposited into WETH and that was it.';
+            assert.equal(resolveAddressLinks(src, BOOK_WITH_FALLBACK, linkFor), src);
+        });
+    });
+
+    describe('bare hex addresses in prose', () => {
+        const SPENDER = '0x40aa958dd87fc8305b97f2ba922cddca374bcd7f';
+        // `shortenAddress` keeps 6 head chars + `...` + 4 tail chars, so the
+        // last 4 hex of `…bcd7f` is `cd7f`.
+        const SHORT = '0x40aa...cd7f';
+        const BOOK_WITH_SPENDER = { WETH, sender: SENDER, addr_cd7f: SPENDER };
+
+        it('linkifies a bare hex address when it appears as a value in the book', () => {
+            // Real playground case: the model wrote the hex straight into prose
+            // (inside backticks), bypassing both the label and `eth://` link
+            // syntax entirely.
+            const out = resolveAddressLinks(
+                `The sender approved the address \`${SPENDER}\` to spend tokens.`,
+                BOOK_WITH_SPENDER, linkFor,
+            );
+            assert.equal(
+                out,
+                `The sender approved the address [${SHORT}](https://explorer.test/address/${SPENDER}) to spend tokens.`,
+            );
+        });
+
+        it('linkifies a bare hex address without surrounding backticks', () => {
+            const out = resolveAddressLinks(
+                `Sent to ${SPENDER} directly.`,
+                BOOK_WITH_SPENDER, linkFor,
+            );
+            assert.equal(
+                out,
+                `Sent to [${SHORT}](https://explorer.test/address/${SPENDER}) directly.`,
+            );
+        });
+
+        it('accepts checksummed hex (EIP-55 mixed case) and links to the lower-case address', () => {
+            const checksummed = '0x40Aa958dd87Fc8305b97F2BA922cdDCa374bCd7F';
+            const out = resolveAddressLinks(
+                `Approval for ${checksummed}.`,
+                BOOK_WITH_SPENDER, linkFor,
+            );
+            assert.equal(
+                out,
+                `Approval for [${SHORT}](https://explorer.test/address/${SPENDER}).`,
+            );
+        });
+
+        it('does not linkify a hex address that is not in the book (hallucination)', () => {
+            const unknown = '0xdeaddeaddeaddeaddeaddeaddeaddeaddeaddead';
+            const out = resolveAddressLinks(
+                `Mystery address ${unknown} stays plain.`,
+                BOOK_WITH_SPENDER, linkFor,
+            );
+            assert.equal(out, `Mystery address ${unknown} stays plain.`);
+        });
+
+        it('leaves a backticked unknown hex alone, backticks and all', () => {
+            const unknown = '0xdeaddeaddeaddeaddeaddeaddeaddeaddeaddead';
+            const src = `Mystery \`${unknown}\` stays plain.`;
+            assert.equal(resolveAddressLinks(src, BOOK_WITH_SPENDER, linkFor), src);
+        });
+
+        it('does not touch a hex address that is already inside a Markdown link', () => {
+            // Pass 2 must respect existing links; otherwise it would attempt
+            // to nest a link inside a link.
+            const src = `See [more](https://foo.example/${SPENDER}) for context.`;
+            assert.equal(resolveAddressLinks(src, BOOK_WITH_SPENDER, linkFor), src);
+        });
+
+        it('resolves multiple bare hex addresses in one string', () => {
+            const other = '0xabcdef1234567890abcdef1234567890abcdabcd';
+            const book = { ...BOOK_WITH_SPENDER, addr_abcd: other };
+            const out = resolveAddressLinks(
+                `${SPENDER} forwarded to ${other}.`,
+                book, linkFor,
+            );
+            assert.equal(
+                out,
+                `[${SHORT}](https://explorer.test/address/${SPENDER}) forwarded to [0xabcd...abcd](https://explorer.test/address/${other}).`,
+            );
+        });
+
+        it('leaves a bare hex alone when linkFor returns null', () => {
+            const src = `Approval for ${SPENDER}.`;
+            assert.equal(resolveAddressLinks(src, BOOK_WITH_SPENDER, () => null), src);
+        });
+
+        it('does not match a hex that is too short or too long for an address', () => {
+            const src = 'See 0xdeadbeef and 0x' + 'ab'.repeat(21) + ' for junk hashes.';
+            assert.equal(resolveAddressLinks(src, BOOK_WITH_SPENDER, linkFor), src);
+        });
+    });
 });
 

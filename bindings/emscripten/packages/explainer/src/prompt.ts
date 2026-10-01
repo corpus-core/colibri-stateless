@@ -180,25 +180,56 @@ function buildUserPrompt(
 export type AddressLinkResolver = (address: string) => string | null;
 
 /**
- * Replace `[text](eth://<label>)` Markdown links in `markdown` with real
- * links built from `addressBook` and `linkFor`.
+ * Replace `[text](eth://<target>)` Markdown links in `markdown` with real
+ * links built from `addressBook` and `linkFor`, and linkify stand-alone
+ * `addr_xxxx` fallback labels or `0x…` hex addresses the model wrote
+ * without link syntax.
  *
  * The model is instructed (see `DEFAULT_SYSTEM_PROMPT`) to emit addresses as
  * `[WETH](eth://WETH)`, i.e. a Markdown link whose URL is `eth://` plus the
- * exact label from the user prompt's `## Addresses` section. This function
- * is the matching resolver on the host side:
+ * exact label from the user prompt's `## Addresses` section. In practice a
+ * 4B model will occasionally slip and write the hex address into the URL
+ * (`[addr_f719](eth://0x07ad…f719)`), forget the link syntax entirely and
+ * just say `addr_f719`, or drop a hex address straight into the prose
+ * (sometimes wrapped in `` ` `` ticks). This function covers all those
+ * cases:
  *
- * - Label found in `addressBook` and `linkFor(address)` returns a URL →
- *   the URL replaces `eth://<label>` and the link text stays as the model
- *   wrote it.
- * - Label missing (hallucination) or `linkFor` returns `null` → the
- *   Markdown link is stripped and only the link text remains, so a broken
- *   `eth://` URL never reaches the DOM.
+ * - `<target>` is a label present in `addressBook` → use that address.
+ * - `<target>` is a `0x…` hex address that appears as a value in
+ *   `addressBook` → use the address (case-insensitive). This covers only
+ *   addresses we gave the model in the prompt, so a hallucinated hex is
+ *   still rejected.
+ * - Neither form matches, or `linkFor` returns `null` → the Markdown link
+ *   is stripped and only the link text remains, so a broken `eth://` URL
+ *   never reaches the DOM.
  *
- * The matcher is case-insensitive on the `eth://` scheme but case-sensitive
- * on the label, matching the system prompt's rule that the label be copied
- * verbatim. Non-link `eth://…` text and unrelated Markdown pass through
- * unchanged.
+ * The link **text** also gets a tidy-up pass for `addr_xxxx` fallback
+ * labels: when the model copies our auto-generated placeholder (`addr_` +
+ * last 4 hex chars) verbatim as link text, it is replaced with
+ * `0xAbCd…1234` from the address itself. Real labels (`WETH`, `sender`,
+ * contract names) stay as the model wrote them, so a descriptive link text
+ * like `[the Wrapped Ether contract](eth://WETH)` is preserved.
+ *
+ * After the Markdown-link pass, a second pass looks at the surrounding
+ * prose (outside any existing Markdown link) and turns these into
+ * `[0xAbCd…1234](explorer-url)` when the address is in the book:
+ *
+ * - bare `addr_xxxx` fallback labels,
+ * - bare `0x` + 40 hex characters (case-insensitive, so checksummed form
+ *   works too),
+ * - the same hex address wrapped in a single-backtick inline-code span
+ *   (the backticks are consumed, because a Markdown link inside
+ *   `` ` `` would be rendered as literal text).
+ *
+ * Nothing else is touched in that pass. Real English words, token
+ * symbols, and hex strings that are not addresses we handed the model stay
+ * plain, so a hallucinated address never becomes a confident link to a
+ * wrong account.
+ *
+ * The matcher is case-insensitive on the `eth://` scheme and on hex
+ * addresses, but case-sensitive on labels — labels in the book are unique
+ * and the system prompt tells the model to copy them verbatim.
+ * Non-link `eth://…` text and unrelated Markdown pass through unchanged.
  *
  * @param markdown - Model output in Markdown
  * @param addressBook - Label → address map from `PromptParts.addressBook`
@@ -210,19 +241,96 @@ export function resolveAddressLinks(
     addressBook: AddressBookExport,
     linkFor: AddressLinkResolver,
 ): string {
-    return markdown.replace(ETH_LINK_RE, (_match, text: string, label: string) => {
-        const address = addressBook[label];
+    // Lower-case the book values once per call so the hex-URL path in
+    // pass 1 and the bare-hex paths in pass 2 can look them up in O(1).
+    // `addressBook` values are already lower-case by construction (built
+    // from `AddressBook.toObject()`), so this is cheap and defensive
+    // against a host that hand-builds a mixed-case book.
+    const knownAddresses = new Set(Object.values(addressBook).map((a) => a.toLowerCase()));
+    const resolveTarget = (token: string): string | null => {
+        const byLabel = addressBook[token];
+        if (byLabel) return byLabel;
+        if (!HEX_ADDRESS_RE.test(token)) return null;
+        const lower = token.toLowerCase();
+        return knownAddresses.has(lower) ? lower : null;
+    };
+    const linkForKnown = (hex: string): string | null => {
+        const lower = hex.toLowerCase();
+        if (!knownAddresses.has(lower)) return null;
+        return linkFor(lower);
+    };
+
+    // Pass 1: resolve `[text](eth://target)` links, replacing the URL with
+    // the explorer link and shortening fallback `addr_xxxx` link texts.
+    const afterPass1 = markdown.replace(ETH_LINK_RE, (_match, text: string, token: string) => {
+        const address = resolveTarget(token);
         if (!address) return text;
         const url = linkFor(address);
         if (!url) return text;
-        return `[${text}](${url})`;
+        const trimmed = text.trim();
+        const displayText = SHORT_ADDR_LABEL_RE.test(trimmed) && addressBook[trimmed]
+            ? shortenAddress(addressBook[trimmed])
+            : text;
+        return `[${displayText}](${url})`;
     });
+
+    // Pass 2: linkify stand-alone address references the model wrote
+    // without `eth://`-link syntax. The alternation deliberately places
+    // the Markdown-link pattern first so matches inside an existing link
+    // are returned untouched (no nested links). Order of the remaining
+    // alternatives matters: the backtick-wrapped hex must beat the bare
+    // hex, otherwise `0x…` would match first and the surrounding ticks
+    // would be left dangling.
+    return afterPass1.replace(
+        PROSE_ADDRESS_RE,
+        (
+            match,
+            _existingLink: string | undefined,
+            codeHex: string | undefined,
+            bareHex: string | undefined,
+            bareLabel: string | undefined,
+        ) => {
+            if (codeHex) {
+                const url = linkForKnown(codeHex);
+                return url ? `[${shortenAddress(codeHex.toLowerCase())}](${url})` : match;
+            }
+            if (bareHex) {
+                const url = linkForKnown(bareHex);
+                return url ? `[${shortenAddress(bareHex.toLowerCase())}](${url})` : bareHex;
+            }
+            if (bareLabel) {
+                const address = addressBook[bareLabel];
+                if (!address) return bareLabel;
+                const url = linkFor(address);
+                return url ? `[${shortenAddress(address)}](${url})` : bareLabel;
+            }
+            return match;
+        },
+    );
 }
 
 // Matches `[anything-without-brackets](eth://TOKEN)` where TOKEN has no
 // whitespace or closing paren. `eth://` is case-insensitive; the TOKEN
-// capture keeps the original casing so the look-up stays strict.
+// capture keeps the original casing so a label look-up stays strict.
 const ETH_LINK_RE = /\[([^\]]*)\]\((?:eth|ETH):\/\/([^)\s]+)\)/g;
+// Hex-address fallback in the URL: `eth://0x…`. Case-insensitive because
+// checksummed addresses are mixed-case; the resolver lower-cases before
+// looking the value up in the book.
+const HEX_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
+// Shape of the auto-generated fallback label: `addr_` + last 4 lower-case
+// hex chars of the address (see `buildAddressBook.preferredName`). Used
+// both to recognise the label as link text and to spot bare occurrences.
+const SHORT_ADDR_LABEL_RE = /^addr_[0-9a-f]{4}$/;
+// Pass-2 alternation, applied to the whole document in one scan:
+//
+// 1. Any existing Markdown link `[text](url)` so we skip it (no nesting).
+// 2. A hex address wrapped in single backticks (`` `0x…` ``). The
+//    backticks are consumed in the replacement so a Markdown link can
+//    render; inside an inline-code span the link would stay literal text.
+// 3. A bare hex address with word boundaries, including the EIP-55
+//    checksum form (`[A-Fa-f0-9]`).
+// 4. A bare `addr_xxxx` fallback label.
+const PROSE_ADDRESS_RE = /(\[[^\]]*\]\([^)]*\))|`\s*(0x[a-fA-F0-9]{40})\s*`|\b(0x[a-fA-F0-9]{40})\b|\b(addr_[0-9a-f]{4})\b/g;
 
 const ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
 const SOLIDITY_IDENT_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
