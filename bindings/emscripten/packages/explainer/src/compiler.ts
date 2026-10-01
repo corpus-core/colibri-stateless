@@ -806,11 +806,22 @@ async function loadBundledCompilerBrowser(): Promise<CachedCompiler> {
 /**
  * Classic worker source. Loads soljson via `importScripts` so `var Module`
  * becomes the worker global and does not replace the page's Emscripten `Module`
- * (the Colibri wasm bundle). Compilation goes through `solidity_compile`.
- * The import callback only reports failure: skeleton layout and Sourcify
- * standard JSON both inline every source, so a missing file is an error.
+ * (the Colibri wasm bundle).
+ *
+ * Compilation entry points changed across solc releases. We detect the
+ * exported C symbols at init time and bind the right wrapper:
+ *
+ * - `solidity_compile` (0.5.9+) with 5-arg callback `(context, kind, data, contents, error)`.
+ * - `compileStandard` (0.4.11 - 0.5.8) with 1-arg callback `(path) → json_ptr`.
+ *   The returned pointer is a C string containing JSON like
+ *   `{"contents": "..."}` or `{"error": "..."}`.
+ *
+ * Both callbacks only *report failure*: skeleton layout and Sourcify standard
+ * JSON both inline every source, so a missing file is an error either way.
+ * `solidity_alloc` is used when exported, else we fall back to `malloc`
+ * (every Emscripten binary ships it).
  */
-const BROWSER_SOLC_WORKER = `
+export const BROWSER_SOLC_WORKER = `
 var compileBound = null;
 self.onmessage = function (event) {
     var msg = event.data;
@@ -848,28 +859,65 @@ function initSoljson(source) {
     if (!Module || typeof Module.cwrap !== 'function' || typeof Module.addFunction !== 'function') {
         throw new Error('soljson did not initialize');
     }
-    var version = Module.cwrap('solidity_version', 'string', [])();
-    var alloc = Module.cwrap('solidity_alloc', 'number', ['number']);
-    var compile = Module.cwrap('solidity_compile', 'string', ['string', 'number', 'number']);
-    var reset = Module['_solidity_reset'] ? Module.cwrap('solidity_reset', null, []) : null;
-    compileBound = function (input) {
-        var cb = Module.addFunction(function (context, kind, data, contents, error) {
-            var kindStr = Module.UTF8ToString(kind);
-            var message = kindStr === 'smt-query'
-                ? 'SMT solver callback not supported'
-                : 'File import callback not supported';
-            var length = Module.lengthBytesUTF8(message);
-            var buffer = alloc(length + 1);
-            Module.stringToUTF8(message, buffer, length + 1);
-            Module.setValue(error, buffer, '*');
-        }, 'viiiii');
-        try {
-            return compile(input, cb, 0);
-        } finally {
-            Module.removeFunction(cb);
-            if (reset) reset();
-        }
-    };
+
+    // Version string: new builds expose solidity_version, old builds expose version.
+    // Old emscripten cwrap returns a wrapper that only aborts when invoked, so
+    // guard with the raw export lookup before calling anything.
+    var version = 'unknown';
+    if (Module['_solidity_version']) {
+        version = Module.cwrap('solidity_version', 'string', [])();
+    } else if (Module['_version']) {
+        version = Module.cwrap('version', 'string', [])();
+    }
+
+    var alloc = Module['_solidity_alloc']
+        ? Module.cwrap('solidity_alloc', 'number', ['number'])
+        : Module.cwrap('malloc', 'number', ['number']);
+
+    if (Module['_solidity_compile']) {
+        // 0.5.9+ API: 3-arg entry point with modern 5-arg import callback.
+        var compile = Module.cwrap('solidity_compile', 'string', ['string', 'number', 'number']);
+        var reset = Module['_solidity_reset'] ? Module.cwrap('solidity_reset', null, []) : null;
+        compileBound = function (input) {
+            var cb = Module.addFunction(function (context, kind, data, contents, error) {
+                var kindStr = Module.UTF8ToString(kind);
+                var message = kindStr === 'smt-query'
+                    ? 'SMT solver callback not supported'
+                    : 'File import callback not supported';
+                var length = Module.lengthBytesUTF8(message);
+                var buffer = alloc(length + 1);
+                Module.stringToUTF8(message, buffer, length + 1);
+                Module.setValue(error, buffer, '*');
+            }, 'viiiii');
+            try {
+                return compile(input, cb, 0);
+            } finally {
+                Module.removeFunction(cb);
+                if (reset) reset();
+            }
+        };
+    } else if (Module['_compileStandard']) {
+        // 0.4.11 - 0.5.8 API: compileStandard with 1-arg callback that returns
+        // a C-string pointer to a JSON object. We only ever report an error.
+        var compileStandard = Module.cwrap('compileStandard', 'string', ['string', 'number']);
+        var errorBlob = '{"error":"File import callback not supported"}';
+        compileBound = function (input) {
+            var cb = Module.addFunction(function (path) {
+                var length = Module.lengthBytesUTF8(errorBlob);
+                var buffer = alloc(length + 1);
+                Module.stringToUTF8(errorBlob, buffer, length + 1);
+                return buffer;
+            }, 'ii');
+            try {
+                return compileStandard(input, cb);
+            } finally {
+                Module.removeFunction(cb);
+            }
+        };
+    } else {
+        throw new Error('solc ' + version + ' is too old for in-browser verification (needs >= 0.4.11)');
+    }
+
     return version;
 }
 `;
