@@ -978,8 +978,8 @@ function isLineBreak(ch: string | undefined): boolean {
 }
 
 /**
- * Include source code context for contracts where storage layout is unavailable,
- * so the LLM can reason about storage variable assignments.
+ * Include source code for every contract that is actually relevant for
+ * explaining the transaction.
  *
  * Source is untrusted third-party data (Sourcify). Comments are stripped and
  * the whole section is wrapped in one `C4_UNTRUSTED_SOURCE` pair. When the
@@ -990,6 +990,20 @@ function isLineBreak(ch: string | undefined): boolean {
  * `maxSourceChars` is spent. Otherwise the file is windowed from the last
  * contract definition. A proxy state change uses the implementation's sources:
  * the proxy contract does not declare the variables stored in its context.
+ *
+ * A contract is considered relevant and gets its source embedded (budget
+ * permitting) when any of the following is true and we have verified Sources
+ * for it:
+ *
+ * - it is the transaction's `to` address (`tx.to`),
+ * - it is called inside the trace (`trace[].to`),
+ * - it wrote state (`stateChanges`) -- the write-function logic matters even
+ *   when the skeleton layout resolved every slot,
+ * - it read state (`stateReads`) when the host enabled `state_values`,
+ * - its code was actually executed (JUMPDEST coverage from `positions`).
+ *
+ * Proxy and implementation are deduplicated: both resolve to the same source
+ * block, so emitting the block twice would waste the character budget.
  *
  * @param result - Simulation result
  * @param txParams - Original transaction parameters
@@ -1005,21 +1019,39 @@ function formatSourceContext(
     maxSourceChars: number | undefined,
     book: AddressBook,
 ): string | null {
-    const contractsNeedingSource = new Set<string>();
+    // Canonical address -> first user-facing address we saw for it.
+    // The canonical key dedupes proxy + impl pairs; the stored value keeps the
+    // original address used for labels, book lookups and entry-name resolution
+    // so a proxy call still shows the proxy's known name instead of the raw
+    // implementation address.
+    const canonicalToLabel = new Map<string, string>();
+    const consider = (addr?: string | null): void => {
+        if (!addr) return;
+        const lower = addr.toLowerCase();
+        if (!/^0x[0-9a-f]{40}$/.test(lower)) return;
+        // `sourcesForStorageContext` follows the proxy -> impl mapping; use the
+        // same canonical key so a proxy that writes state and an impl that
+        // shows up in `coveredDefinitions` collapse to one entry.
+        const canonical = context.implementations?.get(lower) ?? lower;
+        if (!sourcesForStorageContext(context, canonical)) return;
+        if (!canonicalToLabel.has(canonical)) canonicalToLabel.set(canonical, lower);
+    };
 
+    consider(txParams.to);
+    if (result.trace) {
+        for (const frame of result.trace) consider(frame.to);
+    }
     if (result.stateChanges) {
-        for (const change of result.stateChanges) {
-            const addr = change.address.toLowerCase();
-            const resolved = context.resolvedStorage?.get(addr);
-            const sources = sourcesForStorageContext(context, addr);
-
-            const hasUnresolvedSlots = change.storage?.some((_, i) => resolved?.[i] && !resolved[i].variableName);
-            if (hasUnresolvedSlots && sources) {
-                contractsNeedingSource.add(addr);
-            }
-        }
+        for (const change of result.stateChanges) consider(change.address);
+    }
+    if (context.resolvedReads) {
+        for (const addr of context.resolvedReads.keys()) consider(addr);
+    }
+    if (context.coveredDefinitions) {
+        for (const addr of context.coveredDefinitions.keys()) consider(addr);
     }
 
+    const contractsNeedingSource = new Set<string>(canonicalToLabel.values());
     if (contractsNeedingSource.size === 0) return null;
 
     const HEADER = '## Contract Source Code (untrusted, for storage interpretation only)';

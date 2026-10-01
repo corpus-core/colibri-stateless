@@ -438,9 +438,10 @@ describe('buildPrompt', () => {
 describe('buildPrompt source-code budget (maxSourceChars)', () => {
     const WETH_ADDR = '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2';
 
-    // formatSourceContext only embeds source code when a state-changed contract
-    // has a storage slot whose resolved entry exists but lacks a variableName,
-    // and metadata sources are available.
+    // formatSourceContext embeds source for every contract that is relevant
+    // for the trace (tx.to, trace[].to, stateChanges/stateReads/coverage) and
+    // has metadata sources. Proxy and implementation are deduplicated via the
+    // canonical implementation address.
     function sourceContext(content, fileCount = 1) {
         const sources = {};
         for (let i = 0; i < fileCount; i++) sources[`F${i}.sol`] = { content };
@@ -608,15 +609,41 @@ describe('buildPrompt source-code budget (maxSourceChars)', () => {
         assert.ok(!userPrompt.includes('(truncated)'));
     });
 
-    it('omits source code when storage slots are resolved', () => {
+    it('embeds source code for a trace contract even when storage slots are resolved', () => {
+        // WETH is tx.to AND the only state-change target in WETH_DEPOSIT_RESULT.
+        // Even if the skeleton layout resolved every slot name, the LLM still
+        // benefits from seeing the deposit() source -- "write function logic
+        // matters even when the slot name is known".
         const ctx = {
-            contracts: new Map([[WETH_ADDR, { abi: null, storageLayout: null, sources: { 'F.sol': { content: 'X' } } }]]),
+            contracts: new Map([[WETH_ADDR, {
+                abi: null, storageLayout: null,
+                sources: { 'F.sol': { content: 'contract C {}' } },
+            }]]),
             resolvedStorage: new Map([[WETH_ADDR, [{ variableName: 'balances', baseSlot: 3, raw: 'x' }]]]),
             decodedTrace: [],
             decodedEvents: [],
         };
         const { userPrompt } = buildPrompt(WETH_DEPOSIT_RESULT, TX_PARAMS, {}, ctx);
-        assert.ok(!userPrompt.includes('## Contract Source Code'));
+        assert.ok(userPrompt.includes('## Contract Source Code'));
+        assert.ok(userPrompt.includes('contract C {}'));
+    });
+
+    it('omits source code for contracts that are not referenced by the trace', () => {
+        // Sourcify may have returned verified sources for an address that was
+        // only pulled in for ABI decoding (e.g. a known token the trace never
+        // touches). Those contracts must not consume the source budget.
+        const UNUSED = '0x9999999999999999999999999999999999999999';
+        const ctx = {
+            contracts: new Map([[UNUSED, {
+                abi: null, storageLayout: null,
+                sources: { 'F.sol': { content: 'contract Unused {}' } },
+            }]]),
+            resolvedStorage: new Map(),
+            decodedTrace: [],
+            decodedEvents: [],
+        };
+        const { userPrompt } = buildPrompt(WETH_DEPOSIT_RESULT, TX_PARAMS, {}, ctx);
+        assert.ok(!userPrompt.includes('contract Unused {}'));
     });
 
     it('wraps embedded source in untrusted-data tags', () => {
