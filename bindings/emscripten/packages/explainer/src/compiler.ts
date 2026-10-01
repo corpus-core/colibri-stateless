@@ -51,6 +51,18 @@ interface CompileResult {
 export interface CompileOptions {
     /** Request `evm.deployedBytecode.sourceMap` and expose the runtime bytecode. */
     includeSourceMap?: boolean;
+    /**
+     * Called when the full `keccak256(deployedBytecode)` comparison does not
+     * match — provides the on-chain runtime bytecode so `compileAndVerify` can
+     * strip the CBOR metadata trailer from both sides and fall back to a
+     * Sourcify-style **partial match**.
+     *
+     * The returned bytecode is only trusted after `keccak256(onChain)` has
+     * been checked against `expectedCodeHash`; a mismatch aborts verification.
+     *
+     * Returning `null` disables the fallback and keeps verification strict.
+     */
+    fetchOnChainBytecode?: () => Promise<string | null>;
 }
 
 const MAX_CACHED_COMPILERS = 1;
@@ -293,6 +305,39 @@ export function hashRuntimeBytecode(bytecodeHex: string): string | null {
     } catch {
         return null;
     }
+}
+
+/**
+ * Strip the Solidity CBOR metadata trailer from a runtime bytecode.
+ *
+ * solc appends the CBOR-encoded metadata hash at the end of the deployed
+ * bytecode, followed by two bytes carrying the metadata length (big-endian
+ * `uint16`). The appended block depends on exact source bytes, file paths
+ * and compiler settings, so Sourcify "partial matches" differ from the
+ * on-chain code **only** in this trailer.
+ *
+ * Example (solc 0.4.x): `...a1 65 'bzzr0' 58 20 <32-byte hash> 00 29`
+ * - `00 29` = length `0x29 = 41` of the CBOR metadata.
+ * - The 41 preceding bytes are the metadata (CBOR map with the swarm/ipfs hash).
+ *
+ * Returns the input unchanged (minus optional `0x` prefix) when the trailer
+ * cannot be parsed or would extend past the start of the bytecode, so callers
+ * can still fall back to a plain full-match comparison.
+ *
+ * @param bytecodeHex - Runtime bytecode, with or without `0x`
+ * @return `0x`-prefixed lowercase hex without the trailer, or `null` on bad input
+ */
+export function stripCborMetadata(bytecodeHex: string): string | null {
+    if (!bytecodeHex || !HEX_BYTECODE_RE.test(bytecodeHex)) return null;
+    const hex = (bytecodeHex.startsWith('0x') ? bytecodeHex.slice(2) : bytecodeHex).toLowerCase();
+    if (hex.length === 0 || hex.length % 2 !== 0) return null;
+    // Need at least the 2-byte length suffix to even look at the trailer.
+    if (hex.length < 4) return '0x' + hex;
+    const metaLen = parseInt(hex.slice(-4), 16);
+    if (!Number.isFinite(metaLen) || metaLen <= 0) return '0x' + hex;
+    const suffixHex = (metaLen + 2) * 2;
+    if (hex.length <= suffixHex) return '0x' + hex;
+    return '0x' + hex.slice(0, hex.length - suffixHex);
 }
 
 interface NodeModuleInstance {
@@ -1114,6 +1159,8 @@ export async function compileAndVerify(
     const sourceIndex = wantSourceMap ? buildSourceIndex(output) : null;
 
     const normalizedHash = expectedCodeHash.toLowerCase();
+    const partialCandidates: Array<{ contractData: Record<string, unknown>; bytecodeHex: string }> = [];
+
     for (const file of Object.values(contracts)) {
         for (const contractData of Object.values(file)) {
             const evm = contractData.evm as Record<string, Record<string, string>> | undefined;
@@ -1123,26 +1170,96 @@ export async function compileAndVerify(
             const hash = hashRuntimeBytecode(bytecodeHex);
             if (!hash) continue;
             if (hash.toLowerCase() === normalizedHash) {
-                const abi = Array.isArray(contractData.abi) ? contractData.abi : null;
-                let sourceMap: CompileResult['sourceMap'] = null;
-                if (wantSourceMap && sourceIndex) {
-                    const map = typeof evm?.deployedBytecode?.sourceMap === 'string'
-                        ? evm.deployedBytecode.sourceMap
-                        : '';
-                    if (map) {
-                        sourceMap = {
-                            sourceMap: map,
-                            runtimeBytecode: normalizeBytecode(bytecodeHex),
-                            sourceIndex,
-                        };
+                return buildVerifiedResult(contractData, bytecodeHex, wantSourceMap, sourceIndex, sources);
+            }
+            // Keep this contract for the partial-match fallback below.
+            partialCandidates.push({ contractData, bytecodeHex });
+        }
+    }
+
+    // Full match failed. Try a Sourcify-style partial match if the caller
+    // supplied the on-chain bytecode: strip the CBOR metadata trailer from
+    // both sides and compare the remaining code.
+    const fetchOnChain = options?.fetchOnChainBytecode;
+    if (fetchOnChain && partialCandidates.length > 0) {
+        let onChainHex: string | null = null;
+        try {
+            onChainHex = await fetchOnChain();
+        } catch (err) {
+            explainerLog('warn', 'fetchOnChainBytecode threw', {
+                scope: 'solc', error: err instanceof Error ? err.message : String(err),
+            });
+        }
+        if (onChainHex && HEX_BYTECODE_RE.test(onChainHex)) {
+            // Trust-but-verify: only accept the fetched bytecode when its
+            // keccak matches the expected hash from the verified accessList.
+            const onChainHash = hashRuntimeBytecode(onChainHex);
+            if (onChainHash && onChainHash.toLowerCase() === normalizedHash) {
+                const onChainStripped = stripCborMetadata(onChainHex);
+                if (onChainStripped) {
+                    const expectedPartial = hashRuntimeBytecode(onChainStripped);
+                    for (const { contractData, bytecodeHex } of partialCandidates) {
+                        const stripped = stripCborMetadata(bytecodeHex);
+                        if (!stripped) continue;
+                        const candidate = hashRuntimeBytecode(stripped);
+                        if (candidate && expectedPartial && candidate === expectedPartial) {
+                            explainerLog('info', 'bytecode partial match', {
+                                scope: 'solc', version: compilerVersion,
+                            });
+                            return buildVerifiedResult(
+                                contractData, bytecodeHex, wantSourceMap, sourceIndex, sources,
+                            );
+                        }
                     }
                 }
-                return { verified: true, abi, sources, sourceMap };
+            } else {
+                explainerLog('warn', 'on-chain bytecode hash mismatch', {
+                    scope: 'solc', expected: normalizedHash, got: onChainHash ?? '<null>',
+                });
             }
         }
     }
 
     return { verified: false, abi: null, sources: null };
+}
+
+/**
+ * Build a successful `CompileResult` for a verified contract.
+ *
+ * Extracted so the full-match and partial-match code paths in
+ * `compileAndVerify` can share the same assembly logic (ABI extraction and
+ * optional source-map packaging).
+ *
+ * @param contractData - Raw contract entry from solc output
+ * @param bytecodeHex - Deployed runtime bytecode from the compiled contract
+ * @param wantSourceMap - `true` when the caller asked for the source-map payload
+ * @param sourceIndex - `sourceId → filename` table from the solc output (may be `null`)
+ * @param sources - Original sources to pass through to the caller
+ * @return Verified compile result including ABI (and optionally the source-map bundle)
+ */
+function buildVerifiedResult(
+    contractData: Record<string, unknown>,
+    bytecodeHex: string,
+    wantSourceMap: boolean,
+    sourceIndex: Map<number, string> | null,
+    sources: Record<string, { content: string }>,
+): CompileResult {
+    const abi = Array.isArray(contractData.abi) ? contractData.abi : null;
+    let sourceMap: CompileResult['sourceMap'] = null;
+    if (wantSourceMap && sourceIndex) {
+        const evm = contractData.evm as Record<string, Record<string, string>> | undefined;
+        const map = typeof evm?.deployedBytecode?.sourceMap === 'string'
+            ? evm.deployedBytecode.sourceMap
+            : '';
+        if (map) {
+            sourceMap = {
+                sourceMap: map,
+                runtimeBytecode: normalizeBytecode(bytecodeHex),
+                sourceIndex,
+            };
+        }
+    }
+    return { verified: true, abi, sources, sourceMap };
 }
 
 /**

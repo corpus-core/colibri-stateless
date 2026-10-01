@@ -691,6 +691,35 @@ async function buildExplainerConfig(useEnrichment: boolean, chainId: number): Pr
     return config;
 }
 
+/**
+ * Build an `ethGetCode` callback that talks JSON-RPC to the configured node.
+ * Enrichment only invokes it when the full-bytecode hash comparison fails and
+ * re-hashes the returned bytes against the already-verified `codeHash` before
+ * trusting them, so a malicious or inconsistent RPC cannot inject code.
+ *
+ * @param rpcUrl - JSON-RPC endpoint (same URL used for `colibri_simulateTransaction`)
+ * @return Callback that returns `0x`-prefixed bytecode, or `null` on failure
+ */
+function createEthGetCode(rpcUrl: string): (address: string) => Promise<string | null> {
+    return async (address: string): Promise<string | null> => {
+        try {
+            const response = await fetch(rpcUrl, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({
+                    jsonrpc: '2.0', id: 1, method: 'eth_getCode', params: [address, 'latest'],
+                }),
+            });
+            if (!response.ok) return null;
+            const payload = await response.json() as { result?: unknown };
+            const result = payload?.result;
+            return typeof result === 'string' && result.startsWith('0x') ? result : null;
+        } catch {
+            return null;
+        }
+    };
+}
+
 // -- Run ---------------------------------------------------------------------
 
 const EMPTY_CONTEXT: EnrichedContext = {
@@ -759,7 +788,16 @@ async function run(): Promise<void> {
         if (useEnrichment) {
             setStatus('Fetching, compiling and verifying contract sources...');
             setStep(3, 'active');
-            context = await enrichSimulation(sim, tx, chainId, { sourcifyBaseUrl: config.sourcifyBaseUrl });
+            // Partial-match fallback: when the compiled runtime bytecode
+            // differs from the on-chain code only in the CBOR metadata trailer
+            // (typical for Sourcify partial matches), enrichment can strip the
+            // trailer and retry. Enrichment re-hashes the returned bytes
+            // against the already-verified codeHash before trusting them.
+            const ethGetCode = rpc ? createEthGetCode(rpc) : undefined;
+            context = await enrichSimulation(sim, tx, chainId, {
+                sourcifyBaseUrl: config.sourcifyBaseUrl,
+                ethGetCode,
+            });
             setStep(3, 'done');
         } else {
             setStep(3, 'skipped');

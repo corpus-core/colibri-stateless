@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { Module, createRequire } from 'node:module';
 import { Worker } from 'node:worker_threads';
-import { getBundledCompiler, compileAndVerify, loadCompiler, solcCacheFileName, resetCompilerStateForTests, hashRuntimeBytecode, compileSoljsonSourceForTests, installDummyCompilerForTests, compilerCacheSizeForTests, BUNDLED_SOLC_RELEASE } from '../dist/compiler.js';
+import { getBundledCompiler, compileAndVerify, loadCompiler, solcCacheFileName, resetCompilerStateForTests, hashRuntimeBytecode, stripCborMetadata, compileSoljsonSourceForTests, installDummyCompilerForTests, compilerCacheSizeForTests, BUNDLED_SOLC_RELEASE } from '../dist/compiler.js';
 import { keccak256 } from 'ethers';
 
 const FAKE_SOLC_V1 = '0.7.6+commit.aaaaaa';
@@ -223,6 +223,180 @@ describe('hashRuntimeBytecode', () => {
         assert.equal(hashRuntimeBytecode('0x__LibName_________________'), null);
         assert.equal(hashRuntimeBytecode('0xabc'), null);
         assert.equal(hashRuntimeBytecode(''), null);
+    });
+});
+
+describe('stripCborMetadata', () => {
+    // Classic solc 0.4.x metadata trailer: a1 65 'bzzr0' 58 20 <32-byte hash> 00 29.
+    const CODE_CORE = 'deadbeef'.repeat(8); // arbitrary code body, 32 bytes
+    const TRAILER_HEX_FOR = (hash32) => 'a165627a7a72305820' + hash32 + '0029';
+
+    it('strips the CBOR trailer identified by the 2-byte length suffix', () => {
+        const hash = 'ab'.repeat(32);
+        const full = '0x' + CODE_CORE + TRAILER_HEX_FOR(hash);
+        const stripped = stripCborMetadata(full);
+        assert.equal(stripped, '0x' + CODE_CORE);
+    });
+
+    it('normalizes uppercase hex bytes to lowercase', () => {
+        const hash = 'AB'.repeat(32);
+        const full = '0x' + CODE_CORE.toUpperCase() + TRAILER_HEX_FOR(hash).toUpperCase();
+        const stripped = stripCborMetadata(full);
+        assert.equal(stripped, '0x' + CODE_CORE.toLowerCase());
+    });
+
+    it('two bytecodes with different metadata but identical core match after stripping', () => {
+        const a = '0x' + CODE_CORE + TRAILER_HEX_FOR('11'.repeat(32));
+        const b = '0x' + CODE_CORE + TRAILER_HEX_FOR('22'.repeat(32));
+        assert.notEqual(a, b);
+        assert.equal(stripCborMetadata(a), stripCborMetadata(b));
+    });
+
+    it('returns the input unchanged when the length suffix is larger than the bytecode', () => {
+        // 'ff ff' claims the trailer is longer than the bytecode itself.
+        const result = stripCborMetadata('0xffff');
+        assert.equal(result, '0xffff');
+    });
+
+    it('returns null for invalid hex or empty input', () => {
+        assert.equal(stripCborMetadata('0x__nothex'), null);
+        assert.equal(stripCborMetadata('0xabc'), null); // odd length
+        assert.equal(stripCborMetadata(''), null);
+    });
+
+    it('leaves the input alone when the length suffix is zero', () => {
+        // Zero-length metadata is nonsensical, we must not strip the whole code.
+        const code = '0xdeadbeef0000';
+        assert.equal(stripCborMetadata(code), code);
+    });
+});
+
+describe('compileAndVerify partial match (Sourcify-style)', () => {
+    // Shared core + trailer helpers to synthesize deterministic deployed bytecode.
+    const CODE_CORE = 'cafebabe'.repeat(16);
+    const TRAILER = (hash32) => 'a165627a7a72305820' + hash32 + '0029';
+    const compiledHash = '11'.repeat(32);
+    const onChainHash = '22'.repeat(32);
+    const compiledBytecode = CODE_CORE + TRAILER(compiledHash);
+    const onChainBytecode = '0x' + CODE_CORE + TRAILER(onChainHash);
+    const onChainCodeHash = keccak256(onChainBytecode);
+
+    /**
+     * Install a dummy compiler whose `compileAsync` returns the pre-built
+     * bytecode in a solc-style standard-json output.
+     *
+     * @param version - Fake compiler version string
+     * @param bytecode - Deployed bytecode hex (no `0x`)
+     * @return Nothing; the compiler is written into the shared cache
+     */
+    function installFakeCompiler(version, bytecode) {
+        installDummyCompilerForTests(version, () => { });
+        return loadCompiler(version).then(compiler => {
+            compiler.compileAsync = async () => JSON.stringify({
+                contracts: {
+                    'test.sol': {
+                        T: {
+                            abi: [{ type: 'function', name: 'x' }],
+                            evm: { deployedBytecode: { object: bytecode, sourceMap: '' } },
+                        },
+                    },
+                },
+                sources: { 'test.sol': { id: 0 } },
+            });
+        });
+    }
+
+    it('falls back to partial match when the on-chain bytecode has a different metadata trailer', async () => {
+        resetCompilerStateForTests();
+        await installFakeCompiler('0.4.19+commit.c4cbbb05', compiledBytecode);
+        let fetched = 0;
+        const result = await compileAndVerify(
+            { language: 'Solidity', sources: {}, settings: {} },
+            '0.4.19+commit.c4cbbb05',
+            onChainCodeHash,
+            {},
+            { fetchOnChainBytecode: async () => { fetched++; return onChainBytecode; } },
+        );
+        assert.equal(result.verified, true);
+        assert.ok(Array.isArray(result.abi));
+        assert.equal(fetched, 1);
+        resetCompilerStateForTests();
+    });
+
+    it('does not fetch when the full-match hash already matches', async () => {
+        resetCompilerStateForTests();
+        await installFakeCompiler('0.4.19+commit.c4cbbb06', compiledBytecode);
+        const matchingHash = keccak256('0x' + compiledBytecode);
+        let fetched = 0;
+        const result = await compileAndVerify(
+            { language: 'Solidity', sources: {}, settings: {} },
+            '0.4.19+commit.c4cbbb06',
+            matchingHash,
+            {},
+            { fetchOnChainBytecode: async () => { fetched++; return onChainBytecode; } },
+        );
+        assert.equal(result.verified, true);
+        assert.equal(fetched, 0, 'full-match path must not call the RPC fallback');
+        resetCompilerStateForTests();
+    });
+
+    it('rejects when the fetched on-chain bytecode does not match expectedCodeHash', async () => {
+        resetCompilerStateForTests();
+        await installFakeCompiler('0.4.19+commit.c4cbbb07', compiledBytecode);
+        // The expected hash comes from a *different* bytecode -- the RPC payload must not be trusted.
+        const expected = keccak256('0x' + 'ff'.repeat(32));
+        const result = await compileAndVerify(
+            { language: 'Solidity', sources: {}, settings: {} },
+            '0.4.19+commit.c4cbbb07',
+            expected,
+            {},
+            { fetchOnChainBytecode: async () => onChainBytecode },
+        );
+        assert.equal(result.verified, false);
+        resetCompilerStateForTests();
+    });
+
+    it('does not partial-match when the stripped cores differ', async () => {
+        resetCompilerStateForTests();
+        const otherCore = 'badc0ded'.repeat(16);
+        const otherOnChain = '0x' + otherCore + TRAILER(onChainHash);
+        await installFakeCompiler('0.4.19+commit.c4cbbb08', compiledBytecode);
+        const result = await compileAndVerify(
+            { language: 'Solidity', sources: {}, settings: {} },
+            '0.4.19+commit.c4cbbb08',
+            keccak256(otherOnChain),
+            {},
+            { fetchOnChainBytecode: async () => otherOnChain },
+        );
+        assert.equal(result.verified, false);
+        resetCompilerStateForTests();
+    });
+
+    it('leaves full-match behavior intact when fetchOnChainBytecode is not provided', async () => {
+        resetCompilerStateForTests();
+        await installFakeCompiler('0.4.19+commit.c4cbbb09', compiledBytecode);
+        const result = await compileAndVerify(
+            { language: 'Solidity', sources: {}, settings: {} },
+            '0.4.19+commit.c4cbbb09',
+            onChainCodeHash,
+            {},
+        );
+        assert.equal(result.verified, false);
+        resetCompilerStateForTests();
+    });
+
+    it('tolerates a fetchOnChainBytecode that throws', async () => {
+        resetCompilerStateForTests();
+        await installFakeCompiler('0.4.19+commit.c4cbbb0a', compiledBytecode);
+        const result = await compileAndVerify(
+            { language: 'Solidity', sources: {}, settings: {} },
+            '0.4.19+commit.c4cbbb0a',
+            onChainCodeHash,
+            {},
+            { fetchOnChainBytecode: async () => { throw new Error('rpc down'); } },
+        );
+        assert.equal(result.verified, false);
+        resetCompilerStateForTests();
     });
 });
 

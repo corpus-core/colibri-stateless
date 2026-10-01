@@ -249,6 +249,17 @@ export interface ExplainerConfig extends PromptConfig, LLMProviderConfig {
      * Successful reads are stored in `cache` under `c4e_{chainId}_{address}`.
      */
     ethCall?: EthCallFn;
+    /**
+     * Fetch the on-chain runtime bytecode (`eth_getCode`) for a contract.
+     * Only invoked when the full `keccak256` bytecode comparison during
+     * verification fails: enrichment then strips the Solidity CBOR metadata
+     * trailer from both the compiled and the on-chain code and retries with a
+     * Sourcify-style partial match. The fetched bytes are re-hashed against
+     * the already-verified `codeHash`, so an untrusted RPC cannot inject code.
+     *
+     * Omit this to keep verification strict (full match only).
+     */
+    ethGetCode?: EthGetCodeFn;
 }
 
 /**
@@ -259,6 +270,15 @@ export interface ExplainerConfig extends PromptConfig, LLMProviderConfig {
  * @return Hex return data, or `null` when the call fails
  */
 export type EthCallFn = (to: string, data: string) => Promise<string | null>;
+
+/**
+ * Host-supplied `eth_getCode` lookup used by enrichment to recover the full
+ * on-chain runtime bytecode during partial-match verification.
+ *
+ * @param address - Contract address
+ * @return Hex bytecode (`0x`-prefixed), or `null` when the call fails
+ */
+export type EthGetCodeFn = (address: string) => Promise<string | null>;
 
 /** ERC-20 `symbol()` / `decimals()` resolved for one address. */
 export interface TokenInfo {

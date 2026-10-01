@@ -27,7 +27,7 @@ import type {
     EnhancedSimulationResult, EnhancedLog, EnhancedTraceEntry, EnhancedContractStateChange,
     EnhancedContractStateReads,
     ContractCache, VerifiedContract, AccessListEntry, ContractStateChange,
-    EthCallFn, TokenInfo, CoveredDefinition, ResolvedStateRead, ExecutedPositions,
+    EthCallFn, EthGetCodeFn, TokenInfo, CoveredDefinition, ResolvedStateRead, ExecutedPositions,
     ContractSourceMap,
 } from './types.js';
 import { AbiCoder } from 'ethers';
@@ -63,7 +63,12 @@ export async function enrichSimulation(
     result: SimulationResult,
     txParams: TxParams,
     chainId: number,
-    options?: { sourcifyBaseUrl?: string; cache?: ContractCache; ethCall?: EthCallFn },
+    options?: {
+        sourcifyBaseUrl?: string;
+        cache?: ContractCache;
+        ethCall?: EthCallFn;
+        ethGetCode?: EthGetCodeFn;
+    },
 ): Promise<EnrichedContext> {
     const cache = options?.cache || await getDefaultCache();
     const { hashes: codeHashes, eoas } = buildCodeHashMap(result.accessList);
@@ -72,7 +77,9 @@ export async function enrichSimulation(
         scope: 'enrich', chainId, addresses: addresses.length, to: txParams.to,
     });
     const started = Date.now();
-    const contracts = await fetchAllContracts(addresses, chainId, codeHashes, eoas, cache, options?.sourcifyBaseUrl);
+    const contracts = await fetchAllContracts(
+        addresses, chainId, codeHashes, eoas, cache, options?.sourcifyBaseUrl, options?.ethGetCode,
+    );
     const implementations = buildProxyImplementations(result.trace);
     explainerLog('info', 'enrich done', {
         scope: 'enrich',
@@ -87,7 +94,9 @@ export async function enrichSimulation(
     const decodedEvents = decodeEventLogs(result.logs, contracts, implementations);
     const resolvedStorage = resolveAllStorage(result, contracts, implementations);
     const resolvedReads = resolveAllReads(result, contracts, implementations);
-    await attachSourceMaps(result.positions, contracts, codeHashes, chainId, cache, options?.sourcifyBaseUrl);
+    await attachSourceMaps(
+        result.positions, contracts, codeHashes, chainId, cache, options?.sourcifyBaseUrl, options?.ethGetCode,
+    );
     const coveredDefinitions = buildCoveredDefinitions(result.positions, contracts, implementations);
     const tokens = await resolveErc20Tokens(
         collectUsedAddresses(result, txParams, {
@@ -179,6 +188,7 @@ async function fetchAllContracts(
     eoas: Set<string>,
     cache: ContractCache,
     baseUrl?: string,
+    ethGetCode?: EthGetCodeFn,
 ): Promise<Map<string, ContractMetadata>> {
     // Sequential: parallel parse/compile of Sourcify sources OOMs on large contracts.
     const results: Array<[string, ContractMetadata]> = [];
@@ -188,7 +198,7 @@ async function fetchAllContracts(
             scope: 'enrich', index: i + 1, of: addresses.length, address: addr,
         });
         const started = Date.now();
-        results.push(await resolveContract(addr, chainId, codeHashes, eoas, cache, baseUrl));
+        results.push(await resolveContract(addr, chainId, codeHashes, eoas, cache, baseUrl, ethGetCode));
         explainerLog('info', 'resolve contract done', {
             scope: 'enrich',
             address: addr,
@@ -232,6 +242,7 @@ async function resolveContract(
     eoas: Set<string>,
     cache: ContractCache,
     baseUrl?: string,
+    ethGetCode?: EthGetCodeFn,
 ): Promise<[string, ContractMetadata]> {
     const addr = address.toLowerCase();
     const empty: ContractMetadata = { abi: null, sources: null, storageLayout: null };
@@ -252,7 +263,7 @@ async function resolveContract(
         const existing = inflightByCodeHash.get(codeHash);
         if (existing) return [addr, await existing];
 
-        const promise = resolveFromSourcify(addr, chainId, codeHash, cache, baseUrl, empty)
+        const promise = resolveFromSourcify(addr, chainId, codeHash, cache, baseUrl, empty, ethGetCode)
             .finally(() => {
                 if (inflightByCodeHash.get(codeHash) === promise) inflightByCodeHash.delete(codeHash);
             });
@@ -260,7 +271,7 @@ async function resolveContract(
         return [addr, await promise];
     }
 
-    return [addr, await resolveFromSourcify(addr, chainId, undefined, cache, baseUrl, empty)];
+    return [addr, await resolveFromSourcify(addr, chainId, undefined, cache, baseUrl, empty, ethGetCode)];
 }
 
 async function resolveFromSourcify(
@@ -270,6 +281,7 @@ async function resolveFromSourcify(
     cache: ContractCache,
     baseUrl: string | undefined,
     empty: ContractMetadata,
+    ethGetCode?: EthGetCodeFn,
 ): Promise<ContractMetadata> {
     const comp = await fetchCompilationInput(addr, chainId, baseUrl, cache);
     if (!comp.abi && !comp.sources) {
@@ -317,6 +329,7 @@ async function resolveFromSourcify(
         try {
             verification = await compileAndVerify(
                 comp.stdJsonInput, comp.compilerVersion, codeHash, comp.sources,
+                ethGetCode ? { fetchOnChainBytecode: () => ethGetCode(addr) } : undefined,
             );
         } catch {
             explainerLog('warn', 'bytecode verify threw', { scope: 'enrich', address: addr });
@@ -833,6 +846,7 @@ async function attachSourceMaps(
     chainId: number,
     cache: ContractCache,
     baseUrl?: string,
+    ethGetCode?: EthGetCodeFn,
 ): Promise<void> {
     if (!positions?.length) return;
     const seen = new Set<string>();
@@ -858,7 +872,10 @@ async function attachSourceMaps(
             const started = Date.now();
             const verification = await compileAndVerify(
                 comp.stdJsonInput, comp.compilerVersion, codeHash, meta.sources,
-                { includeSourceMap: true },
+                {
+                    includeSourceMap: true,
+                    ...(ethGetCode ? { fetchOnChainBytecode: () => ethGetCode(addr) } : {}),
+                },
             );
             explainerLog('info', 'source-map compile', {
                 scope: 'positions',

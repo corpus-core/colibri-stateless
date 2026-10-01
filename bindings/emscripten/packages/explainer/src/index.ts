@@ -60,6 +60,7 @@ export type {
     EnhancedStorageSlotChange,
     EnhancedContractStateChange,
     EthCallFn,
+    EthGetCodeFn,
     TokenInfo,
 } from './types.js';
 
