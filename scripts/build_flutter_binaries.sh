@@ -217,6 +217,41 @@ build_macos() {
     mkdir -p "$plugin_frameworks"
     cp "$universal" "$plugin_frameworks/libcolibri.dylib"
     echo "Copied: $plugin_frameworks/libcolibri.dylib"
+    sync_colibri_flutter_macos_spm_artifacts "$universal"
+  fi
+}
+
+# Copies the universal dylib and an XCFramework into the macOS plugin tree
+# used by CocoaPods (Frameworks/) and Swift Package Manager (colibri_flutter/).
+sync_colibri_flutter_macos_spm_artifacts() {
+  local universal="$1"
+  local macos_root="$FLUTTER_PLUGIN_DIR/macos"
+  local spm_frameworks="$macos_root/colibri_flutter/Frameworks"
+  local xcframework="$spm_frameworks/libcolibri.xcframework"
+
+  mkdir -p "$spm_frameworks"
+  cp "$universal" "$spm_frameworks/libcolibri.dylib"
+  echo "Copied: $spm_frameworks/libcolibri.dylib"
+
+  rm -rf "$xcframework"
+  # Xcode 26 rejects two -library slices that share the same install name
+  # (@rpath/libcolibri.dylib). A single universal Mach-O is valid for SPM.
+  xcodebuild -create-xcframework -library "$universal" -output "$xcframework"
+  echo "Created: $xcframework"
+
+  assert_macos_colibri_dylib_exports "$universal"
+  assert_macos_colibri_dylib_exports "$spm_frameworks/libcolibri.dylib"
+}
+
+assert_macos_colibri_dylib_exports() {
+  local dylib="$1"
+  if ! nm -gU "$dylib" 2>/dev/null | grep -q ' _c4_reset_caches$'; then
+    echo "Error: $dylib is missing exported c4_reset_caches (Dart 3.0 FFI requires it)."
+    exit 1
+  fi
+  if ! nm -gU "$dylib" 2>/dev/null | grep -q ' _c4_create_rpc_ctx$'; then
+    echo "Error: $dylib is missing exported c4_create_rpc_ctx."
+    exit 1
   fi
 }
 

@@ -12,7 +12,7 @@ This directory contains the core C implementation of Colibri Stateless. All modu
 | OP-Stack | `chains/op/` | OP-Stack chain module (preconfs, ZSTD). See [chains/op/AGENTS.md](chains/op/AGENTS.md) |
 | Utilities | `util/` | SSZ, bytes, state machine, crypto, JSON, logging. See [util/AGENTS.md](util/AGENTS.md) |
 | Server | `server/` | HTTP prover server (libuv/llhttp). See [server/AGENTS.md](server/AGENTS.md) |
-| CLI | `cli/` | Command-line tools (prover, verifier, ssz) |
+| CLI | `cli/` | Command-line tools (prover, verifier, ssz). See [cli/AGENTS.md](cli/AGENTS.md) |
 | Host API | `api/` | Public C FFI (`colibri.h`) and unified RPC context (`colibri_common.h`) |
 
 ## Dependency Graph
@@ -71,13 +71,15 @@ The generated headers collect all registered modules and create dispatcher funct
 
 ## CLI Tools
 
+Full agent docs: [cli/AGENTS.md](cli/AGENTS.md).
+
 | Tool | Source | Purpose |
 |------|--------|---------|
 | `colibri-prover` | `cli/prover.c` | Generate proofs: `colibri-prover -o proof.ssz eth_getBlockByNumber latest false` |
-| `colibri-verifier` | `cli/verifier.c` | Verify proofs: `colibri-verifier -s sync.ssz proof.ssz` |
-| `colibri-ssz` | `cli/ssz.c` | Convert SSZ to JSON: `colibri-ssz -t signedblock proof.ssz` |
+| `colibri-verifier` | `cli/verifier.c` | Verify proofs (file or remote/local/hybrid): `colibri-verifier -i proof.ssz eth_getBlockByNumber latest false` |
+| `colibri-ssz` | `cli/ssz.c` | Convert SSZ to JSON: `colibri-ssz -o out.json proof.ssz` |
 
-All tools read `c4_config.json` (or `C4_CONFIG` env var) for RPC/Beacon API endpoint configuration. Support `-c <chain_id>` for chain selection.
+All tools read `c4_config.json` (or `C4_CONFIG` env var) for RPC/Beacon API endpoint configuration, then fall back to generated chain defaults. Support `-c` for chain selection.
 
 <!-- AUTO:SRC_MODULE_INDEX:START -->
 
