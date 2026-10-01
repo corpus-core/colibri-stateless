@@ -1556,6 +1556,31 @@ describe('resolveAddressLinks', () => {
             assert.equal(out, 'The recipient addr_f719 received the funds.');
         });
 
+        it('linkifies an addr_xxxx label wrapped in single backticks and consumes the ticks', () => {
+            // Regression: the model wrote `` `addr_f719` `` in prose. The
+            // bare-label pass alone would replace the inner `addr_f719` with
+            // a Markdown link, but leave the surrounding ticks in place.
+            // Markdown then renders the result as literal inline code.
+            const out = resolveAddressLinks(
+                'Transferred to `addr_f719`, confirmed by the contract.',
+                BOOK_WITH_FALLBACK, linkFor,
+            );
+            assert.equal(
+                out,
+                `Transferred to [${SHORT}](https://explorer.test/address/${RECIPIENT}), confirmed by the contract.`,
+            );
+        });
+
+        it('leaves a backticked addr_xxxx alone when the label is not in the book', () => {
+            const src = 'Mystery `addr_dead` stays plain.';
+            assert.equal(resolveAddressLinks(src, BOOK_WITH_FALLBACK, linkFor), src);
+        });
+
+        it('leaves a backticked addr_xxxx alone when linkFor returns null', () => {
+            const src = 'Transferred to `addr_f719`.';
+            assert.equal(resolveAddressLinks(src, BOOK_WITH_FALLBACK, () => null), src);
+        });
+
         it('resolves multiple bare addr_xxxx occurrences in one string', () => {
             const other = '0xabcdef1234567890abcdef1234567890abcdabcd';
             const book = { ...BOOK_WITH_FALLBACK, addr_abcd: other };

@@ -217,7 +217,7 @@ export type AddressLinkResolver = (address: string) => string | null;
  * - bare `addr_xxxx` fallback labels,
  * - bare `0x` + 40 hex characters (case-insensitive, so checksummed form
  *   works too),
- * - the same hex address wrapped in a single-backtick inline-code span
+ * - either of the above wrapped in a single-backtick inline-code span
  *   (the backticks are consumed, because a Markdown link inside
  *   `` ` `` would be rendered as literal text).
  *
@@ -277,22 +277,29 @@ export function resolveAddressLinks(
     // Pass 2: linkify stand-alone address references the model wrote
     // without `eth://`-link syntax. The alternation deliberately places
     // the Markdown-link pattern first so matches inside an existing link
-    // are returned untouched (no nested links). Order of the remaining
-    // alternatives matters: the backtick-wrapped hex must beat the bare
-    // hex, otherwise `0x…` would match first and the surrounding ticks
-    // would be left dangling.
+    // are returned untouched (no nested links). The backtick-wrapped
+    // alternatives come before their bare counterparts so the ticks are
+    // consumed in the replacement; a Markdown link inside `` `…` `` would
+    // otherwise render as literal code.
     return afterPass1.replace(
         PROSE_ADDRESS_RE,
         (
             match,
             _existingLink: string | undefined,
             codeHex: string | undefined,
+            codeLabel: string | undefined,
             bareHex: string | undefined,
             bareLabel: string | undefined,
         ) => {
             if (codeHex) {
                 const url = linkForKnown(codeHex);
                 return url ? `[${shortenAddress(codeHex.toLowerCase())}](${url})` : match;
+            }
+            if (codeLabel) {
+                const address = addressBook[codeLabel];
+                if (!address) return match;
+                const url = linkFor(address);
+                return url ? `[${shortenAddress(address)}](${url})` : match;
             }
             if (bareHex) {
                 const url = linkForKnown(bareHex);
@@ -327,10 +334,12 @@ const SHORT_ADDR_LABEL_RE = /^addr_[0-9a-f]{4}$/;
 // 2. A hex address wrapped in single backticks (`` `0x…` ``). The
 //    backticks are consumed in the replacement so a Markdown link can
 //    render; inside an inline-code span the link would stay literal text.
-// 3. A bare hex address with word boundaries, including the EIP-55
+// 3. An `addr_xxxx` fallback label wrapped in single backticks. Same
+//    reason as (2): the ticks are consumed so the Markdown link renders.
+// 4. A bare hex address with word boundaries, including the EIP-55
 //    checksum form (`[A-Fa-f0-9]`).
-// 4. A bare `addr_xxxx` fallback label.
-const PROSE_ADDRESS_RE = /(\[[^\]]*\]\([^)]*\))|`\s*(0x[a-fA-F0-9]{40})\s*`|\b(0x[a-fA-F0-9]{40})\b|\b(addr_[0-9a-f]{4})\b/g;
+// 5. A bare `addr_xxxx` fallback label.
+const PROSE_ADDRESS_RE = /(\[[^\]]*\]\([^)]*\))|`\s*(0x[a-fA-F0-9]{40})\s*`|`\s*(addr_[0-9a-f]{4})\s*`|\b(0x[a-fA-F0-9]{40})\b|\b(addr_[0-9a-f]{4})\b/g;
 
 const ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
 const SOLIDITY_IDENT_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
