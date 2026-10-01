@@ -49,6 +49,8 @@ interface LocalStorageLike {
     getItem: (k: string) => string | null;
     setItem: (k: string, v: string) => void;
     removeItem: (k: string) => void;
+    readonly length: number;
+    key: (index: number) => string | null;
 }
 
 function getLocalStorage(): LocalStorageLike | null {
@@ -63,6 +65,137 @@ function getLocalStorage(): LocalStorageLike | null {
     } catch {
         return null;
     }
+}
+
+/**
+ * Minimal shape of the Web Platform Cache Storage API we rely on. The real
+ * `CacheStorage` interface has more methods; we only need `open`.
+ */
+interface CachesLike {
+    open(name: string): Promise<CacheLike>;
+}
+
+/**
+ * Minimal shape of a `Cache` object. `match` returns `undefined` for a miss,
+ * `put` stores a `Response` under a key (`Request` or URL string).
+ */
+interface CacheLike {
+    match(request: Request | string): Promise<Response | undefined>;
+    put(request: Request | string, response: Response): Promise<void>;
+    delete(request: Request | string): Promise<boolean>;
+}
+
+/**
+ * The Cache API is virtually unlimited (bounded by the browser's per-origin
+ * disk quota, usually tens of MB to several GB) and is the right backend for
+ * verified-contract source bundles, which quickly exceed localStorage's hard
+ * ~5 MB quota.
+ *
+ * Available in secure contexts (`https://`, `localhost`, service workers,
+ * most Chromium/Firefox/Safari builds). Returns `null` when the API is
+ * missing (older browsers, `file://`, insecure HTTP, Node).
+ *
+ * @return `caches` global, or `null` when it is not available
+ */
+function getCachesApi(): CachesLike | null {
+    try {
+        const c = (globalThis as Record<string, unknown>).caches as CachesLike | undefined;
+        if (!c || typeof c.open !== 'function') return null;
+        // Response is also required (we wrap values into one). Browsers that
+        // ship `caches` always ship `Response`, so this is just a sanity gate.
+        if (typeof (globalThis as Record<string, unknown>).Response !== 'function') return null;
+        return c;
+    } catch {
+        return null;
+    }
+}
+
+/** Cache name under `caches`. Bump the suffix to invalidate all entries. */
+const CACHE_API_NAME = 'c4-explainer-v1';
+/**
+ * URL prefix for Cache API keys. The pathname carries the sanitized cache key.
+ * The host is a non-routable `.local` label so a stray `fetch(url)` on this
+ * value could never leave the browser.
+ */
+const CACHE_API_URL_PREFIX = 'https://c4-explainer.local/';
+
+/**
+ * Legacy localStorage key prefixes written by earlier versions of the
+ * explainer before the switch to the Cache Storage API. Any entry with one
+ * of these prefixes is orphaned once we are on the Cache API and only wastes
+ * the (tight) 5 MB per-origin localStorage quota.
+ */
+const LEGACY_LS_PREFIXES = ['c4x_', 'c4l_', 'c4s_', 'c4m_', 'c4e_'];
+
+/**
+ * Delete every orphaned `c4*_` entry from `localStorage`. Called exactly once
+ * after we have decided on the Cache API as the primary backend. Fully
+ * best-effort: a missing or quota-locked `localStorage` is silently ignored.
+ */
+function reclaimLegacyLocalStorage(): void {
+    const ls = getLocalStorage();
+    if (!ls) return;
+    try {
+        const victims: string[] = [];
+        for (let i = 0; i < ls.length; i++) {
+            const key = ls.key(i);
+            if (!key) continue;
+            if (LEGACY_LS_PREFIXES.some(p => key.startsWith(p))) victims.push(key);
+        }
+        for (const key of victims) {
+            try { ls.removeItem(key); } catch { /* ignore */ }
+        }
+    } catch {
+        // Not fatal -- the Cache API still works even if we fail to free the
+        // old localStorage space.
+    }
+}
+
+/**
+ * Build a `ContractCache` backed by the Web Platform Cache Storage API.
+ *
+ * The returned backend wraps string values into `Response` objects. Keys are
+ * sanitized via `sanitizeKey` so a caller cannot smuggle an unexpected URL
+ * into the cache storage.
+ *
+ * @return Cache backend, or `null` when the Cache API is not available
+ */
+async function createCacheApiCache(): Promise<ContractCache | null> {
+    const caches = getCachesApi();
+    if (!caches) return null;
+    let cache: CacheLike;
+    try {
+        cache = await caches.open(CACHE_API_NAME);
+    } catch {
+        return null;
+    }
+    const urlFor = (key: string): string => CACHE_API_URL_PREFIX + sanitizeKey(key);
+    return {
+        get: async (key: string) => {
+            try {
+                const response = await cache.match(urlFor(key));
+                if (!response) return null;
+                return await response.text();
+            } catch {
+                return null;
+            }
+        },
+        set: async (key: string, value: string) => {
+            try {
+                const ResponseCtor = (globalThis as Record<string, unknown>).Response as {
+                    new(body?: BodyInit | null, init?: ResponseInit): Response;
+                };
+                await cache.put(
+                    urlFor(key),
+                    new ResponseCtor(value, { headers: { 'content-type': 'application/json' } }),
+                );
+            } catch {
+                // Quota exhausted, parse error on the key, or the browser evicted
+                // the cache storage between `open` and `put`. The cache is
+                // best-effort; a missed write only means the next read misses.
+            }
+        },
+    };
 }
 
 function isNodeEnvironment(): boolean {
@@ -180,18 +313,46 @@ export async function getCacheDirectory(): Promise<string | null> {
 }
 
 /**
- * Create the default cache backed by localStorage (browser),
- * the filesystem (Node.js with `HOME` or `C4_STATE_DIR`),
- * or an in-memory Map fallback.
+ * Create the default cache for the current environment.
+ *
+ * Priority (first available wins):
+ *
+ * 1. **Cache Storage API** (browser, secure context) — virtually unlimited,
+ *    async. Preferred because `localStorage`'s hard ~5 MB per-origin quota
+ *    overflows quickly once the explainer caches the Sourcify source bundles
+ *    of a handful of contracts (`QuotaExceededError` from `setItem`).
+ * 2. **`localStorage`** (older browsers / insecure contexts) — same shape as
+ *    before, kept as a graceful fallback.
+ * 3. **Filesystem** (Node.js with `C4_STATE_DIR` or `HOME`) — persistent cache
+ *    for CLI / server usage.
+ * 4. **In-memory `Map`** — last resort, resets on reload.
  *
  * @return Cache implementation for the current environment
  */
 export async function getDefaultCache(): Promise<ContractCache> {
+    const cacheApi = await createCacheApiCache();
+    if (cacheApi) {
+        // Reclaim localStorage: once we are on the Cache API, any c4* entries
+        // left in localStorage from a previous version are orphaned and keep
+        // consuming the (tight) 5 MB per-origin quota for other apps on the
+        // same origin. Fire-and-forget, failures are not fatal.
+        reclaimLegacyLocalStorage();
+        return cacheApi;
+    }
+
     const ls = getLocalStorage();
     if (ls) {
         return {
             get: async (key: string) => ls.getItem(sanitizeKey(key)),
-            set: async (key: string, value: string) => { ls.setItem(sanitizeKey(key), value); },
+            set: async (key: string, value: string) => {
+                try {
+                    ls.setItem(sanitizeKey(key), value);
+                } catch {
+                    // QuotaExceededError or SecurityError -- fall back to
+                    // silently skipping the write. The next read misses, the
+                    // enrichment pipeline re-fetches, and the LLM still runs.
+                }
+            },
         };
     }
 

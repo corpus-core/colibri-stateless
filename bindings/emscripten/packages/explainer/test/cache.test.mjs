@@ -330,3 +330,131 @@ describe('getCacheDirectory', () => {
         }
     });
 });
+
+/**
+ * Install a minimal `globalThis.caches` + `Response` for one test. Node 18+
+ * ships `Response` via undici; the Cache API is browser-only, so we stub it
+ * with a Map-backed implementation.
+ *
+ * @param options - `putThrows: true` triggers a QuotaExceeded on `put`
+ * @return `{ store, restore }` -- the backing map + a teardown function
+ */
+function withCacheApiMock(options = {}) {
+    const store = new Map();
+    const prevCaches = Object.getOwnPropertyDescriptor(globalThis, 'caches');
+    const fakeCache = {
+        match: async (key) => {
+            const value = store.get(String(key));
+            if (value === undefined) return undefined;
+            return new Response(value, { headers: { 'content-type': 'application/json' } });
+        },
+        put: async (key, response) => {
+            if (options.putThrows) {
+                const err = new Error('Quota exceeded');
+                err.name = 'QuotaExceededError';
+                throw err;
+            }
+            const body = await response.text();
+            store.set(String(key), body);
+        },
+        delete: async (key) => store.delete(String(key)),
+    };
+    const fakeCaches = { open: async () => fakeCache };
+    Object.defineProperty(globalThis, 'caches', {
+        configurable: true, enumerable: true, writable: true, value: fakeCaches,
+    });
+    return {
+        store,
+        restore: () => {
+            if (prevCaches) Object.defineProperty(globalThis, 'caches', prevCaches);
+            else delete globalThis.caches;
+        },
+    };
+}
+
+describe('Cache Storage API backend', () => {
+    it('getDefaultCache prefers caches over the filesystem fallback', async () => {
+        const { store, restore } = withCacheApiMock();
+        try {
+            const cache = await get_default_cache();
+            await cache.set('c4x_0xaabbccdd', '{"v":1}');
+            // Key goes through sanitizeKey and gets wrapped in a `https://c4-explainer.local/` URL.
+            const keys = [...store.keys()];
+            assert.equal(keys.length, 1);
+            assert.ok(keys[0].startsWith('https://c4-explainer.local/'));
+            assert.ok(keys[0].endsWith('c4x_0xaabbccdd'));
+            assert.equal(await cache.get('c4x_0xaabbccdd'), '{"v":1}');
+        } finally {
+            restore();
+        }
+    });
+
+    it('returns null for missing keys', async () => {
+        const { restore } = withCacheApiMock();
+        try {
+            const cache = await get_default_cache();
+            assert.equal(await cache.get('c4x_0xdeadbeef'), null);
+        } finally {
+            restore();
+        }
+    });
+
+    it('silently drops QuotaExceededError on set (does not throw)', async () => {
+        const { store, restore } = withCacheApiMock({ putThrows: true });
+        try {
+            const cache = await get_default_cache();
+            // Must not throw -- a lost write only means the next read misses.
+            await cache.set('c4x_0xaabbccdd', '{"v":1}');
+            assert.equal(store.size, 0);
+            assert.equal(await cache.get('c4x_0xaabbccdd'), null);
+        } finally {
+            restore();
+        }
+    });
+
+    it('invalid cache keys are rejected (sanitizeKey throws, swallowed by set)', async () => {
+        const { store, restore } = withCacheApiMock();
+        try {
+            const cache = await get_default_cache();
+            await cache.set('evil_../etc/passwd', 'x');
+            assert.equal(store.size, 0, 'invalid key must not reach the cache');
+            assert.equal(await cache.get('evil_../etc/passwd'), null);
+        } finally {
+            restore();
+        }
+    });
+
+    it('reclaims orphaned c4*_ entries from legacy localStorage once', async () => {
+        // Install a Map-backed localStorage with a mix of legacy entries and
+        // an unrelated key owned by another app.
+        const lsMap = new Map();
+        lsMap.set('c4x_0xaaaa', 'legacy-verified');
+        lsMap.set('c4s_1_0xdead', 'legacy-sourcify');
+        lsMap.set('c4e_1_0xbeef', 'legacy-erc20');
+        lsMap.set('user-pref', 'keep-me');
+        const fakeLs = {
+            get length() { return lsMap.size; },
+            key: (i) => [...lsMap.keys()][i] ?? null,
+            getItem: (k) => (lsMap.has(k) ? lsMap.get(k) : null),
+            setItem: (k, v) => { lsMap.set(k, v); },
+            removeItem: (k) => { lsMap.delete(k); },
+        };
+        const prevLs = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+        Object.defineProperty(globalThis, 'localStorage', {
+            configurable: true, enumerable: true, writable: true, value: fakeLs,
+        });
+        const { restore } = withCacheApiMock();
+        try {
+            await get_default_cache();
+            // All legacy c4*_ entries must be gone; unrelated keys stay.
+            assert.equal(lsMap.has('c4x_0xaaaa'), false);
+            assert.equal(lsMap.has('c4s_1_0xdead'), false);
+            assert.equal(lsMap.has('c4e_1_0xbeef'), false);
+            assert.equal(lsMap.get('user-pref'), 'keep-me');
+        } finally {
+            restore();
+            if (prevLs) Object.defineProperty(globalThis, 'localStorage', prevLs);
+            else delete globalThis.localStorage;
+        }
+    });
+});
