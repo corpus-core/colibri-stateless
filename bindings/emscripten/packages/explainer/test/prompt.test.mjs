@@ -1600,6 +1600,37 @@ describe('resolveAddressLinks', () => {
             const src = 'The sender deposited into WETH and that was it.';
             assert.equal(resolveAddressLinks(src, BOOK_WITH_FALLBACK, linkFor), src);
         });
+
+        it('unwraps a full [text](eth://…) Markdown link that the model put in backticks', () => {
+            // Regression: `` `[addr_15be](eth://0xccc8…)` `` in prose. Without
+            // the pre-pass the backticks stay, Markdown renders the link as
+            // inline code, and the UI shows the raw `[text](url)` text.
+            const spender = '0xccc88a9d1b4ed6b0eaba998850414b24f1c315be';
+            const bookWithSpender = { WETH, sender: SENDER, addr_15be: spender };
+            const out = resolveAddressLinks(
+                `Approved \`[addr_15be](eth://${spender})\` to spend tokens.`,
+                bookWithSpender, linkFor,
+            );
+            assert.equal(
+                out,
+                `Approved [0xccc8...15be](https://explorer.test/address/${spender}) to spend tokens.`,
+            );
+        });
+
+        it('unwraps backticked eth-links around descriptive link texts too', () => {
+            // Variant with prose in the brackets; the link text must survive
+            // unchanged, only the outer ticks go away.
+            const spender = '0xccc88a9d1b4ed6b0eaba998850414b24f1c315be';
+            const bookWithSpender = { WETH, sender: SENDER, addr_15be: spender };
+            const out = resolveAddressLinks(
+                `See \`[the spender contract](eth://addr_15be)\` for the risk note.`,
+                bookWithSpender, linkFor,
+            );
+            assert.equal(
+                out,
+                `See [the spender contract](https://explorer.test/address/${spender}) for the risk note.`,
+            );
+        });
     });
 
     describe('bare hex addresses in prose', () => {

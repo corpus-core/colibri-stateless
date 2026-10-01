@@ -26,6 +26,17 @@ import { Transaction } from 'ethers';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 
+// Open every link in the sanitised explainer output in a new tab, and set
+// `rel="noopener noreferrer"` so the opened page cannot reach back via
+// `window.opener` and cannot see our referrer. Registered once at module
+// load so every `DOMPurify.sanitize` call applies the same policy.
+DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+    if (node.tagName === 'A') {
+        node.setAttribute('target', '_blank');
+        node.setAttribute('rel', 'noopener noreferrer');
+    }
+});
+
 // -- Model catalogs per provider --------------------------------------------
 
 // Prebuilt WebLLM models offered as generic alternatives to the fine-tunes.

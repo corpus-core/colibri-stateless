@@ -260,9 +260,16 @@ export function resolveAddressLinks(
         return linkFor(lower);
     };
 
+    // Pre-pass: 4B models occasionally wrap a whole `[text](eth://…)`
+    // Markdown link in single backticks. Markdown then renders the ticked
+    // span as inline code, so the link never materialises. Peel those
+    // ticks off before pass 1 sees the text; nothing else nests a
+    // Markdown link inside backticks in our normal output.
+    const normalized = markdown.replace(BACKTICKED_ETH_LINK_RE, '$1');
+
     // Pass 1: resolve `[text](eth://target)` links, replacing the URL with
     // the explorer link and shortening fallback `addr_xxxx` link texts.
-    const afterPass1 = markdown.replace(ETH_LINK_RE, (_match, text: string, token: string) => {
+    const afterPass1 = normalized.replace(ETH_LINK_RE, (_match, text: string, token: string) => {
         const address = resolveTarget(token);
         if (!address) return text;
         const url = linkFor(address);
@@ -320,6 +327,10 @@ export function resolveAddressLinks(
 // whitespace or closing paren. `eth://` is case-insensitive; the TOKEN
 // capture keeps the original casing so a label look-up stays strict.
 const ETH_LINK_RE = /\[([^\]]*)\]\((?:eth|ETH):\/\/([^)\s]+)\)/g;
+// Same shape, but wrapped in single backticks: `` `[text](eth://TOKEN)` ``.
+// The capture is the Markdown link itself; the replacement drops the
+// surrounding ticks so pass 1 can see a plain link.
+const BACKTICKED_ETH_LINK_RE = /`\s*(\[[^\]]*\]\((?:eth|ETH):\/\/[^)\s]+\))\s*`/g;
 // Hex-address fallback in the URL: `eth://0x…`. Case-insensitive because
 // checksummed addresses are mixed-case; the resolver lower-cases before
 // looking the value up in the book.
