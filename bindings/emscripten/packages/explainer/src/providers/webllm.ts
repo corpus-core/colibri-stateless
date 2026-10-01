@@ -254,6 +254,76 @@ function gpuMemoryMessage(err: unknown): string {
     return `WebGPU device was lost, usually because the GPU ran out of memory. Lower the context window or pick a smaller model, then try again. (${detail})`;
 }
 
+/** Power-of-two context windows WebLLM commonly accepts. */
+const WEBLLM_CONTEXT_STEPS = [2048, 4096, 8192, 16384, 32768, 65536] as const;
+/**
+ * Default upper bound when no model record pins a smaller limit. Beyond this
+ * most browsers run out of GPU memory for the KV cache, so growing further
+ * usually crashes the device rather than fixing the prompt.
+ */
+const WEBLLM_CONTEXT_MAX = 32768;
+
+/**
+ * Detect WebLLM's `ContextWindowSizeExceededError`, either by its class name
+ * or by its human-readable message. WebLLM throws this synchronously inside
+ * `chat.completions.create` when the formatted messages do not fit the
+ * context window the engine was loaded with.
+ *
+ * @param err - Rejection from a completion call
+ * @return `true` when a larger context window would plausibly help
+ */
+export function isContextExceededError(err: unknown): boolean {
+    const name = err instanceof Error ? err.name : '';
+    const message = err instanceof Error ? err.message : String(err ?? '');
+    if (name === 'ContextWindowSizeExceededError') return true;
+    return /prompt tokens exceed context window size/i.test(`${name} ${message}`);
+}
+
+/**
+ * Extract the prompt-token and context-window sizes from a WebLLM
+ * `ContextWindowSizeExceededError` message. The message shape is:
+ *
+ * ```
+ * Prompt tokens exceed context window size: number of prompt tokens: 4444; context window size: 4096
+ * ```
+ *
+ * @param err - Rejection from a completion call
+ * @return Parsed sizes, or `null` when the message shape does not match
+ */
+export function parseContextExceeded(err: unknown): { promptTokens: number; currentWindow: number } | null {
+    const message = err instanceof Error ? err.message : String(err ?? '');
+    const match = message.match(/number of prompt tokens:\s*(\d+)[^0-9]+context window size:\s*(\d+)/i);
+    if (!match) return null;
+    const promptTokens = Number(match[1]);
+    const currentWindow = Number(match[2]);
+    if (!Number.isFinite(promptTokens) || !Number.isFinite(currentWindow)) return null;
+    return { promptTokens, currentWindow };
+}
+
+/**
+ * Pick the next power-of-two context window that still fits the model's
+ * supported maximum and leaves room for `maxTokens` of generated output.
+ *
+ * @param currentWindow - Window the engine was loaded with
+ * @param requiredTokens - Tokens the prompt reports it needs
+ * @param maxTokens - Max output tokens we also need room for
+ * @param hardCap - Upper bound (model override or `WEBLLM_CONTEXT_MAX`)
+ * @return Next window to try, or `null` when nothing larger is permitted
+ */
+export function nextContextWindow(
+    currentWindow: number,
+    requiredTokens: number,
+    maxTokens: number,
+    hardCap: number,
+): number | null {
+    const needed = requiredTokens + Math.max(0, maxTokens);
+    for (const step of WEBLLM_CONTEXT_STEPS) {
+        if (step > hardCap) break;
+        if (step > currentWindow && step >= needed) return step;
+    }
+    return null;
+}
+
 /**
  * Release a WebLLM engine. A missing or already-dead `unload` is ignored:
  * WebLLM's own `device.lost` handler may have disposed the instance already.
@@ -425,9 +495,13 @@ export class WebLLMProvider implements LLMProvider {
     async complete(systemPrompt: string, userPrompt: string): Promise<string> {
         const run = () => this.runCompletion(systemPrompt, userPrompt);
         if (this.injectedEngine) {
+            // Injected engines are owned by the host; we must not swap the
+            // context window out from under them. Translate the exceeded-window
+            // error into something actionable but do not reload.
             try {
                 return await run();
             } catch (err) {
+                if (isContextExceededError(err)) throw this.wrapContextExceeded(err);
                 if (!isDeadEngineError(err)) throw err;
                 throw new Error(gpuMemoryMessage(err));
             }
@@ -436,6 +510,13 @@ export class WebLLMProvider implements LLMProvider {
         try {
             return await run();
         } catch (err) {
+            // 1) Prompt longer than the loaded context window.
+            //    Grow to the next supported window (power of two) and retry once.
+            if (isContextExceededError(err)) {
+                if (await this.tryGrowContextWindow(err)) return run();
+                throw this.wrapContextExceeded(err);
+            }
+            // 2) GPU device / engine died -- drop the cached engine and retry once.
             if (!isDeadEngineError(err)) throw err;
             await this.evictCachedEngine(this.cacheKey());
             try {
@@ -446,6 +527,72 @@ export class WebLLMProvider implements LLMProvider {
                 throw retryErr;
             }
         }
+    }
+
+    /**
+     * Grow the context window to the next supported size when the current one
+     * cannot hold the prompt. The old engine is evicted first so its GPU
+     * memory is reclaimed before the larger one starts loading.
+     *
+     * @param err - The `ContextWindowSizeExceededError` from the failing call
+     * @return `true` when a retry with a larger window has been prepared
+     */
+    private async tryGrowContextWindow(err: unknown): Promise<boolean> {
+        const parsed = parseContextExceeded(err);
+        // Fall back to the current cacheKey window when the message did not
+        // carry explicit numbers (e.g. a WebLLM version with a new format).
+        const current = parsed?.currentWindow ?? this.contextWindowSize ?? 0;
+        if (!current) return false;
+        const required = parsed?.promptTokens ?? current + 1;
+        const next = nextContextWindow(current, required, this.maxTokens, this.contextMaxForModel());
+        if (!next) return false;
+        const oldKey = this.cacheKey();
+        this.contextWindowSize = next;
+        // Different cacheKey -- evict the old engine so GPU memory is freed
+        // before the larger one is created.
+        await this.evictCachedEngine(oldKey);
+        console.log(
+            `[webllm] context exceeded, growing ${current} -> ${next} tokens ` +
+            `(prompt=${parsed?.promptTokens ?? 'n/a'} max_tokens=${this.maxTokens} model=${this.model})`,
+        );
+        return true;
+    }
+
+    /**
+     * Upper bound for `nextContextWindow` on this provider's model. Fine-tuned
+     * records (e.g. the TSA fine-tunes at 16384) cap below the generic
+     * `WEBLLM_CONTEXT_MAX`; otherwise we fall back to that generic ceiling.
+     *
+     * @return Hard cap in tokens
+     */
+    private contextMaxForModel(): number {
+        const records = this.appConfig?.model_list ?? this.modelRecords ?? TSA_EXPLAINER_MODELS;
+        const override = records.find((r) => r.model_id === this.model)?.overrides?.context_window_size;
+        return override ?? WEBLLM_CONTEXT_MAX;
+    }
+
+    /**
+     * Translate a `ContextWindowSizeExceededError` into a user-facing message
+     * when auto-growing is not possible (would exceed `contextMaxForModel`).
+     *
+     * @param err - The original rejection
+     * @return A new `Error` with concrete numbers and remediation hints
+     */
+    private wrapContextExceeded(err: unknown): Error {
+        const parsed = parseContextExceeded(err);
+        const cap = this.contextMaxForModel();
+        if (!parsed) {
+            const detail = err instanceof Error ? err.message : String(err ?? '');
+            return new Error(
+                `The prompt exceeds the loaded context window and WebLLM did not report the exact token counts (${detail}). ` +
+                `Lower "Max source chars", pick a smaller contract, or use a model with a larger context (cap ${cap}).`,
+            );
+        }
+        return new Error(
+            `Prompt needs ~${parsed.promptTokens} tokens, more than the model's maximum context window of ${cap} ` +
+            `(current window ${parsed.currentWindow}). ` +
+            `Lower "Max source chars", pick a smaller contract, or switch to a model with a larger context.`,
+        );
     }
 
     /**

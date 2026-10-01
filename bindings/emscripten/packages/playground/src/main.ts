@@ -93,13 +93,21 @@ function webllmModelRecords(): Promise<ModelRecord[] | undefined> {
     return resolvedModelRecords;
 }
 
-// Context window the fine-tuned records ship with; prebuilt models fall back
-// to WebLLM's default (usually 4096) unless the user fills the field.
+// Context window the fine-tuned records ship with; prebuilt WebLLM models
+// without a record here get the UI default (`PREBUILT_WEBLLM_CONTEXT_DEFAULT`),
+// which the auto-retry path in `WebLLMProvider` grows at runtime when a prompt
+// does not fit.
 const WEBLLM_MODEL_CONTEXT: Record<string, number> = Object.fromEntries(
     TSA_EXPLAINER_MODELS
         .filter((r) => r.overrides?.context_window_size)
         .map((r) => [r.model_id, r.overrides!.context_window_size!]),
 );
+// Prebuilt-model UI default. 4096 was too tight for most non-trivial contracts
+// (hit the WebLLM `ContextWindowSizeExceededError` immediately when the
+// explainer embedded Solidity source). 8192 fits typical ERC-20 / proxy
+// contracts without weight-reload churn, and the provider still auto-grows
+// to 16k / 32k when a specific prompt exceeds the window.
+const PREBUILT_WEBLLM_CONTEXT_DEFAULT = 8192;
 
 // -- Tiny DOM helpers --------------------------------------------------------
 
@@ -244,7 +252,13 @@ function syncContextWindow(): void {
     const input = $('contextWindow') as HTMLInputElement;
     if (input.value && input.value !== contextWindowAutoValue) return;
     const model = ($('model') as HTMLSelectElement).value;
-    contextWindowAutoValue = WEBLLM_MODEL_CONTEXT[model] ? String(WEBLLM_MODEL_CONTEXT[model]) : '';
+    const override = WEBLLM_MODEL_CONTEXT[model];
+    // Fine-tuned record wins (16384 for TSA models). Otherwise fall back to
+    // the prebuilt default so new users do not immediately hit the 4096
+    // ContextWindowSizeExceededError on their first run.
+    contextWindowAutoValue = override
+        ? String(override)
+        : String(PREBUILT_WEBLLM_CONTEXT_DEFAULT);
     input.value = contextWindowAutoValue;
 }
 

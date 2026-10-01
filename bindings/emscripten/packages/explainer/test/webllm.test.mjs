@@ -11,6 +11,9 @@ import {
     resolveModelRecord,
     buildAppConfig,
     isDeadEngineError,
+    isContextExceededError,
+    parseContextExceeded,
+    nextContextWindow,
 } from '../dist/index.js';
 import { WETH_DEPOSIT_RESULT, TX_PARAMS } from './fixtures.mjs';
 
@@ -407,6 +410,142 @@ describe('isDeadEngineError', () => {
         assert.equal(isDeadEngineError(undefined), false);
         // Only Error instances expose a name; a plain object is stringified.
         assert.equal(isDeadEngineError({ message: 'disposed' }), false);
+    });
+});
+
+describe('context window helpers', () => {
+    it('isContextExceededError matches the WebLLM error class and message', () => {
+        const named = new Error('irrelevant');
+        named.name = 'ContextWindowSizeExceededError';
+        assert.equal(isContextExceededError(named), true);
+        assert.equal(
+            isContextExceededError(
+                new Error('Prompt tokens exceed context window size: number of prompt tokens: 4444; context window size: 4096'),
+            ),
+            true,
+        );
+        assert.equal(isContextExceededError(new Error('Device was lost')), false);
+        assert.equal(isContextExceededError('prompt tokens exceed context window size'), true);
+        assert.equal(isContextExceededError(null), false);
+    });
+
+    it('parseContextExceeded extracts the two token counts', () => {
+        const parsed = parseContextExceeded(
+            new Error('Prompt tokens exceed context window size: number of prompt tokens: 4444; context window size: 4096'),
+        );
+        assert.deepEqual(parsed, { promptTokens: 4444, currentWindow: 4096 });
+    });
+
+    it('parseContextExceeded returns null when the shape does not match', () => {
+        assert.equal(parseContextExceeded(new Error('something else')), null);
+        assert.equal(parseContextExceeded(null), null);
+    });
+
+    it('nextContextWindow picks the next power of two that fits prompt + max_tokens', () => {
+        // prompt 4444 + max_tokens 1024 = 5468 -> next step is 8192.
+        assert.equal(nextContextWindow(4096, 4444, 1024, 32768), 8192);
+        // Overflows the next step too -> jump straight to 16384.
+        assert.equal(nextContextWindow(4096, 9000, 1024, 32768), 16384);
+        // Nothing larger is permitted (TSA cap is 16384).
+        assert.equal(nextContextWindow(16384, 20000, 1024, 16384), null);
+        // Hard cap below the current window still refuses to grow.
+        assert.equal(nextContextWindow(16384, 20000, 1024, 8192), null);
+        // Zero output budget still works.
+        assert.equal(nextContextWindow(4096, 5000, 0, 32768), 8192);
+    });
+});
+
+describe('WebLLMProvider auto-grows the context window on overflow', () => {
+    it('retries once with the next power-of-two window and succeeds', async () => {
+        const creates = [];
+        const stats = { unloads: 0 };
+        const restore = useWebLlmFactory(async (_model, _config, chatOpts) => {
+            const window = chatOpts?.context_window_size;
+            creates.push(window);
+            return {
+                unload: async () => { stats.unloads += 1; },
+                chat: {
+                    completions: {
+                        create: async () => {
+                            if (window === 4096) {
+                                const err = new Error(
+                                    'Prompt tokens exceed context window size: number of prompt tokens: 5000; context window size: 4096',
+                                );
+                                err.name = 'ContextWindowSizeExceededError';
+                                throw err;
+                            }
+                            return chatReply(`ok-${window}`);
+                        },
+                    },
+                },
+            };
+        });
+        try {
+            const provider = new WebLLMProvider({ model: 'coverage-autogrow', contextWindowSize: 4096 });
+            const out = await provider.complete('s', 'u');
+            assert.equal(out, 'ok-8192');
+            assert.deepEqual(creates, [4096, 8192], 'engine must be reloaded with the larger window');
+            assert.equal(stats.unloads, 1, 'old engine must be unloaded to free GPU memory');
+        } finally {
+            restore();
+        }
+    });
+
+    it('reports a user-facing error when the required window exceeds the model cap', async () => {
+        const restore = useWebLlmFactory(async (_model, _config, chatOpts) => {
+            return {
+                unload: async () => { },
+                chat: {
+                    completions: {
+                        create: async () => {
+                            const err = new Error(
+                                `Prompt tokens exceed context window size: number of prompt tokens: 20000; context window size: ${chatOpts?.context_window_size}`,
+                            );
+                            err.name = 'ContextWindowSizeExceededError';
+                            throw err;
+                        },
+                    },
+                },
+            };
+        });
+        try {
+            // TSA fine-tune is capped at 16384 (model record override).
+            const provider = new WebLLMProvider({
+                model: 'colibri-tsa-4b-q4f16_1-MLC',
+                contextWindowSize: 16384,
+            });
+            await assert.rejects(
+                () => provider.complete('s', 'u'),
+                (err) => {
+                    assert.match(err.message, /Prompt needs ~20000 tokens/);
+                    assert.match(err.message, /maximum context window of 16384/);
+                    return true;
+                },
+            );
+        } finally {
+            restore();
+        }
+    });
+
+    it('does not reload an injected engine; only wraps the error', async () => {
+        const engine = {
+            chat: {
+                completions: {
+                    create: async () => {
+                        const err = new Error(
+                            'Prompt tokens exceed context window size: number of prompt tokens: 9000; context window size: 4096',
+                        );
+                        err.name = 'ContextWindowSizeExceededError';
+                        throw err;
+                    },
+                },
+            },
+        };
+        const provider = new WebLLMProvider({ webllmEngine: engine, contextWindowSize: 4096 });
+        await assert.rejects(
+            () => provider.complete('s', 'u'),
+            /Prompt needs ~9000 tokens/,
+        );
     });
 });
 
