@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { sliceUsedFunctions } from '../dist/source_slice.js';
+import { sliceUsedFunctions, sliceCoveredDefinitions, findCoveredDefinitions } from '../dist/source_slice.js';
 
 function identitySanitize(source) {
     return source;
@@ -268,5 +268,111 @@ describe('sliceUsedFunctions', () => {
         assert.equal(mode.kind, 'enum');
         assert.equal(mode.contractHeader, '');
         assert.ok(mode.text.includes('enum Mode'));
+    });
+});
+
+/**
+ * Build a synthetic Solidity source and return the source string plus the
+ * offset of the target substring, so coverage tests can address ranges without
+ * hard-coding numbers.
+ *
+ * @param {string} source - Full Solidity source
+ * @param {string} needle - Substring inside a function or modifier
+ * @return {{ source: string, offset: number }} Source and the needle offset
+ */
+function withOffset(source, needle) {
+    const offset = source.indexOf(needle);
+    if (offset < 0) throw new Error(`needle "${needle}" not found`);
+    return { source, offset };
+}
+
+describe('findCoveredDefinitions', () => {
+    it('returns the covered functions in a stable order', () => {
+        const src = [
+            'contract Vault {',
+            '    function deposit() public {}',
+            '    function withdraw() public {}',
+            '    function unused() public {}',
+            '}',
+        ].join('\n');
+        const depositOffset = withOffset(src, 'deposit() public {}').offset;
+        const withdrawOffset = withOffset(src, 'withdraw() public {}').offset;
+        const defs = findCoveredDefinitions({
+            sources: { 'Vault.sol': { content: src } },
+            hits: [
+                // Hit the middle of each body — proves start is not the only match.
+                { filename: 'Vault.sol', offset: withdrawOffset + 4 },
+                { filename: 'Vault.sol', offset: depositOffset + 4 },
+            ],
+            includeFile: () => true,
+        });
+        assert.deepEqual(defs.map(d => d.name), ['deposit', 'withdraw']);
+        assert.ok(defs.every(d => d.filename === 'Vault.sol'));
+    });
+
+    it('ignores hits that fall outside any function range', () => {
+        const src = 'contract C { function f() public {} }';
+        const defs = findCoveredDefinitions({
+            sources: { 'C.sol': { content: src } },
+            hits: [{ filename: 'C.sol', offset: 0 }],
+            includeFile: () => true,
+        });
+        assert.deepEqual(defs, []);
+    });
+});
+
+describe('sliceCoveredDefinitions', () => {
+    it('includes the covered function and its storage but NOT its callees', () => {
+        const src = [
+            'contract Vault {',
+            '    uint256 total;',
+            '    function deposit(uint256 amount) public {',
+            '        _mint(amount);',
+            '        total += amount;',
+            '    }',
+            '    function _mint(uint256 amount) internal { total += amount; }',
+            '    function unused() public {}',
+            '}',
+        ].join('\n');
+        const bodyOffset = withOffset(src, 'total += amount;').offset;
+        const pieces = sliceCoveredDefinitions({
+            sources: { 'Vault.sol': { content: src } },
+            hits: [{ filename: 'Vault.sol', offset: bodyOffset }],
+            maxChars: null,
+            includeFile: () => true,
+            sanitize: (s) => s,
+        });
+        assert.ok(pieces);
+        const names = pieces.map(p => `${p.kind}:${p.name}`);
+        assert.ok(names.includes('function:deposit'));
+        assert.ok(names.includes('state:total'));
+        assert.ok(!names.some(n => n === 'function:_mint'), 'callees must not leak in via coverage');
+        assert.ok(!names.some(n => n === 'function:unused'));
+    });
+
+    it('drops covered defs that exceed the budget but still emits headerOk siblings', () => {
+        const large = 'contract C { function big() public { ' + 'uint256 x;'.repeat(50) + ' } }';
+        const bodyOffset = large.indexOf('uint256 x;');
+        const pieces = sliceCoveredDefinitions({
+            sources: { 'C.sol': { content: large } },
+            hits: [{ filename: 'C.sol', offset: bodyOffset }],
+            maxChars: 20,
+            includeFile: () => true,
+            sanitize: (s) => s,
+        });
+        assert.ok(Array.isArray(pieces));
+        assert.equal(pieces.length, 0);
+    });
+
+    it('returns null when no hit is inside any function range', () => {
+        const src = 'contract C { function f() public {} }';
+        const pieces = sliceCoveredDefinitions({
+            sources: { 'C.sol': { content: src } },
+            hits: [{ filename: 'C.sol', offset: 0 }],
+            maxChars: null,
+            includeFile: () => true,
+            sanitize: (s) => s,
+        });
+        assert.equal(pieces, null);
     });
 });

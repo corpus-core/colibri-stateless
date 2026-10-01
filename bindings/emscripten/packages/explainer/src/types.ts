@@ -170,6 +170,13 @@ export interface PromptConfig {
      * are windowed into the same budget.
      */
     maxSourceChars?: number;
+    /**
+     * Maximum number of resolved storage reads printed per contract under
+     * `## State Reads`. `0` disables the cap. Default: `8`. Reads that could
+     * not be named or that already appear in `stateChanges` are omitted before
+     * the cap.
+     */
+    maxStateValues?: number;
 }
 
 /** Configuration shared by all LLM provider implementations. */
@@ -313,6 +320,23 @@ export interface ContractMetadata {
     storageLayout: SolidityStorageLayout | null;
     /** Solidity contract name from Sourcify compilation metadata, when known. */
     contractName?: string | null;
+    /**
+     * Solidity source-map (`s:l:f:j:m`, ...) of the deployed runtime bytecode,
+     * paired with the runtime bytecode itself. Present when the compilation
+     * was rerun with `evm.deployedBytecode.sourceMap` because
+     * `SimulationResult.positions` referenced this contract.
+     */
+    sourceMap?: ContractSourceMap | null;
+}
+
+/** Deployed runtime bytecode plus its Solidity source map, keyed by source id. */
+export interface ContractSourceMap {
+    /** Raw source map string from `evm.deployedBytecode.sourceMap`. */
+    sourceMap: string;
+    /** Runtime bytecode as `0x...`. Used to walk PUSH immediates. */
+    runtimeBytecode: string;
+    /** Solidity source id → filename, taken from the compilation output. */
+    sourceIndex: Map<number, string>;
 }
 
 /** Compilation artifacts returned by the Sourcify v2 `stdJsonInput` endpoint. */
@@ -383,6 +407,12 @@ export interface EnrichedContext {
     decodedCall?: DecodedCall;
     decodedError?: DecodedError;
     resolvedStorage: Map<string, ResolvedSlot[]>;
+    /**
+     * Lowercase address → per-slot resolution of the accessed reads that are
+     * NOT part of `stateChanges`. Filled from `SimulationResult.accessList`
+     * when the request opted into `state_values`.
+     */
+    resolvedReads?: Map<string, ResolvedStateRead[]>;
     decodedTrace: (DecodedCall | null)[];
     decodedEvents: (DecodedEvent | null)[];
     /**
@@ -397,6 +427,37 @@ export interface EnrichedContext {
      * addresses in `known_addresses.ts` are not repeated here.
      */
     tokens?: Map<string, TokenInfo>;
+    /**
+     * Lowercase code address → set of function or modifier definitions covered
+     * by at least one executed `JUMPDEST`. Empty map when no positions were
+     * captured or no source-map was available. Callers use these definitions
+     * as the seed set for `sliceUsedFunctions`.
+     */
+    coveredDefinitions?: Map<string, CoveredDefinition[]>;
+}
+
+/** One executed slot beyond `stateChanges`. */
+export interface ResolvedStateRead {
+    /** Raw storage key, matches the corresponding `accessList[].storage[].slot`. */
+    slot: string;
+    /** Proven pre-state value. */
+    value: string;
+    /** Resolved variable name and (optional) mapping keys, when a layout matched. */
+    resolved?: ResolvedSlot;
+}
+
+/**
+ * A Solidity function or modifier whose parser range covers a JUMPDEST that
+ * ran during the simulation. `contractName` is the Solidity contract (empty
+ * for a file-level definition).
+ */
+export interface CoveredDefinition {
+    filename: string;
+    contractName: string;
+    name: string;
+    kind: 'function' | 'modifier';
+    start: number;
+    end: number;
 }
 
 // -- Enhanced result types (JSON-serializable, for UI consumption) --
@@ -415,6 +476,12 @@ export interface EnhancedContractStateChange {
     balance?: { previousValue: string; newValue: string };
 }
 
+/** Resolved read on one contract, published under `stateReads`. */
+export interface EnhancedContractStateReads {
+    address: string;
+    reads: ResolvedStateRead[];
+}
+
 export interface EnhancedTraceEntry extends TraceEntry {
     decoded?: DecodedCall;
 }
@@ -430,6 +497,13 @@ export interface EnhancedSimulationResult {
     returnValue: string;
     logs: EnhancedLog[];
     stateChanges?: EnhancedContractStateChange[];
+    /**
+     * Slots that were only read (part of `accessList`) and are not present in
+     * `stateChanges`. Populated when the simulation request set `state_values`
+     * and at least one slot could be resolved or carries a proven pre-state
+     * value. Same address grouping as `stateChanges`.
+     */
+    stateReads?: EnhancedContractStateReads[];
     trace?: EnhancedTraceEntry[];
     explanation: string;
     decodedCall?: DecodedCall;

@@ -58,6 +58,38 @@ export interface SliceUsedFunctionsOptions {
     sanitize: (source: string) => string;
 }
 
+/** One executed source location that should force a function/modifier into the slice. */
+export interface CoverageHit {
+    /** Solidity source file. */
+    filename: string;
+    /** Byte offset of the JUMPDEST source span in the file. */
+    offset: number;
+}
+
+export interface SliceCoveredDefinitionsOptions {
+    sources: Record<string, { content: string }>;
+    /** Source hits captured from the trace. */
+    hits: CoverageHit[];
+    /** Same budget semantics as `sliceUsedFunctions`. */
+    maxChars: number | null;
+    includeFile: (filename: string, content: string) => boolean;
+    sanitize: (source: string) => string;
+}
+
+/**
+ * The public shape of a covered function or modifier location. Exposed so the
+ * enricher can publish it under `EnrichedContext.coveredDefinitions` even if
+ * the caller never consults `sliceCoveredDefinitions` directly.
+ */
+export interface CoveredDefinitionInfo {
+    filename: string;
+    contractName: string;
+    name: string;
+    kind: 'function' | 'modifier';
+    start: number;
+    end: number;
+}
+
 interface Def {
     id: string;
     kind: 'function' | 'modifier' | 'state' | 'enum' | 'struct';
@@ -115,6 +147,132 @@ export function sliceUsedFunctions(options: SliceUsedFunctionsOptions): SourceSl
 
     const budget = options.maxChars === null ? Number.POSITIVE_INFINITY : options.maxChars;
     return expand(roots, indexed, budget, options.sanitize);
+}
+
+/**
+ * Find every function or modifier definition whose source range covers one of
+ * `hits`. This is the read-only counterpart to `sliceUsedFunctions` used by
+ * the enricher to publish covered locations, without running the callee BFS.
+ *
+ * @param options - Sources and hit list
+ * @return Sorted, deduplicated covered definitions
+ */
+export function findCoveredDefinitions(options: {
+    sources: Record<string, { content: string }>;
+    hits: CoverageHit[];
+    includeFile: (filename: string, content: string) => boolean;
+}): CoveredDefinitionInfo[] {
+    if (!options.hits.length) return [];
+    const indexed = indexSources(options.sources, options.includeFile);
+    if (indexed.contracts.size === 0) return [];
+    const defs = collectCoveredDefs(indexed, options.hits);
+    return defs.map(def => ({
+        filename: def.filename,
+        contractName: def.contractName,
+        name: def.name,
+        kind: def.kind === 'modifier' ? 'modifier' : 'function',
+        start: def.start,
+        end: def.end,
+    }));
+}
+
+/**
+ * Include only the functions and modifiers whose source range covers one of
+ * `hits`, plus the storage variables, enums, and structs they reference.
+ * Callees are NOT expanded – the whole point of coverage-based slicing is to
+ * stay tight to the code that actually ran.
+ *
+ * Returns `null` when nothing was covered so callers can fall back to the
+ * name-based `sliceUsedFunctions` or the raw file window.
+ *
+ * @param options - Sources, hits, budget, filters
+ * @return Selected definitions, or `null` when no function was covered
+ */
+export function sliceCoveredDefinitions(options: SliceCoveredDefinitionsOptions): SourceSlice[] | null {
+    if (!options.hits.length) return null;
+    const indexed = indexSources(options.sources, options.includeFile);
+    if (indexed.contracts.size === 0) return null;
+    const roots = collectCoveredDefs(indexed, options.hits);
+    if (roots.length === 0) return null;
+
+    const budget = options.maxChars === null ? Number.POSITIVE_INFINITY : options.maxChars;
+    return includeOnly(roots, indexed, budget, options.sanitize);
+}
+
+/**
+ * Collect the covered function / modifier definitions from the indexed
+ * sources. Definitions are returned in a deterministic order (filename, then
+ * start offset).
+ *
+ * @param indexed - Parsed sources
+ * @param hits - Source hits
+ * @return Definitions whose range covers at least one hit
+ */
+function collectCoveredDefs(indexed: SourceIndex, hits: CoverageHit[]): Def[] {
+    const byFile = new Map<string, number[]>();
+    for (const hit of hits) {
+        if (!hit || typeof hit.filename !== 'string' || !Number.isFinite(hit.offset)) continue;
+        const list = byFile.get(hit.filename);
+        if (list) list.push(hit.offset);
+        else byFile.set(hit.filename, [hit.offset]);
+    }
+    if (byFile.size === 0) return [];
+
+    const collected = new Map<string, Def>();
+    for (const contract of indexed.contracts.values()) {
+        const groups = [contract.functions, contract.modifiers];
+        for (const list of groups) {
+            for (const def of list) {
+                const offsets = byFile.get(def.filename);
+                if (!offsets) continue;
+                if (offsets.some(o => o >= def.start && o < def.end)) {
+                    collected.set(def.id, def);
+                }
+            }
+        }
+    }
+    return [...collected.values()].sort((a, b) => {
+        if (a.filename !== b.filename) return a.filename < b.filename ? -1 : 1;
+        return a.start - b.start;
+    });
+}
+
+/**
+ * Include exactly the given roots and their `contextOf` (storage, enums,
+ * structs) — no callee BFS. Order matches `expand`.
+ *
+ * @param roots - Definitions that must appear
+ * @param indexed - Parsed sources
+ * @param budget - Character budget
+ * @param sanitize - Comment stripper
+ * @return Slices in prompt order
+ */
+function includeOnly(
+    roots: Def[],
+    indexed: SourceIndex,
+    budget: number,
+    sanitize: (source: string) => string,
+): SourceSlice[] {
+    const slices: SourceSlice[] = [];
+    const seen = new Set<string>();
+    let remaining = budget;
+    for (const def of roots) {
+        if (seen.has(def.id)) continue;
+        seen.add(def.id);
+        const text = materialize(def, indexed.files, sanitize);
+        if (!text || text.length > remaining || !headerOk(def, indexed.contracts)) continue;
+        slices.push(toSlice(def, text, indexed.contracts));
+        remaining -= text.length;
+        for (const extra of contextOf(indexed, def)) {
+            if (seen.has(extra.id)) continue;
+            seen.add(extra.id);
+            const extraText = materialize(extra, indexed.files, sanitize);
+            if (!extraText || extraText.length > remaining || !headerOk(extra, indexed.contracts)) continue;
+            slices.push(toSlice(extra, extraText, indexed.contracts));
+            remaining -= extraText.length;
+        }
+    }
+    return slices;
 }
 
 /**

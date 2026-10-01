@@ -608,6 +608,7 @@ async function simulateLocally(
     rpc: string,
     prover: string,
     usePrivacy: boolean,
+    simFlags: SimulationFlags,
 ): Promise<SimulationResult> {
     const clientConfig: Record<string, unknown> = { chainId };
     clientConfig.zk_proof = true;
@@ -626,7 +627,33 @@ async function simulateLocally(
         if (oblivious) clientConfig.oblivious_nodes = [oblivious];
     }
     const client = new C4Client(clientConfig);
-    return (await client.rpc('colibri_simulateTransaction', [tx, 'latest'])) as SimulationResult;
+    // The C-core validates a 4th optional configuration object. Only emit it
+    // when at least one flag is set so recorded traces stay comparable to the
+    // old two-argument requests.
+    const params: unknown[] = [tx, 'latest', null, buildSimulationConfig(simFlags)];
+    if (params[3] === null) params.length = 2;
+    return (await client.rpc('colibri_simulateTransaction', params)) as SimulationResult;
+}
+
+/** Optional prover flags gated by the two coverage-related checkboxes. */
+interface SimulationFlags {
+    stateValues: boolean;
+    positions: boolean;
+}
+
+/**
+ * Build the config object passed as the 4th `colibri_simulateTransaction`
+ * argument, or `null` when nothing is enabled so we do not send an empty
+ * object (kept for backwards-compatibility with older recorded traces).
+ *
+ * @param flags - Checkbox state
+ * @return Config object or `null` when neither flag is set
+ */
+function buildSimulationConfig(flags: SimulationFlags): Record<string, boolean> | null {
+    const cfg: Record<string, boolean> = {};
+    if (flags.stateValues) cfg.state_values = true;
+    if (flags.positions) cfg.positions = true;
+    return Object.keys(cfg).length > 0 ? cfg : null;
 }
 
 async function buildExplainerConfig(useEnrichment: boolean, chainId: number): Promise<ExplainerConfig> {
@@ -697,6 +724,12 @@ async function run(): Promise<void> {
         const prover = ($('prover') as HTMLInputElement).value.trim();
         const useEnrichment = ($('enrich') as HTMLInputElement).checked;
         const usePrivacy = ($('privacy') as HTMLInputElement).checked;
+        const stateValuesCheckbox = $('state-values') as HTMLInputElement | null;
+        const coverageCheckbox = $('coverage-only') as HTMLInputElement | null;
+        const simFlags: SimulationFlags = {
+            stateValues: !!stateValuesCheckbox?.checked,
+            positions: !!coverageCheckbox?.checked,
+        };
 
         const tx = readTransaction();
         // Capture the path before any await. A refresh while the explainer
@@ -714,7 +747,7 @@ async function run(): Promise<void> {
             throw new Error('Select a sample transaction first.');
         } else {
             setStatus('Running colibri_simulateTransaction (verified)...');
-            sim = await simulateLocally(tx, chainId, rpc, prover, usePrivacy);
+            sim = await simulateLocally(tx, chainId, rpc, prover, usePrivacy, simFlags);
         }
         $('sim-json').textContent = JSON.stringify(sim, null, 2);
         setStep(1, 'done');
