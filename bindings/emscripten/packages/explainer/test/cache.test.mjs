@@ -5,7 +5,7 @@ import {
     sourcifyCompilationKey, sourcifyMetadataKey, getCacheDirectory,
     cacheGetCompilation, cacheSetCompilation,
     cacheGetMetadata, cacheSetMetadata,
-    layoutCacheKey,     cacheGetLayout, cacheSetLayout,
+    layoutCacheKey, cacheGetLayout, cacheSetLayout,
     tokenCacheKey, isSafeTokenSymbol, cacheGetToken, cacheSetToken,
 } from '../dist/cache.js';
 
