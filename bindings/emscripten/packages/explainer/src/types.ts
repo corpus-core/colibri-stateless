@@ -300,6 +300,11 @@ export interface VerifiedContract {
     sources: Record<string, { content: string }>;
     compilerVersion: string;
     contractName: string;
+    /**
+     * Extractor generation that produced `storageLayout`.
+     * Missing or older than the current layout cache version is rebuilt from `sources`.
+     */
+    layoutVersion?: number;
 }
 
 // -- LLM provider interface --

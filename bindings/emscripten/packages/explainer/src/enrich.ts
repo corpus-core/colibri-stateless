@@ -28,7 +28,7 @@ import type {
     EnhancedContractStateReads,
     ContractCache, VerifiedContract, AccessListEntry, ContractStateChange,
     EthCallFn, EthGetCodeFn, TokenInfo, CoveredDefinition, ResolvedStateRead, ExecutedPositions,
-    ContractSourceMap,
+    ContractSourceMap, SolidityStorageLayout,
 } from './types.js';
 import { AbiCoder } from 'ethers';
 import { fetchCompilationInput } from './sourcify.js';
@@ -36,7 +36,7 @@ import { decodeFunctionCall, decodeEventLog, decodeRevertData } from './decoder.
 import { resolveStorageSlot, resolveDirectSlot } from './storage.js';
 import { compileAndVerify } from './compiler.js';
 import { extractStorageLayout } from './layout.js';
-import { cacheGet, cacheSet, cacheGetLayout, cacheSetLayout, cacheGetToken, cacheSetToken, getDefaultCache, isSafeTokenSymbol } from './cache.js';
+import { cacheGet, cacheSet, cacheGetLayout, cacheSetLayout, cacheGetToken, cacheSetToken, getDefaultCache, isSafeTokenSymbol, LAYOUT_CACHE_VERSION } from './cache.js';
 import { elapsedMs, explainerLog } from './log.js';
 import { collectUsedAddresses } from './addresses.js';
 import { lookupAddress } from './known_addresses.js';
@@ -226,6 +226,39 @@ function yieldEventLoop(): Promise<void> {
     });
 }
 
+/**
+ * Rebuild `storageLayout` when the cached entry predates the current extractor.
+ *
+ * A verified-contract record pins the layout from the run that compiled it.
+ * `null` from an older extractor would otherwise keep Kiln slot pointers unnamed.
+ *
+ * @param cache - Cache backend
+ * @param codeHash - keccak256 of deployed runtime bytecode
+ * @param cached - Parsed verified-contract entry
+ * @return The same entry, with `storageLayout` replaced when the extractor moved
+ */
+async function refreshCachedLayout(
+    cache: ContractCache,
+    codeHash: string,
+    cached: VerifiedContract,
+): Promise<VerifiedContract> {
+    if ((cached.layoutVersion ?? 0) >= LAYOUT_CACHE_VERSION) return cached;
+    if (!cached.sources || Object.keys(cached.sources).length === 0) return cached;
+    let layout: SolidityStorageLayout | null;
+    try {
+        layout = await extractStorageLayout(cached.sources, cached.contractName || undefined);
+    } catch {
+        return cached;
+    }
+    const updated: VerifiedContract = {
+        ...cached,
+        storageLayout: layout,
+        layoutVersion: LAYOUT_CACHE_VERSION,
+    };
+    await cacheSet(cache, codeHash, updated);
+    return updated;
+}
+
 function verifiedToMeta(cached: VerifiedContract): ContractMetadata {
     return {
         abi: cached.abi,
@@ -257,7 +290,8 @@ async function resolveContract(
         const cached = await cacheGet(cache, codeHash);
         if (cached) {
             explainerLog('debug', 'codeHash cache hit', { scope: 'enrich', address: addr });
-            return [addr, verifiedToMeta(cached)];
+            const refreshed = await refreshCachedLayout(cache, codeHash, cached);
+            return [addr, verifiedToMeta(refreshed)];
         }
 
         const existing = inflightByCodeHash.get(codeHash);
@@ -352,6 +386,7 @@ async function resolveFromSourcify(
                 sources: comp.sources,
                 compilerVersion: comp.compilerVersion,
                 contractName: comp.contractName || '',
+                layoutVersion: LAYOUT_CACHE_VERSION,
             };
             await cacheSet(cache, codeHash, verifiedContract);
         }

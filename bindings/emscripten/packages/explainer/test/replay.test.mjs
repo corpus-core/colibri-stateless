@@ -316,5 +316,27 @@ describe('replay', { concurrency: false }, () => {
             assert.ok(names.includes('resolvedAt'), `resolvedAt missing in ${names.join(', ')}`);
             assert.ok(names.includes('status'), `status missing in ${names.join(', ')}`);
         });
+
+        // Mainnet requestExit 0x3bc51588…. Native20 (proxy 0x30a4…) burns shares
+        // and routes ETH; vPool pays the underlying; vExitQueue mints the exit
+        // NFT. Slot pointers are `Type.wrap(0x…)` constants, not solc state
+        // variables. PluggableHatcher also declares `type Address is bytes32`
+        // next to OpenZeppelin's `library Address`.
+        it('decodes requestExit events, calls and Kiln slot storage', { timeout: 300_000 }, async () => {
+            const { context } = await assertEnrichedFixture('requestExit/sim.json', 5, 1, 12);
+            const names = (addr) => (context.resolvedStorage.get(addr) ?? []).map(slot => slot.variableName);
+            assert.deepEqual(names('0x30a4aa1d14d44f0f5bfe887447ab6facc94a549f'), [
+                '$totalSupply', '$balances', '$poolShares', '$exitedEth',
+            ]);
+            assert.deepEqual(names('0x8eea6cc08d824b20efb3bf7c248de694cb1f75f4'), [
+                '$balances', '$balances',
+            ]);
+            assert.deepEqual(names('0x86358f7b33b599c484e0335b8ee4f7f7f92d8b60'), [
+                '$tickets', '$tickets', '$tickets', '$balances', '$mintCounter', '$owners',
+            ]);
+            const tickets = context.resolvedStorage.get('0x86358f7b33b599c484e0335b8ee4f7f7f92d8b60') ?? [];
+            assert.equal(tickets[1].arrayIndex, 47141);
+            assert.equal(tickets[2].arrayIndex, 47141);
+        });
     });
 });

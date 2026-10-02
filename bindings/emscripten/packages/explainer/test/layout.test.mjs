@@ -472,4 +472,57 @@ contract Game {
         assert.equal(Number(at('wasRespectedGameTypeWhenCreated').offset), 18);
         assert.equal(at('startingOutputRoot').slot, '1');
     });
+
+    it('compiles when a value type and an empty library share a name', async () => {
+        const source = `pragma solidity ^0.8.17;
+library types {
+    type Address is bytes32;
+    type Uint256 is bytes32;
+}
+library Address {
+    function sendValue(address) internal {}
+}
+contract PluggableHatcher {
+    types.Uint256 internal constant $totalSupply = types.Uint256.wrap(0xb24a0f21470b6927dcbaaf5b1f54865bd687f4a2ce4c43edf1e20339a4c05bae);
+    uint256 public counter;
+}`;
+        const layout = await extractStorageLayout(
+            { 'PluggableHatcher.sol': { content: source } },
+            'PluggableHatcher',
+        );
+        assert.ok(layout, 'skeleton must compile despite library Address');
+        const counter = layout.storage.find(entry => entry.label === 'counter');
+        const supply = layout.storage.find(entry => entry.label === '$totalSupply');
+        assert.ok(counter);
+        assert.equal(counter.slot, '0');
+        assert.ok(supply);
+        assert.equal(supply.slot, BigInt('0xb24a0f21470b6927dcbaaf5b1f54865bd687f4a2ce4c43edf1e20339a4c05bae').toString());
+        assert.equal(layout.types[supply.type].encoding, 'inplace');
+    });
+
+    it('names a struct-array slot pointer by the struct stride', async () => {
+        const slot = '0x409fdfd8838fda00128ca5d502af2ba15c034ca4130776e2ed6d3eb7811e3481';
+        const source = `pragma solidity ^0.8.17;
+library ctypes {
+    struct Ticket {
+        uint128 position;
+        uint128 size;
+        uint128 maxExitable;
+    }
+    type TicketArray is bytes32;
+}
+contract ExitQueue {
+    ctypes.TicketArray internal constant $tickets = ctypes.TicketArray.wrap(${slot});
+}`;
+        const layout = await extractStorageLayout({ 'ExitQueue.sol': { content: source } }, 'ExitQueue');
+        assert.ok(layout);
+        const tickets = layout.storage.find(entry => entry.label === '$tickets');
+        assert.ok(tickets);
+        assert.equal(tickets.slot, BigInt(slot).toString());
+        const arrayType = layout.types[tickets.type];
+        assert.equal(arrayType.encoding, 'dynamic_array');
+        const structType = layout.types[arrayType.base];
+        assert.equal(structType.label, 'Ticket');
+        assert.equal(structType.numberOfBytes, '64');
+    });
 });

@@ -53,7 +53,12 @@ interface ContractSkeleton {
  * inheritance chain. This works for **all** Solidity versions because storage
  * layout rules have been stable since 0.4.x. Value types are required so a
  * packed slot such as `Timestamp` + `enum` + `bool` still compiles; without
- * them the skeleton fails and the slot stays unnamed.
+ * them the skeleton fails and the slot stays unnamed. An empty library whose
+ * name is already a value type, struct, or enum is omitted (`type Address is
+ * bytes32` inside `library types` must not also emit OpenZeppelin
+ * `library Address`). Constants of the form `types.Uint256.wrap(0x…)` are
+ * explicit slot pointers and are added even when the skeleton has no state
+ * variables.
  *
  * @param sources - Source files as returned by Sourcify `{ "file.sol": { content: "..." } }`
  * @param contractName - Target contract name (uses the last contract if omitted)
@@ -75,6 +80,7 @@ export async function extractStorageLayout(
     const valueTypes = new Map<string, string>();
     const contracts = new Map<string, ContractSkeleton>();
     const locationConstants = new Map<string, bigint>();
+    const slotPointers = new Map<string, SlotPointer>();
     let lastContractName = '';
 
     for (const [, source] of Object.entries(sources)) {
@@ -103,6 +109,7 @@ export async function extractStorageLayout(
                     if (sub.type === 'EnumDefinition') rememberType(enums, sub.name, emitEnum(sub));
                     if (sub.type === 'TypeDefinition') rememberValueType(valueTypes, sub);
                     rememberLocationConstant(locationConstants, sub);
+                    rememberSlotPointer(slotPointers, sub, skeleton.name);
                 }
             }
         }
@@ -115,12 +122,14 @@ export async function extractStorageLayout(
     const target = contractName || lastContractName;
     if (!target || !contracts.has(target)) return null;
 
+    const occupied = new Set<string>([...valueTypes.keys(), ...structs.keys(), ...enums.keys()]);
     const skeleton = buildSkeletonSource(
-        target, contracts, orderStructs(structs), [...enums.values()], [...valueTypes.values()],
+        target, contracts, orderStructs(structs), [...enums.values()], [...valueTypes.values()], occupied,
     );
     const compiled = await compileSkeleton(skeleton, target);
     const namespaced = buildNamespacedLayout(structs, locationConstants);
-    return mergeLayouts(compiled, namespaced);
+    const pointed = buildSlotPointerLayout(slotPointers, structs);
+    return mergeLayouts(mergeLayouts(compiled, namespaced), pointed);
 }
 
 interface StructSkeleton {
@@ -199,6 +208,61 @@ function rememberLocationConstant(constants: Map<string, bigint>, node: ASTNode)
     if (typeof raw !== 'string' || !/^0x[0-9a-fA-F]{64}$/i.test(raw)) return;
     const name = assertIdentifier(variable.name);
     if (!constants.has(name)) constants.set(name, BigInt(raw));
+}
+
+interface SlotPointer {
+    name: string;
+    slot: bigint;
+    contract: string;
+    /** Flattened user-defined type, e.g. `Uint256`, `BalanceMapping`, `TicketArray`. */
+    typeName: string;
+}
+
+/**
+ * Read `Type.wrap(0x{64 hex})` from a constant initializer.
+ *
+ * Kiln-style slots are user-defined value types over `bytes32`, initialized
+ * with `.wrap`, not a bare `bytes32` literal.
+ *
+ * @param expr - Variable initializer AST
+ * @return 32-byte hex literal, or `null` when the expression is not a wrap call
+ */
+function wrapSlotLiteral(expr: ASTNode | undefined): string | null {
+    if (!expr || expr.type !== 'FunctionCall') return null;
+    const callee = expr.expression;
+    if (!callee || callee.type !== 'MemberAccess' || callee.memberName !== 'wrap') return null;
+    if (!Array.isArray(expr.arguments) || expr.arguments.length !== 1) return null;
+    const raw = expr.arguments[0]?.number;
+    if (typeof raw !== 'string' || !/^0x[0-9a-fA-F]{64}$/i.test(raw)) return null;
+    return raw;
+}
+
+/**
+ * Record `types.Uint256 internal constant $name = types.Uint256.wrap(0x…)`.
+ *
+ * The constant is the storage slot itself. The first declaration of a slot wins.
+ *
+ * @param pointers - Slot hex → pointer
+ * @param node - Contract sub-node
+ * @param contract - Contract that declares the constant
+ */
+function rememberSlotPointer(pointers: Map<string, SlotPointer>, node: ASTNode, contract: string): void {
+    if (node.type !== 'StateVariableDeclaration') return;
+    const variable = node.variables?.[0];
+    if (!variable?.isDeclaredConst || typeof variable.name !== 'string') return;
+    const raw = wrapSlotLiteral(variable.expression) ?? wrapSlotLiteral(node.initialValue);
+    if (!raw) return;
+    if (variable.typeName?.type !== 'UserDefinedTypeName') return;
+    const typeName = flattenUserDefinedType(rawUserDefinedName(variable.typeName));
+    if (!typeName) return;
+    const key = raw.toLowerCase();
+    if (pointers.has(key)) return;
+    pointers.set(key, {
+        name: assertIdentifier(variable.name),
+        slot: BigInt(raw),
+        contract,
+        typeName,
+    });
 }
 
 /**
@@ -465,6 +529,199 @@ function buildNamespacedLayout(
 }
 
 /**
+ * True when a type occupies a whole storage slot and cannot be packed.
+ *
+ * @param info - solc-like type descriptor
+ * @return Whether the next member must start at a fresh slot
+ */
+function occupiesFullSlot(info: SolidityStorageType): boolean {
+    const bytes = Number(info.numberOfBytes) || 32;
+    return info.encoding === 'mapping' || info.encoding === 'bytes'
+        || info.encoding === 'dynamic_array' || bytes >= 32;
+}
+
+/**
+ * Build a struct type from a parsed struct so an array of that struct has the
+ * right element stride (`Ticket` is two slots: two packed `uint128` plus one more).
+ *
+ * @param name - Struct identifier
+ * @param skeleton - Parsed members
+ * @param types - Type map to extend
+ * @return Type id
+ */
+function ensureStructType(
+    name: string,
+    skeleton: StructSkeleton,
+    types: Record<string, SolidityStorageType>,
+): string {
+    const id = `t_struct_${name}`;
+    if (types[id]) return id;
+
+    const members: SolidityStorageEntry[] = [];
+    let slot = 0n;
+    let offset = 0;
+    for (const member of skeleton.members) {
+        const typeId = synthesizeType(member.typeName, types);
+        if (!typeId) continue;
+        const info = types[typeId];
+        if (!info) continue;
+        const bytes = Number(info.numberOfBytes) || 32;
+        if (occupiesFullSlot(info)) {
+            if (offset > 0) {
+                slot += 1n;
+                offset = 0;
+            }
+            members.push({
+                slot: slot.toString(), type: typeId, astId: 0, label: member.name, offset: 0, contract: name,
+            });
+            slot += 1n;
+            continue;
+        }
+        if (offset + bytes > 32) {
+            slot += 1n;
+            offset = 0;
+        }
+        members.push({
+            slot: slot.toString(), type: typeId, astId: 0, label: member.name, offset, contract: name,
+        });
+        offset += bytes;
+        if (offset >= 32) {
+            slot += 1n;
+            offset = 0;
+        }
+    }
+
+    const span = offset > 0 ? slot + 1n : slot;
+    types[id] = {
+        label: name,
+        encoding: 'inplace',
+        numberOfBytes: String((span > 0n ? span : 1n) * 32n),
+        members,
+    };
+    return id;
+}
+
+/**
+ * Turn `Type.wrap(0x…)` constants into layout entries at that exact slot.
+ *
+ * `TicketArray` uses struct `Ticket` when that struct was parsed, so dynamic
+ * array data is stepped by the struct's slot span. Other names become a
+ * full-word value, a dynamic `uint256[]`, or a mapping. The variable name is
+ * kept, including a leading `$`.
+ *
+ * @param pointers - Collected slot pointers
+ * @param structs - Parsed structs, used for `*Array` element types
+ * @return Layout, or `null` when nothing was collected
+ */
+function buildSlotPointerLayout(
+    pointers: Map<string, SlotPointer>,
+    structs: Map<string, StructSkeleton>,
+): SolidityStorageLayout | null {
+    if (pointers.size === 0) return null;
+    const storage: SolidityStorageEntry[] = [];
+    const types: Record<string, SolidityStorageType> = {};
+
+    for (const pointer of pointers.values()) {
+        const typeId = slotPointerTypeId(pointer.typeName, structs, types);
+        if (!typeId || !types[typeId]) continue;
+        storage.push({
+            slot: pointer.slot.toString(),
+            type: typeId,
+            astId: 0,
+            label: pointer.name,
+            offset: 0,
+            contract: pointer.contract,
+        });
+    }
+
+    return storage.length ? { storage, types } : null;
+}
+
+/**
+ * solc-like type id for a slot-pointer value type.
+ *
+ * @param typeName - Flattened type (`Uint256`, `TicketArray`, `BalanceMapping`)
+ * @param structs - Parsed structs
+ * @param types - Type map to extend
+ * @return Type id
+ */
+function slotPointerTypeId(
+    typeName: string,
+    structs: Map<string, StructSkeleton>,
+    types: Record<string, SolidityStorageType>,
+): string {
+    const structArray = typeName.endsWith('Array') && typeName !== 'Array'
+        ? typeName.slice(0, -'Array'.length)
+        : '';
+    const structSkeleton = structArray ? structs.get(structArray) : undefined;
+    if (structSkeleton) {
+        const base = ensureStructType(structArray, structSkeleton, types);
+        const id = `t_array(${base})dyn`;
+        if (!types[id]) {
+            types[id] = {
+                label: `${structArray}[]`,
+                encoding: 'dynamic_array',
+                numberOfBytes: '32',
+                base,
+            };
+        }
+        return id;
+    }
+
+    if (typeName === 'Array' || typeName.endsWith('Array')) {
+        const base = 't_uint256';
+        if (!types[base]) types[base] = elementaryTypeInfo('uint256');
+        const id = `t_array(${base})dyn`;
+        if (!types[id]) {
+            types[id] = {
+                label: 'uint256[]',
+                encoding: 'dynamic_array',
+                numberOfBytes: '32',
+                base,
+            };
+        }
+        return id;
+    }
+
+    if (typeName === 'Mapping' || typeName.endsWith('Mapping')) {
+        const key = 't_bytes32';
+        const value = 't_bytes32';
+        if (!types[key]) types[key] = elementaryTypeInfo('bytes32');
+        const id = `t_mapping(${key},${value})`;
+        if (!types[id]) {
+            types[id] = {
+                label: 'mapping(bytes32 => bytes32)',
+                encoding: 'mapping',
+                numberOfBytes: '32',
+                key,
+                value,
+            };
+        }
+        return id;
+    }
+
+    const elementary = slotPointerElementary(typeName);
+    const id = `t_${elementary}`;
+    if (!types[id]) types[id] = elementaryTypeInfo(elementary);
+    return id;
+}
+
+/**
+ * Elementary type used for a non-mapping, non-array slot pointer.
+ *
+ * @param typeName - Flattened value-type name
+ * @return Normalized elementary type
+ */
+function slotPointerElementary(typeName: string): string {
+    if (typeName === 'Address') return 'address';
+    if (typeName === 'Bool') return 'bool';
+    if (typeName === 'String' || typeName === 'Bytes') return 'bytes';
+    if (typeName === 'Bytes32') return 'bytes32';
+    if (typeName === 'Uint256') return 'uint256';
+    return 'bytes32';
+}
+
+/**
  * Append packed struct members starting at `baseSlot`.
  *
  * @param members - Parser struct members
@@ -644,6 +901,7 @@ function buildSkeletonSource(
     structs: string[],
     enums: string[],
     valueTypes: string[] = [],
+    occupied: ReadonlySet<string> = new Set(),
 ): string {
     const lines: string[] = ['// SPDX-License-Identifier: MIT', 'pragma solidity >=0.8.0;', ''];
 
@@ -658,12 +916,12 @@ function buildSkeletonSource(
     // then failed the skeleton with a missing identifier.
     for (const [name, sk] of contracts) {
         if (sk.kind === 'interface' || sk.kind === 'library') {
-            emitContract(name, contracts, lines, emitted);
+            emitContract(name, contracts, lines, emitted, occupied);
         }
     }
-    emitContract(target, contracts, lines, emitted);
+    emitContract(target, contracts, lines, emitted, occupied);
     for (const name of contracts.keys()) {
-        emitContract(name, contracts, lines, emitted);
+        emitContract(name, contracts, lines, emitted, occupied);
     }
 
     return lines.join('\n');
@@ -674,6 +932,7 @@ function emitContract(
     contracts: Map<string, ContractSkeleton>,
     lines: string[],
     emitted: Set<string>,
+    occupied: ReadonlySet<string>,
 ): void {
     if (emitted.has(name)) return;
     emitted.add(name);
@@ -681,8 +940,13 @@ function emitContract(
     const skeleton = contracts.get(name);
     if (!skeleton) return;
 
+    // A library is not a storage type. Flattened value types such as
+    // `type Address is bytes32` share the file scope with OpenZeppelin's
+    // `library Address`, and emitting both makes solc reject the skeleton.
+    if (skeleton.kind === 'library' && occupied.has(name)) return;
+
     for (const base of skeleton.bases) {
-        emitContract(base, contracts, lines, emitted);
+        emitContract(base, contracts, lines, emitted, occupied);
     }
 
     const keyword = skeleton.kind;

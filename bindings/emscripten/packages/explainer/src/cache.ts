@@ -40,7 +40,7 @@ const SAFE_KEY_RE = /^(?:c4[xl]_0x[0-9a-fA-F]{1,64}|c4[sme]_\d+_0x[0-9a-fA-F]{1,
 const TOKEN_SYMBOL_RE = /^[A-Za-z0-9._$-]{1,32}$/;
 
 /** Bump to invalidate checked-in skeleton layouts after extractor changes. */
-const LAYOUT_CACHE_VERSION = 2;
+export const LAYOUT_CACHE_VERSION = 3;
 
 const ADDRESS_RE = /^0x[0-9a-f]{1,40}$/;
 const MISS_MARKER = '{"empty":true}';
