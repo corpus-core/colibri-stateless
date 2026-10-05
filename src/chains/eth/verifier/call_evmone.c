@@ -1012,13 +1012,15 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
   if (capture_events)
     emit_eth_transfer_log(&top_level_transfer_log, message.sender.bytes, message.destination.bytes, message.value.bytes);
 
+  // child entries are prepended to context.traces, so the top-level entry ends up at the tail
+  trace_entry_t* root_trace = NULL;
   if (capture_events) {
     free_keccak_entries(evm->keccak_entries);
     evm->keccak_entries = NULL;
     evmone_set_keccak_hook(keccak_hook_cb, &evm->keccak_entries);
 
     // top-level trace entry with traceAddress = []
-    trace_entry_t* root_trace = safe_calloc(1, sizeof(trace_entry_t));
+    root_trace                = safe_calloc(1, sizeof(trace_entry_t));
     root_trace->type          = (uint8_t) message.kind;
     root_trace->gas           = (uint64_t) message.gas;
     memcpy(root_trace->from, message.sender.bytes, 20);
@@ -1103,11 +1105,11 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
     context.logs = NULL;
 
     // update the root trace entry with gas_used, output, subtraces
-    if (context.traces) {
-      context.traces->gas_used  = evm->gas_used;
-      context.traces->subtraces = context.subtrace_count;
+    if (root_trace) {
+      root_trace->gas_used  = evm->gas_used;
+      root_trace->subtraces = context.subtrace_count;
       if (result.output_data && result.output_size)
-        context.traces->output = bytes_dup(bytes(result.output_data, result.output_size));
+        root_trace->output = bytes_dup(bytes(result.output_data, result.output_size));
     }
     evm->traces    = context.traces;
     context.traces = NULL;

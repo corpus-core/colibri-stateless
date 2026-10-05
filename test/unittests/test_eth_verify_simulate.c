@@ -77,7 +77,9 @@ void test_simulate_pap_reverted_read_is_proven() {
     data_request_t* req;
     while ((req = c4_state_get_pending_request(c4_rpc_get_state(rpc_ctx)))) {
       if (req->payload.data) {
-        char* payload = bprintf(NULL, "%s", (char*) req->payload.data);
+        // payload bytes are not NUL-terminated
+        char* payload = safe_calloc(1, req->payload.len + 1);
+        memcpy(payload, req->payload.data, req->payload.len);
         if (strstr(payload, "colibri_proofCall")) {
           proof_call_seen = true;
           TEST_ASSERT_NOT_NULL_MESSAGE(strstr(payload, "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"), "WETH missing in proofCall");
@@ -601,9 +603,9 @@ void test_simulation_keeps_reads_of_reverted_subcall(void) {
   slot_key[31]         = 0x01;
   slot_value[31]       = 0x2a;
 
-  evm_call_ctx_t evm = {0};
-  evm.sim_flags      = EVM_SIM_STATE_VALUES;
-  evm.accounts       = make_runtime(caller, caller_code, sizeof(caller_code));
+  evm_call_ctx_t evm        = {0};
+  evm.sim_flags             = EVM_SIM_STATE_VALUES;
+  evm.accounts              = make_runtime(caller, caller_code, sizeof(caller_code));
   evm.accounts->balance[31] = 10;
   evm.accounts->flags |= ACCOUNT_HAS_BALANCE;
   evm.accounts->next = make_runtime(target, target_code, sizeof(target_code));

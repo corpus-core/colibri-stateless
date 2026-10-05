@@ -171,8 +171,10 @@ void call_account_lazy_fetch_storage(evmone_context_t* ctx, const address_t addr
       }
       json_t proof_item = json_get(json_at(json_get(proof_result, "storageProof"), 0), "value");
       if (proof_item.type == JSON_TYPE_STRING) {
-        buffer_t val_buf = stack_buffer(val);
-        bytes_t  b       = json_as_bytes(proof_item, &val_buf);
+        // decode into a separate buffer: short quantities must be right-aligned into a zeroed `val`
+        bytes32_t raw     = {0};
+        buffer_t  val_buf = stack_buffer(raw);
+        bytes_t   b       = json_as_bytes(proof_item, &val_buf);
         if (b.len <= 32) memcpy(val + (32 - b.len), b.data, b.len);
       }
       // Feed the adaptive learner. The oblivious flag confirms the request
@@ -189,8 +191,10 @@ void call_account_lazy_fetch_storage(evmone_context_t* ctx, const address_t addr
         req->validated = true;
       }
       if (val_json.type == JSON_TYPE_STRING) {
-        buffer_t val_buf = stack_buffer(val);
-        bytes_t  b       = json_as_bytes(val_json, &val_buf);
+        // decode into a separate buffer: short values must be right-aligned into a zeroed `val`
+        bytes32_t raw     = {0};
+        buffer_t  val_buf = stack_buffer(raw);
+        bytes_t   b       = json_as_bytes(val_json, &val_buf);
         if (b.len <= 32) memcpy(val + (32 - b.len), b.data, b.len);
       }
     }
