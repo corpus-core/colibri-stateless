@@ -68,9 +68,16 @@ void test_pap_cached() {
   run_rpc_test("eth_call_pap_cached", C4_PROVER_FLAG_INCLUDE_CODE, VERIFY_FLAG_PAP);
 }
 
+// Multicall3.getBlockNumber() reads only NUMBER and no storage: the block context must come
+// from the lazily fetched eth_getBlockHeader proof, otherwise the result would be 0.
+void test_pap_block_number() {
+  run_rpc_test("eth_call_pap_blocknumber", C4_PROVER_FLAG_INCLUDE_CODE, VERIFY_FLAG_PAP);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_pap_cached);
+  RUN_TEST(test_pap_block_number);
   RUN_TEST(test_call);
   RUN_TEST(test_electra);
   RUN_TEST(test_7702);
