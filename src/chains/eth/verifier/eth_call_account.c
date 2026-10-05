@@ -102,6 +102,7 @@ void call_account_reset_accessed(call_account_t* list) {
     n->src_nonce = n->nonce;
     for (call_storage_t* s = n->storage; s; s = s->next) {
       s->accessed = false;
+      s->warm     = false;
       s->modified = false;
       memcpy(s->post_value, s->src_value, 32);
     }

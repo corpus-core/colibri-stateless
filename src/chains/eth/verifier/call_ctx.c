@@ -203,6 +203,7 @@ void call_account_lazy_fetch_storage(evmone_context_t* ctx, const address_t addr
     memcpy(s->post_value, val, 32);
     s->source    = STORAGE_SRC_RPC;
     s->accessed  = true;
+    s->warm      = true;
     s->next      = acc->storage;
     acc->storage = s;
     return;
@@ -487,6 +488,7 @@ void context_apply(evmone_context_t* ctx) {
         memcpy(ps->post_value, s->post_value, 32);
         ps->modified = memcmp(ps->src_value, ps->post_value, 32) != 0;
         ps->accessed |= s->accessed;
+        ps->warm |= s->warm;
       }
       else {
         call_storage_t* ns  = safe_calloc(1, sizeof(call_storage_t));
@@ -506,6 +508,37 @@ void context_apply(evmone_context_t* ctx) {
     tail->next        = ctx->parent->logs;
     ctx->parent->logs = ctx->logs;
     ctx->logs         = NULL;
+  }
+}
+
+void context_keep_reads(evmone_context_t* ctx) {
+  if (!ctx->parent) return;
+  evmone_context_t* root = ctx->parent;
+  while (root->parent) root = root->parent;
+
+  for (call_account_t* acc = ctx->accounts; acc; acc = acc->next) {
+    // the nearest ancestor holding the account is where later lookups will find the slot;
+    // if no ancestor knows it, keep the read on the root so it is still verified
+    call_account_t* target = NULL;
+    for (call_storage_t* s = acc->storage; s; s = s->next) {
+      if (!s->accessed) continue;
+      if (!target) target = call_account_find(ctx->parent, acc->address);
+      if (!target) target = call_account_list_get_or_create(&root->accounts, acc->address);
+      call_storage_t* ts = call_storage_find(target, s->key);
+      if (ts) {
+        ts->accessed = true;
+        continue;
+      }
+      ts = safe_calloc(1, sizeof(call_storage_t));
+      memcpy(ts->key, s->key, 32);
+      memcpy(ts->src_value, s->src_value, 32);
+      memcpy(ts->post_value, s->src_value, 32);
+      ts->source      = s->source;
+      ts->verified_at = s->verified_at;
+      ts->accessed    = true;
+      ts->next        = target->storage;
+      target->storage = ts;
+    }
   }
 }
 

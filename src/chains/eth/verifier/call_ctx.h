@@ -329,6 +329,20 @@ void emit_eth_transfer_log(emitted_log_t** logs, const address_t from, const add
 void context_free(evmone_context_t* ctx);
 void context_apply(evmone_context_t* ctx);
 
+/**
+ * Keeps the storage reads of a reverted or failed child frame.
+ *
+ * The child's writes and its EIP-2929 warm set are discarded, but every slot the
+ * child read still influenced the execution. Each such slot is recorded with its
+ * pre-state value as `accessed` (not `warm`) on the nearest ancestor holding the
+ * account, so it appears in the simulation access list and is verified by
+ * `colibri_proofCall` in PAP mode. If no ancestor holds the account, the slot is
+ * recorded on a new account entry of the root context, so the read is never dropped.
+ *
+ * @param ctx child context whose frame did not succeed; `ctx->parent` must be set
+ */
+void context_keep_reads(evmone_context_t* ctx);
+
 // :: Context initialization
 
 /**

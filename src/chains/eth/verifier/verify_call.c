@@ -737,6 +737,7 @@ static bool verify_call_result_and_finish(verify_ctx_t* ctx, evm_call_ctx_t* evm
         s->source      = STORAGE_SRC_NONE;
         s->modified    = false;
         s->accessed    = false;
+        s->warm        = false;
       }
       eth_call_account_cache_save(ctx, ac->address, ac);
     }

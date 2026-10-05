@@ -180,6 +180,7 @@ static evmc_bytes32 host_get_storage(void* context, const evmc_address* addr, co
     if (s) {
       memcpy(result.bytes, s->post_value, 32);
       s->accessed = true;
+      s->warm     = true;
       debug_print_bytes32("get_storage result (found)", &result);
       return result;
     }
@@ -230,6 +231,7 @@ static evmone_storage_status host_set_storage(void* context, const evmc_address*
     memcpy(s->post_value, value->bytes, 32);
     s->modified  = true;
     s->accessed  = true;
+    s->warm      = true;
     s->next      = acc->storage;
     acc->storage = s;
   }
@@ -599,6 +601,8 @@ static void host_call(void* context, const struct evmone_message* msg, const uin
 
   if (exec_result.status_code == 0)
     context_apply(&child);
+  else
+    context_keep_reads(&child);
   EVM_LOG("========/child call complete ====");
 
   context_free(&child);
@@ -724,11 +728,12 @@ static int host_access_storage(void* context, const evmc_address* addr, const ev
   if (acc) {
     call_storage_t* s = call_storage_find(acc, key->bytes);
     if (s) {
-      if (s->accessed) {
+      if (s->warm) {
         EVM_LOG("access_storage: WARM");
         return EVMONE_ACCESS_WARM;
       }
       s->accessed = true;
+      s->warm     = true;
       EVM_LOG("access_storage: COLD (marked)");
       return EVMONE_ACCESS_COLD;
     }
