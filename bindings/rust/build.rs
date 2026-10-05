@@ -30,6 +30,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=COLIBRI_CMAKE_BUILD_DIR");
     println!("cargo:rerun-if-env-changed=COLIBRI_SKIP_NATIVE");
     println!("cargo:rerun-if-env-changed=DOCS_RS");
+    println!("cargo:rerun-if-env-changed=WASI_SDK_PATH");
     println!("cargo:rerun-if-changed=build.rs");
 
     let target = env::var("TARGET").expect("TARGET env var must be set by cargo");
@@ -123,19 +124,22 @@ fn resolve_link_setup(manifest_dir: &Path, target: &str) -> LinkSetup {
         return setup;
     }
 
-    // WebAssembly targets are not supported by the native distribution:
-    // no prebuilt release assets exist and the C core cannot be linked
-    // against rustc's wasm targets (different ABI / no libc). Fail early
-    // with a pointer to the supported alternative.
-    if target.starts_with("wasm32") || target.starts_with("wasm64") {
+    // The C core cannot be linked against rustc's `wasm32-unknown-unknown`
+    // target (no libc, no C++ runtime, entirely different ABI). We do
+    // support `wasm32-wasip1` via the wasi-sdk: fall through to the
+    // regular CMake / prebuilt paths below. Fail early for every other
+    // wasm target with a pointer to the JS/TS binding.
+    if (target.starts_with("wasm32") || target.starts_with("wasm64")) && target != "wasm32-wasip1" {
         panic!(
-            "colibri-stateless: WebAssembly targets ({target}) are not supported.\n\
+            "colibri-stateless: WebAssembly target `{target}` is not supported.\n\
              \n\
-             For browser / wasm environments use the JS/TS binding instead:\n\
+             Supported wasm target: `wasm32-wasip1` (WASI Preview 1, built via wasi-sdk).\n\
+             \n\
+             For browser / wasm-bindgen environments use the JS/TS binding instead:\n\
              https://www.npmjs.com/package/@corpus-core/colibri-stateless\n\
              \n\
-             If you have static archives built for your wasm target (e.g.\n\
-             via wasi-sdk), point COLIBRI_LIB_DIR at them to override this."
+             If you have static archives built for your wasm target,\n\
+             point COLIBRI_LIB_DIR at them to override this."
         );
     }
 
@@ -204,6 +208,11 @@ fn build_with_cmake(repo_root: &Path, target: &str) -> LinkSetup {
         // `build` builds ALL_BUILD implicitly, which contains every
         // registered chain module plus the deps.
         .build_target("verifier");
+
+    if target == "wasm32-wasip1" {
+        configure_wasip1(&mut cfg);
+    }
+
     let dst = cfg.build();
     let build_dir = dst.join("build");
 
@@ -393,8 +402,110 @@ fn link_system_libs(target: &str) {
         // runtime, so the two halves agree.
     } else if target.contains("android") {
         println!("cargo:rustc-link-lib=c++_shared");
+    } else if target == "wasm32-wasip1" {
+        link_wasip1_cxx_runtime();
     } else if target.contains("linux") || target.contains("unknown-linux") {
         println!("cargo:rustc-link-lib=stdc++");
         println!("cargo:rustc-link-lib=m");
     }
+}
+
+/// Configure a CMake build for the `wasm32-wasip1` target using the
+/// wasi-sdk toolchain file. Requires `WASI_SDK_PATH` to point at an
+/// unpacked wasi-sdk release (see https://github.com/WebAssembly/wasi-sdk).
+fn configure_wasip1(cfg: &mut cmake::Config) {
+    let sdk = wasi_sdk_path();
+    let toolchain = pick_wasip1_toolchain(&sdk);
+
+    cfg.define("CMAKE_TOOLCHAIN_FILE", &toolchain)
+        // WASI has no filesystem-agnostic path abstraction; disable the
+        // simple file storage and rely on the always-available in-memory
+        // one. Hosts wanting persistence must supply their own storage.
+        .define("FILE_STORAGE", "OFF")
+        .define("MEMORY_STORAGE", "ON")
+        // PROVER_CACHE is a server-side optimisation with a sizeable
+        // static footprint; not useful in a sandboxed wasm build.
+        .define("PROVER_CACHE", "OFF")
+        // wasm objects are inherently position-independent; -fPIC does
+        // not apply and confuses some third-party build scripts (blst).
+        .define("CMAKE_POSITION_INDEPENDENT_CODE", "OFF")
+        // The SP1-based ZK proof host tool cannot cross-compile to wasm.
+        .define("ETH_ZKPROOF", "OFF");
+}
+
+/// Locate the wasi-sdk that will be used both by CMake and for
+/// discovering the sysroot at link time.
+fn wasi_sdk_path() -> PathBuf {
+    env::var("WASI_SDK_PATH").map(PathBuf::from).expect(
+        "colibri-stateless: building for wasm32-wasip1 requires the wasi-sdk. \
+             Set WASI_SDK_PATH to an unpacked wasi-sdk release \
+             (see https://github.com/WebAssembly/wasi-sdk).",
+    )
+}
+
+/// Pick the wasi-sdk CMake toolchain file for wasip1. wasi-sdk >= 22
+/// ships `wasi-sdk-p1.cmake`; older releases only have `wasi-sdk.cmake`.
+fn pick_wasip1_toolchain(sdk: &Path) -> PathBuf {
+    let p1 = sdk.join("share/cmake/wasi-sdk-p1.cmake");
+    if p1.exists() {
+        return p1;
+    }
+    let generic = sdk.join("share/cmake/wasi-sdk.cmake");
+    assert!(
+        generic.exists(),
+        "colibri-stateless: neither wasi-sdk-p1.cmake nor wasi-sdk.cmake found under {}. \
+         Please install wasi-sdk >= 22.",
+        sdk.display()
+    );
+    generic
+}
+
+/// Tell rustc where to find the C++ runtime for the wasm32-wasip1
+/// target. evmone requires libc++/libc++abi; wasi-libc itself comes
+/// from rustc's own wasi sysroot and MUST NOT be shadowed by the
+/// wasi-sdk copy (rustc's crt1-command.o and libstd are compiled
+/// against very specific wasi-libc symbol versions -- see e.g.
+/// `__wasi_init_tp`, `pthread_join`, `pthread_detach`; if rust-lld
+/// resolves `-l c` against the wasi-sdk archive first, the mismatch
+/// surfaces as "undefined symbol" errors at link time).
+///
+/// The prebuilt release asset therefore ships `libc++.a` and
+/// `libc++abi.a` inside `lib/` next to the Colibri archives and no
+/// extra work is needed here. In dev mode we do the equivalent by
+/// copying just those two archives into `OUT_DIR/wasi-cxx/` and
+/// adding *only* that scratch directory to the rustc link search
+/// path.
+fn link_wasip1_cxx_runtime() {
+    let Ok(sdk) = env::var("WASI_SDK_PATH") else {
+        return;
+    };
+    let src_dir = PathBuf::from(sdk).join("share/wasi-sysroot/lib/wasm32-wasip1");
+    if !src_dir.exists() {
+        return;
+    }
+    let Some(out_dir) = env::var_os("OUT_DIR") else {
+        // Should never happen inside a Cargo build script, but bail
+        // out cleanly if it does.
+        return;
+    };
+    let dst_dir = PathBuf::from(out_dir).join("wasi-cxx");
+    if let Err(e) = fs::create_dir_all(&dst_dir) {
+        eprintln!("cargo:warning=Could not create {}: {e}", dst_dir.display());
+        return;
+    }
+    for lib in ["libc++.a", "libc++abi.a"] {
+        let src = src_dir.join(lib);
+        let dst = dst_dir.join(lib);
+        if let Err(e) = fs::copy(&src, &dst) {
+            eprintln!(
+                "cargo:warning=Could not copy {} -> {}: {e}",
+                src.display(),
+                dst.display()
+            );
+            return;
+        }
+    }
+    println!("cargo:rustc-link-search=native={}", dst_dir.display());
+    println!("cargo:rustc-link-lib=static=c++");
+    println!("cargo:rustc-link-lib=static=c++abi");
 }

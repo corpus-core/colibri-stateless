@@ -170,6 +170,15 @@ if(NOT evmone_external_POPULATED)
 endif()
 add_subdirectory(${evmone_external_SOURCE_DIR} ${evmone_external_BINARY_DIR} EXCLUDE_FROM_ALL)
 
+# wasi-sdk ships libc++ / libc++abi built with -fno-exceptions, so
+# `__cxa_allocate_exception` / `__cxa_throw` are absent. Compile evmone
+# without exceptions and RTTI on WASI so the `throw` statements in
+# vm.cpp become straight aborts (the C wrapper never lets an exception
+# escape anyway) and no `__cxa_*` symbols are emitted.
+if(CMAKE_SYSTEM_NAME STREQUAL "WASI")
+    target_compile_options(evmone PRIVATE -fno-exceptions -fno-rtti)
+endif()
+
 # Provide evmone_precompiles/keccak.hpp via our local bridge instead of
 # linking the full evmone_precompiles library (avoids duplicate precompile code).
 target_include_directories(evmone PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
@@ -198,6 +207,11 @@ set_target_properties(evmone_wrapper PROPERTIES
     CXX_STANDARD_REQUIRED ON
     CXX_EXTENSIONS OFF
 )
+
+# See the note on `evmone` above: no exceptions / RTTI on WASI.
+if(CMAKE_SYSTEM_NAME STREQUAL "WASI")
+    target_compile_options(evmone_wrapper PRIVATE -fno-exceptions -fno-rtti)
+endif()
 
 # Add include directories - make EVMC includes PUBLIC so they propagate
 target_include_directories(evmone_wrapper 
