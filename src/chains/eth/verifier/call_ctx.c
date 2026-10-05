@@ -27,6 +27,9 @@
 #include "eth_account.h"
 #include "eth_verify.h"
 #include "logger.h"
+#ifdef PAP
+#include "pap_req.h"
+#endif
 #include "plugin.h"
 #include "state.h"
 #include "state_overrides.h"
@@ -47,9 +50,11 @@ static bool eth_get_call_block_context_from_header_data(bytes_t el_header, eth_c
 
   bytes_t coinbase = eth_el_header_get(el_header, EL_FEE_RECIPIENT);
   if (coinbase.data && coinbase.len >= 20) memcpy(out->coinbase, coinbase.data, 20);
-  memcpy(out->prev_randao, eth_el_header_get(el_header, EL_PREV_RANDAO).data, 32); // not available in ETH_BLOCK_HEADER_DATA
+  bytes_t prev_randao = eth_el_header_get(el_header, EL_PREV_RANDAO); // not available in ETH_BLOCK_HEADER_DATA
+  if (prev_randao.data && prev_randao.len == 32) memcpy(out->prev_randao, prev_randao.data, 32);
+  // baseFeePerGas is a minimal big-endian RLP integer, right-align it in the uint256
   bytes_t base_fee = eth_el_header_get(el_header, EL_BASE_FEE_PER_GAS);
-  if (base_fee.data && base_fee.len >= 32) memcpy(out->base_fee_per_gas, base_fee.data, 32);
+  if (base_fee.data && base_fee.len <= 32) memcpy(out->base_fee_per_gas + 32 - base_fee.len, base_fee.data, base_fee.len);
   keccak(el_header, out->block_hash);
 
   return true;
@@ -505,6 +510,87 @@ void context_apply(evmone_context_t* ctx) {
 
 // :: Context initialization
 
+/**
+ * Populates the block fields of an EVM context from an RLP execution header.
+ *
+ * @param out EVM context to populate; `has_block_context` is set on success
+ * @param header RLP-encoded execution header, or empty to leave the defaults
+ */
+static void apply_block_header(evmone_context_t* out, bytes_t header) {
+  eth_call_block_context_t bctx = {0};
+  if (!eth_get_call_block_context_from_header_data(header, &bctx)) return;
+  out->block_number    = bctx.block_number;
+  out->timestamp       = bctx.timestamp;
+  out->block_gas_limit = bctx.gas_limit;
+  memcpy(out->block_coinbase, bctx.coinbase, 20);
+  memcpy(out->block_prev_randao, bctx.prev_randao, 32);
+  memcpy(out->block_base_fee, bctx.base_fee_per_gas, 32);
+  memcpy(out->block_hash, bctx.block_hash, 32);
+  // blob_base_fee can be derived from excess_blob_gas (EIP-4844); for now leave zero
+  (void) bctx.excess_blob_gas;
+  out->has_block_context = true;
+}
+
+void call_lazy_fetch_block_header(evmone_context_t* root) {
+  if (root->block_header_requested || !root->evm) return;
+#ifdef PAP
+  verify_ctx_t* ctx      = root->ctx;
+  json_t        block_id = json_at(ctx->args, 1);
+  char          tmp[120];
+  buffer_t      params = stack_buffer(tmp);
+  if (block_id.type == JSON_TYPE_STRING)
+    bprintf(&params, "[%J,false]", block_id);
+  else
+    bprintf(&params, "[\"latest\",false]");
+
+  json_t      block  = {0};
+  c4_status_t status = pap_request_eth_rpc(ctx, "eth_getBlockByNumber", (const char*) params.data.data,
+                                           "{hash:bytes32,number:hexuint,timestamp:hexuint}", &block);
+  if (status == C4_PENDING) {
+    root->block_header_requested = true;
+    root->storage_miss           = true;
+    return;
+  }
+  root->block_header_requested = true; // evaluate the response only once per run
+  if (status != C4_SUCCESS) return;
+  if (block.type != JSON_TYPE_OBJECT) {
+    c4_state_add_error(&ctx->state, "eth_getBlockByNumber returned no block for the call block context");
+    return;
+  }
+
+  // the header layout depends on the fork, which can be derived from the fields present
+  fork_id_t fork = C4_FORK_DENEB;
+  if (json_get(block, "blockAccessListHash").type != JSON_TYPE_NOT_FOUND || json_get(block, "slotNumber").type != JSON_TYPE_NOT_FOUND)
+    fork = C4_FORK_GLOAS;
+  else if (json_get(block, "requestsHash").type != JSON_TYPE_NOT_FOUND)
+    fork = C4_FORK_ELECTRA;
+
+  bytes_t header = {0};
+  if (eth_el_header_build_from_json(&ctx->state, &header, fork, block) != C4_SUCCESS) {
+    safe_free(header.data);
+    return;
+  }
+
+  bytes32_t expected_hash = {0};
+  bytes32_t header_hash   = {0};
+  buffer_t  hash_buf      = stack_buffer(expected_hash);
+  json_get_bytes(block, "hash", &hash_buf);
+  keccak(header, header_hash);
+  if (memcmp(expected_hash, header_hash, 32) != 0) {
+    safe_free(header.data);
+    c4_state_add_error(&ctx->state, "eth_getBlockByNumber returned a header not matching its block hash");
+    return;
+  }
+
+  safe_free(root->evm->block_header.data);
+  root->evm->block_header          = header;
+  root->evm->block_header_verified = false;
+  apply_block_header(root, header);
+#else
+  c4_state_add_error(&root->ctx->state, "missing block header for the call block context");
+#endif
+}
+
 void init_evmone_context(evmone_context_t* out, verify_ctx_t* ctx, evm_call_ctx_t* evm, void* executor, bool capture_events) {
   memset(out, 0, sizeof(*out));
   out->executor        = executor;
@@ -514,20 +600,19 @@ void init_evmone_context(evmone_context_t* out, verify_ctx_t* ctx, evm_call_ctx_
   out->block_gas_limit = 300000000; // max limit
   out->capture_events  = capture_events;
   out->pap_mode        = evm->pap_mode;
+  out->evm             = evm;
+  evm->block_ctx_used  = false;
 
-  // extract EVM block context from the verified RLP EL header (via ETH_EL_PROOF_UNION)
-  eth_call_block_context_t bctx = {0};
-  if (eth_get_call_block_context_from_proof(ctx, &bctx)) {
-    out->block_number    = bctx.block_number;
-    out->timestamp       = bctx.timestamp;
-    out->block_gas_limit = bctx.gas_limit;
-    memcpy(out->block_coinbase, bctx.coinbase, 20);
-    memcpy(out->block_prev_randao, bctx.prev_randao, 32);
-    memcpy(out->block_base_fee, bctx.base_fee_per_gas, 32);
-    memcpy(out->block_hash, bctx.block_hash, 32);
-    // blob_base_fee can be derived from excess_blob_gas (EIP-4844); for now leave zero
-    (void) bctx.excess_blob_gas;
+  // take a copy of the verified RLP EL header (via ETH_EL_PROOF_UNION) if none is known yet
+  if (!evm->block_header.data) {
+    eth_call_block_context_t bctx     = {0};
+    evm_call_ctx_t*          call_ctx = (evm_call_ctx_t*) ctx->user_data;
+    if (eth_get_call_block_context_from_proof(ctx, &bctx) && call_ctx && call_ctx->el_header.data) {
+      evm->block_header          = bytes_dup(call_ctx->el_header);
+      evm->block_header_verified = true;
+    }
   }
+  apply_block_header(out, evm->block_header);
 }
 
 // :: EVM call context lifecycle
@@ -545,4 +630,6 @@ void evm_call_ctx_free(evm_call_ctx_t* evm) {
   evm->traces = NULL;
   call_account_free_list(evm->accounts);
   evm->accounts = NULL;
+  safe_free(evm->block_header.data);
+  evm->block_header = NULL_BYTES;
 }

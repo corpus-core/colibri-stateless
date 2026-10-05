@@ -131,6 +131,9 @@ typedef struct evm_call_ctx {
   bool             reverted;  // set to true when the EVM execution reverted; `call_result` then holds the revert data
   bytes_t          el_header; // header of the execution payload
   bytes32_t        el_block_hash;
+  bytes_t          block_header;          // owned RLP copy of the header the EVM block context is taken from (empty = not yet known)
+  bool             block_header_verified; // `block_header` matches a verified `el_header`
+  bool             block_ctx_used;        // the last EVM run read the tx/block context (set by host_get_tx_context)
 } evm_call_ctx_t;
 
 /**
@@ -192,6 +195,9 @@ typedef struct evmone_context {
   bool                   capture_events;
   bool                   pap_mode;
   bool                   storage_miss;
+  bool                   has_block_context;      // block fields were populated from a block header
+  bool                   block_header_requested; // PAP: the header request was already emitted in this run
+  evm_call_ctx_t*        evm;                    // owning call context (root only)
 } evmone_context_t;
 
 /** Block context extracted from the verified RLP execution header of a call proof. */
@@ -233,6 +239,23 @@ call_account_t* call_account_get_or_create(evmone_context_t* ctx, const address_
 
 void    call_account_lazy_fetch_storage(evmone_context_t* ctx, const address_t address, const bytes32_t key, bytes32_t result);
 bytes_t call_account_get_code(evmone_context_t* ctx, const address_t address);
+
+/**
+ * PAP mode: lazily fetches the block header used as EVM block context.
+ *
+ * Called when the EVM reads the tx/block context and no header is known yet.
+ * Requests `eth_getBlockByNumber(<block tag of the call>, false)` from the
+ * execution RPC, rebuilds the RLP header and checks that its keccak hash
+ * matches the returned `hash`. On success the header is stored (owned) in
+ * `evm->block_header` and the block fields of `root` are populated. While the
+ * request is pending `root->storage_miss` is set, so the current EVM run is
+ * aborted and repeated once the response is available (same pattern as lazy
+ * storage fetching). The header is unverified until the following
+ * `colibri_proofCall` compares it against the verified block hash.
+ *
+ * @param root root EVM execution context (must have `evm` set)
+ */
+void call_lazy_fetch_block_header(evmone_context_t* root);
 
 // :: Block hash lookup
 
@@ -316,6 +339,9 @@ void context_apply(evmone_context_t* ctx);
  * Populates `block_number`, `timestamp`, `block_coinbase`, `block_prev_randao`,
  * `block_base_fee`, `blob_base_fee`, and `block_gas_limit` from the verified
  * RLP execution header, or leaves them at zero/defaults for PAP mode.
+ * The header is kept as an owned copy in `evm->block_header`; if it is
+ * already set (e.g. fetched lazily in PAP mode) it takes precedence. In PAP
+ * mode a missing header is fetched on first use via `call_lazy_fetch_block_header`.
  *
  * @param out      context to initialize (zeroed by caller)
  * @param ctx      verification context

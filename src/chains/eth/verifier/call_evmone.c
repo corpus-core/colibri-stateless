@@ -615,6 +615,9 @@ static void host_get_tx_context(void* context, evmone_tx_context* result) {
   //    return;
   //  }
   EVM_LOG("get_tx_context called");
+  // evmone loads the whole tx context on first use, so any block-dependent opcode ends up here
+  if (root->pap_mode && !root->has_block_context) call_lazy_fetch_block_header(root);
+  if (root->evm) root->evm->block_ctx_used = true;
   memset(result, 0, sizeof(evmone_tx_context));
   memcpy(result->tx_origin.bytes, root->tx_origin, 20);
   memcpy(result->block_coinbase.bytes, root->block_coinbase, 20);
