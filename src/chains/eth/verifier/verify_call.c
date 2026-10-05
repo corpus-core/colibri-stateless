@@ -555,15 +555,10 @@ static bool pap_verify_proof_response(verify_ctx_t* ctx, call_account_t* call_ac
     goto cleanup;
   }
 
-  // A header-only proofCall (empty accessList) carries no accounts and therefore no state root to compare.
-  ssz_ob_t accounts     = ssz_get(&proof_ctx.proof, "accounts");
-  uint32_t num_accounts = ssz_len(accounts);
-  if (num_accounts > 0) {
-    bytes_t header_state_root = eth_el_header_get(evm->el_header, EL_STATE_ROOT);
-    if (!header_state_root.data || header_state_root.len != 32 || memcmp(header_state_root.data, state_root, 32) != 0) {
-      c4_state_add_error(&ctx->state, "proofCall state proof verification failed");
-      goto cleanup;
-    }
+  bytes_t header_state_root = eth_el_header_get(evm->el_header, EL_STATE_ROOT);
+  if (!header_state_root.data || header_state_root.len != 32 || memcmp(header_state_root.data, state_root, 32) != 0) {
+    c4_state_add_error(&ctx->state, "proofCall state proof verification failed");
+    goto cleanup;
   }
 
   // Freshness gate for PAP: in PAP mode there is no usable proof when
@@ -573,21 +568,21 @@ static bool pap_verify_proof_response(verify_ctx_t* ctx, call_account_t* call_ac
   // via the outer ctx's user_data; args / min_ts / errors also live there.
   if (!verify_call_freshness(ctx, ctx)) goto cleanup;
 
-  // The EVM may have run with an unverified (RPC) or an older header. If it differs
-  // from the verified one, switch to the verified header and repeat the run when
-  // the block context was actually read.
+  // The EVM may have run with the header of another block than the one the storage
+  // was proven against. In that case switch to the proven header and repeat the run
+  // when the block context was actually read.
   {
     bytes32_t used_hash = {0};
     if (evm->block_header.data) keccak(evm->block_header, used_hash);
     if (!evm->block_header.data || memcmp(used_hash, evm->el_block_hash, 32) != 0) {
       if (evm->block_ctx_used) *values_changed = true;
-      safe_free(evm->block_header.data);
-      evm->block_header = bytes_dup(evm->el_header);
+      evm->block_header = evm->el_header;
     }
-    evm->block_header_verified = true;
   }
 
   // Proof is valid, so we check the values for changes
+  ssz_ob_t accounts     = ssz_get(&proof_ctx.proof, "accounts");
+  uint32_t num_accounts = ssz_len(accounts);
   for (uint32_t i = 0; i < num_accounts; i++) {
     ssz_ob_t        ac          = ssz_at(accounts, i);
     uint8_t*        addr        = ssz_get(&ac, "address").bytes.data;
@@ -717,11 +712,8 @@ static bool verify_call_result_and_finish(verify_ctx_t* ctx, evm_call_ctx_t* evm
     }
   }
 
-  // a block context taken from an unverified header must be confirmed by a proofCall as well
-  bool needs_header_proof = evm->pap_mode && evm->block_ctx_used && !evm->block_header_verified;
-
   // verify the values
-  if ((!all_verified || needs_header_proof) && !proof_call(ctx, evm)) return false;
+  if (!all_verified && !proof_call(ctx, evm)) return false;
   if (!evm->evm_done) return true;
 
   ctx->success = is_simulate   ? match_simulate_result(ctx, evm)

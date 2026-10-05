@@ -29,6 +29,7 @@
 #include "logger.h"
 #ifdef PAP
 #include "pap_req.h"
+#include "sync_committee.h"
 #endif
 #include "plugin.h"
 #include "state.h"
@@ -538,53 +539,42 @@ void call_lazy_fetch_block_header(evmone_context_t* root) {
   json_t        block_id = json_at(ctx->args, 1);
   char          tmp[120];
   buffer_t      params = stack_buffer(tmp);
-  if (block_id.type == JSON_TYPE_STRING)
-    bprintf(&params, "[%J,false]", block_id);
-  else
-    bprintf(&params, "[\"latest\",false]");
+  if (block_id.type != JSON_TYPE_STRING) block_id = json_parse("\"latest\"");
+  bprintf(&params, "[%J]", block_id);
 
-  json_t      block  = {0};
-  c4_status_t status = pap_request_eth_rpc(ctx, "eth_getBlockByNumber", (const char*) params.data.data,
-                                           "{hash:bytes32,number:hexuint,timestamp:hexuint}", &block);
-  if (status == C4_PENDING) {
-    root->block_header_requested = true;
-    root->storage_miss           = true;
-    return;
-  }
+  // the block tag was validated as `block` by the caller, so it fits into `tmp`
   root->block_header_requested = true; // evaluate the response only once per run
+  ssz_ob_t    response         = {0};
+  c4_status_t status           = pap_request_proof(ctx, "eth_getBlockHeader", (const char*) params.data.data, &response);
+  if (status == C4_PENDING) root->storage_miss = true;
+  if (status == C4_ERROR && !ctx->state.error) c4_state_add_error(&ctx->state, "eth_getBlockHeader request has no response");
   if (status != C4_SUCCESS) return;
-  if (block.type != JSON_TYPE_OBJECT) {
-    c4_state_add_error(&ctx->state, "eth_getBlockByNumber returned no block for the call block context");
+
+  ssz_ob_t block_proof = ssz_get(&response, "proof");
+  if (!ssz_is_type(&block_proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_BLOCK_PROOF))) {
+    c4_state_add_error(&ctx->state, "eth_getBlockHeader response has unexpected proof type");
     return;
   }
 
-  // the header layout depends on the fork, which can be derived from the fields present
-  fork_id_t fork = C4_FORK_DENEB;
-  if (json_get(block, "blockAccessListHash").type != JSON_TYPE_NOT_FOUND || json_get(block, "slotNumber").type != JSON_TYPE_NOT_FOUND)
-    fork = C4_FORK_GLOAS;
-  else if (json_get(block, "requestsHash").type != JSON_TYPE_NOT_FOUND)
-    fork = C4_FORK_ELECTRA;
+  // sync data and block verification may need further requests (e.g. validators)
+  bytes_t   header     = {0};
+  bytes32_t block_hash = {0};
+  ctx->sync_data       = ssz_get(&response, "sync_data");
+  status               = c4_update_from_sync_data(ctx);
+  if (status == C4_SUCCESS) status = c4_verify_block(ctx, ssz_get(&block_proof, "elProof"), &header, block_hash);
+  if (status == C4_PENDING) root->storage_miss = true;
+  if (status != C4_SUCCESS) return;
 
-  bytes_t header = {0};
-  if (eth_el_header_build_from_json(&ctx->state, &header, fork, block) != C4_SUCCESS) {
-    safe_free(header.data);
+  // a concrete block number (quoted "0x" + up to 16 nibbles) must match the verified header
+  uint64_t number       = eth_el_header_get_uint64(header, EL_BLOCK_NUMBER);
+  bool     is_block_num = block_id.len > 3 && block_id.len <= 20 && block_id.start[1] == '0' && block_id.start[2] == 'x';
+  if (is_block_num && number != json_as_uint64(block_id)) {
+    c4_state_add_error(&ctx->state, "eth_getBlockHeader returned a different block than requested");
     return;
   }
+  if (!eth_check_latest_freshness(ctx, eth_json_is_latest(block_id), true, eth_el_header_get_uint64(header, EL_TIMESTAMP))) return;
 
-  bytes32_t expected_hash = {0};
-  bytes32_t header_hash   = {0};
-  buffer_t  hash_buf      = stack_buffer(expected_hash);
-  json_get_bytes(block, "hash", &hash_buf);
-  keccak(header, header_hash);
-  if (memcmp(expected_hash, header_hash, 32) != 0) {
-    safe_free(header.data);
-    c4_state_add_error(&ctx->state, "eth_getBlockByNumber returned a header not matching its block hash");
-    return;
-  }
-
-  safe_free(root->evm->block_header.data);
-  root->evm->block_header          = header;
-  root->evm->block_header_verified = false;
+  root->evm->block_header = header;
   apply_block_header(root, header);
 #else
   c4_state_add_error(&root->ctx->state, "missing block header for the call block context");
@@ -603,14 +593,12 @@ void init_evmone_context(evmone_context_t* out, verify_ctx_t* ctx, evm_call_ctx_
   out->evm             = evm;
   evm->block_ctx_used  = false;
 
-  // take a copy of the verified RLP EL header (via ETH_EL_PROOF_UNION) if none is known yet
+  // use the verified RLP EL header (via ETH_EL_PROOF_UNION) if none is known yet
   if (!evm->block_header.data) {
     eth_call_block_context_t bctx     = {0};
     evm_call_ctx_t*          call_ctx = (evm_call_ctx_t*) ctx->user_data;
-    if (eth_get_call_block_context_from_proof(ctx, &bctx) && call_ctx && call_ctx->el_header.data) {
-      evm->block_header          = bytes_dup(call_ctx->el_header);
-      evm->block_header_verified = true;
-    }
+    if (eth_get_call_block_context_from_proof(ctx, &bctx) && call_ctx && call_ctx->el_header.data)
+      evm->block_header = call_ctx->el_header;
   }
   apply_block_header(out, evm->block_header);
 }
@@ -630,6 +618,4 @@ void evm_call_ctx_free(evm_call_ctx_t* evm) {
   evm->traces = NULL;
   call_account_free_list(evm->accounts);
   evm->accounts = NULL;
-  safe_free(evm->block_header.data);
-  evm->block_header = NULL_BYTES;
 }
