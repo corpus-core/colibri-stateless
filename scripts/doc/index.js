@@ -17,6 +17,7 @@ const doc_files = [
 
     "chains/eth/threat_model.md",
     "chains/eth/pap.md",
+    "chains/eth/tsa.md",
     "chains/eth/benchmark.md",
     "chains/eth/server/PERIOD_STORE.md",
 
@@ -28,6 +29,7 @@ const doc_files = [
     // bindings
     "../bindings/dart/doc.md",
     "../bindings/emscripten/doc.md",
+    "../bindings/emscripten/packages/explainer/doc.md",
     "../bindings/kotlin/doc.md",
     "../bindings/swift/doc.md",
     "../bindings/python/doc.md",
