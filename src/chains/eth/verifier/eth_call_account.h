@@ -53,7 +53,8 @@ typedef struct call_storage {
   bytes32_t            post_value;
   storage_source_t     source;
   uint64_t             verified_at;
-  bool                 accessed;
+  bool                 accessed; // read or written during the run, kept even if the frame reverts (access list, proofCall keys)
+  bool                 warm;     // EIP-2929 warm slot, discarded together with a reverting frame
   bool                 modified;
   struct call_storage* next;
 } call_storage_t;
@@ -153,7 +154,7 @@ void call_account_set_storage(call_account_t* account, const bytes32_t key, cons
 // :: Access tracking helpers (not persisted to disk)
 
 /**
- * Resets the `accessed` and `modified` flags on every storage slot in `list`,
+ * Resets the `accessed`, `warm` and `modified` flags on every storage slot in `list`,
  * and copies `src_value` back to `post_value`.
  *
  * Call this before each EVM run so that only slots touched by the current

@@ -180,6 +180,7 @@ static evmc_bytes32 host_get_storage(void* context, const evmc_address* addr, co
     if (s) {
       memcpy(result.bytes, s->post_value, 32);
       s->accessed = true;
+      s->warm     = true;
       debug_print_bytes32("get_storage result (found)", &result);
       return result;
     }
@@ -230,6 +231,7 @@ static evmone_storage_status host_set_storage(void* context, const evmc_address*
     memcpy(s->post_value, value->bytes, 32);
     s->modified  = true;
     s->accessed  = true;
+    s->warm      = true;
     s->next      = acc->storage;
     acc->storage = s;
   }
@@ -599,6 +601,8 @@ static void host_call(void* context, const struct evmone_message* msg, const uin
 
   if (exec_result.status_code == 0)
     context_apply(&child);
+  else
+    context_keep_reads(&child);
   EVM_LOG("========/child call complete ====");
 
   context_free(&child);
@@ -615,6 +619,9 @@ static void host_get_tx_context(void* context, evmone_tx_context* result) {
   //    return;
   //  }
   EVM_LOG("get_tx_context called");
+  // evmone loads the whole tx context on first use, so any block-dependent opcode ends up here
+  if (root->pap_mode && !root->has_block_context) call_lazy_fetch_block_header(root);
+  if (root->evm) root->evm->block_ctx_used = true;
   memset(result, 0, sizeof(evmone_tx_context));
   memcpy(result->tx_origin.bytes, root->tx_origin, 20);
   memcpy(result->block_coinbase.bytes, root->block_coinbase, 20);
@@ -721,11 +728,12 @@ static int host_access_storage(void* context, const evmc_address* addr, const ev
   if (acc) {
     call_storage_t* s = call_storage_find(acc, key->bytes);
     if (s) {
-      if (s->accessed) {
+      if (s->warm) {
         EVM_LOG("access_storage: WARM");
         return EVMONE_ACCESS_WARM;
       }
       s->accessed = true;
+      s->warm     = true;
       EVM_LOG("access_storage: COLD (marked)");
       return EVMONE_ACCESS_COLD;
     }
@@ -1004,13 +1012,15 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
   if (capture_events)
     emit_eth_transfer_log(&top_level_transfer_log, message.sender.bytes, message.destination.bytes, message.value.bytes);
 
+  // child entries are prepended to context.traces, so the top-level entry ends up at the tail
+  trace_entry_t* root_trace = NULL;
   if (capture_events) {
     free_keccak_entries(evm->keccak_entries);
     evm->keccak_entries = NULL;
     evmone_set_keccak_hook(keccak_hook_cb, &evm->keccak_entries);
 
     // top-level trace entry with traceAddress = []
-    trace_entry_t* root_trace = safe_calloc(1, sizeof(trace_entry_t));
+    root_trace                = safe_calloc(1, sizeof(trace_entry_t));
     root_trace->type          = (uint8_t) message.kind;
     root_trace->gas           = (uint64_t) message.gas;
     memcpy(root_trace->from, message.sender.bytes, 20);
@@ -1095,11 +1105,11 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
     context.logs = NULL;
 
     // update the root trace entry with gas_used, output, subtraces
-    if (context.traces) {
-      context.traces->gas_used  = evm->gas_used;
-      context.traces->subtraces = context.subtrace_count;
+    if (root_trace) {
+      root_trace->gas_used  = evm->gas_used;
+      root_trace->subtraces = context.subtrace_count;
       if (result.output_data && result.output_size)
-        context.traces->output = bytes_dup(bytes(result.output_data, result.output_size));
+        root_trace->output = bytes_dup(bytes(result.output_data, result.output_size));
     }
     evm->traces    = context.traces;
     context.traces = NULL;

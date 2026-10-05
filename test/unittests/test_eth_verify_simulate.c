@@ -51,6 +51,58 @@ void test_simulate_weth_deposit() {
   run_rpc_test("simulate_weth", C4_PROVER_FLAG_INCLUDE_CODE | C4_PROVER_FLAG_USE_DEBUG_TRACE, 0);
 }
 
+// Multicall3.aggregate3 with a reverting WETH.transferFrom (allowFailure) and a DAI.balanceOf:
+// the WETH balance slot read inside the reverted frame must be listed and covered by proofCall.
+void test_simulate_pap_reverted_read() {
+  run_rpc_test("simulate_pap_reverted_read", C4_PROVER_FLAG_INCLUDE_CODE, VERIFY_FLAG_PAP);
+}
+
+// The mock name of the proofCall request is truncated, so the fixture alone cannot tell
+// whether the reverted read was requested. Check the request payload directly.
+void test_simulate_pap_reverted_read_is_proven() {
+  char*   dir          = "simulate_pap_reverted_read";
+  bytes_t test_content = read_testdata("simulate_pap_reverted_read/test.json");
+  TEST_ASSERT_NOT_NULL(test_content.data);
+  char* args = json_new_string(json_get(json_parse((char*) test_content.data), "params"));
+
+#ifdef PROVER_CACHE
+  c4_prover_cache_cleanup(0xffffffffffffffffULL, 0);
+#endif
+  set_state(C4_CHAIN_MAINNET, dir);
+  c4_rpc_ctx_t* rpc_ctx = c4_rpc_ctx_create("colibri_simulateTransaction", args, C4_CHAIN_MAINNET, C4_PROVER_FLAG_INCLUDE_CODE, VERIFY_FLAG_PAP, C4_PROVER_MODE_REMOTE);
+
+  bool        proof_call_seen = false;
+  c4_status_t status;
+  while ((status = c4_rpc_execute(rpc_ctx)) == C4_PENDING) {
+    data_request_t* req;
+    while ((req = c4_state_get_pending_request(c4_rpc_get_state(rpc_ctx)))) {
+      if (req->payload.data) {
+        // payload bytes are not NUL-terminated
+        char* payload = safe_calloc(1, req->payload.len + 1);
+        memcpy(payload, req->payload.data, req->payload.len);
+        if (strstr(payload, "colibri_proofCall")) {
+          proof_call_seen = true;
+          TEST_ASSERT_NOT_NULL_MESSAGE(strstr(payload, "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"), "WETH missing in proofCall");
+          TEST_ASSERT_NOT_NULL_MESSAGE(strstr(payload, "0x0242ace4aee0b852ee20a6dadbb8dd2f699da3c4f840b14304b45ac861c0b6c5"), "reverted WETH read missing in proofCall");
+        }
+        safe_free(payload);
+      }
+      char  tmp[1024];
+      char* filename = c4_req_mockname(req);
+      sprintf(tmp, "%s/%s", dir, filename);
+      safe_free(filename);
+      req->response = read_testdata(tmp);
+      TEST_ASSERT_NOT_NULL_MESSAGE(req->response.data, tmp);
+    }
+  }
+  TEST_ASSERT_EQUAL_INT_MESSAGE(C4_SUCCESS, status, rpc_ctx->verifier.state.error ? rpc_ctx->verifier.state.error : "simulation failed");
+  TEST_ASSERT_TRUE_MESSAGE(proof_call_seen, "no colibri_proofCall request was made");
+
+  c4_rpc_ctx_free(rpc_ctx);
+  safe_free(args);
+  safe_free(test_content.data);
+}
+
 void test_simulation_result_access_list_includes_code_hash(void) {
   call_account_t eoa      = {0};
   call_account_t contract = {0};
@@ -518,6 +570,78 @@ void test_simulation_positions_follow_delegatecall_code(void) {
   safe_free(result.bytes.data);
   evm_call_ctx_free(&evm);
 }
+
+void test_simulation_keeps_reads_of_reverted_subcall(void) {
+  // The value transfer makes the child frame work on copies of caller and target,
+  // so the SLOAD only marks the child's copy, which is dropped by the REVERT.
+  const uint8_t target_code[] = {0x60, 0x01, 0x54, 0x50, 0x60, 0x00, 0x60, 0x00, 0xfd}; // SLOAD(1), POP, REVERT(0, 0)
+  address_t     target        = {0};
+  memset(target, 0x22, 20);
+
+  // CALL(gas 0xffff, target, value 1, no args, no return data), POP, STOP
+  uint8_t caller_code[37] = {0x60, 0x00, 0x60, 0x00, 0x60, 0x00, 0x60, 0x00, 0x60, 0x01, 0x73};
+  memcpy(caller_code + 11, target, 20);
+  caller_code[31] = 0x61;
+  caller_code[32] = 0xff;
+  caller_code[33] = 0xff;
+  caller_code[34] = 0xf1;
+  caller_code[35] = 0x50;
+  caller_code[36] = 0x00;
+
+  address_t caller = {0};
+  memset(caller, 0x11, 20);
+
+  verify_ctx_t ctx = {0};
+  ctx.chain_id     = C4_CHAIN_MAINNET;
+  ctx.args         = json_parse(
+      "[{\"from\":\"0x3333333333333333333333333333333333333333\","
+              "\"to\":\"0x1111111111111111111111111111111111111111\","
+              "\"gas\":\"0xf4240\"},\"latest\"]");
+
+  bytes32_t slot_key   = {0};
+  bytes32_t slot_value = {0};
+  slot_key[31]         = 0x01;
+  slot_value[31]       = 0x2a;
+
+  evm_call_ctx_t evm        = {0};
+  evm.sim_flags             = EVM_SIM_STATE_VALUES;
+  evm.accounts              = make_runtime(caller, caller_code, sizeof(caller_code));
+  evm.accounts->balance[31] = 10;
+  evm.accounts->flags |= ACCOUNT_HAS_BALANCE;
+  evm.accounts->next = make_runtime(target, target_code, sizeof(target_code));
+  call_account_set_storage(evm.accounts->next, slot_key, slot_value, STORAGE_SRC_PROOF, 1);
+
+  TEST_ASSERT_EQUAL_INT(C4_SUCCESS, eth_run_call_evmone_with_events(&ctx, &evm, true));
+  TEST_ASSERT_FALSE(evm.reverted);
+  TEST_ASSERT_NULL(ctx.state.error);
+
+  call_account_t* target_acc = call_account_list_find(evm.accounts, target);
+  TEST_ASSERT_NOT_NULL(target_acc);
+  call_storage_t* slot = call_storage_find(target_acc, slot_key);
+  TEST_ASSERT_NOT_NULL(slot);
+  TEST_ASSERT_TRUE_MESSAGE(slot->accessed, "slot read in the reverted frame must stay accessed");
+  TEST_ASSERT_FALSE_MESSAGE(slot->warm, "EIP-2929 warm status must be reverted with the frame");
+  TEST_ASSERT_FALSE(slot->modified);
+  TEST_ASSERT_EQUAL_MEMORY(slot_value, slot->src_value, 32);
+
+  ssz_ob_t result      = eth_build_simulation_result_ssz(evm.call_result, evm.logs, true, evm.gas_used, NULL, evm.accounts, evm.keccak_entries, evm.traces, evm.sim_flags, evm.positions);
+  ssz_ob_t access_list = ssz_get(&result, "accessList");
+  bool     found       = false;
+  for (uint32_t i = 0; i < ssz_len(access_list); i++) {
+    ssz_ob_t entry = ssz_at(access_list, i);
+    if (memcmp(ssz_get(&entry, "address").bytes.data, target, 20) != 0) continue;
+    ssz_ob_t reads = ssz_get(&entry, "storage");
+    TEST_ASSERT_EQUAL_UINT32(1, ssz_len(reads));
+    ssz_ob_t read = ssz_at(reads, 0);
+    TEST_ASSERT_EQUAL_MEMORY(slot_key, ssz_get(&read, "slot").bytes.data, 32);
+    TEST_ASSERT_EQUAL_MEMORY(slot_value, ssz_get(&read, "value").bytes.data, 32);
+    found = true;
+  }
+  TEST_ASSERT_TRUE_MESSAGE(found, "target must be listed in the access list");
+
+  safe_free(result.bytes.data);
+  evm_call_ctx_free(&evm);
+}
 #endif
 
 int main(void) {
@@ -534,6 +658,9 @@ int main(void) {
 #ifdef EVMONE
   RUN_TEST(test_simulation_positions_records_each_jumpdest_once);
   RUN_TEST(test_simulation_positions_follow_delegatecall_code);
+  RUN_TEST(test_simulation_keeps_reads_of_reverted_subcall);
 #endif
+  RUN_TEST(test_simulate_pap_reverted_read);
+  RUN_TEST(test_simulate_pap_reverted_read_is_proven);
   return UNITY_END();
 }

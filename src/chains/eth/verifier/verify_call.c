@@ -493,6 +493,19 @@ bool verify_evm_call(verify_ctx_t* ctx, evm_call_ctx_t* evm) {
 
 // :: PAP Phase C + D helpers
 
+/**
+ * Checks whether an account has storage slots that were read but not yet verified.
+ *
+ * @param ac the account to check
+ * @return `true` if at least one accessed slot has `verified_at == 0`
+ */
+static bool has_unverified_storage(call_account_t* ac) {
+  for (call_storage_t* s = ac->storage; s; s = s->next) {
+    if (s->accessed && s->verified_at == 0) return true;
+  }
+  return false;
+}
+
 static bool pap_verify_proof_response(verify_ctx_t* ctx, call_account_t* call_accounts, bytes_t response, bool* values_changed) {
   verify_ctx_t    proof_ctx  = {0};
   bytes32_t       state_root = {0};
@@ -555,6 +568,18 @@ static bool pap_verify_proof_response(verify_ctx_t* ctx, call_account_t* call_ac
   // via the outer ctx's user_data; args / min_ts / errors also live there.
   if (!verify_call_freshness(ctx, ctx)) goto cleanup;
 
+  // The EVM may have run with the header of another block than the one the storage
+  // was proven against. In that case switch to the proven header and repeat the run
+  // when the block context was actually read.
+  {
+    bytes32_t used_hash = {0};
+    if (evm->block_header.data) keccak(evm->block_header, used_hash);
+    if (!evm->block_header.data || memcmp(used_hash, evm->el_block_hash, 32) != 0) {
+      if (evm->block_ctx_used) *values_changed = true;
+      evm->block_header = evm->el_header;
+    }
+  }
+
   // Proof is valid, so we check the values for changes
   ssz_ob_t accounts     = ssz_get(&proof_ctx.proof, "accounts");
   uint32_t num_accounts = ssz_len(accounts);
@@ -595,6 +620,14 @@ static bool pap_verify_proof_response(verify_ctx_t* ctx, call_account_t* call_ac
     }
   }
 
+  // every requested storage key must be covered by the proof, otherwise unverified RPC values would pass
+  for (call_account_t* a = call_accounts; a; a = a->next) {
+    if (has_unverified_storage(a)) {
+      c4_state_add_error(&ctx->state, "proofCall does not cover all requested storage keys");
+      goto cleanup;
+    }
+  }
+
   result = true;
 
 cleanup:
@@ -605,13 +638,6 @@ cleanup:
   c4_state_take_requests(&ctx->state, &proof_ctx.state);
   c4_verify_free_data(&proof_ctx);
   return result;
-}
-
-static bool has_unverified_storage(call_account_t* ac) {
-  for (call_storage_t* s = ac->storage; s; s = s->next) {
-    if (s->accessed && s->verified_at == 0) return true;
-  }
-  return false;
 }
 
 static bool proof_call(verify_ctx_t* ctx, evm_call_ctx_t* evm) {
@@ -711,6 +737,7 @@ static bool verify_call_result_and_finish(verify_ctx_t* ctx, evm_call_ctx_t* evm
         s->source      = STORAGE_SRC_NONE;
         s->modified    = false;
         s->accessed    = false;
+        s->warm        = false;
       }
       eth_call_account_cache_save(ctx, ac->address, ac);
     }

@@ -60,10 +60,10 @@ typedef struct keccak_entry {
  * destination has run). `count` is the number of set bits.
  */
 typedef struct jumpdest_set {
-  address_t             address; // code address (delegatecall: the implementation)
-  uint8_t*              bits;
-  uint32_t              count;
-  struct jumpdest_set*  next;
+  address_t            address; // code address (delegatecall: the implementation)
+  uint8_t*             bits;
+  uint32_t             count;
+  struct jumpdest_set* next;
 } jumpdest_set_t;
 
 // :: Trace call kind (mirrors evmone call kinds + STATICCALL)
@@ -117,20 +117,22 @@ typedef struct emitted_log {
  * counters captured while `EVM_SIM_POSITIONS` is set.
  */
 typedef struct evm_call_ctx {
-  call_account_t*  accounts;
-  bytes_t          call_result;
-  emitted_log_t*   logs;
-  keccak_entry_t*  keccak_entries;
-  trace_entry_t*   traces;
-  jumpdest_set_t*  positions;
-  uint64_t         gas_used;
-  bytes32_t        state_root;
-  uint32_t         sim_flags;
-  bool             pap_mode;
-  bool             evm_done;
-  bool             reverted;  // set to true when the EVM execution reverted; `call_result` then holds the revert data
-  bytes_t          el_header; // header of the execution payload
-  bytes32_t        el_block_hash;
+  call_account_t* accounts;
+  bytes_t         call_result;
+  emitted_log_t*  logs;
+  keccak_entry_t* keccak_entries;
+  trace_entry_t*  traces;
+  jumpdest_set_t* positions;
+  uint64_t        gas_used;
+  bytes32_t       state_root;
+  uint32_t        sim_flags;
+  bool            pap_mode;
+  bool            evm_done;
+  bool            reverted;  // set to true when the EVM execution reverted; `call_result` then holds the revert data
+  bytes_t         el_header; // header of the execution payload
+  bytes32_t       el_block_hash;
+  bytes_t         block_header;   // verified RLP header the EVM block context is taken from (borrowed, lives as long as the verify_ctx; empty = not yet known)
+  bool            block_ctx_used; // the last EVM run read the tx/block context (set by host_get_tx_context)
 } evm_call_ctx_t;
 
 /**
@@ -143,10 +145,10 @@ typedef struct evm_call_ctx {
  * The 3rd element is the state-override object (or `null`). The 4th element is
  * optional and selects extra simulation output.
  */
-#define C4_SIMULATE_TX_PARAMS                                                                                                      \
-  "[{to:address,data:bytes,gas?:hexuint,value?:hexuint,gasPrice?:hexuint,from?:address},"                                          \
-  "block,"                                                                                                                         \
-  "null|{*:{balance?:hexuint,code?:bytes,state?:{*:bytes32},stateDiff?:{*:bytes32}}},"                                             \
+#define C4_SIMULATE_TX_PARAMS                                                             \
+  "[{to:address,data:bytes,gas?:hexuint,value?:hexuint,gasPrice?:hexuint,from?:address}," \
+  "block,"                                                                                \
+  "null|{*:{balance?:hexuint,code?:bytes,state?:{*:bytes32},stateDiff?:{*:bytes32}}},"    \
   "null|{positions?:bool,state_values?:bool}]"
 
 /**
@@ -192,6 +194,9 @@ typedef struct evmone_context {
   bool                   capture_events;
   bool                   pap_mode;
   bool                   storage_miss;
+  bool                   has_block_context;      // block fields were populated from a block header
+  bool                   block_header_requested; // PAP: the header request was already emitted in this run
+  evm_call_ctx_t*        evm;                    // owning call context (root only)
 } evmone_context_t;
 
 /** Block context extracted from the verified RLP execution header of a call proof. */
@@ -233,6 +238,23 @@ call_account_t* call_account_get_or_create(evmone_context_t* ctx, const address_
 
 void    call_account_lazy_fetch_storage(evmone_context_t* ctx, const address_t address, const bytes32_t key, bytes32_t result);
 bytes_t call_account_get_code(evmone_context_t* ctx, const address_t address);
+
+/**
+ * PAP mode: lazily fetches and verifies the block header used as EVM block context.
+ *
+ * Called when the EVM reads the tx/block context and no header is known yet.
+ * Requests an `eth_getBlockHeader(<block tag of the call>)` proof from the
+ * prover (the host may serve it as a CDN-cacheable GET) and verifies it via
+ * `c4_verify_block`, including the `latest` freshness and the block number of a
+ * concrete block tag. On success `evm->block_header` points to the verified
+ * header (borrowed, valid for the lifetime of the verify_ctx) and the block
+ * fields of `root` are populated. While the proof or its sync data is pending
+ * `root->storage_miss` is set, so the current EVM run is aborted and repeated
+ * once the response is available (same pattern as lazy storage fetching).
+ *
+ * @param root root EVM execution context (must have `evm` set)
+ */
+void call_lazy_fetch_block_header(evmone_context_t* root);
 
 // :: Block hash lookup
 
@@ -278,7 +300,7 @@ void free_jumpdest_sets(jumpdest_set_t* sets);
  * @return combination of `EVM_SIM_POSITIONS` and `EVM_SIM_STATE_VALUES`
  */
 uint32_t c4_eth_sim_flags_from_args(json_t args);
-void free_emitted_logs(emitted_log_t* logs);
+void     free_emitted_logs(emitted_log_t* logs);
 
 // :: Trace helpers
 
@@ -307,6 +329,20 @@ void emit_eth_transfer_log(emitted_log_t** logs, const address_t from, const add
 void context_free(evmone_context_t* ctx);
 void context_apply(evmone_context_t* ctx);
 
+/**
+ * Keeps the storage reads of a reverted or failed child frame.
+ *
+ * The child's writes and its EIP-2929 warm set are discarded, but every slot the
+ * child read still influenced the execution. Each such slot is recorded with its
+ * pre-state value as `accessed` (not `warm`) on the nearest ancestor holding the
+ * account, so it appears in the simulation access list and is verified by
+ * `colibri_proofCall` in PAP mode. If no ancestor holds the account, the slot is
+ * recorded on a new account entry of the root context, so the read is never dropped.
+ *
+ * @param ctx child context whose frame did not succeed; `ctx->parent` must be set
+ */
+void context_keep_reads(evmone_context_t* ctx);
+
 // :: Context initialization
 
 /**
@@ -316,6 +352,9 @@ void context_apply(evmone_context_t* ctx);
  * Populates `block_number`, `timestamp`, `block_coinbase`, `block_prev_randao`,
  * `block_base_fee`, `blob_base_fee`, and `block_gas_limit` from the verified
  * RLP execution header, or leaves them at zero/defaults for PAP mode.
+ * The verified header is referenced by `evm->block_header`; if it is already
+ * set (e.g. fetched lazily in PAP mode) it takes precedence. In PAP mode a
+ * missing header is fetched on first use via `call_lazy_fetch_block_header`.
  *
  * @param out      context to initialize (zeroed by caller)
  * @param ctx      verification context
