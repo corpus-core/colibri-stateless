@@ -193,7 +193,7 @@ bool c4_handle_proof_get_request(client_t* client) {
   if (version_num < c4_version_number(3, 0, 0)) {
     const char* v2 = http_server.v2_prover;
     if (!v2 || !*v2) {
-      proof_get_error(client, 503, "Legacy prover is not configured on this server");
+      proof_get_error(client, 503, "Colibri must be updated to v3 to verify Glamsterdam blocks");
       if (cs.data) safe_free(cs.data);
       if (wk.data) safe_free(wk.data);
       return true;

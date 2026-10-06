@@ -502,7 +502,7 @@ bool c4_try_forward_legacy_proof(client_t* client, uint32_t version, const char*
 
   const char* origin = http_server.v2_prover;
   if (!origin || !*origin) {
-    c4_write_error_response(client, 503, "Legacy prover is not configured on this server");
+    c4_write_error_response(client, 503, "Colibri must be updated to v3 to verify Glamsterdam blocks");
     return true;
   }
 
