@@ -153,8 +153,28 @@ typedef void (*light_client_cb)(void* user_data, bytes_t updates, char* error);
 void c4_period_sync_on_head(uint64_t slot, const uint8_t block_root[32], const uint8_t header112[112]);
 
 /**
+ * Reports whether one Beacon API light-client update body may be stored as `lcu.ssz`.
+ *
+ * The body is the `light_client/updates` wire format for a single update: 8-byte
+ * little-endian payload length, 4-byte fork digest, then `LightClientUpdate` SSZ.
+ * It is cacheable when it decodes for `chain_id`, `attestedHeader.beacon.slot` falls
+ * in `period`, `finalizedHeader.beacon.slot` is not zero, and both the
+ * `nextSyncCommittee` proof and the `finalizedHeader.beacon` proof reconstruct
+ * `attestedHeader.beacon.stateRoot`. A zero finalized header is what the beacon
+ * serves before same-period finality exists; the verifier rejects that proof.
+ *
+ * @param chain_id Chain whose fork digest and state gindices are used.
+ * @param wire     One update body. Not retained.
+ * @param period   Sync-committee period this body would be stored under.
+ * @return `true` when the body may be written to the period cache.
+ */
+bool c4_ps_lcu_wire_is_cacheable(chain_id_t chain_id, bytes_t wire, uint64_t period);
+
+/**
  * Assemble LightClientUpdates from cache for a contiguous range of periods.
  * Missing periods are fetched from Beacon API and saved to cache as `C4_PS_LCU_SSZ`.
+ * A cached body that fails `c4_ps_lcu_wire_is_cacheable` is deleted and treated as
+ * missing. The callback receives the updates concatenated in period order.
  *
  * @param user_data Passed to callback
  * @param period    Start period
@@ -173,6 +193,10 @@ bool c4_handle_period_store(single_request_t* r);
 
 /**
  * Syncs the period store on a finalized checkpoint.
+ *
+ * Fetches `lcu.ssz` for the checkpoint period and, when missing, for the previous
+ * period as well. The previous period is complete by then, so the beacon's best
+ * update includes same-period finality.
  *
  * @param slot The slot of the checkpoint.
  */

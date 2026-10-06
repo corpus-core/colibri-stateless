@@ -388,6 +388,7 @@ class Colibri(
         }
         is Array<*> -> "[${arg.joinToString(",") { formatArg(it) }}]"  // Handle nested arrays (pass nulls as "null")
         is List<*> -> "[${arg.joinToString(",") { formatArg(it) }}]" // Also handle Lists
+        is Boolean -> arg.toString() // JSON true/false; the C validator rejects quoted booleans
         null -> "null" // Represent null explicitly in JSON
         // Handle Map type by converting to JSON object string
         is Map<*, *> -> {

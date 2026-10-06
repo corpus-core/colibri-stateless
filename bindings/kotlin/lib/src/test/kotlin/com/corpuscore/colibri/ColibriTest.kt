@@ -312,45 +312,8 @@ class ColibriTest {
 
         // Compare result with expected_result (needs careful comparison of Any? and org.json)
         // Convert expected result from org.json to Kotlin types for comparison
-        var expectedResult: Any? = convertJsonToJava(expectedResultJson) // Make it var
+        val expectedResult: Any? = convertJsonToJava(expectedResultJson)
 //        println("Original Expected result: $expectedResult")
-
-        // --- Adjustment for eth_getBlockByNumber(true) ---
-        // If the method is eth_getBlockByNumber and the second param is true,
-        // the current core implementation seems to return only tx hashes.
-        // Adjust the expected result to match this behavior for the test to pass.
-        if (method == "eth_getBlockByNumber" && params.size > 1 && params.getOrNull(1) == true) {
-             if (expectedResult is MutableMap<*, *> && expectedResult.containsKey("transactions")) {
-//                 println("Adjusting expected result for eth_getBlockByNumber(true) to compare only tx hashes.")
-                 val expectedTxs = expectedResult["transactions"] as? List<*>
-                 if (expectedTxs != null && expectedTxs.all { it is Map<*, *> }) {
-                     @Suppress("UNCHECKED_CAST")
-                     val expectedTxObjects = expectedTxs as List<Map<String, Any?>>
-                     val expectedTxHashes = expectedTxObjects.mapNotNull { it["hash"] as? String }
-
-                     // Ensure expectedResult is mutable map of String keys
-                     if (expectedResult is MutableMap<*, *>) {
-                        @Suppress("UNCHECKED_CAST")
-                        val mutableExpectedResult = expectedResult as MutableMap<String, Any?>
-                        mutableExpectedResult["transactions"] = expectedTxHashes
-//                        println("Adjusted Expected result: $expectedResult")
-                     } else {
-//                         println("Warning: Could not mutate expectedResult directly.")
-                         // Attempt to create a mutable copy if possible
-                         try {
-                              @Suppress("UNCHECKED_CAST")
-                              val mutableCopy = (expectedResult as Map<String, Any?>).toMutableMap()
-                              mutableCopy["transactions"] = expectedTxHashes
-                              expectedResult = mutableCopy // Reassign to the modified copy
-//                              println("Adjusted Expected result (from copy): $expectedResult")
-                         } catch (e: Exception) {
-                              println("Error creating mutable copy for adjustment: ${e.message}")
-                         }
-                     }
-                 }
-             }
-        }
-        // --- End Adjustment ---
 
          // Use proper deep comparison for maps/lists if necessary
          // Basic assertEquals might work for simple types

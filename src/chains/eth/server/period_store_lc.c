@@ -7,6 +7,9 @@
 #include "server.h"
 #include "sync_committee.h"
 #include "uv_util.h"
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
 
 // ---- Assemble multiple LCU from cache (fetch missing) ----
 typedef struct {
@@ -14,7 +17,7 @@ typedef struct {
   light_client_cb cb;
   uint64_t        start_period;
   uint32_t        count;
-  buffer_t        out;
+  bytes_t*        parts; // one owned body per period, NULL until accepted
   uint32_t        missing_count;
   uint32_t*       missing_indices; // indices into [0..count)
   uint32_t        missing_pos;     // next to fetch
@@ -32,6 +35,157 @@ typedef struct {
 } lcu_fetch_ctx_t;
 
 static void lcu_fetch_next(lcu_assemble_ctx_t* ctx);
+static void lcu_persist_response(uint64_t period, data_request_t* r);
+
+/**
+ * Checks that `branch` is a single-leaf Merkle proof of `leaf` under `state_root`.
+ *
+ * @param branch     Sibling hashes, 32 bytes each, leaf-to-root order.
+ * @param leaf       Object whose hash_tree_root is the leaf.
+ * @param gindex     Generalized index of that leaf in the beacon state.
+ * @param state_root `attestedHeader.beacon.stateRoot` (32 bytes).
+ * @return `true` when the proof length matches `gindex` and folds to `state_root`.
+ */
+static bool lcu_branch_matches_state(bytes_t branch, ssz_ob_t leaf, gindex_t gindex, bytes_t state_root) {
+  if (gindex == 0 || ssz_is_error(leaf) || !state_root.data || state_root.len != 32) return false;
+  if (!branch.data || branch.len == 0 || (branch.len % 32) != 0 || bytes_all_zero(branch)) return false;
+  bytes32_t leaf_root = {0};
+  bytes32_t got       = {0};
+  ssz_hash_tree_root(leaf, leaf_root);
+  if (!ssz_verify_multi_merkle_proof(branch, bytes(leaf_root, 32), &gindex, got)) return false;
+  return memcmp(got, state_root.data, 32) == 0;
+}
+
+/**
+ * Explains why a Beacon light-client update body must not be stored.
+ *
+ * @param chain_id Chain whose fork digest and state gindices are used.
+ * @param wire     One `light_client/updates` body. Not retained.
+ * @param period   Sync-committee period this body would be stored under.
+ * @return `NULL` when the body may be written. Otherwise a static reason.
+ */
+static const char* lcu_wire_reject_reason(chain_id_t chain_id, bytes_t wire, uint64_t period) {
+  if (!wire.data || wire.len < UPDATE_PREFIX_SIZE) return "body shorter than the wire prefix";
+  uint64_t payload_len = uint64_from_le(wire.data);
+  if (payload_len < 4 || payload_len > UINT32_MAX || (uint64_t) wire.len != 8ull + payload_len)
+    return "payload length does not match the body";
+
+  const chain_spec_t* spec = c4_eth_get_chain_spec(chain_id);
+  if (!spec) return "unknown chain";
+
+  fork_id_t        fork = c4_eth_fork_from_digest(chain_id, wire.data + 8);
+  const ssz_def_t* def  = eth_get_light_client_update(fork);
+  if (!def) return "unknown fork digest";
+
+  ssz_ob_t update = {.bytes = bytes(wire.data + 12, (uint32_t) payload_len - 4), .def = def};
+  if (!ssz_is_valid(update, true, NULL)) return "light client update is not valid SSZ";
+
+  ssz_ob_t attested        = ssz_get(&update, "attestedHeader");
+  ssz_ob_t attested_beacon = ssz_get(&attested, "beacon");
+  if (ssz_is_error(attested_beacon)) return "attested header is missing";
+  ssz_ob_t state_root    = ssz_get(&attested_beacon, "stateRoot");
+  uint64_t attested_slot = ssz_get_uint64(&attested_beacon, "slot");
+  if (ssz_is_error(state_root) || state_root.bytes.len != 32) return "attested state root is missing";
+  if (period_for_slot(attested_slot, spec) != period) return "attested slot is outside the requested period";
+
+  ssz_ob_t finalized        = ssz_get(&update, "finalizedHeader");
+  ssz_ob_t finalized_beacon = ssz_get(&finalized, "beacon");
+  if (ssz_is_error(finalized_beacon)) return "finalized header is missing";
+  // Beacon nodes zero this header until the finalized block is in the same
+  // sync-committee period as the attested block. That body is not cacheable.
+  if (ssz_get_uint64(&finalized_beacon, "slot") == 0) return "finalized header has no slot";
+
+  ssz_ob_t finality_branch = ssz_get(&update, "finalityBranch");
+  ssz_ob_t next_branch     = ssz_get(&update, "nextSyncCommitteeBranch");
+  ssz_ob_t next_committee  = ssz_get(&update, "nextSyncCommittee");
+  if (ssz_is_error(finality_branch) || ssz_is_error(next_branch) || ssz_is_error(next_committee))
+    return "finality or sync-committee branch is missing";
+
+  if (!lcu_branch_matches_state(finality_branch.bytes, finalized_beacon, c4_finalized_root_gindex(chain_id, attested_slot), state_root.bytes))
+    return "finality proof does not match the attested state root";
+  if (!lcu_branch_matches_state(next_branch.bytes, next_committee, c4_next_sync_committee_gindex(chain_id, attested_slot), state_root.bytes))
+    return "next sync committee proof does not match the attested state root";
+  return NULL;
+}
+
+bool c4_ps_lcu_wire_is_cacheable(chain_id_t chain_id, bytes_t wire, uint64_t period) {
+  return lcu_wire_reject_reason(chain_id, wire, period) == NULL;
+}
+
+/**
+ * Logs and reports that `wire` must not be stored for `period`.
+ *
+ * @param period Sync-committee period the body was fetched for.
+ * @param wire   Beacon response body. Not retained.
+ * @return `true` when the body was refused. `false` when it may be written.
+ */
+static bool lcu_refuse_cache(uint64_t period, bytes_t wire) {
+  const char* why = lcu_wire_reject_reason(http_server.chain_id, wire, period);
+  if (!why) return false;
+  log_warn("period_store: not writing LCU for period %l: %s", period, why);
+  return true;
+}
+
+/**
+ * Deletes a period's `lcu.ssz` after it was read and rejected.
+ *
+ * @param period Sync-committee period of the file.
+ */
+static void lcu_cache_unlink(uint64_t period) {
+  if (!eth_config.period_store) return;
+  char* path = bprintf(NULL, "%s/%l/" C4_PS_LCU_SSZ, eth_config.period_store, period);
+  if (remove(path) != 0)
+    log_warn("period_store: failed to remove " C4_PS_LCU_SSZ " for period %l", period);
+  safe_free(path);
+}
+
+/**
+ * Frees per-period bodies held by an in-flight assemble.
+ *
+ * @param ctx Assemble context. `parts` may be NULL.
+ */
+static void lcu_assemble_free_parts(lcu_assemble_ctx_t* ctx) {
+  if (!ctx || !ctx->parts) return;
+  for (uint32_t i = 0; i < ctx->count; i++) safe_free(ctx->parts[i].data);
+  safe_free(ctx->parts);
+  ctx->parts = NULL;
+}
+
+/**
+ * Delivers `err` and frees the assemble context.
+ *
+ * @param ctx Assemble context. Freed by this function.
+ * @param err Error string. Ownership passes to the callback.
+ */
+static void lcu_assemble_fail(lcu_assemble_ctx_t* ctx, char* err) {
+  ctx->cb(ctx->user_data, NULL_BYTES, err);
+  lcu_assemble_free_parts(ctx);
+  safe_free(ctx->missing_indices);
+  safe_free(ctx);
+}
+
+/**
+ * Concatenates accepted bodies in period order and delivers them.
+ *
+ * @param ctx Assemble context. Freed by this function.
+ */
+static void lcu_assemble_finish(lcu_assemble_ctx_t* ctx) {
+  buffer_t out = {0};
+  for (uint32_t i = 0; i < ctx->count; i++) {
+    if (!ctx->parts || !ctx->parts[i].data) {
+      buffer_free(&out);
+      char* err = bprintf(NULL, "missing light client update for period %l", ctx->start_period + i);
+      lcu_assemble_fail(ctx, err);
+      return;
+    }
+    buffer_append(&out, ctx->parts[i]);
+  }
+  bytes_t result = out.data;
+  ctx->cb(ctx->user_data, result, NULL);
+  lcu_assemble_free_parts(ctx);
+  safe_free(ctx->missing_indices);
+  safe_free(ctx);
+}
 
 static void lcu_write_done_cb(void* user_data, file_data_t* files, int num_files) {
   (void) num_files;
@@ -70,15 +224,36 @@ static void fetch_lcu_cb(client_t* client, void* data, data_request_t* r) {
     c4_ps_build_lcu(period);
     return;
   }
+  if (lcu_refuse_cache(period, r->response)) {
+    // A body can be a well-formed sync-committee update whose finalized header
+    // is still zero. Do not persist it and do not self-build over it: the next
+    // checkpoint retries while the file is absent.
+    c4_request_free(r);
+    return;
+  }
+  lcu_persist_response(period, r);
+}
+
+/**
+ * Writes one accepted Beacon response to `{period}/lcu.ssz`.
+ *
+ * @param period Sync-committee period.
+ * @param r      Request whose `response` is the wire body. Freed when the write finishes,
+ *               or immediately when the period store is disabled or scheduling fails.
+ */
+static void lcu_persist_response(uint64_t period, data_request_t* r) {
+  if (!eth_config.period_store) {
+    c4_request_free(r);
+    return;
+  }
   char* dir  = c4_ps_ensure_period_dir(period);
   char* path = bprintf(NULL, "%s/" C4_PS_LCU_SSZ, dir);
   safe_free(dir);
-  file_data_t files[1] = {0};
-  files[0].path        = path;
-  files[0].offset      = 0;
-  files[0].limit       = r->response.len; // write all bytes
-  files[0].data        = r->response;
-  // keep request alive until write completes
+  file_data_t files[1]  = {0};
+  files[0].path         = path;
+  files[0].offset       = 0;
+  files[0].limit        = r->response.len;
+  files[0].data         = r->response;
   lcu_write_ctx_t* wctx = (lcu_write_ctx_t*) safe_calloc(1, sizeof(lcu_write_ctx_t));
   wctx->period          = period;
   wctx->req             = r;
@@ -120,46 +295,33 @@ static void lcu_assemble_fetch_cb(client_t* client, void* data, data_request_t* 
   if (r->error) {
     char* err = bprintf(NULL, "LCU fetch failed for period %l: %s", p, r->error);
     c4_request_free(r);
-    bytes_t result = NULL_BYTES;
-    a->cb(a->user_data, result, err);
-    buffer_free(&a->out);
-    safe_free(a->missing_indices);
-    safe_free(a);
+    lcu_assemble_fail(a, err);
     return;
   }
-  // append to output
-  buffer_append(&a->out, bytes((uint8_t*) r->response.data, (uint32_t) r->response.len));
-  // persist to cache (reuse write helper; keeps r alive until write finishes)
-  char* dir  = c4_ps_ensure_period_dir(p);
-  char* path = bprintf(NULL, "%s/" C4_PS_LCU_SSZ, dir);
-  safe_free(dir);
-  file_data_t files[1]  = {0};
-  files[0].path         = path;
-  files[0].offset       = 0;
-  files[0].limit        = r->response.len;
-  files[0].data         = r->response;
-  lcu_write_ctx_t* wctx = (lcu_write_ctx_t*) safe_calloc(1, sizeof(lcu_write_ctx_t));
-  wctx->period          = p;
-  wctx->req             = r; // will be freed in lcu_write_done_cb
-  int rc                = c4_write_files_uv(wctx, lcu_write_done_cb, files, 1, O_WRONLY | O_CREAT | O_TRUNC, 0666);
-  if (rc < 0) {
-    log_warn("period_store: scheduling LCU write failed for period %l", p);
-    c4_file_data_array_free(files, 1, 0);
+  uint32_t rel = p >= a->start_period ? (uint32_t) (p - a->start_period) : a->count;
+  if (rel >= a->count || lcu_refuse_cache(p, r->response)) {
+    if (rel >= a->count)
+      log_warn("period_store: not writing LCU for period %l: response is outside the requested range", p);
     c4_request_free(r);
-    safe_free(wctx);
+    char* err = bprintf(NULL, "LCU for period %l has no finality", p);
+    lcu_assemble_fail(a, err);
+    return;
   }
-  // next
+  a->parts[rel] = bytes_dup(r->response);
+  lcu_persist_response(p, r);
   lcu_fetch_next(a);
 }
 
 static void lcu_fetch_next(lcu_assemble_ctx_t* ctx) {
+  // Missing periods are fetched one at a time. Each accepted body is stored by
+  // index and the callback receives them concatenated in period order.
   if (ctx->missing_pos >= ctx->missing_count) {
-    // done: deliver result
-    bytes_t result = ctx->out.data; // transfer ownership
-    ctx->out       = (buffer_t) {0};
-    ctx->cb(ctx->user_data, result, NULL);
-    safe_free(ctx->missing_indices);
-    safe_free(ctx);
+    lcu_assemble_finish(ctx);
+    return;
+  }
+  server_list_t* sl = c4_get_server_list(C4_DATA_TYPE_BEACON_API);
+  if (!sl || sl->count == 0) {
+    lcu_assemble_fail(ctx, strdup("no beacon API configured for light client updates"));
     return;
   }
   uint32_t        rel_idx    = ctx->missing_indices[ctx->missing_pos++];
@@ -180,30 +342,31 @@ static void lcu_fetch_next(lcu_assemble_ctx_t* ctx) {
 
 static void lcu_assemble_read_cb(void* user_data, file_data_t* files, int num_files) {
   lcu_assemble_ctx_t* ctx = (lcu_assemble_ctx_t*) user_data;
-  // concatenate available; collect missing
-  ctx->missing_indices = (uint32_t*) safe_calloc((size_t) ctx->count, sizeof(uint32_t));
+  ctx->missing_indices    = (uint32_t*) safe_calloc((size_t) ctx->count, sizeof(uint32_t));
   for (uint32_t i = 0; i < (uint32_t) num_files; i++) {
-    if (files[i].error || files[i].data.len == 0) {
+    uint64_t    period = ctx->start_period + i;
+    const char* why    = NULL;
+    if (!files[i].error && files[i].data.len > 0)
+      why = lcu_wire_reject_reason(http_server.chain_id, files[i].data, period);
+    bool bad = files[i].error || files[i].data.len == 0 || why != NULL;
+    if (bad) {
+      if (why) {
+        log_warn("period_store: dropping cached LCU for period %l: %s", period, why);
+        lcu_cache_unlink(period);
+      }
+      else if (files[i].error)
+        log_debug("period_store: " C4_PS_LCU_SSZ " missing for period %l (%s)", period, files[i].error);
       ctx->missing_indices[ctx->missing_count++] = i;
-      if (files[i].error)
-        log_debug("period_store: " C4_PS_LCU_SSZ " missing for period %l (%s)", ctx->start_period + i, files[i].error);
     }
     else {
-      buffer_append(&ctx->out, files[i].data);
+      ctx->parts[i] = bytes_dup(files[i].data);
     }
   }
-  // free read buffers; we've copied what we need
   c4_file_data_array_free(files, num_files, 1);
   if (ctx->missing_count == 0) {
-    // deliver immediately
-    bytes_t result = ctx->out.data; // transfer ownership to caller
-    ctx->out       = (buffer_t) {0};
-    ctx->cb(ctx->user_data, result, NULL);
-    safe_free(ctx->missing_indices);
-    safe_free(ctx);
+    lcu_assemble_finish(ctx);
     return;
   }
-  // fetch missing sequentially to keep order
   lcu_fetch_next(ctx);
 }
 
@@ -213,18 +376,18 @@ void c4_get_light_client_updates(void* user_data, uint64_t period, uint32_t coun
   ctx->cb                 = cb;
   ctx->start_period       = period;
   ctx->count              = count;
-  ctx->out                = (buffer_t) {0};
+  ctx->parts              = (bytes_t*) safe_calloc(count ? count : 1, sizeof(bytes_t));
   if (!eth_config.period_store) {
-    // Fallback: kein Cache → hole alle Perioden direkt und liefere concatenated Ergebnis (nicht persistieren)
+    // No cache: fetch every period from the beacon API and deliver the
+    // concatenated result. lcu_persist_response does not write in this case.
     ctx->missing_count   = count;
     ctx->missing_pos     = 0;
-    ctx->missing_indices = (uint32_t*) safe_calloc(count, sizeof(uint32_t));
+    ctx->missing_indices = (uint32_t*) safe_calloc(count ? count : 1, sizeof(uint32_t));
     for (uint32_t i = 0; i < count; i++) ctx->missing_indices[i] = i;
     lcu_fetch_next(ctx);
     return;
   }
-  // prepare reads
-  file_data_t* files = (file_data_t*) safe_calloc(count, sizeof(file_data_t));
+  file_data_t* files = (file_data_t*) safe_calloc(count ? count : 1, sizeof(file_data_t));
   for (uint32_t i = 0; i < count; i++) {
     char* dir       = c4_ps_ensure_period_dir(period + i);
     files[i].path   = bprintf(NULL, "%s/" C4_PS_LCU_SSZ, dir);
@@ -234,16 +397,13 @@ void c4_get_light_client_updates(void* user_data, uint64_t period, uint32_t coun
   }
   int rc = c4_read_files_uv(ctx, lcu_assemble_read_cb, files, (int) count);
   if (rc < 0) {
-    // Scheduling failed: clean up and fail fast to avoid leaks
+    // Scheduling failed: free the request list and fail before anything is read.
     c4_file_data_array_free(files, (int) count, 0);
-    char* err = strdup("failed to schedule " C4_PS_LCU_SSZ " reads");
-    cb(user_data, NULL_BYTES, err);
-    buffer_free(&ctx->out);
-    safe_free(ctx);
+    lcu_assemble_fail(ctx, strdup("failed to schedule " C4_PS_LCU_SSZ " reads"));
   }
   else {
-    // c4_read_files_uv made its own heap copy of the array; free our temporary array container
-    // IMPORTANT: do NOT free files[i].path here; ownership stays with the copy and will be freed in the callback
+    // c4_read_files_uv made its own heap copy of the array; free our temporary array container.
+    // Do not free files[i].path here; the copy owns those strings.
     safe_free(files);
   }
 }

@@ -28,6 +28,9 @@ void c4_period_sync_on_checkpoint(uint64_t slot) {
 
   if (!eth_config.period_master_url) {
     if (!c4_ps_file_exists(period, C4_PS_LCU_SSZ)) c4_ps_schedule_fetch_lcu(period);
+    // Period N-1 is finished once a checkpoint falls in period N. If its LCU was
+    // refused earlier (no same-period finality yet), fetch it now.
+    if (period > 0 && !c4_ps_file_exists(period - 1, C4_PS_LCU_SSZ)) c4_ps_schedule_fetch_lcu(period - 1);
     if (!c4_ps_file_exists(period, C4_PS_HISTORICAL_ROOT_JSON)) c4_ps_schedule_fetch_historical_root(period);
     // Pack missing C4_PS_ZK_PROOF_SSZ files. Groth16 inputs of recent periods may
     // arrive after this checkpoint already ran, so walk backwards from period + 1
