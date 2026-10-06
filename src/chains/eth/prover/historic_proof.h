@@ -209,23 +209,24 @@ c4_status_t c4_fetch_zk_proof_data(prover_ctx_t* ctx, zk_proof_data_t* zk_proof,
  * `LightClientUpdate`s in Beacon-API list format (each entry is prefixed with
  * an 8-byte LE length + 4-byte ForkDigest).
  *
- * Two lookup paths are tried in order:
+ * Two lookup paths:
  *
- * 1. **Preferred (server context, `C4_PROVER_FLAG_CHAIN_STORE` set)**: read
- *    from the local `period_store` via the internal `lcu_updates` handler.
- *    That handler concatenates the per-period `lcu.ssz` files (already in
- *    Beacon-API wire format) and transparently backfills missing periods from
- *    a beacon node. It's noticeably cheaper than a dedicated beacon roundtrip
- *    when the cache is warm.
- * 2. **Fallback (always available)**: direct
+ * 1. **Period store (`C4_PROVER_FLAG_CHAIN_STORE` set)**: read from the local
+ *    `period_store` via the internal `lcu_updates` handler. That handler
+ *    concatenates the per-period `lcu.ssz` files (already in Beacon-API wire
+ *    format). A missing period is fetched on its own (`count=1`) and written
+ *    back to the cache. The result of this handler is final: a failure or a
+ *    body shorter than one update prefix is returned as an error. There is no
+ *    second request for the whole range. Beacon nodes may answer
+ *    `light_client/updates?count=N` with fewer than `N` updates, and the
+ *    proof builder treats `N` as the SSZ list length.
+ * 2. **No period store**: direct
  *    `GET eth/v1/beacon/light_client/updates?start_period=X&count=Y`.
+ *    `fetch_updates_data` still rejects the body when it does not contain
+ *    exactly `Y` updates.
  *
- * The preferred path uses `_no_throw` semantics and a per-ctx state-cache
- * marker ("LCU_FALLBACK_LOGGED") so a fallback warning is emitted **exactly
- * once** across all async re-entries of the same prover run. Short internal
- * responses (`< UPDATE_PREFIX_SIZE`) are treated the same as a transport
- * error and mark the internal `data_request_t.error` sticky, so subsequent
- * `_no_throw` calls short-circuit without re-probing the response.
+ * The period-store path uses `_no_throw`, so a handler error is not already
+ * on `ctx->state`. This function copies it into `ctx->state.error`.
  *
  * The returned `out_data->data` points into the underlying `data_request_t`
  * response buffer and is owned by `ctx->state`; the caller **must not** free
@@ -233,15 +234,18 @@ c4_status_t c4_fetch_zk_proof_data(prover_ctx_t* ctx, zk_proof_data_t* zk_proof,
  *
  * @param ctx prover context (must not be NULL)
  * @param start_period first period to fetch (inclusive)
- * @param count number of consecutive periods to fetch; forwarded verbatim
- *              into the beacon-API `count` query parameter. A value of `0`
- *              is not rejected but typically yields an empty list.
+ * @param count number of consecutive periods to fetch. With a period store
+ *              this is the length of the cached range; a gap is fetched with
+ *              `count=1`. Without a period store it is the beacon-API `count`
+ *              query parameter. A value of `0` is not rejected but typically
+ *              yields an empty list.
  * @param out_data on success: raw wire bytes referencing the request
  *                 response. Ownership stays with `ctx->state`; do **not**
  *                 free. Must not be NULL.
  * @return `C4_PENDING` while any underlying request is in flight,
- *         `C4_SUCCESS` when `out_data` is ready, `C4_ERROR` on transport
- *         failure (both paths). On error, `ctx->state.error` is set.
+ *         `C4_SUCCESS` when `out_data` is ready, `C4_ERROR` when the period
+ *         store handler fails or the direct beacon request fails. On error,
+ *         `ctx->state.error` is set.
  */
 c4_status_t c4_fetch_client_updates(prover_ctx_t* ctx, uint64_t start_period, uint32_t count, bytes_t* out_data);
 

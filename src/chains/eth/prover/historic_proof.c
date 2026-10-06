@@ -483,56 +483,22 @@ c4_status_t c4_fetch_client_updates(prover_ctx_t* ctx, uint64_t start_period, ui
   char query[100] = {0};
   sbprintf(query, "start_period=%l&count=%d", start_period, count);
 
-  // Preferred path (server context): read the LCUs from the local period_store
-  // via the internal `lcu_updates` handler. That handler concatenates the
-  // per-period `lcu.ssz` files (already in Beacon-API wire format: 8-byte LE
-  // length + 4-byte ForkDigest + LCU SSZ) and transparently backfills
-  // missing periods from a beacon node. It's noticeably cheaper than a
-  // dedicated beacon roundtrip when the cache is warm.
-  //
-  // Fallback: if the internal handler errors out or returns a body that is
-  // too short to hold even one update prefix, drop back to a direct beacon
-  // fetch. `_no_throw` leaves `ctx->state.error` untouched, so the transient
-  // error is invisible to the outer prover run. A per-context state-cache
-  // marker keyed by a fixed 32-byte ASCII sentinel ensures the warning is
-  // emitted exactly once across all async re-entries -- the collision
-  // probability with any sha256(url) is 2^-256 and the sentinel is never
-  // derived from user data, so it cannot alias a real request id.
+  // Period store: `lcu_updates` concatenates cached `lcu.ssz` files and
+  // fills a gap with its own `count=1` beacon request. Do not replace a
+  // failure with one `count=N` beacon call. Nodes may return fewer updates
+  // than `count`, and the proof builder uses `count` as the SSZ list length.
+  // `_no_throw` leaves `ctx->state.error` unset; the message is copied below.
   if (ctx->flags & C4_PROVER_FLAG_CHAIN_STORE) {
     data_request_t* internal_req = NULL;
     c4_status_t     st           = c4_send_internal_request_no_throw(ctx, "lcu_updates", query, 0, &internal_req);
     if (st == C4_PENDING) return C4_PENDING;
-    if (st == C4_SUCCESS && internal_req->response.len >= UPDATE_PREFIX_SIZE) {
+    if (st == C4_SUCCESS && internal_req && internal_req->response.len >= UPDATE_PREFIX_SIZE) {
       *out_data = internal_req->response;
       return C4_SUCCESS;
     }
-    // Internal path did not yield a usable body -> fall through to beacon.
-    // ASCII sentinel key "LCU_FALLBACK_LOGGED\0\0\0\0\0\0\0\0\0\0\0\0\0"
-    // (19 chars + 13 padding = 32 bytes).
-    static const bytes32_t LCU_FALLBACK_LOGGED_KEY = {
-        'L', 'C', 'U', '_', 'F', 'A', 'L', 'L', 'B', 'A', 'C', 'K', '_',
-        'L', 'O', 'G', 'G', 'E', 'D', 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0};
-    // `send_request_impl` guarantees `internal_req != NULL` for every
-    // return code (C4_PENDING was handled above with an early return), so
-    // it is safe to dereference unconditionally here.
-    bytes_t already_logged = c4_state_cache_get(&ctx->state, (uint8_t*) LCU_FALLBACK_LOGGED_KEY);
-    if (!already_logged.data) {
-      log_warn("historic_proof: internal lcu_updates fallback to beacon (status=%d, len=%u)",
-               (int) st, (unsigned) internal_req->response.len);
-      // Store a 1-byte sentinel (value irrelevant, presence matters).
-      // Ownership transfers to the state cache; freed with the ctx.
-      uint8_t* sentinel = (uint8_t*) safe_calloc(1, 1);
-      c4_state_cache_set(&ctx->state, (uint8_t*) LCU_FALLBACK_LOGGED_KEY, bytes(sentinel, 1));
-    }
-    // Short-response branch (`st == C4_SUCCESS` but too small to be a
-    // valid update list): the request layer left `.error == NULL`. Mark
-    // it so future `_no_throw` calls in this ctx short-circuit to
-    // `C4_ERROR` without re-probing the response. Semantically this
-    // overloads `.error` with an application-level state -- documented
-    // here so future readers do not mistake it for a transport error.
-    if (st == C4_SUCCESS && !internal_req->error)
-      internal_req->error = strdup("internal lcu_updates: short response");
+    const char* why = (internal_req && internal_req->error) ? internal_req->error : "lcu_updates returned no usable light client updates";
+    log_warn("historic_proof: lcu_updates failed, not requesting the full range from a beacon node: %s", why);
+    THROW_ERROR_WITH("lcu_updates failed: %s", why);
   }
 
   ssz_ob_t result = {0};
@@ -550,6 +516,7 @@ static c4_status_t fetch_updates_data(prover_ctx_t* ctx, syncdata_state_t* sync_
 
   if (!updates) return C4_SUCCESS;
 
+  uint32_t got    = 0;
   uint64_t length = 0;
   for (uint32_t pos = 0; pos + UPDATE_PREFIX_SIZE < client_updates.len; pos += length + SSZ_LENGTH_SIZE) {
     uint32_t data_offset        = pos + SSZ_LENGTH_SIZE + SSZ_OFFSET_SIZE;
@@ -559,6 +526,8 @@ static c4_status_t fetch_updates_data(prover_ctx_t* ctx, syncdata_state_t* sync_
     if (length < data_length_offset ||
         pos + SSZ_LENGTH_SIZE + length > client_updates.len ||
         pos + SSZ_LENGTH_SIZE + length < pos) {
+      // The caller frees only the checkpoint proof. This builder is ours.
+      ssz_builder_free(updates);
       THROW_ERROR("invalid light client update length");
     }
 
@@ -566,8 +535,10 @@ static c4_status_t fetch_updates_data(prover_ctx_t* ctx, syncdata_state_t* sync_
     bytes_t   fork_digest         = bytes(client_updates.data + pos + SSZ_LENGTH_SIZE, 4);
     fork_id_t fork                = c4_eth_fork_from_digest(ctx->chain_id, fork_digest.data);
     ssz_ob_t  update              = {.bytes = client_update_bytes, .def = eth_get_light_client_update(fork)};
-    if (!update.def)
+    if (!update.def) {
+      ssz_builder_free(updates);
       THROW_ERROR_WITH(C4_ETH_UNKNOWN_LCU_FORK_FMT, fork_digest, c4_client_version);
+    }
 
     bytes_t prefixed = bytes(safe_malloc(update.bytes.len + 1), update.bytes.len + 1);
     memcpy(prefixed.data + 1, update.bytes.data, update.bytes.len);
@@ -582,6 +553,16 @@ static c4_status_t fetch_updates_data(prover_ctx_t* ctx, syncdata_state_t* sync_
     prefixed.data[0] = union_tag;
     ssz_add_dynamic_list_bytes(updates, count, prefixed);
     safe_free(prefixed.data);
+    got++;
+  }
+
+  // Offsets were written for `count` elements. A shorter beacon body would
+  // make the verifier read past the list. Do not repair the offsets: the
+  // missing updates would still leave a gap in the sync chain.
+  if (got != count) {
+    ssz_builder_free(updates);
+    log_warn("historic_proof: light client updates starting at period %l: expected %d, got %d", start, count, got);
+    THROW_ERROR_WITH("light client updates: expected %d, got %d", count, got);
   }
 
   return C4_SUCCESS;
