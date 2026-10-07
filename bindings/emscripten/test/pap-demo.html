@@ -57,6 +57,7 @@
     }
 
     .status {
+      display: none;
       font-family: 'SF Mono', 'JetBrains Mono', Menlo, monospace;
       font-size: 0.78rem;
       color: #9ba3b8;
@@ -207,8 +208,37 @@
       cursor: not-allowed;
     }
 
+    @keyframes fade-in {
+      from {
+        opacity: 0;
+        transform: translateY(8px);
+      }
+
+      to {
+        opacity: 1;
+        transform: none;
+      }
+    }
+
+    @keyframes fade-out {
+      from {
+        opacity: 1;
+        transform: none;
+      }
+
+      to {
+        opacity: 0;
+        transform: translateY(-6px);
+      }
+    }
+
+    .fade-in {
+      animation: fade-in 0.5s ease;
+    }
+
     .result {
       margin-top: 0.9rem;
+      animation: fade-in 0.5s ease;
       padding: 0.6rem 0.8rem;
       background: #0e2a1b;
       border: 1px solid #1f5b3a;
@@ -225,8 +255,15 @@
       color: #ffb2bf;
     }
 
+    .fade-out,
+    .result.fade-out {
+      animation: fade-out 0.5s ease forwards;
+      pointer-events: none;
+    }
+
     .remarks {
       margin-top: 0.9rem;
+      animation: fade-in 0.5s ease;
       padding: 0.7rem 0.9rem;
       background: #0d1430;
       border-left: 3px solid #7fdbca;
@@ -270,6 +307,7 @@
     }
 
     .req {
+      animation: fade-in 0.5s ease;
       background: #0a0f1f;
       border: 1px solid #1a2140;
       border-radius: 6px;
@@ -343,6 +381,7 @@
     }
 
     .hint {
+      display: none;
       font-size: 0.75rem;
       color: #6b7390;
       margin-top: 0.4rem;
@@ -622,6 +661,22 @@
       presetsEl.appendChild(btn);
     }
 
+    function playFadeIn(el) {
+      el.classList.remove('fade-in');
+      void el.offsetWidth;
+      el.classList.add('fade-in');
+    }
+
+    function resetOutputs() {
+      for (const el of [reqsEl, resultEl, remarksEl]) el.classList.remove('fade-out');
+      resultEl.className = '';
+      resultEl.textContent = '';
+      remarksEl.innerHTML = '';
+      reqsEl.innerHTML = '';
+      syncEl.className = 'sync';
+      syncEl.textContent = 'sync 0';
+    }
+
     function selectPreset(p, btn) {
       activePreset = p;
       for (const b of presetsEl.querySelectorAll('.preset')) b.classList.remove('active');
@@ -630,13 +685,21 @@
         JSON.stringify({ jsonrpc: '2.0', id: 1, ...p.rpc }, null, 2),
         p.sensitive,
       );
+      playFadeIn(requestEl);
       execBtn.disabled = false;
-      viewGen++;
-      resultEl.innerHTML = '';
-      remarksEl.innerHTML = '';
-      reqsEl.innerHTML = '';
-      syncEl.className = 'sync';
-      syncEl.textContent = 'sync 0';
+      const gen = ++viewGen;
+      const panels = [reqsEl, resultEl, remarksEl].filter(
+        (el) => el.childElementCount || el.textContent.trim(),
+      );
+      if (!panels.length) {
+        resetOutputs();
+        return;
+      }
+      for (const el of panels) el.classList.add('fade-out');
+      setTimeout(() => {
+        if (gen !== viewGen) return;
+        resetOutputs();
+      }, 500);
     }
 
     // --------------------------------------------------------------
@@ -651,9 +714,7 @@
       if (!p) return;
       const gen = ++viewGen;
       execBtn.disabled = true;
-      resultEl.innerHTML = '';
-      remarksEl.innerHTML = '';
-      reqsEl.innerHTML = '';
+      resetOutputs();
       let syncCount = 0;
       syncEl.className = 'sync';
       syncEl.textContent = 'sync 0';
