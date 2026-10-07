@@ -101,7 +101,10 @@ bool pap_tx_cache_load(chain_id_t chain_id) {
   }
 
   update_max_block();
-  g_cache.last_updated = (uint64_t) time(NULL);
+  // Restoring a snapshot is not a server fetch. last_updated stays 0 so a
+  // lookup miss in this session refreshes the index instead of treating the
+  // persisted bytes as freshly downloaded.
+  g_cache.last_updated = 0;
   return true;
 }
 

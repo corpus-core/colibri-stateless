@@ -1,0 +1,902 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <title>Colibri PAP Live Demo</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html,
+    body {
+      height: 100%;
+    }
+
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      padding: 1.2rem 1.5rem 1.5rem;
+      background: #0f1322;
+      color: #e6e6ee;
+      line-height: 1.45;
+    }
+
+    h1 {
+      font-size: 1.1rem;
+      color: #7fdbca;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    h2 {
+      font-size: 0.78rem;
+      color: #9ba3b8;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 0.5rem;
+    }
+
+    .top {
+      display: flex;
+      align-items: center;
+      gap: 1.2rem;
+      margin-bottom: 1rem;
+      flex-wrap: wrap;
+    }
+
+    .logo {
+      margin-left: auto;
+      height: 52px;
+      width: auto;
+      flex: 0 0 auto;
+    }
+
+    .status {
+      font-family: 'SF Mono', 'JetBrains Mono', Menlo, monospace;
+      font-size: 0.78rem;
+      color: #9ba3b8;
+    }
+
+    .status .k {
+      color: #6b7390;
+    }
+
+    .status .v {
+      color: #e6e6ee;
+    }
+
+    .presets {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.6rem;
+      margin-bottom: 1rem;
+    }
+
+    .preset {
+      background: #1a2036;
+      border: 1px solid #2a3254;
+      border-radius: 8px;
+      padding: 0.8rem 1rem;
+      cursor: pointer;
+      color: #e6e6ee;
+      font: inherit;
+      text-align: left;
+      transition: border-color 0.15s, background 0.15s;
+    }
+
+    .preset:hover:not(:disabled) {
+      border-color: #533483;
+    }
+
+    .preset.active {
+      background: #1f1b36;
+      border-color: #7b5ea7;
+    }
+
+    .preset:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    .preset .title {
+      font-weight: 600;
+      font-size: 0.95rem;
+      color: #e6e6ee;
+      margin-bottom: 0.15rem;
+    }
+
+    .preset .meta {
+      font-family: 'SF Mono', 'JetBrains Mono', Menlo, monospace;
+      font-size: 0.72rem;
+      color: #8ba6ff;
+    }
+
+    .preset .mode {
+      font-size: 0.68rem;
+      color: #9ba3b8;
+      margin-top: 0.2rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+
+    .cols {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+      min-height: 60vh;
+    }
+
+    .panel {
+      background: #141a2e;
+      border: 1px solid #222a44;
+      border-radius: 8px;
+      padding: 0.9rem 1rem;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    .panel+.panel {}
+
+    pre.code {
+      background: #0a0f1f;
+      border: 1px solid #1a2140;
+      border-radius: 6px;
+      padding: 0.7rem 0.8rem;
+      font-family: 'SF Mono', 'JetBrains Mono', Menlo, monospace;
+      font-size: 0.8rem;
+      overflow: auto;
+      white-space: pre;
+      color: #e6e6ee;
+    }
+
+    pre.code.wrap {
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    /* JSON highlight tokens */
+    .j-key {
+      color: #7fdbca;
+    }
+
+    .j-str {
+      color: #ffcb8b;
+    }
+
+    .j-num {
+      color: #c4a7f0;
+    }
+
+    .j-bool {
+      color: #c4a7f0;
+    }
+
+    .j-null {
+      color: #6b7390;
+    }
+
+    .j-punct {
+      color: #6b7390;
+    }
+
+    button.exec {
+      margin-top: 0.7rem;
+      align-self: flex-start;
+      background: #533483;
+      border: 1px solid #7b5ea7;
+      color: #fff;
+      font: inherit;
+      font-weight: 600;
+      padding: 0.5rem 1.2rem;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+
+    button.exec:hover:not(:disabled) {
+      background: #7b5ea7;
+    }
+
+    button.exec:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .result {
+      margin-top: 0.9rem;
+      padding: 0.6rem 0.8rem;
+      background: #0e2a1b;
+      border: 1px solid #1f5b3a;
+      border-radius: 6px;
+      font-family: 'SF Mono', 'JetBrains Mono', Menlo, monospace;
+      font-size: 0.78rem;
+      color: #a2e8bf;
+      word-break: break-all;
+    }
+
+    .result.err {
+      background: #2b1115;
+      border-color: #7a1f2b;
+      color: #ffb2bf;
+    }
+
+    .remarks {
+      margin-top: 0.9rem;
+      padding: 0.7rem 0.9rem;
+      background: #0d1430;
+      border-left: 3px solid #7fdbca;
+      border-radius: 4px;
+      font-size: 0.85rem;
+    }
+
+    .remarks ul {
+      margin: 0.3rem 0 0 1rem;
+      padding: 0;
+    }
+
+    .remarks li {
+      margin: 0.2rem 0;
+    }
+
+    .right-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      margin-bottom: 0.5rem;
+    }
+
+    .right-head .sync {
+      font-family: 'SF Mono', Menlo, monospace;
+      font-size: 0.7rem;
+      color: #6b7390;
+    }
+
+    .right-head .sync.active {
+      color: #ffcb8b;
+    }
+
+    .reqs {
+      flex: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+      min-height: 20vh;
+    }
+
+    .req {
+      background: #0a0f1f;
+      border: 1px solid #1a2140;
+      border-radius: 6px;
+      padding: 0.5rem 0.7rem;
+      font-family: 'SF Mono', 'JetBrains Mono', Menlo, monospace;
+      font-size: 0.75rem;
+    }
+
+    .req.pending {
+      border-color: #2a3254;
+    }
+
+    .req.done {
+      border-color: #1f5b3a;
+    }
+
+    .req.err {
+      border-color: #7a1f2b;
+    }
+
+    .req-head {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.3rem;
+      flex-wrap: wrap;
+    }
+
+    .label {
+      display: inline-block;
+      font-size: 0.65rem;
+      font-weight: 700;
+      padding: 0.1rem 0.45rem;
+      border-radius: 3px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .label.rpc {
+      background: #2d6cdf;
+      color: #fff;
+    }
+
+    .label.prover {
+      background: #2d7a4f;
+      color: #fff;
+    }
+
+    .label.other {
+      background: #4a5272;
+      color: #e6e6ee;
+    }
+
+    .req-method {
+      color: #8ba6ff;
+      font-weight: 600;
+    }
+
+    .req-info {
+      color: #9ba3b8;
+      font-size: 0.72rem;
+      margin-left: auto;
+    }
+
+    .req-body {
+      color: #c9cbdc;
+      white-space: pre-wrap;
+      word-break: break-all;
+      max-height: 15em;
+      overflow-y: auto;
+    }
+
+    .hint {
+      font-size: 0.75rem;
+      color: #6b7390;
+      margin-top: 0.4rem;
+    }
+
+    .error {
+      padding: 0.8rem 1rem;
+      background: #2b1115;
+      border: 1px solid #7a1f2b;
+      border-radius: 6px;
+      color: #ffb2bf;
+      font-family: Menlo, monospace;
+      font-size: 0.85rem;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="top">
+    <h1>Colibri — Pragmatic Adaptive Privacy</h1>
+    <div class="status" id="status"><span class="k">loading…</span></div>
+    <img class="logo" src="../c4_logo.png" alt="Colibri">
+  </div>
+
+  <div class="presets" id="presets">
+    <!-- filled by JS -->
+  </div>
+
+  <div class="cols">
+    <div class="panel left">
+      <h2>JSON-RPC Request</h2>
+      <pre class="code wrap" id="request">pick a preset above</pre>
+      <button class="exec" id="execute" disabled>Execute</button>
+      <div id="result"></div>
+      <div id="remarks"></div>
+    </div>
+
+    <div class="panel right">
+      <div class="right-head">
+        <h2>Outgoing requests</h2>
+        <span class="sync" id="sync">sync 0</span>
+      </div>
+      <div class="reqs" id="reqs"></div>
+      <div class="hint">
+        <span class="label rpc">rpc</span>
+        goes to the public Ethereum RPC provider.
+        <span class="label prover">prover</span>
+        goes to the Colibri prover.
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    // --------------------------------------------------------------
+    //  Config
+    // --------------------------------------------------------------
+    // The default emscripten build target. `wasm-debug` can be used
+    // instead for stepping through C in DevTools.
+    const buildBase = '../../../build/wasm/emscripten';
+
+    // Mainnet execution-layer RPC used by the prep calls only.
+    // The Colibri client picks its own list from the mainnet defaults.
+    const PREP_RPC = 'https://mainnet.colibri-proof.tech/execution';
+
+    // Constants
+    const USDC_ADDR = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48';
+    const WETH_ADDR = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2';
+    const UNIV2_ROUTER = '0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D';
+    // Binance 14 hot wallet — reliably funded on mainnet
+    const RICH_FROM = '0x28C6c06298d514Db089934071355E5743bf21d60';
+    const SWAP_SELECTOR = '0x7ff36ab5'; // swapExactETHForTokens(uint256,address[],address,uint256)
+    const TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+    const MIN_BALANCE_WEI = 0x00b1a2bc2ec50000n; // 0.05 ETH
+
+    // Pre-encoded calldata for the swap preset (static values + RICH_FROM baked in).
+    const SWAP_CALLDATA = SWAP_SELECTOR +
+      // amountOutMin (uint256) = 0
+      '0000000000000000000000000000000000000000000000000000000000000000' +
+      // offset to the path array = 0x80
+      '0000000000000000000000000000000000000000000000000000000000000080' +
+      // to (address) = RICH_FROM
+      '00000000000000000000000028c6c06298d514db089934071355e5743bf21d60' +
+      // deadline (uint256) = 0xffffffff
+      '00000000000000000000000000000000000000000000000000000000ffffffff' +
+      // path.length = 2
+      '0000000000000000000000000000000000000000000000000000000000000002' +
+      // path[0] = WETH
+      '000000000000000000000000c02aaa39b223fe8d0a0e5c4f27ead9083c756cc2' +
+      // path[1] = USDC
+      '000000000000000000000000a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48';
+
+    const SWAP_VALUE_WEI = '0x2386f26fc10000'; // 0.01 ETH
+
+    // --------------------------------------------------------------
+    //  Load Colibri (WASM build)
+    // --------------------------------------------------------------
+    let Colibri;
+    try {
+      const mod = await import(`${buildBase}/index.js`);
+      Colibri = mod.default;
+    } catch (e) {
+      document.body.innerHTML =
+        `<div class="error">Could not load Colibri from <code>${buildBase}/index.js</code>.<br>` +
+        `Build the <code>wasm</code> preset first:` +
+        `<pre class="code">cmake --preset wasm &amp;&amp; cmake --build build/wasm</pre>` +
+        `Then reload this page.<br><br>Original error: ${e.message || e}</div>`;
+      throw e;
+    }
+
+    // --------------------------------------------------------------
+    //  Direct JSON-RPC helper (used for prep only, bypasses Colibri)
+    // --------------------------------------------------------------
+    async function rawRpc(method, params) {
+      const r = await fetch(PREP_RPC, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+      });
+      if (!r.ok) throw new Error(`${method}: HTTP ${r.status}`);
+      const j = await r.json();
+      if (j.error) throw new Error(`${method}: ${j.error.message || JSON.stringify(j.error)}`);
+      return j.result;
+    }
+
+    // --------------------------------------------------------------
+    //  Prep: pin a recent block + first tx hash + rich-wallet balance
+    // --------------------------------------------------------------
+    const statusEl = document.getElementById('status');
+    function setStatus(parts) {
+      statusEl.innerHTML = parts
+        .map(([k, v]) => `<span class="k">${k}</span> <span class="v">${v}</span>`)
+        .join(' &nbsp;·&nbsp; ');
+    }
+
+    setStatus([['loading…', '']]);
+
+    let prep;
+    try {
+      // Pick a block a few below `latest` so the server's prover definitely
+      // has it (its tx_cache is populated with a small lag) and so that an
+      // eth_getTransactionByHash fallback is never needed in the Receipt
+      // preset. `latest` itself can be newer than what the prover knows.
+      const latestHex = await rawRpc('eth_blockNumber', []);
+      const targetBlockNum = BigInt(latestHex) - 3n;
+      const targetBlockHex = '0x' + targetBlockNum.toString(16);
+      const targetBlock = await rawRpc('eth_getBlockByNumber', [targetBlockHex, true]);
+      const blockNum = targetBlock.number;
+      const firstTx = targetBlock.transactions?.[0];
+      if (!firstTx) throw new Error(`block ${blockNum} has no transactions`);
+      const txHash = typeof firstTx === 'string' ? firstTx : firstTx.hash;
+      const balHex = await rawRpc('eth_getBalance', [RICH_FROM, 'latest']);
+      const balWei = BigInt(balHex);
+      prep = { blockNum, txHash, balWei };
+    } catch (e) {
+      document.body.insertAdjacentHTML('afterbegin',
+        `<div class="error">Prep failed: ${e.message || e}. The page needs network access to <code>${PREP_RPC}</code>.</div>`);
+      throw e;
+    }
+
+    setStatus([
+      ['block', prep.blockNum],
+      ['tx', short(prep.txHash)],
+      ['rich-wallet balance', `${(Number(prep.balWei) / 1e18).toFixed(3)} ETH`],
+    ]);
+
+    function short(h) {
+      if (!h) return '';
+      return h.length > 14 ? `${h.slice(0, 10)}…${h.slice(-6)}` : h;
+    }
+
+    // --------------------------------------------------------------
+    //  Preset definitions
+    // --------------------------------------------------------------
+    const presets = [
+      {
+        id: 'receipt',
+        title: 'Receipt',
+        meta: 'eth_getTransactionReceipt',
+        mode: 'hybrid',
+        rpc: {
+          method: 'eth_getTransactionReceipt',
+          params: [prep.txHash],
+        },
+        privacy_mode: 'basic',
+        prover_mode: 'hybrid',
+        // Lower-case for comparison against lower-cased request payloads
+        sensitive: [prep.txHash.toLowerCase()],
+        remarks: [
+          'The transaction hash never leaves the browser.',
+          'The prover only receives `GET /tx_cache`, an index of recent transactions.',
+          'The RPC sees `eth_getBlockReceipts` for the whole block. The receipt is picked out locally and the hash is checked.',
+        ],
+        summarize: (res) => `receipt status=${res?.status} · logs=${res?.logs?.length ?? 0}`,
+      },
+      {
+        id: 'logs',
+        title: 'USDC logs',
+        meta: 'eth_getLogs',
+        mode: 'remote',
+        rpc: {
+          method: 'eth_getLogs',
+          params: [{
+            fromBlock: prep.blockNum,
+            toBlock: prep.blockNum,
+            address: USDC_ADDR,
+            topics: [TRANSFER_TOPIC],
+          }],
+        },
+        privacy_mode: 'basic',
+        prover_mode: 'remote',
+        sensitive: [USDC_ADDR.toLowerCase(), TRANSFER_TOPIC.toLowerCase()],
+        remarks: [
+          'The USDC address and the Transfer topic are not sent to the prover.',
+          'The prover gets a bloom filter and returns every log whose block bloom matches.',
+          'The exact filter is applied locally, after the proof checks out.',
+        ],
+        summarize: (res) => `logs returned=${Array.isArray(res) ? res.length : 'n/a'}`,
+      },
+      {
+        id: 'swap',
+        title: 'Uniswap swap',
+        meta: 'eth_estimateGas',
+        mode: 'hybrid',
+        rpc: {
+          method: 'eth_estimateGas',
+          params: [{
+            from: RICH_FROM,
+            to: UNIV2_ROUTER,
+            value: SWAP_VALUE_WEI,
+            data: SWAP_CALLDATA,
+          }],
+        },
+        privacy_mode: 'basic',
+        prover_mode: 'hybrid',
+        // Fragments that must not appear in any outgoing request
+        sensitive: [SWAP_SELECTOR.slice(2).toLowerCase(), USDC_ADDR.slice(2).toLowerCase()],
+        remarks: [
+          'Neither `eth_estimateGas` nor the swap calldata is sent.',
+          'Execution is local. Missing slots arrive as `eth_getStorageAt`, without the calldata.',
+          'In hybrid mode `colibri_proofCall` stays local and turns into `eth_getProof` on the RPC. The remote prover only sees a block-header proof, not the swap. Touched contract addresses can still appear in those proofs.',
+        ],
+        summarize: (res) => `gas estimate = ${BigInt(res).toString()} (${res})`,
+      },
+    ];
+
+    // --------------------------------------------------------------
+    //  Render presets
+    // --------------------------------------------------------------
+    const presetsEl = document.getElementById('presets');
+    const requestEl = document.getElementById('request');
+    const execBtn = document.getElementById('execute');
+    const resultEl = document.getElementById('result');
+    const remarksEl = document.getElementById('remarks');
+    const reqsEl = document.getElementById('reqs');
+    const syncEl = document.getElementById('sync');
+
+    let activePreset = null;
+    // Bumped when the visible run changes (preset switch or a new Execute)
+    // so an in-flight request cannot refill a list that was just cleared.
+    let viewGen = 0;
+
+    for (const p of presets) {
+      const btn = document.createElement('button');
+      btn.className = 'preset';
+      btn.disabled = false;
+      // The swap preset needs the from-wallet funded enough that
+      // `eth_estimateGas` can run on `latest` without reverting.
+      if (p.id === 'swap' && prep.balWei < MIN_BALANCE_WEI) {
+        btn.disabled = true;
+        btn.title = `rich-wallet balance below ${(Number(MIN_BALANCE_WEI) / 1e18).toFixed(2)} ETH`;
+      }
+      btn.innerHTML =
+        `<div class="title">${p.title}</div>` +
+        `<div class="meta">${p.meta}</div>` +
+        `<div class="mode">${p.mode}</div>`;
+      btn.addEventListener('click', () => selectPreset(p, btn));
+      presetsEl.appendChild(btn);
+    }
+
+    function selectPreset(p, btn) {
+      activePreset = p;
+      for (const b of presetsEl.querySelectorAll('.preset')) b.classList.remove('active');
+      btn.classList.add('active');
+      requestEl.innerHTML = highlightJson(
+        JSON.stringify({ jsonrpc: '2.0', id: 1, ...p.rpc }, null, 2),
+        p.sensitive,
+      );
+      execBtn.disabled = false;
+      viewGen++;
+      resultEl.innerHTML = '';
+      remarksEl.innerHTML = '';
+      reqsEl.innerHTML = '';
+      syncEl.className = 'sync';
+      syncEl.textContent = 'sync 0';
+    }
+
+    // --------------------------------------------------------------
+    //  Execute
+    // --------------------------------------------------------------
+    execBtn.addEventListener('click', () => runPreset(activePreset).catch((e) => {
+      resultEl.className = 'result err';
+      resultEl.textContent = e?.message || String(e);
+    }));
+
+    async function runPreset(p) {
+      if (!p) return;
+      const gen = ++viewGen;
+      execBtn.disabled = true;
+      resultEl.innerHTML = '';
+      remarksEl.innerHTML = '';
+      reqsEl.innerHTML = '';
+      let syncCount = 0;
+      syncEl.className = 'sync';
+      syncEl.textContent = 'sync 0';
+
+      // Map req_ptr -> DOM entry so we can update size when onTransfer fires
+      const entries = new Map();
+      // Track detected leaks so we don't warn twice for the same string
+      const leaks = new Set();
+      // Dedup identical outgoing requests (type + url + payload); the WASM
+      // runtime occasionally emits the same request multiple times (e.g.
+      // retries after warm-up), which just adds visual noise to the demo.
+      const seenReqs = new Set();
+
+      /** @type import('../src/types.js').Cache */
+      const cache = {
+        // Every outgoing data request runs through `cacheable` first; returning
+        // `true` makes the client call `get`, where we see the full DataRequest.
+        cacheable(_req) { return true; },
+        get(req) {
+          if (gen !== viewGen) return undefined;
+          // Beacon / checkpointz traffic is noise for this demo; count it
+          // in a small sync badge so the audience sees "something" is happening,
+          // but keep the main list focused on rpc vs prover.
+          if (req.type === 'beacon_api' || req.type === 'checkpointz') {
+            syncCount++;
+            syncEl.className = 'sync active';
+            syncEl.textContent = `sync ${syncCount}`;
+          } else {
+            addRequest(req);
+          }
+          return undefined; // nothing cached — force a real fetch
+        },
+        set(_req, _data) { /* noop: we never store responses */ },
+      };
+
+      const client = new Colibri({
+        chainId: 1,
+        privacy_mode: p.privacy_mode,
+        prover_mode: p.prover_mode,
+        cache,
+        onTransfer: (size, req) => {
+          if (gen !== viewGen) return;
+          const key = String(req.req_ptr);
+          const entry = entries.get(key);
+          if (entry) entry.markDone(size);
+        },
+      });
+
+      function addRequest(req) {
+        if (gen !== viewGen) return;
+        if (!req || req.type === 'beacon_api' || req.type === 'checkpointz') return;
+
+        // Dedup: treat identical type + url + payload as a single request so
+        // the demo list stays uncluttered.
+        const payloadKey = typeof req.payload === 'string'
+          ? req.payload
+          : (req.payload ? JSON.stringify(req.payload) : '');
+        const dedupKey = `${req.type}|${req.url || ''}|${payloadKey}`;
+        if (seenReqs.has(dedupKey)) return;
+        seenReqs.add(dedupKey);
+
+        const el = document.createElement('div');
+        el.className = 'req pending';
+
+        const headEl = document.createElement('div');
+        headEl.className = 'req-head';
+
+        const labelEl = document.createElement('span');
+        labelEl.className = `label ${req.type === 'eth_rpc' ? 'rpc' : req.type === 'prover' ? 'prover' : 'other'}`;
+        labelEl.textContent = req.type === 'eth_rpc' ? 'rpc' : req.type === 'prover' ? 'prover' : req.type;
+        headEl.appendChild(labelEl);
+
+        const methodEl = document.createElement('span');
+        methodEl.className = 'req-method';
+        methodEl.textContent = describeRequestTitle(req);
+        headEl.appendChild(methodEl);
+
+        const infoEl = document.createElement('span');
+        infoEl.className = 'req-info';
+        infoEl.textContent = '…';
+        headEl.appendChild(infoEl);
+
+        el.appendChild(headEl);
+
+        const body = describeRequestBody(req);
+        if (body) {
+          const bodyEl = document.createElement('pre');
+          bodyEl.className = 'req-body';
+          bodyEl.innerHTML = highlightJson(body, p.sensitive);
+          el.appendChild(bodyEl);
+        }
+
+        reqsEl.appendChild(el);
+        reqsEl.scrollTop = reqsEl.scrollHeight;
+
+        entries.set(String(req.req_ptr), {
+          el, infoEl,
+          markDone(size) {
+            el.classList.remove('pending');
+            el.classList.add('done');
+            infoEl.textContent = size != null ? `${formatBytes(size)}` : 'done';
+          },
+        });
+
+        // Leak check — scan every outgoing request against the preset's
+        // sensitive strings. If one appears, log a warning to the DevTools
+        // console (we keep the UI clean during the recorded demo).
+        const haystack = (
+          (req.url || '') + ' ' +
+          (req.payload ? JSON.stringify(req.payload) : '')
+        ).toLowerCase();
+        for (const needle of p.sensitive || []) {
+          if (!needle || leaks.has(needle)) continue;
+          if (haystack.includes(needle)) {
+            leaks.add(needle);
+            console.warn(
+              `[PAP leak] "${needle}" leaked in outgoing ${req.type} request`,
+              { url: req.url, method: req.method, payload: req.payload },
+            );
+          }
+        }
+      }
+
+      try {
+        const t0 = performance.now();
+        const result = await client.rpc(p.rpc.method, p.rpc.params);
+        const dt = performance.now() - t0;
+        resultEl.className = 'result';
+        resultEl.textContent = `${p.summarize(result)}  ·  ${dt.toFixed(0)} ms`;
+        renderRemarks(p);
+      } finally {
+        execBtn.disabled = false;
+      }
+    }
+
+    function renderRemarks(p) {
+      remarksEl.innerHTML =
+        '<div class="remarks"><strong>What happened</strong><ul>' +
+        p.remarks.map((r) => `<li>${renderMd(r)}</li>`).join('') +
+        '</ul></div>';
+    }
+
+    // --------------------------------------------------------------
+    //  Request description helpers
+    // --------------------------------------------------------------
+    function describeRequestTitle(req) {
+      if (req.type === 'eth_rpc' && req.payload?.method) return req.payload.method;
+      if (req.type === 'prover') {
+        if (req.method === 'get' && req.url) {
+          // e.g. "tx_cache?from_block=…"
+          const base = req.url.split('?')[0];
+          return `GET /${base}`;
+        }
+        if (req.payload?.method) return req.payload.method;
+      }
+      return req.method?.toUpperCase() || req.type;
+    }
+
+    function describeRequestBody(req) {
+      if (req.type === 'prover' && req.method === 'get') {
+        return `/${req.url}`;
+      }
+      if (!req.payload) return '';
+      // IMPORTANT: never mutate req.payload — the same object is passed to
+      // the WASM runtime for the actual network request. A previous version
+      // tried to abbreviate `bloomFilter` arrays here and inadvertently
+      // mutated the original params, causing the server to receive a
+      // truncated bloom filter and reject the request (which then fell back
+      // to the local prover, producing extra rpc calls in the UI).
+      try {
+        // Shallow-copy only to drop display-noise fields; leave params alone.
+        const body = { ...req.payload };
+        delete body.jsonrpc;
+        delete body.id;
+        return JSON.stringify(body, null, 2);
+      } catch {
+        return String(req.payload);
+      }
+    }
+
+    // --------------------------------------------------------------
+    //  Tiny JSON highlighter + leak marker
+    // --------------------------------------------------------------
+    // Tokenises raw JSON and wraps strings/numbers/booleans/null/keys/punct
+    // in colored spans. Then re-highlights occurrences of `sensitive`
+    // (case-insensitive) in red so the audience sees exactly which bits
+    // of the input *should* stay private.
+    function highlightJson(text, sensitive) {
+      if (text == null) return '';
+      // Tokenize on the RAW text so the regex can still see `"`; the
+      // string content of each token is escaped individually when it is
+      // placed inside its span. (Running `escapeHtml` first would turn
+      // every `"` into `&quot;` and nothing would ever match.)
+      const tokenRe = /("(?:\\.|[^"\\])*")(\s*:)?|\b(true|false|null)\b|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|([{}\[\],])/g;
+      let highlighted = '';
+      let last = 0;
+      let m;
+      while ((m = tokenRe.exec(text))) {
+        if (m.index > last) highlighted += escapeHtml(text.slice(last, m.index));
+        const [, str, colon, keyword, num, punct] = m;
+        if (str) {
+          if (colon) {
+            highlighted += `<span class="j-key">${escapeHtml(str)}</span>`
+              + `<span class="j-punct">${escapeHtml(colon)}</span>`;
+          } else {
+            highlighted += `<span class="j-str">${escapeHtml(str)}</span>`;
+          }
+        } else if (keyword === 'true' || keyword === 'false') {
+          highlighted += `<span class="j-bool">${keyword}</span>`;
+        } else if (keyword === 'null') {
+          highlighted += `<span class="j-null">null</span>`;
+        } else if (num) {
+          highlighted += `<span class="j-num">${num}</span>`;
+        } else if (punct) {
+          highlighted += `<span class="j-punct">${escapeHtml(punct)}</span>`;
+        }
+        last = tokenRe.lastIndex;
+      }
+      if (last < text.length) highlighted += escapeHtml(text.slice(last));
+      // Leaks are reported via console.warn in addRequest(); the UI stays
+      // clean on purpose so the audience is not distracted by red noise.
+      return highlighted;
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, (c) => (
+        c === '&' ? '&amp;' :
+          c === '<' ? '&lt;' :
+            c === '>' ? '&gt;' :
+              c === '"' ? '&quot;' : '&#39;'
+      ));
+    }
+    function renderMd(s) {
+      // Only ` `code` ` matters here; no need for a full Markdown parser.
+      return escapeHtml(s).replace(/`([^`]+)`/g, '<code>$1</code>');
+    }
+
+    function formatBytes(n) {
+      if (n < 1024) return `${n} B`;
+      if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+      return `${(n / (1024 * 1024)).toFixed(2)} MB`;
+    }
+  </script>
+</body>
+
+</html>

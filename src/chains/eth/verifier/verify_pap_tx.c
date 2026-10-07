@@ -196,9 +196,11 @@ static bool get_tx_index_and_block(verify_ctx_t* ctx, bytes32_t requested_hash, 
     else {
       uint64_t now  = (uint64_t) time(NULL);
       uint64_t last = pap_tx_cache_last_updated(ctx->chain_id);
+      // last == 0 means the in-memory snapshot was restored from storage and
+      // has not been fetched from the prover in this session.
       if ((ctx->flags & VERIFY_FLAG_REMOTE_PROVER) &&
-          last > 0 && now >= last &&
-          now - last >= PAP_TX_CACHE_STALE_THRESHOLD_S) {
+          now >= last &&
+          (last == 0 || now - last >= PAP_TX_CACHE_STALE_THRESHOLD_S)) {
         if (fetch_tx_cache_from_server(ctx) != C4_SUCCESS) return false;
         if (pap_tx_cache_get(ctx->chain_id, requested_hash, block_number, tx_index))
           return true;

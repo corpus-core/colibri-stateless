@@ -68,6 +68,10 @@ extern "C" {
 /**
  * Attempts to load the tx cache for `chain_id` from storage.
  *
+ * Restoring a snapshot does not count as a server fetch. `pap_tx_cache_last_updated`
+ * stays 0 until the next successful `/tx_cache` response, so a lookup miss can
+ * refresh the index.
+ *
  * @param chain_id target chain
  * @return true if cache was loaded and contains data
  */
