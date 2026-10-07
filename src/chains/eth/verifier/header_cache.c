@@ -139,6 +139,11 @@ void c4_header_cache_put(chain_id_t chain_id, uint64_t block_number, const uint8
     entry->el_body       = *el_body;
     entry->el_body.bytes = bytes_dup(el_body->bytes);
   }
+  else {
+    // The previous body was freed above. Without this clear the slot keeps the
+    // freed pointer, and the next header-only put frees it again.
+    entry->el_body = (ssz_ob_t) {0};
+  }
   CACHE_UNLOCK();
 }
 
