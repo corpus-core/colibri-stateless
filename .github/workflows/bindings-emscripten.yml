@@ -77,11 +77,18 @@ jobs:
         id: version
         shell: bash
         run: |
-          # Same v6 proof-gate logic as in the emscripten job below.
+          # Clients below 3.0.0 are forwarded to the v2 prover, whose SSZ proofs
+          # a 3.x client cannot verify. Keep a real 3.x describe; only a missing
+          # or pre-3 version is rewritten to 3.0.0.
           VERSION="$(git describe --tags --always --dirty)"
-          MAJOR="$(printf '%s' "$VERSION" | sed -E 's/^v//; s/[^0-9].*$//')"
-          if [ -z "$MAJOR" ] || [ "$MAJOR" -lt 2 ]; then
-            VERSION="2.0.0"
+          if printf '%s' "$VERSION" | grep -Eq '^[vV]?[0-9]+\.[0-9]+'; then
+            MAJOR="$(printf '%s' "$VERSION" | sed -E 's/^v//; s/[^0-9].*$//')"
+          else
+            MAJOR=""
+          fi
+          if [ -z "$MAJOR" ] || [ "$MAJOR" -lt 3 ]; then
+            echo "git describe gave '$VERSION' (major='$MAJOR'); forcing C4_VERSION=3.0.0"
+            VERSION="3.0.0"
           fi
           echo "Using C4_VERSION=$VERSION"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
@@ -148,20 +155,21 @@ jobs:
         id: version
         run: |
           # The WASM build bakes this version in and colibri reports it to the
-          # remote prover, which gates the zk-proof format (<2.0 -> v5/SP1 turbo,
-          # >=2.0 -> v6/SP1 hypercube). The unit/integration tests below already
-          # expect v6, but on dev `git describe` still resolves to the latest 1.x
-          # tag, so the prover would serve the v5 proof -> tests fail.
+          # remote prover. Clients below 3.0.0 are forwarded to the v2 prover
+          # (see c4_try_forward_legacy_proof); that SSZ layout is incompatible
+          # with this client, so verification fails immediately.
           #
-          # Force 2.0.0 *only* while git describe reports a 1.x (or untagged)
-          # version; once v2.0.0+ is tagged the real version is used again, so
-          # this needs no manual cleanup after the release. (Mirrors the same
-          # logic in the docker-playground job.)
+          # Keep a real 3.x `git describe`. Only a missing or pre-3 version is
+          # rewritten to 3.0.0, so a shallow checkout still requests a 3.x proof.
           VERSION="$(git describe --tags --always --dirty)"
-          MAJOR="$(printf '%s' "$VERSION" | sed -E 's/^v//; s/[^0-9].*$//')"
-          if [ -z "$MAJOR" ] || [ "$MAJOR" -lt 2 ]; then
-            echo "git describe gave '$VERSION' (major='$MAJOR'); forcing C4_VERSION=2.0.0 for the v6 proof gate"
-            VERSION="2.0.0"
+          if printf '%s' "$VERSION" | grep -Eq '^[vV]?[0-9]+\.[0-9]+'; then
+            MAJOR="$(printf '%s' "$VERSION" | sed -E 's/^v//; s/[^0-9].*$//')"
+          else
+            MAJOR=""
+          fi
+          if [ -z "$MAJOR" ] || [ "$MAJOR" -lt 3 ]; then
+            echo "git describe gave '$VERSION' (major='$MAJOR'); forcing C4_VERSION=3.0.0"
+            VERSION="3.0.0"
           fi
           echo "Using C4_VERSION=$VERSION"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
@@ -326,24 +334,21 @@ jobs:
       - name: Determine version
         id: version
         run: |
-          # colibri sends its build version to the remote prover, which gates the
-          # zk-proof format: clients <2.0 receive the v5 (SP1 turbo) proof, clients
-          # >=2.0 the v6 (SP1 hypercube) proof. We intentionally keep the playground
-          # pinned to the dev-branch image (i.e. pre-release) to test the upcoming
-          # release early. On dev, `git describe` still resolves to the latest 1.x
-          # tag, so the prover would serve the v5 proof while this build already
-          # expects v6 -> verification fails.
-          #
-          # Fix: force 2.0.0 *only* while git describe reports a 1.x (or untagged)
-          # version. As soon as v2.0.0+ is tagged the real version is used again,
-          # so this needs no manual cleanup after the release.
+          # colibri sends its build version to the remote prover. Clients below
+          # 3.0.0 are forwarded to the v2 prover, whose SSZ proofs this image
+          # cannot verify. A full checkout describes as 3.x and is kept; a
+          # missing or pre-3 version is rewritten to 3.0.0.
           VERSION="$(git describe --tags --always --dirty)"
-          # Strip a leading "v" and keep the leading major component (empty if no
-          # tag resolved, e.g. a bare commit hash).
-          MAJOR="$(printf '%s' "$VERSION" | sed -E 's/^v//; s/[^0-9].*$//')"
-          if [ -z "$MAJOR" ] || [ "$MAJOR" -lt 2 ]; then
-            echo "git describe gave '$VERSION' (major='$MAJOR'); forcing C4_VERSION=2.0.0 for the v6 proof gate"
-            VERSION="2.0.0"
+          # Require a dotted version. A bare commit hash has no dot; its leading
+          # digits are not a major component.
+          if printf '%s' "$VERSION" | grep -Eq '^[vV]?[0-9]+\.[0-9]+'; then
+            MAJOR="$(printf '%s' "$VERSION" | sed -E 's/^v//; s/[^0-9].*$//')"
+          else
+            MAJOR=""
+          fi
+          if [ -z "$MAJOR" ] || [ "$MAJOR" -lt 3 ]; then
+            echo "git describe gave '$VERSION' (major='$MAJOR'); forcing C4_VERSION=3.0.0"
+            VERSION="3.0.0"
           fi
           echo "Using C4_VERSION=$VERSION"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"

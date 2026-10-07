@@ -10,10 +10,16 @@
 # QEMU -- only the tiny nginx final stage is resolved per target platform.
 FROM --platform=$BUILDPLATFORM emscripten/emsdk:4.0.3 AS builder
 
-# CMake normally derives the version from `git describe`, but the build context
-# has no .git directory. Pass the version explicitly so CMake picks it up via
-# $ENV{C4_VERSION}; defaults to the same value CMake would fall back to.
-ARG C4_VERSION=0.1.0-dev
+# CMake reads the version from `git describe`, but the files copied below do
+# not include `.git` (and the server checkout from update.sh is a depth-1
+# clone, which often cannot see the latest tag). The prover treats every
+# client version below 3.0.0 as a legacy client and forwards the request to
+# the v2 prover. That proof uses an SSZ layout this client rejects.
+#
+# An explicit --build-arg C4_VERSION=... is kept when its major is >= 3.
+# Otherwise the build uses `git describe` from the context's .git, and still
+# rewrites anything below 3 (including a missing tag) to 3.0.0.
+ARG C4_VERSION
 
 WORKDIR /src
 
@@ -25,27 +31,48 @@ COPY libs ./libs
 COPY bindings ./bindings
 COPY scripts ./scripts
 
-# `:-` guards against an empty build-arg (an empty env var would still be
-# DEFINED in CMake and produce an empty version).
-RUN C4_VERSION="${C4_VERSION:-0.1.0-dev}" emcmake cmake -B build \
-    -DWASM=true -DWASM_EMBED=ON -DCLI=false -DTEST=false -DCURL=false \
-    -DCMAKE_BUILD_TYPE=MINSIZREL -S . \
-    && cmake --build build
+# `.git` is mounted only for version detection; it is not copied into the
+# layer. The mount fails closed if the context has no .git — pass
+# --build-arg C4_VERSION=<3.x> in that case, or keep the checkout.
+RUN --mount=type=bind,source=.git,target=/src/.git \
+  set -eu; \
+  VERSION="${C4_VERSION:-}"; \
+  if [ -z "$VERSION" ] && command -v git >/dev/null 2>&1; then \
+  VERSION="$(git -c safe.directory=/src -C /src describe --tags --always --dirty 2>/dev/null || true)"; \
+  fi; \
+  # A bare commit hash (shallow clone, `git describe --always`) has no dot.
+  # Its leading digits must not be parsed as a major, or the client reports
+  # a nonsense version such as 255.0.0.
+  if ! printf '%s' "$VERSION" | grep -Eq '^[vV]?[0-9]+\.[0-9]+'; then \
+  MAJOR=""; \
+  else \
+  MAJOR="$(printf '%s' "$VERSION" | sed -E 's/^v//; s/[^0-9].*$//')"; \
+  fi; \
+  if [ -z "$MAJOR" ] || [ "$MAJOR" -lt 3 ]; then \
+  echo "version '${VERSION:-<empty>}' (major='${MAJOR:-}') is below 3.0.0; forcing C4_VERSION=3.0.0 so the prover does not serve a v2 proof"; \
+  VERSION="3.0.0"; \
+  fi; \
+  echo "Using C4_VERSION=$VERSION"; \
+  emcmake cmake -B build \
+  -DC4_VERSION="$VERSION" \
+  -DWASM=true -DWASM_EMBED=ON -DCLI=false -DTEST=false -DCURL=false \
+  -DCMAKE_BUILD_TYPE=MINSIZREL -S . \
+  && cmake --build build
 
 # Lay out a flat site: index.html next to the logo, Colibri under /colibri/.
 # The demo page in the repo points at the local cmake preset output; rewrite
 # those two paths so they match this layout. Fail the build if the markers move.
 RUN set -eu; \
-    html=/src/bindings/emscripten/test/pap-demo.html; \
-    grep -F "const buildBase = '../../../build/wasm/emscripten';" "$html"; \
-    grep -F 'src="../c4_logo.png"' "$html"; \
-    mkdir -p /out/colibri; \
-    cp -a /src/build/emscripten/. /out/colibri/; \
-    cp /src/bindings/emscripten/c4_logo.png /out/c4_logo.png; \
-    sed \
-    -e "s|const buildBase = '../../../build/wasm/emscripten';|const buildBase = './colibri';|" \
-    -e 's|src="../c4_logo.png"|src="./c4_logo.png"|' \
-    "$html" > /out/index.html
+  html=/src/bindings/emscripten/test/pap-demo.html; \
+  grep -F "const buildBase = '../../../build/wasm/emscripten';" "$html"; \
+  grep -F 'src="../c4_logo.png"' "$html"; \
+  mkdir -p /out/colibri; \
+  cp -a /src/build/emscripten/. /out/colibri/; \
+  cp /src/bindings/emscripten/c4_logo.png /out/c4_logo.png; \
+  sed \
+  -e "s|const buildBase = '../../../build/wasm/emscripten';|const buildBase = './colibri';|" \
+  -e 's|src="../c4_logo.png"|src="./c4_logo.png"|' \
+  "$html" > /out/index.html
 
 # --- Final stage: serve the static site with nginx ---
 FROM nginx:alpine AS final
