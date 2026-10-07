@@ -21,11 +21,11 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "colibri.h"
-#include "colibri_common.h"
 #include "beacon_types.h"
 #include "bytes.h"
 #include "chains.h"
+#include "colibri.h"
+#include "colibri_common.h"
 #include "crypto.h"
 #include "json.h"
 #include "plugin.h"
@@ -152,6 +152,13 @@ static bytes_t read_testdata(const char* filename) {
 
   // No error, just EOF (or successful full read if file size was multiple of buffer)
   fclose(file);
+  if (!data.data.data) {
+    // The file exists but is empty. An empty SSZ list (TxCacheSnapshot with no
+    // blocks) serializes to 0 bytes, so this is a real payload. A non-NULL
+    // pointer distinguishes it from a missing file.
+    data.data.data = safe_calloc(1, 1);
+    data.data.len  = 0;
+  }
   return data.data;
 }
 
@@ -326,16 +333,16 @@ static void verify(char* dirname, char* method, char* args, chain_id_t chain_id)
 static void run_rpc_test(char* dirname, prover_flags_t flags, verify_flags_t verify_flags) {
   char test_filename[1024];
   sprintf(test_filename, "%s/test.json", dirname);
-  bytes_t    test_content      = read_testdata(test_filename);
-  json_t     test              = json_parse((char*) test_content.data);
-  char*      method            = bprintf(NULL, "%j", json_get(test, "method"));
-  char*      args              = json_new_string(json_get(test, "params"));
-  json_t     trusted_blockhash = json_get(test, "trusted_blockhash");
-  chain_id_t chain_id          = (chain_id_t) json_get_uint64(test, "chain_id");
-  char*      expected_result   = bprintf(NULL, "%J", json_get(test, "expected_result"));
-  json_t           remote_prover = json_get(test, "remote_prover");
-  json_t           prover_mode   = json_get(test, "prover_mode");
-  c4_prover_mode_t mode          = C4_PROVER_MODE_LOCAL;
+  bytes_t          test_content      = read_testdata(test_filename);
+  json_t           test              = json_parse((char*) test_content.data);
+  char*            method            = bprintf(NULL, "%j", json_get(test, "method"));
+  char*            args              = json_new_string(json_get(test, "params"));
+  json_t           trusted_blockhash = json_get(test, "trusted_blockhash");
+  chain_id_t       chain_id          = (chain_id_t) json_get_uint64(test, "chain_id");
+  char*            expected_result   = bprintf(NULL, "%J", json_get(test, "expected_result"));
+  json_t           remote_prover     = json_get(test, "remote_prover");
+  json_t           prover_mode       = json_get(test, "prover_mode");
+  c4_prover_mode_t mode              = C4_PROVER_MODE_LOCAL;
   if (prover_mode.type == JSON_TYPE_STRING) {
     if (prover_mode.len == 8 && strncmp(prover_mode.start, "\"remote\"", 8) == 0)
       mode = C4_PROVER_MODE_REMOTE;
