@@ -48,60 +48,46 @@
             </nav>
         </header>
 
-        <section class="features">
-            <div class="feature">
-                <h3>Local verification</h3>
-                <p>Consensus &amp; execution proofs verified in your browser - no trusted RPC.</p>
-                <a class="feature-link"
-                    href="https://corpus-core.gitbook.io/specification-colibri-stateless/specifications/ethereum/call-proof"
-                    target="_blank" rel="noopener">How the call proof works →</a>
-            </div>
-            <div class="feature">
-                <h3>Full privacy</h3>
-                <p>Pragmatic Adaptive Privacy with ZK-verified state and a hybrid prover.</p>
-                <a class="feature-link"
-                    href="https://corpus-core.gitbook.io/specification-colibri-stateless/specifications/ethereum/pragmatic-adaptive-privacy"
-                    target="_blank" rel="noopener">Pragmatic Adaptive Privacy →</a>
-            </div>
-            <div class="feature">
-                <h3>Local LLM</h3>
-                <p>Explanation generated on-device via WebGPU - your data never leaves the browser.</p>
-                <a class="feature-link"
-                    href="https://github.com/corpus-core/colibri-stateless/tree/dev/bindings/emscripten/packages/explainer"
-                    target="_blank" rel="noopener">Explainer README →</a>
-            </div>
+        <nav class="trust-row" aria-label="Design properties">
+            <a href="https://corpus-core.gitbook.io/specification-colibri-stateless/specifications/ethereum/call-proof"
+                target="_blank" rel="noopener">Verified in the browser</a>
+            <span class="trust-sep" aria-hidden="true">·</span>
+            <a href="https://corpus-core.gitbook.io/specification-colibri-stateless/specifications/ethereum/pragmatic-adaptive-privacy"
+                target="_blank" rel="noopener">Pragmatic Adaptive Privacy</a>
+            <span class="trust-sep" aria-hidden="true">·</span>
+            <a href="https://github.com/corpus-core/colibri-stateless/tree/dev/bindings/emscripten/packages/explainer"
+                target="_blank" rel="noopener">Local LLM via WebGPU</a>
+        </nav>
+
+        <section class="examples" aria-label="Example transactions">
+            <h2>Try a sample transaction</h2>
+            <div id="examples-grid" class="examples-grid"></div>
+            <p id="examples-hint" class="examples-hint">Simulated against the latest Ethereum Mainnet block. Fields
+                stay editable after you pick one.</p>
         </section>
 
         <section class="panel">
             <h2>Transaction</h2>
-            <div class="tabs">
-                <button class="tab active" data-mode="object" type="button">Tx Object</button>
-                <button class="tab" data-mode="json" type="button">JSON</button>
-                <button class="tab" data-mode="raw" type="button">Raw Transaction</button>
-                <button class="tab" data-mode="samples" type="button">Samples</button>
-            </div>
 
             <div id="mode-object" class="mode">
                 <div class="row">
                     <label class="grow">To
-                        <input id="to" type="text" placeholder="0x..."
-                            value="0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2" />
+                        <input id="to" type="text" placeholder="0x..." />
                     </label>
                     <label class="grow">From
-                        <input id="from" type="text" placeholder="0x... (optional)"
-                            value="0x4838B106FCe9647Bdf1E7877BF73cE8B0BAD5f97" />
+                        <input id="from" type="text" placeholder="0x... (optional)" />
                     </label>
                 </div>
                 <div class="row">
                     <label>Value (wei or 0x)
-                        <input id="value" type="text" placeholder="0x16345785d8a0000" value="0x100bac21cac2ce9" />
+                        <input id="value" type="text" placeholder="0x16345785d8a0000" />
                     </label>
                     <label>Gas (optional)
                         <input id="gas" type="text" placeholder="0x..." />
                     </label>
                 </div>
                 <label>Data
-                    <textarea id="data" rows="3" placeholder="0xd0e30db0">0x</textarea>
+                    <textarea id="data" rows="3" placeholder="0xd0e30db0"></textarea>
                 </label>
             </div>
 
@@ -122,8 +108,9 @@
 
             <div id="mode-samples" class="mode hidden">
                 <div class="samples-toolbar">
-                    <p class="hint">Already executed transactions. Explain loads the recorded trace instead of running
-                        colibri_simulateTransaction.</p>
+                    <p class="hint">Already executed transactions from the last blocks. Explain loads the recorded
+                        trace instead of running colibri_simulateTransaction, so results are historical rather than
+                        live.</p>
                     <button id="samples-refresh" type="button">Refresh</button>
                 </div>
                 <div id="samples-status" class="hint" role="status"></div>
@@ -156,6 +143,16 @@
                     </label>
                 </div>
             </div>
+
+            <nav class="mode-links" aria-label="Other input modes">
+                <button type="button" class="mode-link active" data-mode="object">Edit fields</button>
+                <span class="mode-sep" aria-hidden="true">·</span>
+                <button type="button" class="mode-link" data-mode="json">Paste JSON</button>
+                <span class="mode-sep" aria-hidden="true">·</span>
+                <button type="button" class="mode-link" data-mode="raw">Raw signed tx</button>
+                <span class="mode-sep" aria-hidden="true">·</span>
+                <button type="button" class="mode-link" data-mode="samples">Explain a recent on-chain tx</button>
+            </nav>
         </section>
 
         <details class="panel config">

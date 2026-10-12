@@ -22,7 +22,7 @@ import type {
     LLMProviderType,
     AddressBook,
 } from '@corpus-core/colibri-explainer';
-import { Transaction } from 'ethers';
+import { Interface, Transaction } from 'ethers';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 
@@ -151,6 +151,102 @@ let selectedSampleHash = '';
 let samplesLoaded = false;
 let samplesLoading = false;
 let samplesRequest = 0;
+
+// -- Static example transactions --------------------------------------------
+
+/**
+ * Ready-made transactions that can be simulated against the current Ethereum
+ * Mainnet state. Picked for stability:
+ *   - `WETH.deposit()` always works for any funded sender.
+ *   - `swapExactETHForTokens` with `amountOutMin = 0` and the max `deadline`
+ *     cannot revert on slippage or expiry.
+ *   - `WETH.approve` only writes allowance and needs no WETH balance.
+ *
+ * Calldata is encoded with `ethers.Interface` so the hex strings in the
+ * file are limited to known constants (addresses, values, selectors).
+ *
+ * `SAMPLE_SENDER` is `vitalik.eth`, chosen because it has held a multi-ETH
+ * balance for years (checked at authoring time); any sender over ~0.2 ETH
+ * works for the deposit + swap. The approve example needs no ETH balance.
+ */
+const WETH_ADDR = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2';
+const USDC_ADDR = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48';
+const UNISWAP_V2_ROUTER = '0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D';
+const SAMPLE_SENDER = '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045';
+
+const MAX_UINT256 = (1n << 256n) - 1n;
+const WEI_PER_ETH = 10n ** 18n;
+
+/** `"0x..."` hex-encoded wei amount for a decimal ETH value like `"0.1"`. */
+function ethToHexWei(eth: string): string {
+    const [whole, frac = ''] = eth.split('.');
+    const padded = (frac + '0'.repeat(18)).slice(0, 18);
+    return '0x' + (BigInt(whole) * WEI_PER_ETH + BigInt(padded || '0')).toString(16);
+}
+
+const SWAP_IFACE = new Interface([
+    'function swapExactETHForTokens(uint256 amountOutMin, address[] path, address to, uint256 deadline)',
+]);
+const ERC20_IFACE = new Interface([
+    'function approve(address spender, uint256 value)',
+]);
+
+interface Example {
+    id: string;
+    title: string;
+    summary: string;
+    /** Only chain id 1 is supported today -- the addresses above are mainnet. */
+    chainId: number;
+    tx: TxParams;
+}
+
+const EXAMPLES: Example[] = [
+    {
+        id: 'wrap-eth',
+        title: 'Wrap 0.1 ETH',
+        summary: 'Call WETH.deposit() and receive WETH 1:1.',
+        chainId: 1,
+        tx: {
+            to: WETH_ADDR,
+            from: SAMPLE_SENDER,
+            value: ethToHexWei('0.1'),
+            data: '0xd0e30db0',
+        },
+    },
+    {
+        id: 'swap-eth-usdc',
+        title: 'Swap 0.01 ETH → USDC',
+        summary: 'Uniswap V2 swapExactETHForTokens on the WETH → USDC path.',
+        chainId: 1,
+        tx: {
+            to: UNISWAP_V2_ROUTER,
+            from: SAMPLE_SENDER,
+            value: ethToHexWei('0.01'),
+            data: SWAP_IFACE.encodeFunctionData('swapExactETHForTokens', [
+                0n,
+                [WETH_ADDR, USDC_ADDR],
+                SAMPLE_SENDER,
+                MAX_UINT256,
+            ]),
+        },
+    },
+    {
+        id: 'approve-weth',
+        title: 'Approve WETH',
+        summary: 'Grant the Uniswap V2 Router unlimited WETH allowance.',
+        chainId: 1,
+        tx: {
+            to: WETH_ADDR,
+            from: SAMPLE_SENDER,
+            data: ERC20_IFACE.encodeFunctionData('approve', [UNISWAP_V2_ROUTER, MAX_UINT256]),
+        },
+    },
+];
+
+/** `id` of the example currently reflected in the Tx Object fields. */
+let selectedExampleId: string | null = null;
+/** Suppresses the input-change deselect handler while cards fill the form. */
+let suppressFieldDeselect = false;
 
 function setStatus(text: string): void {
     $('status').textContent = text;
@@ -282,25 +378,144 @@ function updatePrivacyVisibility(): void {
 }
 
 function bindTabs(): void {
-    for (const tab of Array.from(document.querySelectorAll('.tab'))) {
+    for (const tab of Array.from(document.querySelectorAll('.mode-link'))) {
         tab.addEventListener('click', () => {
-            for (const t of Array.from(document.querySelectorAll('.tab'))) t.classList.remove('active');
-            tab.classList.add('active');
-            inputMode = (tab as HTMLElement).dataset.mode as InputMode;
-            show('mode-object', inputMode === 'object');
-            show('mode-json', inputMode === 'json');
-            show('mode-raw', inputMode === 'raw');
-            show('mode-samples', inputMode === 'samples');
-            syncInputModeChrome();
-            if (inputMode === 'samples' && !samplesLoaded && !samplesLoading) void loadSamples();
+            const mode = (tab as HTMLElement).dataset.mode as InputMode | undefined;
+            if (!mode) return;
+            setInputMode(mode);
         });
     }
+}
+
+/**
+ * Switch the Transaction panel between its four input modes. Centralised so
+ * the example cards (which force `object`) and the mode-link buttons stay in
+ * sync, and so the recorded-samples list only starts loading when actually
+ * shown.
+ *
+ * @param mode - Which input mode to activate
+ */
+function setInputMode(mode: InputMode): void {
+    inputMode = mode;
+    for (const link of Array.from(document.querySelectorAll('.mode-link'))) {
+        link.classList.toggle('active', (link as HTMLElement).dataset.mode === mode);
+    }
+    show('mode-object', mode === 'object');
+    show('mode-json', mode === 'json');
+    show('mode-raw', mode === 'raw');
+    show('mode-samples', mode === 'samples');
+    syncInputModeChrome();
+    if (mode === 'samples' && !samplesLoaded && !samplesLoading) void loadSamples();
 }
 
 function syncInputModeChrome(): void {
     const samples = inputMode === 'samples';
     $('step-sim-label').textContent = samples ? 'Recorded trace loaded' : 'Tx locally simulated';
     $('run').textContent = samples ? 'Explain' : 'Simulate & Explain';
+}
+
+// -- Example cards -----------------------------------------------------------
+
+/** Render the three static example cards into the examples grid. */
+function renderExamples(): void {
+    const grid = $('examples-grid');
+    grid.replaceChildren();
+    for (const example of EXAMPLES) {
+        const card = document.createElement('button');
+        card.type = 'button';
+        card.className = 'example-card';
+        card.dataset.example = example.id;
+
+        const title = document.createElement('strong');
+        title.textContent = example.title;
+        card.appendChild(title);
+
+        const summary = document.createElement('span');
+        summary.textContent = example.summary;
+        card.appendChild(summary);
+
+        card.addEventListener('click', () => applyExample(example));
+        grid.appendChild(card);
+    }
+    syncExamplesGuard();
+}
+
+/**
+ * Enable/disable example cards based on the current chain selection and
+ * refresh the hint below the grid. Non-mainnet chains disable the cards so
+ * users do not accidentally simulate a mainnet calldata payload against the
+ * wrong network -- clicking a card still switches the chain back to mainnet.
+ */
+function syncExamplesGuard(): void {
+    const chainId = Number(($('chainId') as HTMLSelectElement).value);
+    const onMainnet = chainId === 1;
+    for (const node of Array.from(document.querySelectorAll<HTMLButtonElement>('.example-card'))) {
+        node.disabled = !onMainnet;
+    }
+    $('examples-hint').textContent = onMainnet
+        ? 'Simulated against the latest Ethereum Mainnet block. Fields stay editable after you pick one.'
+        : 'Example transactions only apply to Ethereum Mainnet. Switch the chain back to Mainnet to use them.';
+    if (selectedExampleId) {
+        const current = EXAMPLES.find((e) => e.id === selectedExampleId);
+        if (current && current.chainId !== chainId) clearExampleSelection();
+    }
+}
+
+/**
+ * Fill the Tx Object form from `example`, mark the card as selected and
+ * switch the UI to the Tx Object input mode. If the current chain is not the
+ * example's chain, update the chain selector too.
+ *
+ * @param example - Example transaction to apply
+ */
+function applyExample(example: Example): void {
+    const chainSelect = $('chainId') as HTMLSelectElement;
+    if (Number(chainSelect.value) !== example.chainId) {
+        chainSelect.value = String(example.chainId);
+    }
+    setInputMode('object');
+
+    // Fill fields without triggering `clearExampleSelection` on each `input` event.
+    suppressFieldDeselect = true;
+    try {
+        ($('to') as HTMLInputElement).value = example.tx.to;
+        ($('from') as HTMLInputElement).value = example.tx.from ?? '';
+        ($('value') as HTMLInputElement).value = example.tx.value ?? '';
+        ($('gas') as HTMLInputElement).value = example.tx.gas ?? '';
+        ($('data') as HTMLTextAreaElement).value = example.tx.data ?? '';
+    } finally {
+        suppressFieldDeselect = false;
+    }
+
+    selectedExampleId = example.id;
+    for (const node of Array.from(document.querySelectorAll<HTMLElement>('.example-card'))) {
+        node.classList.toggle('selected', node.dataset.example === example.id);
+    }
+    // Reflect the updated chain in the guard (e.g. clear the "wrong chain" hint).
+    syncExamplesGuard();
+}
+
+/** Clear the "selected" visual state once the user starts editing the form. */
+function clearExampleSelection(): void {
+    if (!selectedExampleId) return;
+    selectedExampleId = null;
+    for (const node of Array.from(document.querySelectorAll<HTMLElement>('.example-card'))) {
+        node.classList.remove('selected');
+    }
+}
+
+/**
+ * Deselect the current example as soon as the user edits any of the Tx Object
+ * fields. The guard flag suppresses this during programmatic fills from
+ * `applyExample`.
+ */
+function bindExampleFieldWatchers(): void {
+    for (const id of ['to', 'from', 'value', 'gas', 'data']) {
+        $(id).addEventListener('input', () => {
+            if (suppressFieldDeselect) return;
+            clearExampleSelection();
+        });
+    }
 }
 
 // -- Transaction parsing -----------------------------------------------------
@@ -1069,6 +1284,8 @@ function meta(label: string, value: string): HTMLElement {
 
 function init(): void {
     bindTabs();
+    renderExamples();
+    bindExampleFieldWatchers();
     populateModels();
     updatePrivacyVisibility();
     $('provider').addEventListener('change', populateModels);
@@ -1076,6 +1293,9 @@ function init(): void {
         if (($('provider') as HTMLSelectElement).value === 'webllm') syncContextWindow();
     });
     $('privacy').addEventListener('change', updatePrivacyVisibility);
+    // Chain change: toggle the example-card guard and deselect a card whose
+    // chain no longer matches the active chain.
+    $('chainId').addEventListener('change', syncExamplesGuard);
     // Load the built-in base prompt into the textarea as an editable template.
     $('load-default-prompt').addEventListener('click', (e) => {
         e.preventDefault();
