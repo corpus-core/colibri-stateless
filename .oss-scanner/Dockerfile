@@ -21,19 +21,30 @@
 FROM debian:bookworm-slim
 
 ENV DEBIAN_FRONTEND=noninteractive \
-    CC=clang \
-    CXX=clang++
+    CC=clang-19 \
+    CXX=clang++-19
 
 # Build toolchain + CMake FetchContent dependencies (blst, Unity, libuv, llhttp,
 # evmone, zstd, tommath, intx, mcl are vendored via FetchContent and need git +
 # network, which docker build has). libcurl / openssl headers are needed because
 # the server links against libcurl for upstream HTTP calls.
+#
+# We pin clang-19 (not the stock `clang` = clang-14): evmone makes heavy use of
+# C++20 `consteval` functions (see _deps/evmone_external-src/lib/evmone/
+# baseline_execution.cpp), and clang-14 rejects them with
+#   "call to consteval function '...' is not a constant expression".
+# clang-19 is available in Debian 12 main.
+#
+# libclang-rt-19-dev provides the AddressSanitizer / UndefinedBehaviorSanitizer
+# runtime libraries (libclang_rt.asan-*.a, libclang_rt.ubsan_standalone-*.a).
+# On Debian 12 these ship separately from `clang-19` and are only pulled in via
+# Recommends -- which `--no-install-recommends` strips.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     git \
     build-essential \
-    clang \
-    llvm \
+    clang-19 \
+    libclang-rt-19-dev \
     cmake \
     ninja-build \
     pkg-config \
@@ -70,6 +81,12 @@ ENV C4_VERSION=3.0.0-oss-scanner
 #                                      signal-to-noise ratio for this codebase.
 #  -fno-sanitize-recover=all:          first UB report aborts, so the agent sees it
 #                                      immediately rather than at ctest's end.
+#  -D_GNU_SOURCE:                      src/api/colibri_common.c calls memmem() under
+#                                      an `#ifdef __GLIBC__` guard, which assumes the
+#                                      declaration is visible when glibc is present.
+#                                      It is only visible with _GNU_SOURCE (or similar)
+#                                      defined; the default preset is a macOS build
+#                                      where memmem is POSIX, which hides this on hosts.
 #  CHAIN_ETH + CHAIN_OP:               both chain modules compiled in.
 #  HTTP_SERVER=ON:                     brings in libuv + llhttp and all handlers.
 #  PROVER_CACHE=ON + PROVER_TRACE=ON:  matches the project's default preset so the
@@ -94,10 +111,10 @@ ENV C4_VERSION=3.0.0-oss-scanner
 #  bindings off (WASM, KOTLIN, SWIFT, C4_PYTHON, DART, NODE_ADDON): out of scope.
 RUN cmake -S /src -B /src/build/asan -G Ninja \
     -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-    -DCMAKE_C_COMPILER=clang \
-    -DCMAKE_CXX_COMPILER=clang++ \
-    -DCMAKE_C_FLAGS="-O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -fno-sanitize-recover=all" \
-    -DCMAKE_CXX_FLAGS="-O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -fno-sanitize-recover=all" \
+    -DCMAKE_C_COMPILER=clang-19 \
+    -DCMAKE_CXX_COMPILER=clang++-19 \
+    -DCMAKE_C_FLAGS="-O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -fno-sanitize-recover=all -D_GNU_SOURCE" \
+    -DCMAKE_CXX_FLAGS="-O1 -g -fno-omit-frame-pointer -fsanitize=address,undefined -fno-sanitize-recover=all -D_GNU_SOURCE" \
     -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined" \
     -DCMAKE_SHARED_LINKER_FLAGS="-fsanitize=address,undefined" \
     -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
@@ -138,9 +155,9 @@ RUN cmake -S /src -B /src/build/asan -G Ninja \
 RUN cd /src/build/asan && \
     ASAN_OPTIONS=detect_leaks=0 \
     UBSAN_OPTIONS=print_stacktrace=1 \
-    (ctest --output-on-failure -j1 --timeout 180 \
-    -E '^(test_server|test_beacon_watcher|test_http_client_errors|test_uv_util)' \
-    || echo "WARNING: ctest reported failures or timed out")
+    ctest --output-on-failure -j1 --timeout 180 \
+      -E '^(test_server|test_beacon_watcher|test_http_client_errors|test_uv_util)' \
+    || echo "WARNING: ctest reported failures or timed out"
 
 # Sanity-check that the binaries are usable and link cleanly under ASan.
 RUN /src/build/asan/bin/colibri-verifier --version || echo "WARNING: colibri-verifier --version failed"
