@@ -2,6 +2,7 @@
 #define SERVERIO_CONFIGURE_H
 
 #include "crypto.h"
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -34,16 +35,23 @@ const config_param_t* c4_get_config_params(int* count);
 /**
  * Parses argv, loads `server.conf`, applies env/CLI overrides, and logs the effective config.
  *
- * Calls `c4_init_config`, chain-specific `config()` hooks, then `apply_config()`.
- * When `argv[1]` is `--help` or `-h`, prints usage to stderr (does not exit in `TEST` builds).
+ * Calls `c4_init_config`, chain-specific `config()` hooks, then `apply_config()` -- except
+ * when `argv[1]` is `--help` or `-h`, where usage is printed to stderr and `apply_config()`
+ * is skipped. The caller (e.g. `main`) is expected to terminate the process in that case.
+ *
+ * This function never calls `exit()` itself, which keeps the test harness in control.
  *
  * @param argc argument count passed to `main`
  * @param argv argument vector passed to `main`
+ * @return `true` if `--help`/`-h` was handled and the caller should terminate normally,
+ *         `false` if configuration was applied and the server should start.
  */
-void c4_configure(int argc, char* argv[]);
+bool c4_configure(int argc, char* argv[]);
 
 /**
- * Prints CLI usage (options list) to stderr and exits the process unless `TEST` is defined.
+ * Prints CLI usage (options list) to stderr and frees the internal help buffer.
+ *
+ * Never terminates the process; the caller is responsible for exiting.
  */
 void c4_write_usage();
 

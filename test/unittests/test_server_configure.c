@@ -25,10 +25,8 @@
 #define mkdir(p, m) _mkdir(p)
 #endif
 
-// Declarations
-void        c4_configure(int argc, char* argv[]);
-const char* c4_get_config_file_path();
-int         c4_save_config_file(const char* updates);
+// Declarations for c4_configure, c4_get_config_file_path and c4_save_config_file
+// are provided by the included configure.h header above.
 
 static char tmpdir[512];
 

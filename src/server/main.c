@@ -18,7 +18,10 @@ int main(int argc, char* argv[]) {
     }
   }
 
-  c4_configure(argc, argv);
+  // c4_configure returns true when --help/-h was handled; it does not call
+  // exit() so tests can keep the process alive. In production we terminate
+  // here, otherwise the server would start despite the user asking for usage.
+  if (c4_configure(argc, argv)) return 0;
 
   server_instance_t instance;
   int               result = c4_server_start(&instance, http_server.port);

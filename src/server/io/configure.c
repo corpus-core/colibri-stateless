@@ -522,13 +522,9 @@ void c4_write_usage() {
   fprintf(stderr, "  -h, --help                                                               show this help message\n");
   fprintf(stderr, "  -f, --config                           CONFIG_FILE                       path to config file (default: search in ./server.conf, /etc/colibri/server.conf, /usr/local/etc/colibri/server.conf)\n");
   fprintf(stderr, "%s\n", help_buffer.data.data);
-  // In TEST builds, don't exit the process so tests can capture output
-#ifdef TEST
+  // Never exit here. `c4_configure` signals the help path to its caller via its
+  // return value, so the test harness stays in control.
   buffer_free(&help_buffer);
-  return;
-#else
-  exit(0);
-#endif
 }
 
 void c4_write_config() {

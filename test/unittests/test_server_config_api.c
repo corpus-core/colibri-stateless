@@ -17,9 +17,8 @@
 #define getpid _getpid
 #endif
 
-// from configure.c
-void        c4_configure(int argc, char* argv[]);
-const char* c4_get_config_file_path();
+// Declarations for c4_configure and c4_get_config_file_path are provided by
+// server.h, which pulls in configure.h.
 
 static char tmp_cfg[512];
 

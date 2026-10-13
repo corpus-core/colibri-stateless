@@ -187,17 +187,23 @@ static void apply_config() {
                     (double) http_server.tracing_sample_percent / 100.0);
 }
 
-void c4_configure(int argc, char* argv[]) {
+bool c4_configure(int argc, char* argv[]) {
   c4_init_config(argc, argv);
 
-  // applymain config parameters
+  // apply main config parameters
   config();
   c4_server_handlers_config();
 
-  if (argc > 1 && (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0))
+  // The help path prints usage and short-circuits: skipping `apply_config()`
+  // keeps us from opening key material, pools, etc. on a build we are about
+  // to terminate. The caller (main) sees the `true` return and exits cleanly;
+  // tests see it too and simply ignore it.
+  if (argc > 1 && (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0)) {
     c4_write_usage();
-  else
-    c4_write_config();
+    return true;
+  }
 
+  c4_write_config();
   apply_config();
+  return false;
 }
