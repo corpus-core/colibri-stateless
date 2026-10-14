@@ -23,8 +23,9 @@
 
 #include "btc_types.h"
 
-// Index 0 is frozen as NONE. Sync-data index 1 is the epoch-target path. Further variants are appended.
+// Index 0 is frozen as NONE. Proof index 1 is the header witness. Sync-data index 1 is the epoch path.
 static const ssz_def_t BTC_HEADER80            = SSZ_BYTE_VECTOR("header", 80);
+static const ssz_def_t BTC_SIBLING32           = SSZ_BYTES32("sibling");
 static const ssz_def_t BTC_EPOCH_STEP_FIELDS[] = {
     SSZ_UINT32("height"),
     SSZ_BYTE_VECTOR("header", 80),
@@ -34,12 +35,24 @@ static const ssz_def_t BTC_EPOCH_STEP          = SSZ_CONTAINER("BtcEpochStep", B
 static const ssz_def_t BTC_EPOCH_PATH_FIELDS[] = {
     SSZ_LIST("steps", BTC_EPOCH_STEP, 40),
 };
+static const ssz_def_t BTC_HEADER_PROOF_FIELDS[] = {
+    SSZ_UINT32("height"),
+    SSZ_BYTE_VECTOR("header", 80),
+    SSZ_LIST("final_headers", BTC_HEADER80, 64),
+    SSZ_UINT32("tx_count"),
+    SSZ_LIST("merkle", BTC_SIBLING32, 32),
+    SSZ_BYTES("coinbase", 1000000),
+};
+static const ssz_def_t BTC_HEADER_PROOF = SSZ_CONTAINER("BtcHeaderProof", BTC_HEADER_PROOF_FIELDS);
+
 static const ssz_def_t BTC_REQUEST_DATA_UNION[] = {
     SSZ_NONE,
+    SSZ_BYTE_VECTOR("BtcHeader", 80),
 };
 
 static const ssz_def_t BTC_REQUEST_PROOF_UNION[] = {
     SSZ_NONE,
+    BTC_HEADER_PROOF,
 };
 
 static const ssz_def_t BTC_REQUEST_SYNCDATA_UNION[] = {

@@ -22,6 +22,7 @@
  */
 
 #include "btc_verify.h"
+#include "btc_header.h"
 #include "btc_proof.h"
 #include "btc_target.h"
 #include "btc_types.h"
@@ -45,9 +46,10 @@ const ssz_def_t* c4_btc_get_request_type(chain_type_t chain_type) {
 }
 
 method_type_t c4_btc_get_method_type(chain_id_t chain_id, char* method, json_t params, verify_flags_t flags) {
-  (void) params;
   (void) flags;
   if (!method || c4_chain_type(chain_id) != C4_CHAIN_TYPE_BITCOIN) return METHOD_UNDEFINED;
+  if (chain_id == C4_CHAIN_BTC_MAINNET && strcmp(method, "getblockheader") == 0 && btc_header_raw_requested(params))
+    return METHOD_PROOFABLE;
   for (size_t i = 0; i < sizeof(btc_methods) / sizeof(btc_methods[0]); i++) {
     if (strcmp(method, btc_methods[i]) == 0) return METHOD_NOT_SUPPORTED;
   }
@@ -67,21 +69,37 @@ static bool btc_ssz_present(ssz_ob_t ob) {
 bool c4_btc_verify(verify_ctx_t* ctx) {
   btc_target_cache_t cache;
   bool               has_sync;
+  bool               has_proof;
   if (!ctx || c4_chain_type(ctx->chain_id) != C4_CHAIN_TYPE_BITCOIN) return false;
-  has_sync = btc_ssz_present(ctx->sync_data);
+  if (ctx->chain_id != C4_CHAIN_BTC_MAINNET) {
+    if (!ctx->state.error) ctx->state.error = strdup("bitcoin network is not supported");
+    ctx->success = false;
+    return true;
+  }
+  has_sync  = btc_ssz_present(ctx->sync_data);
+  has_proof = btc_ssz_present(ctx->proof);
   btc_target_cache_load(ctx->chain_id, &cache);
   if (!btc_sync_accept_epoch_path(ctx->sync_data, &cache, NULL)) {
     if (!ctx->state.error) ctx->state.error = strdup("invalid bitcoin sync data");
     ctx->success = false;
     return true;
   }
-  if (has_sync && !btc_target_cache_store(ctx->chain_id, &cache)) {
-    if (!ctx->state.error) ctx->state.error = strdup("failed to store bitcoin target cache");
-    ctx->success = false;
+  if (has_proof && ctx->proof.def->name && strcmp(ctx->proof.def->name, "BtcHeaderProof") == 0) {
+    if (!btc_verify_header_proof(ctx, &cache)) return true;
+    if (!btc_target_cache_store(ctx->chain_id, &cache) && !ctx->state.error)
+      ctx->state.error = strdup("failed to store bitcoin target cache");
+    if (ctx->state.error) ctx->success = false;
     return true;
   }
-  if (has_sync && !btc_ssz_present(ctx->proof) && !btc_ssz_present(ctx->data)) {
-    ctx->success = true;
+  if (has_sync && !has_proof && !btc_ssz_present(ctx->data)) {
+    if (!btc_target_cache_store(ctx->chain_id, &cache) && !ctx->state.error)
+      ctx->state.error = strdup("failed to store bitcoin target cache");
+    ctx->success = ctx->state.error == NULL;
+    return true;
+  }
+  if (has_proof) {
+    if (!ctx->state.error) ctx->state.error = strdup("proof is not a supported proof type");
+    ctx->success = false;
     return true;
   }
   if (!ctx->state.error) ctx->state.error = strdup("bitcoin verification is not implemented");

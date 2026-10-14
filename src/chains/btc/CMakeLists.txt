@@ -33,6 +33,7 @@ add_verifier(
     crypto/btc_tx.c
     ssz/btc_types.c
     verifier/btc_client.c
+    verifier/btc_header.c
     verifier/btc_proof.c
     verifier/btc_verify.c
     verifier/btc_chain_props.c

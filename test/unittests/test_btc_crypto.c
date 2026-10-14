@@ -935,8 +935,9 @@ void test_target_retarget_cache_and_jumps(void) {
   TEST_ASSERT_NOT_NULL(request);
   TEST_ASSERT_EQUAL_UINT32(4, request->def.container.len);
   TEST_ASSERT_EQUAL_INT(SSZ_TYPE_UNION, request->def.container.elements[2].type);
-  TEST_ASSERT_EQUAL_UINT32(1, request->def.container.elements[2].def.container.len);
+  TEST_ASSERT_EQUAL_UINT32(2, request->def.container.elements[2].def.container.len);
   TEST_ASSERT_EQUAL_STRING("NONE", request->def.container.elements[2].def.container.elements[0].name);
+  TEST_ASSERT_EQUAL_STRING("BtcHeaderProof", request->def.container.elements[2].def.container.elements[1].name);
   TEST_ASSERT_EQUAL_INT(SSZ_TYPE_UNION, request->def.container.elements[3].type);
   TEST_ASSERT_EQUAL_UINT32(2, request->def.container.elements[3].def.container.len);
   TEST_ASSERT_EQUAL_STRING("BtcEpochPath", request->def.container.elements[3].def.container.elements[1].name);
@@ -1240,8 +1241,10 @@ void test_epoch_path_ssz_shape(void) {
   proof = &request->def.container.elements[2];
   TEST_ASSERT_EQUAL_STRING("proof", proof->name);
   TEST_ASSERT_EQUAL_INT(SSZ_TYPE_UNION, proof->type);
-  TEST_ASSERT_EQUAL_UINT32(1, proof->def.container.len);
+  TEST_ASSERT_EQUAL_UINT32(2, proof->def.container.len);
   TEST_ASSERT_EQUAL_STRING("NONE", proof->def.container.elements[0].name);
+  TEST_ASSERT_EQUAL_STRING("BtcHeaderProof", proof->def.container.elements[1].name);
+  TEST_ASSERT_EQUAL_STRING("BtcHeader", request->def.container.elements[1].def.container.elements[1].name);
   sync_data = &request->def.container.elements[3];
   TEST_ASSERT_EQUAL_STRING("sync_data", sync_data->name);
   TEST_ASSERT_EQUAL_INT(SSZ_TYPE_UNION, sync_data->type);
@@ -1417,6 +1420,333 @@ void test_client_state_and_epoch_path(void) {
   safe_free(path.bytes.data);
 }
 
+/**
+ * Builds a checkpoint header proof with `nfinal` following headers.
+ *
+ * @param proof_def `BtcHeaderProof` definition
+ * @param header checkpoint header
+ * @param finals following headers, 80 bytes each
+ * @param nfinal number of following headers
+ * @param height claimed block height
+ * @param tx_count transaction count committed by the coinbase merkle proof
+ * @param siblings internal-order merkle siblings, 32 bytes each
+ * @param nsibling number of siblings
+ * @param coinbase coinbase transaction, or an empty slice when the checkpoint hash fixes the height
+ * @return the serialized proof; the caller frees `bytes.data`
+ */
+static ssz_ob_t build_checkpoint_proof(const ssz_def_t* proof_def, bytes_t header, const uint8_t finals[][80], uint32_t nfinal, uint32_t height, uint32_t tx_count, const uint8_t siblings[][32], uint32_t nsibling, bytes_t coinbase) {
+  ssz_builder_t proof  = ssz_builder_for_def(proof_def);
+  ssz_builder_t list   = ssz_builder_for_def(&proof_def->def.container.elements[2]);
+  ssz_builder_t merkle = ssz_builder_for_def(&proof_def->def.container.elements[4]);
+  ssz_builder_t coin   = ssz_builder_for_def(&proof_def->def.container.elements[5]);
+  uint32_t      i;
+  ssz_add_uint32(&proof, height);
+  ssz_add_bytes(&proof, "header", header);
+  for (i = 0; i < nfinal; i++)
+    ssz_add_dynamic_list_bytes(&list, 0, bytes((uint8_t*) finals[i], BTC_HEADER_SIZE));
+  ssz_add_builders(&proof, "final_headers", list);
+  ssz_add_uint32(&proof, tx_count);
+  for (i = 0; i < nsibling; i++)
+    ssz_add_dynamic_list_bytes(&merkle, 0, bytes((uint8_t*) siblings[i], 32));
+  ssz_add_builders(&proof, "merkle", merkle);
+  buffer_append(&coin.fixed, coinbase);
+  ssz_add_builders(&proof, "coinbase", coin);
+  return ssz_builder_to_bytes(&proof);
+}
+
+void test_header_proof_finality(void) {
+  static const char* final_hex[6] = {
+      "04002020a583da1c3ff29b687248ff737822f8ce4827033a282003000000000000000000bcc07f8618b7b063f833100724e2b40d6ee9dfa78087bfbe5d3441058a63de380e082366194203176d9026cc",
+      "00207e2f6324db68f7433cc1087eeb41f4f3137907a3d5758ab4010000000000000000009ebac463e21126b1fb9789de7737f0b1978baec71cd54c46b20ea32480f8117184092366194203177cd0b8a5",
+      "0000002aa9a07587b54fcc25e10c5b60cee13efb566b6273ccc0020000000000000000009b1720b434d104f11e807d5e009c006ec8d74be2a0c3bb63765ac8ca99e9ae2d190b236619420317cb26b50c",
+      "00404e2819b1349be0faff65e300e9c4d2defe9d26b91c67e8cf010000000000000000008a97b043cdc09695a5984b4382e3a9cbbeeacf88ea188430155797cca3801927520d2366194203172a04eaf5",
+      "00a00020367d271bb55cdd319e34cefd17d8578d451f4b27588402000000000000000000be471b97946eb1d8cb4f004782a8378e448757796f0a6e0215afd087767ff4ca961323661942031723406c85",
+      "00e0ff2f79d012bca116f2026697dde719cd18d0adace3c00e7b02000000000000000000c7df6d4ef5265e273c2b2d7548096b7d7c620dd03fea913b9afcba2cf227c7ae6b15236619420317fd2d68d1",
+  };
+  uint8_t          finals[6][80];
+  uint8_t          broken[6][80];
+  const ssz_def_t* request;
+  const ssz_def_t* proof_def;
+  ssz_ob_t         proof;
+  verify_ctx_t     ctx;
+  storage_plugin_t saved;
+  storage_plugin_t fake;
+  json_t           args;
+  char             method[] = "getblockheader";
+  bytes_t          checkpoint;
+  uint32_t         i;
+
+  for (i = 0; i < 6; i++)
+    load_hex(final_hex[i], finals[i], 80);
+  checkpoint = btc_mainnet_checkpoint_header();
+  request    = btc_ssz_verification_type(BTC_SSZ_VERIFY_REQUEST);
+  proof_def  = &request->def.container.elements[2].def.container.elements[1];
+  args       = json_parse("[\"0000000000000000000320283a032748cef8227873ff4872689bf23f1cda83a5\", false]");
+
+  TEST_ASSERT_EQUAL_INT(METHOD_PROOFABLE, c4_btc_get_method_type(C4_CHAIN_BTC_MAINNET, method, args, 0));
+  TEST_ASSERT_EQUAL_INT(METHOD_PROOFABLE, c4_btc_get_method_type(C4_CHAIN_BTC_MAINNET, method, json_parse("[\"00\", 0]"), 0));
+  TEST_ASSERT_EQUAL_INT(METHOD_NOT_SUPPORTED, c4_btc_get_method_type(C4_CHAIN_BTC_MAINNET, method, json_parse("[\"00\"]"), 0));
+  TEST_ASSERT_EQUAL_INT(METHOD_NOT_SUPPORTED, c4_btc_get_method_type(C4_CHAIN_BTC_MAINNET, method, json_parse("[\"00\", true]"), 0));
+  TEST_ASSERT_EQUAL_INT(METHOD_NOT_SUPPORTED, c4_btc_get_method_type(C4_CHAIN_BTC_MAINNET, method, json_parse("[\"00\", 1]"), 0));
+  TEST_ASSERT_EQUAL_INT(METHOD_NOT_SUPPORTED, c4_btc_get_method_type(C4_CHAIN_BTC_MAINNET, method, json_parse("[\"00\", false, 1]"), 0));
+  TEST_ASSERT_EQUAL_INT(METHOD_NOT_SUPPORTED, c4_btc_get_method_type(C4_CHAIN_BTC_MAINNET, "getblock", args, 0));
+  TEST_ASSERT_EQUAL_INT(METHOD_NOT_SUPPORTED, c4_btc_get_method_type(C4_CHAIN_BTC_TESTNET, method, args, 0));
+
+  memset(&saved, 0, sizeof(saved));
+  c4_get_storage_config(&saved);
+  memset(&fake, 0, sizeof(fake));
+  fake.get             = test_store_get;
+  fake.set             = test_store_set;
+  fake.del             = test_store_del;
+  fake.max_sync_states = 1;
+  c4_set_storage_config(&fake);
+
+  proof = build_checkpoint_proof(proof_def, checkpoint, finals, 5, BTC_MAINNET_CHECKPOINT_HEIGHT, 0, NULL, 0, NULL_BYTES);
+  memset(&ctx, 0, sizeof(ctx));
+  ctx.chain_id = C4_CHAIN_BTC_MAINNET;
+  ctx.method   = method;
+  ctx.args     = args;
+  ctx.proof    = proof;
+  TEST_ASSERT_TRUE(c4_btc_verify(&ctx));
+  TEST_ASSERT_FALSE(ctx.success);
+  TEST_ASSERT_NOT_NULL(ctx.state.error);
+  safe_free(ctx.state.error);
+  TEST_ASSERT_NULL(g_stored.data);
+  safe_free(proof.bytes.data);
+
+  proof = build_checkpoint_proof(proof_def, checkpoint, finals, 6, BTC_MAINNET_CHECKPOINT_HEIGHT, 0, NULL, 0, NULL_BYTES);
+  memset(&ctx, 0, sizeof(ctx));
+  ctx.chain_id = C4_CHAIN_BTC_MAINNET;
+  ctx.method   = method;
+  ctx.proof    = proof;
+  ctx.args     = json_parse("[]");
+  TEST_ASSERT_TRUE(c4_btc_verify(&ctx));
+  TEST_ASSERT_FALSE(ctx.success);
+  safe_free(ctx.state.error);
+  ctx.state.error = NULL;
+  ctx.args        = json_parse("[\"0000000000000000000000000000000000000000000000000000000000000001\", false]");
+  TEST_ASSERT_TRUE(c4_btc_verify(&ctx));
+  TEST_ASSERT_FALSE(ctx.success);
+  safe_free(ctx.state.error);
+  ctx.state.error = NULL;
+  ctx.args        = json_parse("[\"0000000000000000000320283a032748cef8227873ff4872689bf23f1cda83a5\"]");
+  TEST_ASSERT_TRUE(c4_btc_verify(&ctx));
+  TEST_ASSERT_FALSE(ctx.success);
+  safe_free(ctx.state.error);
+  ctx.state.error = NULL;
+  ctx.args        = json_parse("[\"0000000000000000000320283a032748cef8227873ff4872689bf23f1cda83a5\", 1]");
+  TEST_ASSERT_TRUE(c4_btc_verify(&ctx));
+  TEST_ASSERT_FALSE(ctx.success);
+  safe_free(ctx.state.error);
+  ctx.state.error = NULL;
+  TEST_ASSERT_NULL(g_stored.data);
+  ctx.args = args;
+  TEST_ASSERT_TRUE(c4_btc_verify(&ctx));
+  TEST_ASSERT_TRUE(ctx.success);
+  TEST_ASSERT_NULL(ctx.state.error);
+  TEST_ASSERT_EQUAL_UINT32(BTC_HEADER_SIZE, ctx.data.bytes.len);
+  TEST_ASSERT_EQUAL_MEMORY(checkpoint.data, ctx.data.bytes.data, BTC_HEADER_SIZE);
+  TEST_ASSERT_TRUE(ctx.flags & VERIFY_FLAG_FREE_DATA);
+  safe_free(ctx.data.bytes.data);
+  ctx.data       = (ssz_ob_t) {0};
+  ctx.flags      = 0;
+  ctx.data.def   = &request->def.container.elements[1].def.container.elements[1];
+  ctx.data.bytes = bytes(finals[0], BTC_HEADER_SIZE);
+  TEST_ASSERT_TRUE(c4_btc_verify(&ctx));
+  TEST_ASSERT_FALSE(ctx.success);
+  safe_free(ctx.state.error);
+  ctx.state.error = NULL;
+  ctx.data.bytes  = checkpoint;
+  TEST_ASSERT_TRUE(c4_btc_verify(&ctx));
+  TEST_ASSERT_TRUE(ctx.success);
+  TEST_ASSERT_EQUAL_MEMORY(checkpoint.data, ctx.data.bytes.data, BTC_HEADER_SIZE);
+  TEST_ASSERT_FALSE(ctx.flags & VERIFY_FLAG_FREE_DATA);
+  ctx.args = json_parse("[\"0000000000000000000320283a032748cef8227873ff4872689bf23f1cda83a5\", 0]");
+  ctx.data = (ssz_ob_t) {0};
+  TEST_ASSERT_TRUE(c4_btc_verify(&ctx));
+  TEST_ASSERT_TRUE(ctx.success);
+  safe_free(ctx.data.bytes.data);
+  TEST_ASSERT_TRUE(strncmp(g_store_key, "btc_target_", 11) == 0);
+  safe_free(proof.bytes.data);
+
+  {
+    static const char* sibling_hex[12] = {
+        "9ec667ead0ba5ef32fef31c21271328751851e7cc166f754dae64b004b5fb82b",
+        "5b45735da8e6beb9110b93508eb4d93c0389906c53b0dbc067332368d8bf3d9e",
+        "a0385f320f3a0247e04e371c788a9afea2879ddf498489551dbeac70e4414490",
+        "5b0090d3743bdb905c0520d5976c7152e047dec1b4971598cfc3fae93802e67e",
+        "e5910bfb3cd3faa5e7593ee88b3fcab3de7512e7e5a2e7e93b2b06d871542c1d",
+        "a9ddff55b6cf51a47e0a51ddda339e6c1591a1add6cff25bc0f9e31639803744",
+        "1ea2f399d6a56ca5a8c3eb1afd56512aab5dddecf356701a36905c73aea92466",
+        "61b61c347bccb138b1b73b89ea5659acd6d45ab33b78a71993cd7ce26c9299c2",
+        "72e1f0b021ac81d3c3b9909432a4122519c5f900f1383b8982f60a30f861b624",
+        "32f91667de5cc8074d5e2eff9e4d1924807a1d773b773cad174fc3c34702ce0d",
+        "2bbb2a97546cbea55097292ba7756f2142c667c87fb0cd4b3e66e39a47790db6",
+        "0a310ba044ed34509e5e19d6327d2e925466870803b67bdb5e74787ff34abb3c",
+    };
+    static const char* coin_hex =
+        "010000000001010000000000000000000000000000000000000000000000000000000000000000ffffffff600340d10c192f5669614254432f4d696e65642062792062757a7a3132302f2cfabe6d6d144b553283a6e1a150c9989428c0695e3a1bef7d482ed1f829bbe25897fd37dc10000000000000001058a4c9000cc3a31889b38ae08249000000000000ffffffff03fb80e4f2000000001976a914536ffa992491508dca0354e52f32a3a7a679a53a88ac00000000000000002b6a2952534b424c4f434b3a52e15efafb3e2cf6dc2fc0e6bde5cb1d7d2143f1e089bd874e6b7913005fb2a00000000000000000266a24aa21a9ed88601d3d03ccce017fe2131c4c95a7292e4372983148e62996bb5e2de0e4d1d80120000000000000000000000000000000000000000000000000000000000000000000000000";
+    uint8_t siblings[12][32];
+    uint8_t coin_buf[316];
+    bytes_t coinbase;
+    for (i = 0; i < 12; i++)
+      load_hex(sibling_hex[i], siblings[i], 32);
+    coinbase = load_hex(coin_hex, coin_buf, sizeof(coin_buf));
+    proof    = build_checkpoint_proof(proof_def, checkpoint, finals, 6, BTC_MAINNET_CHECKPOINT_HEIGHT, 3050, siblings, 12, coinbase);
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.chain_id = C4_CHAIN_BTC_MAINNET;
+    ctx.method   = method;
+    ctx.args     = args;
+    ctx.proof    = proof;
+    TEST_ASSERT_TRUE(c4_btc_verify(&ctx));
+    TEST_ASSERT_TRUE(ctx.success);
+    TEST_ASSERT_NULL(ctx.state.error);
+    safe_free(ctx.data.bytes.data);
+    safe_free(proof.bytes.data);
+
+    siblings[0][0] ^= 0x01;
+    proof = build_checkpoint_proof(proof_def, checkpoint, finals, 6, BTC_MAINNET_CHECKPOINT_HEIGHT, 3050, siblings, 12, coinbase);
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.chain_id = C4_CHAIN_BTC_MAINNET;
+    ctx.method   = method;
+    ctx.args     = args;
+    ctx.proof    = proof;
+    TEST_ASSERT_TRUE(c4_btc_verify(&ctx));
+    TEST_ASSERT_FALSE(ctx.success);
+    safe_free(ctx.state.error);
+    safe_free(proof.bytes.data);
+    siblings[0][0] ^= 0x01;
+
+    proof = build_checkpoint_proof(proof_def, checkpoint, finals, 6, BTC_MAINNET_CHECKPOINT_HEIGHT, 1, siblings, 12, coinbase);
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.chain_id = C4_CHAIN_BTC_MAINNET;
+    ctx.method   = method;
+    ctx.args     = args;
+    ctx.proof    = proof;
+    TEST_ASSERT_TRUE(c4_btc_verify(&ctx));
+    TEST_ASSERT_FALSE(ctx.success);
+    safe_free(ctx.state.error);
+    safe_free(proof.bytes.data);
+
+    proof = build_checkpoint_proof(proof_def, checkpoint, finals, 6, BTC_MAINNET_CHECKPOINT_HEIGHT, 3050, siblings, 12, NULL_BYTES);
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.chain_id = C4_CHAIN_BTC_MAINNET;
+    ctx.method   = method;
+    ctx.args     = args;
+    ctx.proof    = proof;
+    TEST_ASSERT_TRUE(c4_btc_verify(&ctx));
+    TEST_ASSERT_FALSE(ctx.success);
+    safe_free(ctx.state.error);
+    safe_free(proof.bytes.data);
+
+    proof = build_checkpoint_proof(proof_def, checkpoint, finals, 6, BTC_MAINNET_CHECKPOINT_HEIGHT, 0, NULL, 0, coinbase);
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.chain_id = C4_CHAIN_BTC_MAINNET;
+    ctx.method   = method;
+    ctx.args     = args;
+    ctx.proof    = proof;
+    TEST_ASSERT_TRUE(c4_btc_verify(&ctx));
+    TEST_ASSERT_FALSE(ctx.success);
+    safe_free(ctx.state.error);
+    safe_free(proof.bytes.data);
+
+    coin_buf[45] ^= 0x01;
+    proof = build_checkpoint_proof(proof_def, checkpoint, finals, 6, BTC_MAINNET_CHECKPOINT_HEIGHT, 3050, siblings, 12, bytes(coin_buf, sizeof(coin_buf)));
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.chain_id = C4_CHAIN_BTC_MAINNET;
+    ctx.method   = method;
+    ctx.args     = args;
+    ctx.proof    = proof;
+    TEST_ASSERT_TRUE(c4_btc_verify(&ctx));
+    TEST_ASSERT_FALSE(ctx.success);
+    safe_free(ctx.state.error);
+    safe_free(proof.bytes.data);
+  }
+
+  memcpy(broken, finals, sizeof(broken));
+  broken[2][BTC_HEADER_PARENT] ^= 0x01;
+  proof = build_checkpoint_proof(proof_def, checkpoint, broken, 6, BTC_MAINNET_CHECKPOINT_HEIGHT, 0, NULL, 0, NULL_BYTES);
+  memset(&ctx, 0, sizeof(ctx));
+  ctx.chain_id = C4_CHAIN_BTC_MAINNET;
+  ctx.method   = method;
+  ctx.args     = args;
+  ctx.proof    = proof;
+  TEST_ASSERT_TRUE(c4_btc_verify(&ctx));
+  TEST_ASSERT_FALSE(ctx.success);
+  TEST_ASSERT_NOT_NULL(ctx.state.error);
+  safe_free(ctx.state.error);
+  safe_free(proof.bytes.data);
+  {
+    btc_target_cache_t cache;
+    TEST_ASSERT_TRUE(btc_target_cache_load(C4_CHAIN_BTC_MAINNET, &cache));
+    TEST_ASSERT_EQUAL_HEX32(0x17034219u, cache.entries[0].bits);
+  }
+
+  proof = build_checkpoint_proof(proof_def, checkpoint, finals, 6, 840001u, 0, NULL, 0, NULL_BYTES);
+  memset(&ctx, 0, sizeof(ctx));
+  ctx.chain_id = C4_CHAIN_BTC_MAINNET;
+  ctx.method   = method;
+  ctx.args     = args;
+  ctx.proof    = proof;
+  TEST_ASSERT_TRUE(c4_btc_verify(&ctx));
+  TEST_ASSERT_FALSE(ctx.success);
+  safe_free(ctx.state.error);
+  safe_free(proof.bytes.data);
+
+  memcpy(broken, finals, sizeof(broken));
+  broken[5][BTC_HEADER_BITS]     = 0xff;
+  broken[5][BTC_HEADER_BITS + 1] = 0xff;
+  broken[5][BTC_HEADER_BITS + 2] = 0x00;
+  broken[5][BTC_HEADER_BITS + 3] = 0x21;
+  proof                          = build_checkpoint_proof(proof_def, checkpoint, broken, 6, BTC_MAINNET_CHECKPOINT_HEIGHT, 0, NULL, 0, NULL_BYTES);
+  memset(&ctx, 0, sizeof(ctx));
+  ctx.chain_id = C4_CHAIN_BTC_MAINNET;
+  ctx.method   = method;
+  ctx.args     = args;
+  ctx.proof    = proof;
+  TEST_ASSERT_TRUE(c4_btc_verify(&ctx));
+  TEST_ASSERT_FALSE(ctx.success);
+  safe_free(ctx.state.error);
+  safe_free(proof.bytes.data);
+  {
+    btc_target_cache_t cache;
+    TEST_ASSERT_TRUE(btc_target_cache_load(C4_CHAIN_BTC_MAINNET, &cache));
+    TEST_ASSERT_EQUAL_HEX32(0x17034219u, cache.entries[0].bits);
+  }
+
+  proof = build_checkpoint_proof(proof_def, checkpoint, finals, 6, BTC_MAINNET_CHECKPOINT_HEIGHT, 0, NULL, 0, NULL_BYTES);
+  memset(&ctx, 0, sizeof(ctx));
+  ctx.chain_id = C4_CHAIN_BTC_MAINNET;
+  ctx.method   = "getblock";
+  ctx.args     = args;
+  ctx.proof    = proof;
+  TEST_ASSERT_TRUE(c4_btc_verify(&ctx));
+  TEST_ASSERT_FALSE(ctx.success);
+  safe_free(ctx.state.error);
+  ctx.state.error = NULL;
+  ctx.chain_id    = C4_CHAIN_BTC_TESTNET;
+  ctx.method      = method;
+  TEST_ASSERT_TRUE(c4_btc_verify(&ctx));
+  TEST_ASSERT_FALSE(ctx.success);
+  safe_free(ctx.state.error);
+  ctx.state.error = NULL;
+  ctx.chain_id    = C4_CHAIN_MAINNET;
+  TEST_ASSERT_FALSE(c4_btc_verify(&ctx));
+  fake.set = NULL;
+  c4_set_storage_config(&fake);
+  ctx.chain_id = C4_CHAIN_BTC_MAINNET;
+  TEST_ASSERT_TRUE(c4_btc_verify(&ctx));
+  TEST_ASSERT_FALSE(ctx.success);
+  TEST_ASSERT_NOT_NULL(ctx.state.error);
+  safe_free(ctx.state.error);
+  safe_free(ctx.data.bytes.data);
+  safe_free(proof.bytes.data);
+
+  c4_set_storage_config(&saved);
+  safe_free(g_stored.data);
+  g_stored = NULL_BYTES;
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_target_and_genesis_pow);
@@ -1436,6 +1766,7 @@ int main(void) {
   RUN_TEST(test_target_cache_capacity_and_find);
   RUN_TEST(test_epoch_path_ssz_shape);
   RUN_TEST(test_client_state_and_epoch_path);
+  RUN_TEST(test_header_proof_finality);
   return UNITY_END();
 }
 

@@ -34,12 +34,14 @@ extern "C" {
  * Selects a Bitcoin SSZ definition.
  *
  * `BTC_SSZ_VERIFY_REQUEST` is the `C4Request` container (`version`, `data`,
- * `proof`, `sync_data`). Union index 0 of each union is `NONE`. `proof` carries
- * the block or transaction witness. `sync_data` index 1 is `BtcEpochPath`: up to
- * 40 steps, each with a height, an 80-byte header, and up to 64 trailing
- * finality headers. It brings the cached epoch targets forward before the proof
- * is checked. Further variants are appended in `btc_types.c`; existing indices
- * stay frozen.
+ * `proof`, `sync_data`). Union index 0 of each union is `NONE`. `proof` index 1
+ * is `BtcHeaderProof`: the block header, at least six following headers, and the
+ * coinbase merkle proof that binds the height. `data` index 1 is `BtcHeader`,
+ * the raw 80-byte header returned for `getblockheader` without verbose output.
+ * `sync_data` index 1 is `BtcEpochPath`: up to 40 steps, each with a height, an
+ * 80-byte header, and up to 64 trailing finality headers. It brings the cached
+ * epoch targets forward before the proof is checked. Further variants are
+ * appended in `btc_types.c`; existing indices stay frozen.
  */
 typedef enum {
   BTC_SSZ_VERIFY_REQUEST = 1,

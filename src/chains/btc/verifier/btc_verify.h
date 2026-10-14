@@ -47,8 +47,8 @@ const ssz_def_t* c4_btc_get_request_type(chain_type_t chain_type);
  *
  * Returns false when `ctx` belongs to another chain so the dispatcher can
  * continue. `sync_data` is applied first and updates the cached epoch targets.
- * A request that contains only that sync data succeeds. A block or transaction
- * `proof` is recognized and rejected until verification is implemented.
+ * A request that contains only that sync data succeeds. `BtcHeaderProof` verifies
+ * `getblockheader` without verbose output. Other proofs are rejected.
  *
  * @param ctx verification context
  * @return true when this module handled the context, false when the chain is not Bitcoin
@@ -58,8 +58,11 @@ bool c4_btc_verify(verify_ctx_t* ctx);
 /**
  * Classifies a Bitcoin Core RPC method.
  *
- * Known methods are reported as `METHOD_NOT_SUPPORTED` until verification
- * exists. Unknown names and non-Bitcoin chains return `METHOD_UNDEFINED`.
+ * `getblockheader` on mainnet is `METHOD_PROOFABLE` only when verbosity is explicitly
+ * `false` or `0`. Bitcoin Core defaults that argument to the JSON object, which this
+ * proof cannot return. The object, other networks, and the other known methods are
+ * `METHOD_NOT_SUPPORTED` until their proofs exist. Unknown names and non-Bitcoin
+ * chains return `METHOD_UNDEFINED`.
  *
  * @param chain_id chain the call is aimed at
  * @param method RPC method name
