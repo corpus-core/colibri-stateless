@@ -27,6 +27,9 @@ endif()
 add_verifier(
   NAME btc_verifier
   SOURCES
+    crypto/btc_hash.c
+    crypto/btc_merkle.c
+    crypto/btc_tx.c
     ssz/btc_types.c
     verifier/btc_verify.c
     verifier/btc_chain_props.c
@@ -45,3 +48,8 @@ add_prover(
 )
 
 add_chain_props(FUNC c4_btc_chain_props)
+
+if(TARGET btc_verifier)
+  target_include_directories(btc_verifier PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/crypto)
+  target_include_directories(btc_verifier PRIVATE ${CMAKE_SOURCE_DIR}/libs/crypto)
+endif()

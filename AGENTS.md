@@ -144,10 +144,10 @@ Colibri Stateless is a high-performance prover/verifier for Ethereum and Layer-2
   - `scripts/dev/`
     - `scripts/dev/lb/`
   - `scripts/doc/`
-- `src/` (147 .c, 78 .h) -- Core C Library
+- `src/` (150 .c, 81 .h) -- Core C Library
   - `src/api/` (2 .c, 2 .h)
-  - `src/chains/` (106 .c, 53 .h)
-    - `src/chains/btc/` (4 .c, 3 .h)
+  - `src/chains/` (109 .c, 56 .h)
+    - `src/chains/btc/` (7 .c, 6 .h)
     - `src/chains/eth/` (93 .c, 43 .h) -- Ethereum Chain Module
     - `src/chains/op/` (9 .c, 7 .h) -- OP-Stack Chain Module
   - `src/cli/` (3 .c, 2 .h)
@@ -157,7 +157,7 @@ Colibri Stateless is a high-performance prover/verifier for Ethereum and Layer-2
     - `src/server/web_ui/` -- Colibri Server Web Configuration UI
   - `src/util/` (13 .c, 14 .h) -- Utility Modules
   - `src/verifier/` (1 .c, 1 .h)
-- `test/` (83 .c, 5 .h) -- Test Suite
+- `test/` (84 .c, 5 .h) -- Test Suite
   - `test/data/`
     - `test/data/eth_blockNumber_electra/`
     - `test/data/eth_call1/`
@@ -211,7 +211,7 @@ Colibri Stateless is a high-performance prover/verifier for Ethereum and Layer-2
   - `test/embedded/` (6 .c, 1 .h) -- Build the Docker image
   - `test/eth/`
     - `test/eth/TrieTests/`
-  - `test/unittests/` (77 .c, 4 .h)
+  - `test/unittests/` (78 .c, 4 .h)
   - `test/valgrind/` -- Valgrind Suppressions
 - `valgrind_results/`
 <!-- AUTO:DIRECTORY_MAP:END -->
