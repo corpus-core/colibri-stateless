@@ -29,6 +29,7 @@ add_verifier(
   SOURCES
     crypto/btc_hash.c
     crypto/btc_merkle.c
+    crypto/btc_target.c
     crypto/btc_tx.c
     ssz/btc_types.c
     verifier/btc_verify.c

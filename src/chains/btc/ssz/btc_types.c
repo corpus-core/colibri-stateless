@@ -23,13 +23,24 @@
 
 #include "btc_types.h"
 
-// Index 0 is frozen as NONE. Proof and data variants are appended in later steps.
+// Index 0 is frozen as NONE. Proof index 1 is the epoch-target path. Further variants are appended.
+static const ssz_def_t BTC_HEADER80            = SSZ_BYTE_VECTOR("header", 80);
+static const ssz_def_t BTC_EPOCH_STEP_FIELDS[] = {
+    SSZ_UINT32("height"),
+    SSZ_BYTE_VECTOR("header", 80),
+    SSZ_LIST("final_headers", BTC_HEADER80, 64),
+};
+static const ssz_def_t BTC_EPOCH_STEP          = SSZ_CONTAINER("BtcEpochStep", BTC_EPOCH_STEP_FIELDS);
+static const ssz_def_t BTC_EPOCH_PATH_FIELDS[] = {
+    SSZ_LIST("steps", BTC_EPOCH_STEP, 40),
+};
 static const ssz_def_t BTC_REQUEST_DATA_UNION[] = {
     SSZ_NONE,
 };
 
 static const ssz_def_t BTC_REQUEST_PROOF_UNION[] = {
     SSZ_NONE,
+    SSZ_CONTAINER("BtcEpochPath", BTC_EPOCH_PATH_FIELDS),
 };
 
 static const ssz_def_t BTC_REQUEST_SYNCDATA_UNION[] = {

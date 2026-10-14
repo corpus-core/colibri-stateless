@@ -31,8 +31,12 @@ int main(void) {
 
 #include "btc_hash.h"
 #include "btc_merkle.h"
+#include "btc_target.h"
 #include "btc_tx.h"
+#include "btc_types.h"
+#include "plugin.h"
 #include "unity.h"
+#include <stdio.h>
 #include <string.h>
 
 // Mainnet genesis and block 1. Display hashes and the genesis txid are independent of this code.
@@ -792,6 +796,471 @@ void test_compact_size_and_segwit_shape(void) {
   TEST_ASSERT_FALSE(btc_tx_coinbase_nonce(&tx, &nonce));
 }
 
+static bytes_t g_stored;
+static char    g_store_key[80];
+
+/**
+ * Copies the one blob written by the target-cache storage test.
+ *
+ * @param key storage key
+ * @param buffer destination
+ * @return false when the key does not match the stored blob
+ */
+static bool test_store_get(char* key, buffer_t* buffer) {
+  if (!key || strcmp(key, g_store_key) != 0 || !g_stored.data) return false;
+  return buffer_append(buffer, g_stored) == g_stored.len;
+}
+
+/**
+ * Replaces the blob kept by the target-cache storage test.
+ *
+ * @param key storage key
+ * @param value blob to keep
+ */
+static void test_store_set(char* key, bytes_t value) {
+  safe_free(g_stored.data);
+  g_stored = bytes(safe_malloc(value.len), value.len);
+  memcpy(g_stored.data, value.data, value.len);
+  snprintf(g_store_key, sizeof(g_store_key), "%s", key);
+}
+
+/** Drops the blob kept by the target-cache storage test. @param key unused */
+static void test_store_del(char* key) {
+  (void) key;
+  safe_free(g_stored.data);
+  g_stored = NULL_BYTES;
+}
+
+void test_target_retarget_cache_and_jumps(void) {
+  uint8_t             limit[32];
+  uint8_t             hash[32];
+  uint8_t             display[32];
+  uint8_t             expect[32];
+  uint8_t             easy[80];
+  uint8_t             headers[160];
+  uint32_t            next  = 0;
+  uint32_t            found = 0;
+  uint32_t            bits  = 0;
+  uint32_t            heights[2];
+  const ssz_def_t*    request;
+  btc_target_cache_t  cache;
+  btc_target_limits_t tight;
+  buffer_t            blob = {0};
+  storage_plugin_t    saved;
+  storage_plugin_t    fake;
+  bytes_t             checkpoint = btc_mainnet_checkpoint_header();
+
+  TEST_ASSERT_TRUE(btc_target_from_bits(BTC_MAINNET_POW_BITS, limit));
+  TEST_ASSERT_TRUE(btc_target_retarget(0x1d00ffffu, 1231006505u, 1233061996u, limit, &next));
+  TEST_ASSERT_EQUAL_HEX32(0x1d00ffffu, next);
+  TEST_ASSERT_TRUE(btc_target_retarget(0x1d00ffffu, 1261130161u, 1262152739u, limit, &next));
+  TEST_ASSERT_EQUAL_HEX32(0x1d00d86au, next);
+  TEST_ASSERT_TRUE(btc_target_retarget(BTC_MAINNET_POW_BITS, 0, BTC_TARGET_TIMESPAN * 8u, limit, &next));
+  TEST_ASSERT_EQUAL_HEX32(BTC_MAINNET_POW_BITS, next);
+
+  TEST_ASSERT_EQUAL_UINT32(416, btc_dap(BTC_MAINNET_CHECKPOINT_HEIGHT));
+  TEST_ASSERT_TRUE(btc_header_check(checkpoint, hash));
+  btc_hash_reverse(hash, display);
+  load_hex("0000000000000000000320283a032748cef8227873ff4872689bf23f1cda83a5", expect, sizeof(expect));
+  TEST_ASSERT_EQUAL_MEMORY(expect, display, 32);
+
+  btc_target_cache_init(&cache);
+  TEST_ASSERT_EQUAL_UINT32(1, cache.count);
+  TEST_ASSERT_TRUE(btc_target_authorize(&cache, NULL, BTC_MAINNET_CHECKPOINT_HEIGHT, 0x17034219u));
+  TEST_ASSERT_FALSE(btc_target_authorize(&cache, NULL, BTC_MAINNET_CHECKPOINT_HEIGHT, 0x17034218u));
+  TEST_ASSERT_TRUE(btc_target_authorize(&cache, NULL, BTC_MAINNET_CHECKPOINT_HEIGHT + BTC_EPOCH_LENGTH, 0x170d0864u));
+  TEST_ASSERT_FALSE(btc_target_authorize(&cache, NULL, BTC_MAINNET_CHECKPOINT_HEIGHT + BTC_EPOCH_LENGTH, 0x17104a7du));
+  TEST_ASSERT_FALSE(btc_target_authorize(&cache, NULL, BTC_MAINNET_CHECKPOINT_HEIGHT + BTC_EPOCH_LENGTH, 0x1700d086u));
+  TEST_ASSERT_TRUE(btc_target_authorize(&cache, NULL, BTC_MAINNET_CHECKPOINT_HEIGHT + 2u * BTC_EPOCH_LENGTH, 0x17039581u));
+  TEST_ASSERT_FALSE(btc_target_authorize(&cache, NULL, BTC_MAINNET_CHECKPOINT_HEIGHT + 2u * BTC_EPOCH_LENGTH, 0x17039dd9u));
+  TEST_ASSERT_TRUE(btc_target_authorize(&cache, NULL, BTC_MAINNET_CHECKPOINT_HEIGHT + 2u * BTC_EPOCH_LENGTH, 0x1700d086u));
+  TEST_ASSERT_TRUE(btc_target_authorize(&cache, NULL, BTC_MAINNET_CHECKPOINT_HEIGHT + 20u * BTC_EPOCH_LENGTH, 0x17034219u));
+  TEST_ASSERT_FALSE(btc_target_authorize(&cache, NULL, BTC_MAINNET_CHECKPOINT_HEIGHT + 21u * BTC_EPOCH_LENGTH, 0x17034219u));
+
+  TEST_ASSERT_TRUE(btc_target_accept_header(&cache, NULL, BTC_MAINNET_CHECKPOINT_HEIGHT, checkpoint));
+  TEST_ASSERT_FALSE(btc_target_accept_header(&cache, NULL, BTC_MAINNET_CHECKPOINT_HEIGHT + BTC_EPOCH_LENGTH, checkpoint));
+  fill_easy_header(easy, NULL);
+  TEST_ASSERT_FALSE(btc_target_accept_header(&cache, NULL, BTC_MAINNET_CHECKPOINT_HEIGHT + BTC_EPOCH_LENGTH, bytes(easy, 80)));
+
+  tight.max_daps    = 20;
+  tight.max_percent = 10;
+  heights[0]        = (416u + 20u) * BTC_EPOCH_LENGTH;
+  heights[1]        = (416u + 10u) * BTC_EPOCH_LENGTH;
+  memcpy(headers, checkpoint.data, 80);
+  memcpy(headers + 80, checkpoint.data, 80);
+  TEST_ASSERT_FALSE(btc_target_accept_path(&cache, &tight, heights, bytes(headers, 160), 2));
+  TEST_ASSERT_EQUAL_UINT32(1, cache.count);
+
+  heights[0] = (416u + 20u) * BTC_EPOCH_LENGTH;
+  heights[1] = (416u + 30u) * BTC_EPOCH_LENGTH;
+  TEST_ASSERT_TRUE(btc_target_authorize(&cache, &tight, heights[0], 0x17034219u));
+  TEST_ASSERT_TRUE(btc_target_cache_put(&cache, btc_dap(heights[0]), 0x17034219u));
+  TEST_ASSERT_TRUE(btc_target_authorize(&cache, &tight, heights[1], 0x17034219u));
+  TEST_ASSERT_TRUE(btc_target_cache_put(&cache, btc_dap(heights[1]), 0x17034219u));
+  TEST_ASSERT_TRUE(btc_target_cache_find(&cache, btc_dap(heights[1]), &bits, &found));
+  TEST_ASSERT_EQUAL_UINT32(btc_dap(heights[1]), found);
+  TEST_ASSERT_EQUAL_HEX32(0x17034219u, bits);
+
+  TEST_ASSERT_TRUE(btc_target_cache_encode(&cache, &blob));
+  TEST_ASSERT_TRUE(btc_target_cache_decode(blob.data, &cache));
+  blob.data.data[12] ^= 0x01;
+  TEST_ASSERT_FALSE(btc_target_cache_decode(blob.data, &cache));
+  TEST_ASSERT_EQUAL_HEX32(0x17034219u, cache.entries[0].bits);
+
+  memset(&saved, 0, sizeof(saved));
+  c4_get_storage_config(&saved);
+  memset(&fake, 0, sizeof(fake));
+  fake.get             = test_store_get;
+  fake.set             = test_store_set;
+  fake.del             = test_store_del;
+  fake.max_sync_states = 1;
+  c4_set_storage_config(&fake);
+  btc_target_cache_init(&cache);
+  TEST_ASSERT_TRUE(btc_target_cache_store(C4_CHAIN_BTC_MAINNET, &cache));
+  TEST_ASSERT_TRUE(btc_target_cache_load(C4_CHAIN_BTC_MAINNET, &cache));
+  TEST_ASSERT_EQUAL_UINT32(1, cache.count);
+  g_stored.data[12] ^= 0x01;
+  TEST_ASSERT_FALSE(btc_target_cache_load(C4_CHAIN_BTC_MAINNET, &cache));
+  TEST_ASSERT_EQUAL_UINT32(416, cache.entries[0].dap);
+  TEST_ASSERT_EQUAL_HEX32(0x17034219u, cache.entries[0].bits);
+  c4_set_storage_config(&saved);
+  safe_free(g_stored.data);
+  g_stored = NULL_BYTES;
+  buffer_free(&blob);
+
+  request = btc_ssz_verification_type(BTC_SSZ_VERIFY_REQUEST);
+  TEST_ASSERT_NOT_NULL(request);
+  TEST_ASSERT_EQUAL_UINT32(4, request->def.container.len);
+  TEST_ASSERT_EQUAL_INT(SSZ_TYPE_UNION, request->def.container.elements[2].type);
+  TEST_ASSERT_EQUAL_UINT32(2, request->def.container.elements[2].def.container.len);
+  TEST_ASSERT_EQUAL_STRING("BtcEpochPath", request->def.container.elements[2].def.container.elements[1].name);
+}
+
+/**
+ * Appends a little-endian uint32 to a growable buffer.
+ *
+ * @param buf destination
+ * @param value integer to append
+ */
+static void append_le32(buffer_t* buf, uint32_t value) {
+  uint8_t raw[4];
+  raw[0] = (uint8_t) value;
+  raw[1] = (uint8_t) (value >> 8);
+  raw[2] = (uint8_t) (value >> 16);
+  raw[3] = (uint8_t) (value >> 24);
+  TEST_ASSERT_EQUAL_UINT32(4, buffer_append(buf, bytes(raw, 4)));
+}
+
+/**
+ * Replaces `buf` with a target-cache blob.
+ *
+ * The layout matches `btc_target_cache_encode`: 4-byte magic, little-endian count, then
+ * `count` little-endian `dap`/`bits` pairs.
+ *
+ * @param buf destination
+ * @param magic four magic bytes
+ * @param daps epoch numbers, unused when `count` is 0
+ * @param bits compact targets, unused when `count` is 0
+ * @param count number of pairs
+ */
+static void write_cache_blob(buffer_t* buf, const uint8_t magic[4], const uint32_t* daps, const uint32_t* bits, uint32_t count) {
+  uint32_t i;
+  buffer_reset(buf);
+  TEST_ASSERT_EQUAL_UINT32(4, buffer_append(buf, bytes((uint8_t*) magic, 4)));
+  append_le32(buf, count);
+  for (i = 0; i < count; i++) {
+    append_le32(buf, daps[i]);
+    append_le32(buf, bits[i]);
+  }
+}
+
+/**
+ * Seeds a cache whose checkpoint bits differ from the compiled header.
+ *
+ * Epoch 10 carries `0x01020304`. The checkpoint epoch keeps dap 416 but its bits are
+ * `0x11111111`, so a later successful write is visible. The checkpoint bits are written
+ * directly because `btc_target_cache_put` rejects any other value for that epoch.
+ *
+ * @param cache receives the sentinel
+ */
+static void seed_sentinel_cache(btc_target_cache_t* cache) {
+  btc_target_cache_init(cache);
+  TEST_ASSERT_TRUE(btc_target_cache_put(cache, 10, 0x01020304u));
+  cache->entries[1].bits = 0x11111111u;
+}
+
+/**
+ * Checks that a rejected operation left the sentinel cache untouched.
+ *
+ * @param cache cache under test
+ */
+static void assert_sentinel_cache(const btc_target_cache_t* cache) {
+  TEST_ASSERT_EQUAL_UINT32(2, cache->count);
+  TEST_ASSERT_EQUAL_UINT32(10, cache->entries[0].dap);
+  TEST_ASSERT_EQUAL_HEX32(0x01020304u, cache->entries[0].bits);
+  TEST_ASSERT_EQUAL_UINT32(btc_dap(BTC_MAINNET_CHECKPOINT_HEIGHT), cache->entries[1].dap);
+  TEST_ASSERT_EQUAL_HEX32(0x11111111u, cache->entries[1].bits);
+}
+
+void test_target_retarget_clamps_negative_span(void) {
+  uint8_t  limit[32];
+  uint32_t next = 0x11111111u;
+
+  TEST_ASSERT_TRUE(btc_target_from_bits(BTC_MAINNET_POW_BITS, limit));
+  TEST_ASSERT_FALSE(btc_target_retarget(BTC_MAINNET_POW_BITS, 0, BTC_TARGET_TIMESPAN, NULL, &next));
+  TEST_ASSERT_EQUAL_HEX32(0x11111111u, next);
+  TEST_ASSERT_FALSE(btc_target_retarget(BTC_MAINNET_POW_BITS, 0, BTC_TARGET_TIMESPAN, limit, NULL));
+  TEST_ASSERT_FALSE(btc_target_retarget(0, 0, BTC_TARGET_TIMESPAN, limit, &next));
+  TEST_ASSERT_EQUAL_HEX32(0x11111111u, next);
+
+  // pow-limit / 4. 0xffff<<208 divided by 4 is 0xffff<<206, compact 0x1c3fffc0.
+  TEST_ASSERT_TRUE(btc_target_retarget(BTC_MAINNET_POW_BITS, 0, BTC_TARGET_TIMESPAN / 4u, limit, &next));
+  TEST_ASSERT_EQUAL_HEX32(0x1c3fffc0u, next);
+  TEST_ASSERT_TRUE(btc_target_retarget(BTC_MAINNET_POW_BITS, 0, BTC_TARGET_TIMESPAN / 4u - 1u, limit, &next));
+  TEST_ASSERT_EQUAL_HEX32(0x1c3fffc0u, next);
+  TEST_ASSERT_TRUE_MESSAGE(btc_target_retarget(BTC_MAINNET_POW_BITS, 1000u, 999u, limit, &next), "negative span");
+  TEST_ASSERT_EQUAL_HEX32(0x1c3fffc0u, next);
+  TEST_ASSERT_TRUE(btc_target_retarget(BTC_MAINNET_POW_BITS, 0xffffffffu, 0, limit, &next));
+  TEST_ASSERT_EQUAL_HEX32(0x1c3fffc0u, next);
+}
+
+void test_target_cache_decode_rejects_malformed(void) {
+  btc_target_cache_t cache;
+  buffer_t           blob     = {0};
+  uint8_t            magic[4] = {'B', 'T', 'C', '1'};
+  uint32_t           daps[4];
+  uint32_t           bits[4];
+  uint32_t           checkpoint = btc_dap(BTC_MAINNET_CHECKPOINT_HEIGHT);
+
+  daps[0] = 10;
+  bits[0] = 0x01020304u;
+  daps[1] = checkpoint;
+  bits[1] = 0x17034219u;
+  write_cache_blob(&blob, magic, daps, bits, 2);
+  TEST_ASSERT_TRUE(btc_target_cache_decode(blob.data, &cache));
+  TEST_ASSERT_EQUAL_UINT32(2, cache.count);
+  TEST_ASSERT_EQUAL_UINT32(10, cache.entries[0].dap);
+  TEST_ASSERT_EQUAL_HEX32(0x01020304u, cache.entries[0].bits);
+  TEST_ASSERT_EQUAL_UINT32(checkpoint, cache.entries[1].dap);
+  TEST_ASSERT_EQUAL_HEX32(0x17034219u, cache.entries[1].bits);
+
+  seed_sentinel_cache(&cache);
+
+  magic[0] = 'X';
+  write_cache_blob(&blob, magic, daps, bits, 2);
+  TEST_ASSERT_FALSE_MESSAGE(btc_target_cache_decode(blob.data, &cache), "bad magic");
+  assert_sentinel_cache(&cache);
+  magic[0] = 'B';
+
+  daps[0] = checkpoint;
+  bits[0] = 0x17034219u;
+  daps[1] = checkpoint;
+  bits[1] = 0x17034219u;
+  write_cache_blob(&blob, magic, daps, bits, 2);
+  TEST_ASSERT_FALSE_MESSAGE(btc_target_cache_decode(blob.data, &cache), "duplicate checkpoint");
+  assert_sentinel_cache(&cache);
+
+  daps[0] = 10;
+  bits[0] = 0x1d00ffffu;
+  daps[1] = checkpoint;
+  bits[1] = 0x17034219u;
+  daps[2] = 500;
+  bits[2] = 0x1d00ffffu;
+  daps[3] = 500;
+  bits[3] = 0x1d00ffffu;
+  write_cache_blob(&blob, magic, daps, bits, 4);
+  TEST_ASSERT_FALSE_MESSAGE(btc_target_cache_decode(blob.data, &cache), "duplicate epoch");
+  assert_sentinel_cache(&cache);
+
+  daps[0] = checkpoint + 1u;
+  bits[0] = 0x1d00ffffu;
+  daps[1] = checkpoint;
+  bits[1] = 0x17034219u;
+  write_cache_blob(&blob, magic, daps, bits, 2);
+  TEST_ASSERT_FALSE_MESSAGE(btc_target_cache_decode(blob.data, &cache), "decreasing daps");
+  assert_sentinel_cache(&cache);
+
+  daps[0] = 10;
+  bits[0] = 0x1d00ffffu;
+  daps[1] = 11;
+  bits[1] = 0x1d00ffffu;
+  write_cache_blob(&blob, magic, daps, bits, 2);
+  TEST_ASSERT_FALSE_MESSAGE(btc_target_cache_decode(blob.data, &cache), "missing checkpoint");
+  assert_sentinel_cache(&cache);
+
+  daps[0] = checkpoint;
+  bits[0] = 0x17034219u;
+  write_cache_blob(&blob, magic, daps, bits, 1);
+  append_le32(&blob, 0);
+  append_le32(&blob, 0);
+  TEST_ASSERT_FALSE_MESSAGE(btc_target_cache_decode(blob.data, &cache), "trailing bytes");
+  assert_sentinel_cache(&cache);
+
+  write_cache_blob(&blob, magic, daps, bits, 1);
+  blob.data.data[4] = 2;
+  TEST_ASSERT_FALSE_MESSAGE(btc_target_cache_decode(blob.data, &cache), "count exceeds blob");
+  assert_sentinel_cache(&cache);
+
+  write_cache_blob(&blob, magic, NULL, NULL, 0);
+  TEST_ASSERT_FALSE_MESSAGE(btc_target_cache_decode(blob.data, &cache), "count 0");
+  assert_sentinel_cache(&cache);
+
+  TEST_ASSERT_FALSE(btc_target_cache_decode(bytes(magic, 4), &cache));
+  assert_sentinel_cache(&cache);
+  TEST_ASSERT_FALSE(btc_target_cache_decode(NULL_BYTES, &cache));
+  assert_sentinel_cache(&cache);
+  TEST_ASSERT_FALSE(btc_target_cache_decode(blob.data, NULL));
+  buffer_free(&blob);
+}
+
+void test_target_accept_path_count_and_checkpoint(void) {
+  btc_target_cache_t cache;
+  uint8_t            headers[160];
+  uint32_t           heights[2];
+  uint32_t           one;
+  bytes_t            checkpoint = btc_mainnet_checkpoint_header();
+
+  seed_sentinel_cache(&cache);
+  one = BTC_MAINNET_CHECKPOINT_HEIGHT;
+
+  TEST_ASSERT_FALSE_MESSAGE(btc_target_accept_path(&cache, NULL, &one, checkpoint, 0), "count 0");
+  assert_sentinel_cache(&cache);
+  TEST_ASSERT_FALSE_MESSAGE(btc_target_accept_path(&cache, NULL, &one, checkpoint, BTC_TARGET_PATH_LIMIT + 1u), "count 41");
+  assert_sentinel_cache(&cache);
+  TEST_ASSERT_FALSE_MESSAGE(btc_target_accept_path(&cache, NULL, NULL, checkpoint, 1), "null heights");
+  assert_sentinel_cache(&cache);
+  TEST_ASSERT_FALSE_MESSAGE(btc_target_accept_path(&cache, NULL, &one, bytes(checkpoint.data, BTC_HEADER_SIZE - 1u), 1), "short header");
+  assert_sentinel_cache(&cache);
+
+  heights[0] = BTC_MAINNET_CHECKPOINT_HEIGHT;
+  heights[1] = BTC_MAINNET_CHECKPOINT_HEIGHT;
+  memcpy(headers, checkpoint.data, BTC_HEADER_SIZE);
+  memcpy(headers + BTC_HEADER_SIZE, checkpoint.data, BTC_HEADER_SIZE);
+  TEST_ASSERT_FALSE_MESSAGE(btc_target_accept_path(&cache, NULL, heights, bytes(headers, sizeof(headers)), 2), "same epoch");
+  assert_sentinel_cache(&cache);
+
+  TEST_ASSERT_TRUE(btc_target_accept_path(&cache, NULL, &one, checkpoint, 1));
+  TEST_ASSERT_EQUAL_UINT32(2, cache.count);
+  TEST_ASSERT_EQUAL_UINT32(10, cache.entries[0].dap);
+  TEST_ASSERT_EQUAL_HEX32(0x01020304u, cache.entries[0].bits);
+  TEST_ASSERT_EQUAL_UINT32(btc_dap(BTC_MAINNET_CHECKPOINT_HEIGHT), cache.entries[1].dap);
+  TEST_ASSERT_EQUAL_HEX32(0x17034219u, cache.entries[1].bits);
+}
+
+void test_target_authorize_rejects_huge_percent(void) {
+  btc_target_cache_t  cache;
+  btc_target_limits_t limits;
+
+  btc_target_limits_default(NULL);
+  memset(&limits, 0x5a, sizeof(limits));
+  btc_target_limits_default(&limits);
+  TEST_ASSERT_EQUAL_UINT32(BTC_TARGET_MAX_DAPS, limits.max_daps);
+  TEST_ASSERT_EQUAL_UINT32(BTC_TARGET_MAX_PERCENT, limits.max_percent);
+
+  btc_target_cache_init(&cache);
+  limits.max_daps    = BTC_TARGET_MAX_DAPS;
+  limits.max_percent = 1000000u;
+  TEST_ASSERT_TRUE(btc_target_authorize(&cache, &limits, BTC_MAINNET_CHECKPOINT_HEIGHT, 0x17034219u));
+  limits.max_percent = 1000001u;
+  TEST_ASSERT_FALSE(btc_target_authorize(&cache, &limits, BTC_MAINNET_CHECKPOINT_HEIGHT, 0x17034219u));
+  TEST_ASSERT_EQUAL_UINT32(1, cache.count);
+  TEST_ASSERT_EQUAL_HEX32(0x17034219u, cache.entries[0].bits);
+}
+
+void test_target_cache_capacity_and_find(void) {
+  btc_target_cache_t cache;
+  uint32_t           bits  = 0xabcdefu;
+  uint32_t           found = 9;
+  uint32_t           dap;
+  uint32_t           i;
+  uint32_t           checkpoint = btc_dap(BTC_MAINNET_CHECKPOINT_HEIGHT);
+
+  TEST_ASSERT_FALSE(btc_target_cache_find(NULL, checkpoint, &bits, &found));
+  TEST_ASSERT_EQUAL_HEX32(0xabcdefu, bits);
+  TEST_ASSERT_EQUAL_UINT32(9, found);
+  TEST_ASSERT_FALSE(btc_target_cache_find(NULL, checkpoint, NULL, NULL));
+  TEST_ASSERT_FALSE(btc_target_cache_put(NULL, 1, 1));
+
+  btc_target_cache_init(&cache);
+  TEST_ASSERT_TRUE(btc_target_cache_put(&cache, checkpoint + 4u, 0x22222222u));
+  TEST_ASSERT_TRUE(btc_target_cache_find(&cache, checkpoint + 3u, &bits, &found));
+  TEST_ASSERT_EQUAL_UINT32(checkpoint + 4u, found);
+  TEST_ASSERT_EQUAL_HEX32(0x22222222u, bits);
+  TEST_ASSERT_TRUE(btc_target_cache_find(&cache, checkpoint + 2u, &bits, &found));
+  TEST_ASSERT_EQUAL_UINT32(checkpoint, found);
+  TEST_ASSERT_EQUAL_HEX32(0x17034219u, bits);
+  TEST_ASSERT_FALSE(btc_target_cache_put(&cache, checkpoint, 0x1d00ffffu));
+  TEST_ASSERT_EQUAL_HEX32(0x17034219u, cache.entries[0].bits);
+
+  btc_target_cache_init(&cache);
+  TEST_ASSERT_TRUE(btc_target_cache_put(&cache, checkpoint + 4u, 0x1700d086u));
+  TEST_ASSERT_TRUE(btc_target_cache_find(&cache, checkpoint + 2u, &bits, &found));
+  TEST_ASSERT_EQUAL_UINT32(checkpoint + 4u, found);
+  TEST_ASSERT_EQUAL_HEX32(0x1700d086u, bits);
+
+  btc_target_cache_init(&cache);
+  for (dap = 0; dap < BTC_TARGET_CACHE_MAX; dap++) {
+    if (dap == checkpoint) continue;
+    TEST_ASSERT_TRUE(btc_target_cache_put(&cache, dap, 0x1d00ffffu));
+  }
+  TEST_ASSERT_EQUAL_UINT32(BTC_TARGET_CACHE_MAX, cache.count);
+  for (i = 1; i < cache.count; i++)
+    TEST_ASSERT_TRUE(cache.entries[i].dap > cache.entries[i - 1].dap);
+  TEST_ASSERT_FALSE(btc_target_cache_put(&cache, BTC_TARGET_CACHE_MAX, 0x1d00ffffu));
+  TEST_ASSERT_EQUAL_UINT32(BTC_TARGET_CACHE_MAX, cache.count);
+  for (i = 0; i < cache.count; i++)
+    TEST_ASSERT_TRUE(cache.entries[i].dap != BTC_TARGET_CACHE_MAX);
+  TEST_ASSERT_TRUE(btc_target_cache_put(&cache, 0, 0x33333333u));
+  TEST_ASSERT_EQUAL_UINT32(BTC_TARGET_CACHE_MAX, cache.count);
+  TEST_ASSERT_TRUE(btc_target_cache_find(&cache, 0, &bits, &found));
+  TEST_ASSERT_EQUAL_UINT32(0, found);
+  TEST_ASSERT_EQUAL_HEX32(0x33333333u, bits);
+  TEST_ASSERT_TRUE(btc_target_cache_find(&cache, checkpoint, &bits, &found));
+  TEST_ASSERT_EQUAL_UINT32(checkpoint, found);
+  TEST_ASSERT_EQUAL_HEX32(0x17034219u, bits);
+}
+
+void test_epoch_path_ssz_shape(void) {
+  const ssz_def_t* request = btc_ssz_verification_type(BTC_SSZ_VERIFY_REQUEST);
+  const ssz_def_t* proof;
+  const ssz_def_t* path;
+  const ssz_def_t* steps;
+  const ssz_def_t* step;
+  const ssz_def_t* finals;
+
+  TEST_ASSERT_NULL(btc_ssz_verification_type((btc_ssz_type_t) 0));
+  TEST_ASSERT_NOT_NULL(request);
+  proof = &request->def.container.elements[2];
+  TEST_ASSERT_EQUAL_STRING("proof", proof->name);
+  TEST_ASSERT_EQUAL_INT(SSZ_TYPE_UNION, proof->type);
+  TEST_ASSERT_EQUAL_UINT32(2, proof->def.container.len);
+  TEST_ASSERT_EQUAL_STRING("NONE", proof->def.container.elements[0].name);
+  path = &proof->def.container.elements[1];
+  TEST_ASSERT_EQUAL_STRING("BtcEpochPath", path->name);
+  TEST_ASSERT_EQUAL_UINT32(1, path->def.container.len);
+  steps = &path->def.container.elements[0];
+  TEST_ASSERT_EQUAL_STRING("steps", steps->name);
+  TEST_ASSERT_EQUAL_INT(SSZ_TYPE_LIST, steps->type);
+  TEST_ASSERT_EQUAL_UINT32(BTC_TARGET_PATH_LIMIT, steps->def.vector.len);
+  step = steps->def.vector.type;
+  TEST_ASSERT_NOT_NULL(step);
+  TEST_ASSERT_EQUAL_STRING("BtcEpochStep", step->name);
+  TEST_ASSERT_EQUAL_UINT32(3, step->def.container.len);
+  TEST_ASSERT_EQUAL_STRING("height", step->def.container.elements[0].name);
+  TEST_ASSERT_EQUAL_INT(SSZ_TYPE_UINT, step->def.container.elements[0].type);
+  TEST_ASSERT_EQUAL_UINT32(4, step->def.container.elements[0].def.uint.len);
+  TEST_ASSERT_EQUAL_STRING("header", step->def.container.elements[1].name);
+  TEST_ASSERT_EQUAL_INT(SSZ_TYPE_VECTOR, step->def.container.elements[1].type);
+  TEST_ASSERT_EQUAL_UINT32(BTC_HEADER_SIZE, step->def.container.elements[1].def.vector.len);
+  finals = &step->def.container.elements[2];
+  TEST_ASSERT_EQUAL_STRING("final_headers", finals->name);
+  TEST_ASSERT_EQUAL_INT(SSZ_TYPE_LIST, finals->type);
+  TEST_ASSERT_EQUAL_UINT32(64, finals->def.vector.len);
+  TEST_ASSERT_NOT_NULL(finals->def.vector.type);
+  TEST_ASSERT_EQUAL_STRING("header", finals->def.vector.type->name);
+  TEST_ASSERT_EQUAL_UINT32(BTC_HEADER_SIZE, finals->def.vector.type->def.vector.len);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_target_and_genesis_pow);
@@ -803,6 +1272,13 @@ int main(void) {
   RUN_TEST(test_bip34_script_numbers);
   RUN_TEST(test_parser_rejects_noncanonical_and_empty_witness);
   RUN_TEST(test_compact_size_and_segwit_shape);
+  RUN_TEST(test_target_retarget_cache_and_jumps);
+  RUN_TEST(test_target_retarget_clamps_negative_span);
+  RUN_TEST(test_target_cache_decode_rejects_malformed);
+  RUN_TEST(test_target_accept_path_count_and_checkpoint);
+  RUN_TEST(test_target_authorize_rejects_huge_percent);
+  RUN_TEST(test_target_cache_capacity_and_find);
+  RUN_TEST(test_epoch_path_ssz_shape);
   return UNITY_END();
 }
 

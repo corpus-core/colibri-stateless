@@ -34,8 +34,10 @@ extern "C" {
  * Selects a Bitcoin SSZ definition.
  *
  * `BTC_SSZ_VERIFY_REQUEST` is the `C4Request` container (`version`, `data`,
- * `proof`, `sync_data`). Union index 0 of each union is `NONE`. Further proof
- * and data variants are appended in `btc_types.c`; existing indices stay frozen.
+ * `proof`, `sync_data`). Union index 0 of each union is `NONE`. Proof union
+ * index 1 is `BtcEpochPath`: up to 40 steps, each with a height, an 80-byte
+ * header, and up to 64 trailing finality headers. Further proof and data
+ * variants are appended in `btc_types.c`; existing indices stay frozen.
  */
 typedef enum {
   BTC_SSZ_VERIFY_REQUEST = 1,
