@@ -144,10 +144,10 @@ Colibri Stateless is a high-performance prover/verifier for Ethereum and Layer-2
   - `scripts/dev/`
     - `scripts/dev/lb/`
   - `scripts/doc/`
-- `src/` (146 .c, 77 .h) -- Core C Library
+- `src/` (147 .c, 78 .h) -- Core C Library
   - `src/api/` (2 .c, 2 .h)
-  - `src/chains/` (105 .c, 52 .h)
-    - `src/chains/btc/` (3 .c, 2 .h)
+  - `src/chains/` (106 .c, 53 .h)
+    - `src/chains/btc/` (4 .c, 3 .h)
     - `src/chains/eth/` (93 .c, 43 .h) -- Ethereum Chain Module
     - `src/chains/op/` (9 .c, 7 .h) -- OP-Stack Chain Module
   - `src/cli/` (3 .c, 2 .h)

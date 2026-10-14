@@ -22,31 +22,9 @@
  */
 
 #include "btc_verify.h"
-#include "ssz.h"
+#include "btc_types.h"
 #include <stdlib.h>
 #include <string.h>
-
-// Index 0 is frozen as NONE. Proof and data variants are appended in later steps.
-static const ssz_def_t BTC_REQUEST_DATA_UNION[] = {
-    SSZ_NONE,
-};
-
-static const ssz_def_t BTC_REQUEST_PROOF_UNION[] = {
-    SSZ_NONE,
-};
-
-static const ssz_def_t BTC_REQUEST_SYNCDATA_UNION[] = {
-    SSZ_NONE,
-};
-
-static const ssz_def_t BTC_REQUEST[] = {
-    SSZ_BYTE_VECTOR("version", 4),
-    SSZ_UNION("data", BTC_REQUEST_DATA_UNION),
-    SSZ_UNION("proof", BTC_REQUEST_PROOF_UNION),
-    SSZ_UNION("sync_data", BTC_REQUEST_SYNCDATA_UNION),
-};
-
-static const ssz_def_t BTC_REQUEST_CONTAINER = SSZ_CONTAINER("C4Request", BTC_REQUEST);
 
 static const char* btc_methods[] = {
     "getblock",
@@ -61,7 +39,7 @@ static const char* btc_methods[] = {
 };
 
 const ssz_def_t* c4_btc_get_request_type(chain_type_t chain_type) {
-  return chain_type == C4_CHAIN_TYPE_BITCOIN ? &BTC_REQUEST_CONTAINER : NULL;
+  return chain_type == C4_CHAIN_TYPE_BITCOIN ? btc_ssz_verification_type(BTC_SSZ_VERIFY_REQUEST) : NULL;
 }
 
 method_type_t c4_btc_get_method_type(chain_id_t chain_id, char* method, json_t params, verify_flags_t flags) {

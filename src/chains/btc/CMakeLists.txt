@@ -27,6 +27,7 @@ endif()
 add_verifier(
   NAME btc_verifier
   SOURCES
+    ssz/btc_types.c
     verifier/btc_verify.c
     verifier/btc_chain_props.c
   DEPENDS util

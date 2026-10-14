@@ -396,7 +396,7 @@ jobs:
             -analyzer-config strict-mode=true"
 
           # Apply scan-build to CMake configuration
-          scan-build-19 $SCAN_BUILD_OPTS cmake -DCMAKE_BUILD_TYPE=DEBUG  -DTEST=true -DCURL=false ..
+          scan-build-19 $SCAN_BUILD_OPTS cmake -DCMAKE_BUILD_TYPE=DEBUG  -DTEST=true -DCURL=false -DCHAIN_BTC=ON ..
 
       - name: Run Scan-Build
         id: scan-build
@@ -589,7 +589,7 @@ jobs:
       - name: Build Project
         uses: threeal/cmake-action@v2.0.0
         with:
-          options: TEST=true CURL=true ETH_ZKPROOF=true HTTP_SERVER=true PROVER_CACHE=true CMAKE_BUILD_TYPE=Debug COVERAGE=true
+          options: TEST=true CURL=true ETH_ZKPROOF=true HTTP_SERVER=true PROVER_CACHE=true CMAKE_BUILD_TYPE=Debug COVERAGE=true CHAIN_BTC=true
 
       - name: Test Project
         uses: threeal/ctest-action@v1.1.0
