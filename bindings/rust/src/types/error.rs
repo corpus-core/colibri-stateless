@@ -166,6 +166,10 @@ pub enum ColibriError {
     #[error("JSON parse error: {0}")]
     Json(#[from] serde_json::Error),
 
+    // reqwest is not available on wasm targets (see Cargo.toml). Hosts
+    // on wasm produce errors through their own `RequestHandler`
+    // implementation, which returns a plain `ColibriError` directly.
+    #[cfg(not(target_family = "wasm"))]
     #[error("HTTP client error: {0}")]
     HttpClient(#[from] reqwest::Error),
 

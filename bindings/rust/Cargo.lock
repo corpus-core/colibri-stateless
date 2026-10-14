@@ -90,7 +90,6 @@ name = "colibri-stateless"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "cc",
  "cmake",
  "futures",
  "libc",

@@ -17,7 +17,9 @@ Dart, Python, Kotlin, Swift and Emscripten bindings. It exposes:
 - Low-level [`Prover`] and [`Verifier`] wrappers for hosts that want to
   drive the JSON status protocol themselves.
 - A pluggable [`Storage`] trait plus in-memory / file-system defaults.
-- A [`RequestHandler`] trait so hosts can plug their own HTTP stack.
+- A [`RequestHandler`] trait so hosts can plug their own HTTP stack,
+  plus [`ColibriBuilder::http_fetch`] for wasm hosts that only supply
+  the byte transport.
 - File-backed mocks in [`colibri_stateless::testing`][testing] that
   replay the shared `test/data/*` fixtures used by every other binding.
 
@@ -26,14 +28,22 @@ Dart, Python, Kotlin, Swift and Emscripten bindings. It exposes:
 - **Cryptographic verification** -- every RPC response is validated
   against Merkle / SSZ proofs.
 - **Async/await** -- built on `tokio` with an internal `reqwest`
-  transport (rustls) that fetches pending requests in parallel.
+  transport (rustls) that fetches pending requests in parallel on
+  native targets. On `wasm*` targets the transport is omitted;
+  hosts call [`ColibriBuilder::http_fetch`] or supply a
+  [`RequestHandler`].
 - **Zero-copy FFI** -- thin `unsafe` shim around the C API; all Rust
   types are `Send`.
 - **Hybrid distribution** -- in a local checkout the crate builds the
   native library via CMake, in published crates it downloads a
   prebuilt static archive from the matching GitHub Release.
+- **WebAssembly (WASI Preview 1)** -- the crate compiles for
+  `wasm32-wasip1` via the [wasi-sdk][wasi-sdk] toolchain; see
+  [WebAssembly (wasm32-wasip1)](#webassembly-wasm32-wasip1) below.
 - **Shared test corpus** -- the same fixtures under `test/data/*`
   power the Rust integration tests too.
+
+[wasi-sdk]: https://github.com/WebAssembly/wasi-sdk
 
 ## Architecture
 
@@ -64,6 +74,8 @@ downloaded automatically by `build.rs` for the following targets:
 - **Linux** (`x86_64-unknown-linux-gnu`)
 - **macOS** (`aarch64-apple-darwin`, `x86_64-apple-darwin`)
 - **Windows** (`x86_64-pc-windows-msvc`)
+- **WebAssembly** (`wasm32-wasip1`, WASI Preview 1 -- see
+  [WebAssembly (wasm32-wasip1)](#webassembly-wasm32-wasip1))
 
 For unsupported targets or when you already have locally-built
 static libraries, set `COLIBRI_LIB_DIR` before `cargo build`. Every
@@ -250,9 +262,10 @@ impl Storage for MyStorage {
 
 ### Custom HTTP transport
 
-Implement `RequestHandler` if the default `reqwest`-based transport
-does not fit -- for instance to inject retry logic, custom TLS, or a
-mocked handler for tests:
+Implement [`RequestHandler`] if you need full control (retry policy,
+mocks, custom TLS). Wasm hosts that only need to plug in a byte
+transport should use [`ColibriBuilder::http_fetch`] instead --
+endpoint routing stays in Colibri:
 
 ```rust
 use async_trait::async_trait;
@@ -274,6 +287,91 @@ let client = Colibri::builder(1)
     .request_handler(Arc::new(MyHandler))
     .build();
 ```
+
+### WebAssembly (wasm32-wasip1)
+
+The crate compiles for `wasm32-wasip1` (WASI Preview 1) using the
+[wasi-sdk][wasi-sdk-link] toolchain. What works:
+
+- The verifier and prover state machines run inside the WASI sandbox.
+- `Prover::create_proof` / `Verifier::verify_proof` / `Colibri::rpc`
+  behave exactly as on native.
+
+What is different from native:
+
+- **No built-in HTTP transport.** `reqwest` (hyper + rustls) does not
+  compile for wasm. Call [`ColibriBuilder::http_fetch`] with a host
+  HTTP function (Colibri keeps endpoint routing, URL joining,
+  `exclude_mask` retries and header policy), or supply a full
+  [`RequestHandler`] to override everything. Without either, every
+  pending request is answered with
+  `c4_req_set_error("no built-in HTTP transport on wasm ...")`.
+  Return `Ok(body)` from `http_fetch` only for HTTP 2xx; 4xx/5xx
+  must be `Err`. Timeouts are the host's responsibility
+  (`request_timeout` is not applied).
+- **Runtime**: use `tokio` with `flavor = "current_thread"` (there is
+  no `rt-multi-thread` feature for wasm).
+- **Storage**: defaults to [`MemoryStorage`]. [`FileStorage`] only
+  works under runtimes that mount host directories via WASI preopens
+  (e.g. `wasmtime --dir <host>::<guest>`).
+
+Build a downstream crate:
+
+```bash
+rustup target add wasm32-wasip1
+cargo build --release --target wasm32-wasip1
+```
+
+Inside the monorepo, `build.rs` cross-compiles the C core via CMake +
+wasi-sdk. Set `WASI_SDK_PATH` to an unpacked wasi-sdk release (>= 22)
+before building. On `crates.io`, the matching release asset
+`colibri-native-wasm32-wasip1.tar.gz` is downloaded automatically and
+already contains `libc++.a` / `libc++abi.a`; wasi-libc itself comes
+from rustc's wasm sysroot.
+
+Complete example -- only the host HTTP round-trip is user code.
+Endpoint routing follows `req.request_type` / `req.exclude_mask`
+inside [`FetchRequestHandler`]:
+
+```rust,ignore
+use colibri_stateless::{Colibri, ColibriError, HttpError, MAINNET};
+use serde_json::json;
+
+/// HTTP transport supplied by the wasm host (e.g. a WASI import or
+/// the `wasi:http` component). Replace with whatever your runtime
+/// offers.
+async fn host_http(
+    method: &str,
+    url: &str,
+    headers: &[(&str, String)],
+    body: Option<Vec<u8>>,
+) -> Result<Vec<u8>, ColibriError> {
+    let _ = (method, headers, body);
+    Err(HttpError::new(format!("TODO: fetch {url}")).into())
+}
+
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), ColibriError> {
+    let client = Colibri::builder(MAINNET)
+        .provers(vec!["https://mainnet.colibri-proof.tech".to_string()])
+        .http_fetch(|req| async move {
+            host_http(req.method.as_str(), &req.url, &req.headers(), req.body).await
+        })
+        .build();
+
+    let block = client.rpc("eth_blockNumber", &json!([])).await?;
+    println!("verified block: {block}");
+    Ok(())
+}
+```
+
+Run under `wasmtime`:
+
+```bash
+wasmtime target/wasm32-wasip1/release/app.wasm
+```
+
+[wasi-sdk-link]: https://github.com/WebAssembly/wasi-sdk
 
 ### Access list vs `debug_traceCall`
 
@@ -406,6 +504,11 @@ The crate is intentionally lean:
 - All the heavy lifting -- rustls, tokio, reqwest -- is pulled in
   through minimal feature selections so cross-compilation and audits
   stay predictable.
+- `reqwest` is a **target-cfg dependency**: only compiled for
+  `cfg(not(target_family = "wasm"))`. On wasm targets, hosts supply
+  a transport via [`ColibriBuilder::http_fetch`] (routing stays in
+  Colibri) or a full [`RequestHandler`]. See
+  [WebAssembly (wasm32-wasip1)](#webassembly-wasm32-wasip1).
 
 ## Further reading
 

@@ -34,7 +34,13 @@
 // serialized by a lock to stay safe in multi-threaded bindings.
 // Single-threaded WASM builds need no locking; only when Emscripten is built with
 // -pthread (worker threads, __EMSCRIPTEN_PTHREADS__) real mutexes are required.
+// WASI (wasm32-wasip1) is likewise single-threaded unless the toolchain was
+// configured with `-pthread` (`_REENTRANT`); skip pthread here to avoid pulling
+// in the wasi-libc pthread stubs that would link but do nothing useful.
 #if defined(__EMSCRIPTEN__) && !defined(__EMSCRIPTEN_PTHREADS__)
+#define CACHE_LOCK()
+#define CACHE_UNLOCK()
+#elif defined(__wasi__) && !defined(_REENTRANT)
 #define CACHE_LOCK()
 #define CACHE_UNLOCK()
 #elif defined(_MSC_VER)
