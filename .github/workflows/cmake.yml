@@ -170,7 +170,7 @@ jobs:
       - name: Build minsize
         run: cmake -B build_minsize -DETH_ZKPROOF=0 -DTEST=true -DCURL=false -DCMAKE_BUILD_TYPE=MinSizeRel -DTEST=true -DMESSAGES=false -S . && cd build_minsize && make && cd ..
       - name: Build
-        run: cmake -B build -DETH_ZKPROOF=1 -DTEST=true -DCURL=true -DPROVER_CACHE=true -DHTTP_SERVER=true -DCMAKE_BUILD_TYPE=Debug -S . && cd build && make && cd ..
+        run: cmake -B build -DETH_ZKPROOF=1 -DTEST=true -DCURL=true -DPROVER_CACHE=true -DHTTP_SERVER=true -DCHAIN_BTC=ON -DCMAKE_BUILD_TYPE=Debug -S . && cd build && make && cd ..
 
       - name: Run Valgrind on all test binaries
         run: |
@@ -919,6 +919,7 @@ jobs:
           -DETH_ZKPROOF=1
           -DHTTP_SERVER=1
           -DPROVER_CACHE=true
+          -DCHAIN_BTC=ON
           -S ${{ github.workspace }}
 
       - name: Configure CMake (macOS)
@@ -933,6 +934,7 @@ jobs:
           -DCURL=true
           -DHTTP_SERVER=1
           -DPROVER_CACHE=true
+          -DCHAIN_BTC=ON
           -DCURL_INCLUDE_DIR=$(brew --prefix curl)/include
           -DCURL_LIBRARY=$(brew --prefix curl)/lib/libcurl.dylib
           -S ${{ github.workspace }}
@@ -950,6 +952,7 @@ jobs:
           -DETH_ZKPROOF=1
           -DHTTP_SERVER=1
           -DPROVER_CACHE=true
+          -DCHAIN_BTC=ON
           -DCMAKE_TOOLCHAIN_FILE="${env:VCPKG_ROOT}\\scripts\\buildsystems\\vcpkg.cmake"
           -DCURL_INCLUDE_DIR="${env:VCPKG_ROOT}\\installed\\x64-windows\\include"
           -DCURL_LIBRARY="${env:VCPKG_ROOT}\\installed\\x64-windows\\lib\\libcurl.lib"
