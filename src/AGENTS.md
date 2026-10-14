@@ -87,7 +87,7 @@ All tools read `c4_config.json` (or `C4_CONFIG` env var) for RPC/Beacon API endp
 ### Source Modules (auto-generated)
 
 - `api/` -- 2 .c, 2 .h files
-- `chains/` -- 110 .c, 57 .h files
+- `chains/` -- 112 .c, 59 .h files
 - `cli/` -- 3 .c, 2 .h files
 - `prover/` -- 1 .c, 1 .h files
 - `server/` -- 21 .c, 5 .h files

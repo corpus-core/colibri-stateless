@@ -29,11 +29,14 @@ int main(void) {
 
 #else
 
+#include "btc_client.h"
 #include "btc_hash.h"
 #include "btc_merkle.h"
+#include "btc_proof.h"
 #include "btc_target.h"
 #include "btc_tx.h"
 #include "btc_types.h"
+#include "btc_verify.h"
 #include "plugin.h"
 #include "unity.h"
 #include <stdio.h>
@@ -932,8 +935,11 @@ void test_target_retarget_cache_and_jumps(void) {
   TEST_ASSERT_NOT_NULL(request);
   TEST_ASSERT_EQUAL_UINT32(4, request->def.container.len);
   TEST_ASSERT_EQUAL_INT(SSZ_TYPE_UNION, request->def.container.elements[2].type);
-  TEST_ASSERT_EQUAL_UINT32(2, request->def.container.elements[2].def.container.len);
-  TEST_ASSERT_EQUAL_STRING("BtcEpochPath", request->def.container.elements[2].def.container.elements[1].name);
+  TEST_ASSERT_EQUAL_UINT32(1, request->def.container.elements[2].def.container.len);
+  TEST_ASSERT_EQUAL_STRING("NONE", request->def.container.elements[2].def.container.elements[0].name);
+  TEST_ASSERT_EQUAL_INT(SSZ_TYPE_UNION, request->def.container.elements[3].type);
+  TEST_ASSERT_EQUAL_UINT32(2, request->def.container.elements[3].def.container.len);
+  TEST_ASSERT_EQUAL_STRING("BtcEpochPath", request->def.container.elements[3].def.container.elements[1].name);
 }
 
 /**
@@ -1223,6 +1229,7 @@ void test_target_cache_capacity_and_find(void) {
 void test_epoch_path_ssz_shape(void) {
   const ssz_def_t* request = btc_ssz_verification_type(BTC_SSZ_VERIFY_REQUEST);
   const ssz_def_t* proof;
+  const ssz_def_t* sync_data;
   const ssz_def_t* path;
   const ssz_def_t* steps;
   const ssz_def_t* step;
@@ -1233,9 +1240,13 @@ void test_epoch_path_ssz_shape(void) {
   proof = &request->def.container.elements[2];
   TEST_ASSERT_EQUAL_STRING("proof", proof->name);
   TEST_ASSERT_EQUAL_INT(SSZ_TYPE_UNION, proof->type);
-  TEST_ASSERT_EQUAL_UINT32(2, proof->def.container.len);
+  TEST_ASSERT_EQUAL_UINT32(1, proof->def.container.len);
   TEST_ASSERT_EQUAL_STRING("NONE", proof->def.container.elements[0].name);
-  path = &proof->def.container.elements[1];
+  sync_data = &request->def.container.elements[3];
+  TEST_ASSERT_EQUAL_STRING("sync_data", sync_data->name);
+  TEST_ASSERT_EQUAL_INT(SSZ_TYPE_UNION, sync_data->type);
+  TEST_ASSERT_EQUAL_UINT32(2, sync_data->def.container.len);
+  path = &sync_data->def.container.elements[1];
   TEST_ASSERT_EQUAL_STRING("BtcEpochPath", path->name);
   TEST_ASSERT_EQUAL_UINT32(1, path->def.container.len);
   steps = &path->def.container.elements[0];
@@ -1261,6 +1272,151 @@ void test_epoch_path_ssz_shape(void) {
   TEST_ASSERT_EQUAL_UINT32(BTC_HEADER_SIZE, finals->def.vector.type->def.vector.len);
 }
 
+/**
+ * Builds one `BtcEpochPath` step and appends it to `steps`.
+ *
+ * @param steps list builder for `BtcEpochStep`
+ * @param index element index, used as the SSZ offset base
+ * @param height claimed block height
+ * @param header 80-byte header
+ * @param final_header optional second header, or NULL
+ */
+static void add_epoch_step(ssz_builder_t* steps, uint32_t index, uint32_t height, bytes_t header, const uint8_t* final_header) {
+  const ssz_def_t* step_def = steps->def->def.vector.type;
+  ssz_builder_t    step     = ssz_builder_for_def(step_def);
+  ssz_builder_t    finals   = ssz_builder_for_def(&step_def->def.container.elements[2]);
+  ssz_add_uint32(&step, height);
+  ssz_add_bytes(&step, "header", header);
+  if (final_header)
+    ssz_add_dynamic_list_bytes(&finals, 0, bytes((uint8_t*) final_header, BTC_HEADER_SIZE));
+  ssz_add_builders(&step, "final_headers", finals);
+  ssz_add_dynamic_list_builders(steps, (int) index, step);
+}
+
+void test_client_state_and_epoch_path(void) {
+  btc_client_state_t state;
+  btc_client_state_t loaded;
+  btc_target_cache_t cache;
+  buffer_t           blob = {0};
+  storage_plugin_t   saved;
+  storage_plugin_t   fake;
+  const ssz_def_t*   request;
+  const ssz_def_t*   sync_def;
+  const ssz_def_t*   path_def;
+  ssz_builder_t      steps;
+  ssz_builder_t      path_builder;
+  ssz_ob_t           path;
+  ssz_ob_t           sync_data;
+  verify_ctx_t       ctx;
+  uint8_t            hash[32];
+  bytes_t            checkpoint = btc_mainnet_checkpoint_header();
+  uint8_t            genesis[80];
+
+  btc_client_state_set_checkpoint(&state);
+  TEST_ASSERT_EQUAL_UINT32(BTC_MAINNET_CHECKPOINT_HEIGHT, state.height);
+  TEST_ASSERT_TRUE(btc_header_check(checkpoint, hash));
+  TEST_ASSERT_EQUAL_MEMORY(hash, state.hash, 32);
+  TEST_ASSERT_TRUE(btc_client_state_encode(&state, &blob));
+  TEST_ASSERT_EQUAL_UINT32(BTC_CLIENT_STATE_SIZE, blob.data.len);
+  TEST_ASSERT_EQUAL_UINT8(BTC_CLIENT_STATE_TAG, blob.data.data[0]);
+  memset(&loaded, 0, sizeof(loaded));
+  TEST_ASSERT_TRUE(btc_client_state_decode(blob.data, &loaded));
+  TEST_ASSERT_EQUAL_UINT32(state.height, loaded.height);
+  TEST_ASSERT_EQUAL_MEMORY(state.hash, loaded.hash, 32);
+
+  blob.data.data[5] ^= 0x01;
+  TEST_ASSERT_FALSE(btc_client_state_decode(blob.data, &loaded));
+  TEST_ASSERT_EQUAL_MEMORY(state.hash, loaded.hash, 32);
+  blob.data.data[0] = 0x01;
+  blob.data.data[5] ^= 0x01;
+  TEST_ASSERT_FALSE(btc_client_state_decode(blob.data, &loaded));
+
+  state.height = BTC_MAINNET_CHECKPOINT_HEIGHT + BTC_EPOCH_LENGTH;
+  TEST_ASSERT_TRUE(btc_client_state_encode(&state, &blob));
+  memset(&saved, 0, sizeof(saved));
+  c4_get_storage_config(&saved);
+  memset(&fake, 0, sizeof(fake));
+  fake.get             = test_store_get;
+  fake.set             = test_store_set;
+  fake.del             = test_store_del;
+  fake.max_sync_states = 1;
+  c4_set_storage_config(&fake);
+  TEST_ASSERT_FALSE(btc_client_state_load(C4_CHAIN_BTC_MAINNET, &loaded));
+  TEST_ASSERT_EQUAL_UINT32(BTC_MAINNET_CHECKPOINT_HEIGHT, loaded.height);
+  TEST_ASSERT_TRUE(btc_client_state_store(C4_CHAIN_BTC_MAINNET, &state));
+  TEST_ASSERT_TRUE(strncmp(g_store_key, "states_", 7) == 0);
+  TEST_ASSERT_TRUE(btc_client_state_load(C4_CHAIN_BTC_MAINNET, &loaded));
+  TEST_ASSERT_EQUAL_UINT32(state.height, loaded.height);
+  TEST_ASSERT_EQUAL_MEMORY(state.hash, loaded.hash, 32);
+  g_stored.data[0] = 0x00;
+  TEST_ASSERT_FALSE(btc_client_state_load(C4_CHAIN_BTC_MAINNET, &loaded));
+  TEST_ASSERT_EQUAL_UINT32(BTC_MAINNET_CHECKPOINT_HEIGHT, loaded.height);
+  c4_set_storage_config(&saved);
+  safe_free(g_stored.data);
+  g_stored = NULL_BYTES;
+  buffer_free(&blob);
+
+  request   = btc_ssz_verification_type(BTC_SSZ_VERIFY_REQUEST);
+  sync_def  = &request->def.container.elements[3];
+  path_def  = &sync_def->def.container.elements[1];
+  sync_data = (ssz_ob_t) {.def = &sync_def->def.container.elements[0], .bytes = NULL_BYTES};
+  btc_target_cache_init(&cache);
+  TEST_ASSERT_TRUE(btc_sync_accept_epoch_path(sync_data, &cache, NULL));
+  TEST_ASSERT_EQUAL_UINT32(1, cache.count);
+
+  steps = ssz_builder_for_def(&path_def->def.container.elements[0]);
+  add_epoch_step(&steps, 0, BTC_MAINNET_CHECKPOINT_HEIGHT, checkpoint, NULL);
+  ssz_builder_fix_list_offsets(&steps, 1);
+  path_builder = ssz_builder_for_def(path_def);
+  ssz_add_builders(&path_builder, "steps", steps);
+  path = ssz_builder_to_bytes(&path_builder);
+  TEST_ASSERT_TRUE(btc_sync_accept_epoch_path(path, &cache, NULL));
+  TEST_ASSERT_EQUAL_UINT32(1, cache.count);
+  TEST_ASSERT_EQUAL_HEX32(0x17034219u, cache.entries[0].bits);
+
+  memset(&saved, 0, sizeof(saved));
+  c4_get_storage_config(&saved);
+  memset(&fake, 0, sizeof(fake));
+  fake.get             = test_store_get;
+  fake.set             = test_store_set;
+  fake.del             = test_store_del;
+  fake.max_sync_states = 1;
+  c4_set_storage_config(&fake);
+  memset(&ctx, 0, sizeof(ctx));
+  ctx.chain_id  = C4_CHAIN_BTC_MAINNET;
+  ctx.sync_data = path;
+  TEST_ASSERT_TRUE(c4_btc_verify(&ctx));
+  TEST_ASSERT_TRUE(ctx.success);
+  TEST_ASSERT_NULL(ctx.state.error);
+  TEST_ASSERT_TRUE(strncmp(g_store_key, "btc_target_", 11) == 0);
+  TEST_ASSERT_TRUE(btc_target_cache_load(C4_CHAIN_BTC_MAINNET, &cache));
+  TEST_ASSERT_EQUAL_HEX32(0x17034219u, cache.entries[0].bits);
+  safe_free(path.bytes.data);
+
+  load_hex("0100000000000000000000000000000000000000000000000000000000000000000000003ba3edfd7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a29ab5f49ffff001d1dac2b7c", genesis, sizeof(genesis));
+  steps = ssz_builder_for_def(&path_def->def.container.elements[0]);
+  add_epoch_step(&steps, 0, BTC_MAINNET_CHECKPOINT_HEIGHT, checkpoint, genesis);
+  ssz_builder_fix_list_offsets(&steps, 1);
+  path_builder = ssz_builder_for_def(path_def);
+  ssz_add_builders(&path_builder, "steps", steps);
+  path = ssz_builder_to_bytes(&path_builder);
+  TEST_ASSERT_FALSE(btc_sync_accept_epoch_path(path, &cache, NULL));
+  TEST_ASSERT_EQUAL_UINT32(1, cache.count);
+  memset(&ctx, 0, sizeof(ctx));
+  ctx.chain_id  = C4_CHAIN_BTC_MAINNET;
+  ctx.sync_data = path;
+  TEST_ASSERT_TRUE(c4_btc_verify(&ctx));
+  TEST_ASSERT_FALSE(ctx.success);
+  TEST_ASSERT_NOT_NULL(ctx.state.error);
+  safe_free(ctx.state.error);
+  TEST_ASSERT_TRUE(btc_target_cache_load(C4_CHAIN_BTC_MAINNET, &cache));
+  TEST_ASSERT_EQUAL_HEX32(0x17034219u, cache.entries[0].bits);
+  c4_set_storage_config(&saved);
+  safe_free(g_stored.data);
+  g_stored = NULL_BYTES;
+  safe_free(path.bytes.data);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_target_and_genesis_pow);
@@ -1279,6 +1435,7 @@ int main(void) {
   RUN_TEST(test_target_authorize_rejects_huge_percent);
   RUN_TEST(test_target_cache_capacity_and_find);
   RUN_TEST(test_epoch_path_ssz_shape);
+  RUN_TEST(test_client_state_and_epoch_path);
   return UNITY_END();
 }
 

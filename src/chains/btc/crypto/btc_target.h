@@ -240,8 +240,9 @@ bool btc_target_accept_header(btc_target_cache_t* cache, const btc_target_limits
  * Each step must pass `btc_target_accept_header` against the cache built by the previous step, and
  * the epoch numbers must be strictly increasing or strictly decreasing. `count` must be from 1 to
  * `BTC_TARGET_PATH_LIMIT`. `headers` is `count` concatenated 80-byte headers. On failure `cache`
- * is unchanged. This is the in-proof replacement for a separate target RPC: the same request carries
- * the intermediate epochs when the block is farther than `max_daps` from a cached epoch.
+ * is unchanged. The caller passes the steps from the request's `sync_data`, which replaces a
+ * separate target RPC: the same request carries the intermediate epochs when the block is farther
+ * than `max_daps` from a cached epoch.
  *
  * @param cache verified targets
  * @param limits jump bounds, or NULL for the defaults

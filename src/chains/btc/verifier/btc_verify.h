@@ -46,8 +46,9 @@ const ssz_def_t* c4_btc_get_request_type(chain_type_t chain_type);
  * Verifies a Bitcoin proof.
  *
  * Returns false when `ctx` belongs to another chain so the dispatcher can
- * continue. Bitcoin requests are recognized and rejected until proof
- * verification is implemented.
+ * continue. `sync_data` is applied first and updates the cached epoch targets.
+ * A request that contains only that sync data succeeds. A block or transaction
+ * `proof` is recognized and rejected until verification is implemented.
  *
  * @param ctx verification context
  * @return true when this module handled the context, false when the chain is not Bitcoin

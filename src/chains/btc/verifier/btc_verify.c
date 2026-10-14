@@ -22,6 +22,8 @@
  */
 
 #include "btc_verify.h"
+#include "btc_proof.h"
+#include "btc_target.h"
 #include "btc_types.h"
 #include <stdlib.h>
 #include <string.h>
@@ -52,8 +54,36 @@ method_type_t c4_btc_get_method_type(chain_id_t chain_id, char* method, json_t p
   return METHOD_UNDEFINED;
 }
 
+/**
+ * Reports whether `ob` carries a selected SSZ value.
+ *
+ * @param ob object from the verification context
+ * @return false when the object is missing or `NONE`
+ */
+static bool btc_ssz_present(ssz_ob_t ob) {
+  return ob.def && ob.def->type != SSZ_TYPE_NONE;
+}
+
 bool c4_btc_verify(verify_ctx_t* ctx) {
+  btc_target_cache_t cache;
+  bool               has_sync;
   if (!ctx || c4_chain_type(ctx->chain_id) != C4_CHAIN_TYPE_BITCOIN) return false;
+  has_sync = btc_ssz_present(ctx->sync_data);
+  btc_target_cache_load(ctx->chain_id, &cache);
+  if (!btc_sync_accept_epoch_path(ctx->sync_data, &cache, NULL)) {
+    if (!ctx->state.error) ctx->state.error = strdup("invalid bitcoin sync data");
+    ctx->success = false;
+    return true;
+  }
+  if (has_sync && !btc_target_cache_store(ctx->chain_id, &cache)) {
+    if (!ctx->state.error) ctx->state.error = strdup("failed to store bitcoin target cache");
+    ctx->success = false;
+    return true;
+  }
+  if (has_sync && !btc_ssz_present(ctx->proof) && !btc_ssz_present(ctx->data)) {
+    ctx->success = true;
+    return true;
+  }
   if (!ctx->state.error) ctx->state.error = strdup("bitcoin verification is not implemented");
   ctx->success = false;
   return true;
