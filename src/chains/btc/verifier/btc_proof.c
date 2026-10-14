@@ -23,6 +23,7 @@
 
 #include "btc_proof.h"
 #include "btc_hash.h"
+#include "btc_types.h"
 #include <string.h>
 
 /**
@@ -56,7 +57,7 @@ bool btc_sync_accept_epoch_path(ssz_ob_t sync_data, btc_target_cache_t* cache, c
   uint32_t i;
   if (!cache) return false;
   if (!sync_data.def || sync_data.def->type == SSZ_TYPE_NONE) return true;
-  if (!sync_data.def->name || strcmp(sync_data.def->name, "BtcEpochPath") != 0) return false;
+  if (!ssz_is_type(&sync_data, btc_ssz_verification_type(BTC_SSZ_VERIFY_EPOCH_PATH))) return false;
   if (!sync_data.bytes.data || !ssz_is_valid(sync_data, true, NULL)) return false;
 
   steps = ssz_get(&sync_data, "steps");

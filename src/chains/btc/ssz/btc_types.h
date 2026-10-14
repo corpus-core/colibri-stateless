@@ -38,13 +38,26 @@ extern "C" {
  * is `BtcHeaderProof`: the block header, at least six following headers, and the
  * coinbase merkle proof that binds the height. `data` index 1 is `BtcHeader`,
  * the raw 80-byte header returned for `getblockheader` without verbose output.
+ * `data` index 2 is `BtcBlockHash`, the 32-byte display-order hash returned for
+ * `getblockhash`.
  * `sync_data` index 1 is `BtcEpochPath`: up to 40 steps, each with a height, an
  * 80-byte header, and up to 64 trailing finality headers. It brings the cached
  * epoch targets forward before the proof is checked. Further variants are
  * appended in `btc_types.c`; existing indices stay frozen.
  */
 typedef enum {
+  // C4Request
   BTC_SSZ_VERIFY_REQUEST = 1,
+
+  // proof union (index 0 is NONE)
+  BTC_SSZ_VERIFY_HEADER_PROOF = 2, // union 1, `BtcHeaderProof`
+
+  // data union (index 0 is NONE)
+  BTC_SSZ_DATA_HEADER     = 3, // union 1, `BtcHeader`
+  BTC_SSZ_DATA_BLOCK_HASH = 4, // union 2, `BtcBlockHash`
+
+  // sync_data union (index 0 is NONE)
+  BTC_SSZ_VERIFY_EPOCH_PATH = 5, // union 1, `BtcEpochPath`
 } btc_ssz_type_t;
 
 /**

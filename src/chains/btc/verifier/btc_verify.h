@@ -47,8 +47,9 @@ const ssz_def_t* c4_btc_get_request_type(chain_type_t chain_type);
  *
  * Returns false when `ctx` belongs to another chain so the dispatcher can
  * continue. `sync_data` is applied first and updates the cached epoch targets.
- * A request that contains only that sync data succeeds. `BtcHeaderProof` verifies
- * `getblockheader` without verbose output. Other proofs are rejected.
+ * An accepted epoch path is stored before the block proof. A request that contains
+ * only that sync data succeeds. `BtcHeaderProof` verifies
+ * `getblockheader` without verbose output and `getblockhash`. Other proofs are rejected.
  *
  * @param ctx verification context
  * @return true when this module handled the context, false when the chain is not Bitcoin
@@ -60,15 +61,16 @@ bool c4_btc_verify(verify_ctx_t* ctx);
  *
  * `getblockheader` on mainnet is `METHOD_PROOFABLE` only when verbosity is explicitly
  * `false` or `0`. Bitcoin Core defaults that argument to the JSON object, which this
- * proof cannot return. The object, other networks, and the other known methods are
- * `METHOD_NOT_SUPPORTED` until their proofs exist. Unknown names and non-Bitcoin
- * chains return `METHOD_UNDEFINED`.
+ * proof cannot return. `getblockhash` is `METHOD_PROOFABLE` for one numeric height.
+ * The object, other networks, and the other known methods are `METHOD_NOT_SUPPORTED`
+ * until their proofs exist. Unknown names and non-Bitcoin chains return
+ * `METHOD_UNDEFINED`.
  *
  * @param chain_id chain the call is aimed at
  * @param method RPC method name
- * @param params RPC parameter array (unused until method-specific checks exist)
+ * @param params RPC parameter array; selects the raw `getblockheader` and the `getblockhash` height
  * @param flags verify flags (unused until method-specific checks exist)
- * @return `METHOD_NOT_SUPPORTED` for a known Bitcoin method, otherwise `METHOD_UNDEFINED`
+ * @return `METHOD_PROOFABLE` when the call can be proven, `METHOD_NOT_SUPPORTED` for a known Bitcoin method, otherwise `METHOD_UNDEFINED`
  */
 method_type_t c4_btc_get_method_type(chain_id_t chain_id, char* method, json_t params, verify_flags_t flags);
 

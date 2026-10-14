@@ -28,7 +28,6 @@
 extern "C" {
 #endif
 
-#include "btc_target.h"
 #include "verify.h"
 
 /** Following headers required before a block is treated as final. */
@@ -55,23 +54,49 @@ static inline bool btc_header_raw_requested(json_t params) {
 }
 
 /**
- * Verifies a `getblockheader` proof and caches the accepted targets.
+ * Reports whether `getblockhash` asked for one block height.
  *
- * `ctx->proof` is the unwrapped `BtcHeaderProof`. The header must meet proof-of-work and the
- * cached difficulty, and at least `BTC_FINALITY` following headers must extend it. The coinbase
- * merkle proof binds `height`, except for the compiled checkpoint header, whose hash already
- * fixes that height. On success `ctx->data` is the raw 80-byte header and `cache` includes every
- * accepted target. On failure `cache` is unchanged.
+ * The height is a JSON number of at most ten digits. A value above `UINT32_MAX` is rejected.
+ *
+ * @param params RPC parameter array
+ * @param height decoded height, or NULL when only the shape is needed
+ * @return true when the call is exactly one unsigned height
+ */
+static inline bool btc_blockhash_height(json_t params, uint32_t* height) {
+  json_t   value;
+  uint64_t parsed;
+  size_t   i;
+  if (json_len(params) != 1) return false;
+  value = json_at(params, 0);
+  if (value.type != JSON_TYPE_NUMBER || !value.start || value.len == 0 || value.len > 10) return false;
+  for (i = 0; i < value.len; i++)
+    if (value.start[i] < '0' || value.start[i] > '9') return false;
+  parsed = json_as_uint64(value);
+  if (parsed > UINT32_MAX) return false;
+  if (height) *height = (uint32_t) parsed;
+  return true;
+}
+
+/**
+ * Verifies a `BtcHeaderProof` for `getblockheader` or `getblockhash`.
+ *
+ * The RPC method and its arguments are checked before the header chain. `getblockheader` must ask
+ * for the raw header, and `getblockhash` must pass one numeric height. `ctx->proof` is the
+ * unwrapped `BtcHeaderProof`. The header must meet proof-of-work and the cached difficulty, and at
+ * least `BTC_FINALITY` following headers must extend it. The coinbase merkle proof binds `height`,
+ * except for the compiled checkpoint header, whose hash already fixes that height.
+ *
+ * On success `ctx->data` is the raw 80-byte header or, for `getblockhash`, the display-order hash,
+ * and the accepted targets are stored. On failure that store is left unchanged.
  *
  * Omitted verbosity and the JSON object are rejected. Bitcoin Core's default is the object, and
  * fields such as median time and chainwork are not carried by this proof. Heights below
  * `BTC_BIP34_START` are rejected so an unbound height cannot be written into the target cache.
  *
  * @param ctx verification context
- * @param cache verified epoch targets
  * @return true when the header proof was accepted
  */
-bool btc_verify_header_proof(verify_ctx_t* ctx, btc_target_cache_t* cache);
+bool btc_verify_header_proof(verify_ctx_t* ctx);
 
 #ifdef __cplusplus
 }

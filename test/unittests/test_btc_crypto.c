@@ -1244,13 +1244,19 @@ void test_epoch_path_ssz_shape(void) {
   TEST_ASSERT_EQUAL_UINT32(2, proof->def.container.len);
   TEST_ASSERT_EQUAL_STRING("NONE", proof->def.container.elements[0].name);
   TEST_ASSERT_EQUAL_STRING("BtcHeaderProof", proof->def.container.elements[1].name);
+  TEST_ASSERT_EQUAL_PTR(proof->def.container.elements + 1, btc_ssz_verification_type(BTC_SSZ_VERIFY_HEADER_PROOF));
+  TEST_ASSERT_EQUAL_PTR(request->def.container.elements[1].def.container.elements + 1, btc_ssz_verification_type(BTC_SSZ_DATA_HEADER));
+  TEST_ASSERT_EQUAL_PTR(request->def.container.elements[1].def.container.elements + 2, btc_ssz_verification_type(BTC_SSZ_DATA_BLOCK_HASH));
+  TEST_ASSERT_EQUAL_UINT32(3, request->def.container.elements[1].def.container.len);
   TEST_ASSERT_EQUAL_STRING("BtcHeader", request->def.container.elements[1].def.container.elements[1].name);
+  TEST_ASSERT_EQUAL_STRING("BtcBlockHash", request->def.container.elements[1].def.container.elements[2].name);
   sync_data = &request->def.container.elements[3];
   TEST_ASSERT_EQUAL_STRING("sync_data", sync_data->name);
   TEST_ASSERT_EQUAL_INT(SSZ_TYPE_UNION, sync_data->type);
   TEST_ASSERT_EQUAL_UINT32(2, sync_data->def.container.len);
   path = &sync_data->def.container.elements[1];
   TEST_ASSERT_EQUAL_STRING("BtcEpochPath", path->name);
+  TEST_ASSERT_EQUAL_PTR(path, btc_ssz_verification_type(BTC_SSZ_VERIFY_EPOCH_PATH));
   TEST_ASSERT_EQUAL_UINT32(1, path->def.container.len);
   steps = &path->def.container.elements[0];
   TEST_ASSERT_EQUAL_STRING("steps", steps->name);
@@ -1491,6 +1497,10 @@ void test_header_proof_finality(void) {
   TEST_ASSERT_EQUAL_INT(METHOD_NOT_SUPPORTED, c4_btc_get_method_type(C4_CHAIN_BTC_MAINNET, method, json_parse("[\"00\", false, 1]"), 0));
   TEST_ASSERT_EQUAL_INT(METHOD_NOT_SUPPORTED, c4_btc_get_method_type(C4_CHAIN_BTC_MAINNET, "getblock", args, 0));
   TEST_ASSERT_EQUAL_INT(METHOD_NOT_SUPPORTED, c4_btc_get_method_type(C4_CHAIN_BTC_TESTNET, method, args, 0));
+  TEST_ASSERT_EQUAL_INT(METHOD_PROOFABLE, c4_btc_get_method_type(C4_CHAIN_BTC_MAINNET, "getblockhash", json_parse("[840000]"), 0));
+  TEST_ASSERT_EQUAL_INT(METHOD_NOT_SUPPORTED, c4_btc_get_method_type(C4_CHAIN_BTC_MAINNET, "getblockhash", json_parse("[]"), 0));
+  TEST_ASSERT_EQUAL_INT(METHOD_NOT_SUPPORTED, c4_btc_get_method_type(C4_CHAIN_BTC_MAINNET, "getblockhash", json_parse("[\"840000\"]"), 0));
+  TEST_ASSERT_EQUAL_INT(METHOD_NOT_SUPPORTED, c4_btc_get_method_type(C4_CHAIN_BTC_MAINNET, "getblockhash", json_parse("[840000, 0]"), 0));
 
   memset(&saved, 0, sizeof(saved));
   c4_get_storage_config(&saved);
@@ -1713,6 +1723,29 @@ void test_header_proof_finality(void) {
     TEST_ASSERT_TRUE(btc_target_cache_load(C4_CHAIN_BTC_MAINNET, &cache));
     TEST_ASSERT_EQUAL_HEX32(0x17034219u, cache.entries[0].bits);
   }
+
+  proof = build_checkpoint_proof(proof_def, checkpoint, finals, 6, BTC_MAINNET_CHECKPOINT_HEIGHT, 0, NULL, 0, NULL_BYTES);
+  memset(&ctx, 0, sizeof(ctx));
+  ctx.chain_id = C4_CHAIN_BTC_MAINNET;
+  ctx.method   = "getblockhash";
+  ctx.args     = json_parse("[840000]");
+  ctx.proof    = proof;
+  TEST_ASSERT_TRUE(c4_btc_verify(&ctx));
+  TEST_ASSERT_TRUE(ctx.success);
+  TEST_ASSERT_EQUAL_UINT32(32, ctx.data.bytes.len);
+  {
+    uint8_t expect[32];
+    load_hex("0000000000000000000320283a032748cef8227873ff4872689bf23f1cda83a5", expect, sizeof(expect));
+    TEST_ASSERT_EQUAL_MEMORY(expect, ctx.data.bytes.data, 32);
+  }
+  safe_free(ctx.data.bytes.data);
+  ctx.data        = (ssz_ob_t) {0};
+  ctx.args        = json_parse("[840001]");
+  ctx.state.error = NULL;
+  TEST_ASSERT_TRUE(c4_btc_verify(&ctx));
+  TEST_ASSERT_FALSE(ctx.success);
+  safe_free(ctx.state.error);
+  safe_free(proof.bytes.data);
 
   proof = build_checkpoint_proof(proof_def, checkpoint, finals, 6, BTC_MAINNET_CHECKPOINT_HEIGHT, 0, NULL, 0, NULL_BYTES);
   memset(&ctx, 0, sizeof(ctx));
