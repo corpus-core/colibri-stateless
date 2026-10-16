@@ -80,7 +80,23 @@ export const TSA_EXPLAINER_MODELS: readonly WebLLMModelRecord[] = [
         low_resource_required: false,
         overrides: { context_window_size: 16384 },
         download_gb: 2.4,
-        label: 'Colibri TSA 4B (Qwen3.5, fine-tuned)',
+        label: 'Colibri TSA 4B (Qwen3.5, fine-tuned) v2',
+        weights_version: 'v2',
+        disable_thinking: true,
+    },
+    {
+        model: 'https://huggingface.co/corpus-core/colibri-tsa-4b-q4f16_1-MLC',
+        model_id: 'colibri-tsa-4b-q4f16_1-MLC',
+        model_lib: 'Qwen3.5-4B-q4f16_1_cs1k-webgpu.wasm',
+        // Weights are ~2.4 GB. A 32k context needed ~1 GB of KV cache
+        // (8 attention layers, 4 KV heads), ~4.4 GB in total. The default
+        // window is 16k, so that KV term is ~0.5 GB. 3900 MB is this
+        // estimate, not a measured value.
+        vram_required_MB: 3900,
+        low_resource_required: false,
+        overrides: { context_window_size: 16384 },
+        download_gb: 2.4,
+        label: 'Colibri TSA 4B (Qwen3.5, fine-tuned) v1',
         weights_version: 'v1',
         disable_thinking: true,
     },
