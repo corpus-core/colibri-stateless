@@ -53,6 +53,21 @@ static void add_to_blockhash_cache(bytes32_t blockhash) {
 }
 #endif
 
+// Count set bits in a 512-bit sync-committee participation bitvector (64 bytes).
+// Returns -1 when the bitvector is not exactly 64 bytes.
+static int count_sync_participants(bytes_t bitvector) {
+  if (bitvector.len != 64) return -1;
+  int count = 0;
+  for (int i = 0; i < 64; i++) {
+    uint8_t b = bitvector.data[i];
+    while (b) {
+      count += b & 1;
+      b >>= 1;
+    }
+  }
+  return count;
+}
+
 // combining the root with a domain to ensure uniqueness of the signing message
 static const ssz_def_t SIGNING_DATA[] = {
     SSZ_BYTES32("root"),    // the hashed root of the data to sign
@@ -179,6 +194,25 @@ c4_status_t c4_verify_blockroot_signature(verify_ctx_t* ctx, ssz_ob_t* header, s
   log_debug("get validatore for period %d", period);
   // get the validators and make sure we have the right ones for the requested period
   TRY_ASYNC(c4_get_validators(ctx, period, &sync_state, pubkey_hash));
+
+  // Require the light-client acceptance threshold: at least ceil(2/3 * 512) = 342
+  // of the 512 sync committee members must have contributed to the aggregate
+  // signature. Matches the SP1 guest's participation check so the native and
+  // ZK-verified routes enforce the same rule.
+  int participants = count_sync_participants(sync_committee_bits->bytes);
+  if (participants < 0) {
+#ifndef C4_STATIC_MEMORY
+    safe_free(sync_state.validators.data);
+#endif
+    THROW_ERROR("sync_committee_bits must be exactly 64 bytes!");
+  }
+  if (participants * 3 < 512 * 2) {
+#ifndef C4_STATIC_MEMORY
+    safe_free(sync_state.validators.data);
+#endif
+    THROW_ERROR("insufficient sync committee participation!");
+  }
+
   // verify the signature
   log_debug("verify bls signature");
   valid = valid || blst_verify(root, sync_committee_signature->bytes.data, sync_state.validators.data, 512, sync_committee_bits->bytes, sync_state.deserialized);
