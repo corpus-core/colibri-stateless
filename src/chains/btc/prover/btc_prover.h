@@ -34,9 +34,12 @@ extern "C" {
  * Dispatches Bitcoin proof generation.
  *
  * Returns false for every non-Bitcoin chain so another prover module can run.
- * Bitcoin chains are accepted and fail with an error until proof generation exists.
+ * Mainnet `getblockhash` and raw `getblockheader` (`verbose` false or 0) build a
+ * `BtcHeaderProof` from Bitcoin Core RPC. An empty `client_state` starts at the
+ * compiled checkpoint. When that epoch is behind the proven block, the epoch path
+ * is added to `sync_data`. Other Bitcoin methods and networks fail with an error.
  *
- * @param ctx prover context with `chain_id` and `method` already set
+ * @param ctx prover context with `chain_id`, `method`, and `client_state` already set
  * @return true when this module owns the chain, false otherwise
  */
 bool btc_prover_execute(prover_ctx_t* ctx);

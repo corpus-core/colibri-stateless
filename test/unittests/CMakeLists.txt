@@ -181,7 +181,7 @@ foreach(test_source ${TEST_SOURCES})
     endif()
 
     if(CHAIN_BTC AND "${test_name}" STREQUAL "test_btc_crypto")
-        target_link_libraries(${test_name} PRIVATE btc_verifier)
+        target_link_libraries(${test_name} PRIVATE btc_verifier btc_prover)
         target_include_directories(${test_name} PRIVATE ${CMAKE_SOURCE_DIR}/src/chains/btc/crypto)
     endif()
 

@@ -38,6 +38,7 @@ int main(void) {
 #include "btc_types.h"
 #include "btc_verify.h"
 #include "plugin.h"
+#include "prover.h"
 #include "unity.h"
 #include <stdio.h>
 #include <string.h>
@@ -1780,6 +1781,459 @@ void test_header_proof_finality(void) {
   g_stored = NULL_BYTES;
 }
 
+/**
+ * Appends one BIP37 match bit, least-significant bit first.
+ *
+ * @param bits packed bit buffer
+ * @param n bits already written
+ * @param bit 1 when this node is on the match path
+ */
+static void mb_bit(buffer_t* bits, uint32_t* n, int bit) {
+  if ((*n % 8u) == 0u) {
+    uint8_t zero = 0;
+    buffer_append(bits, bytes(&zero, 1));
+  }
+  if (bit) bits->data.data[*n / 8u] |= (uint8_t) (1u << (*n % 8u));
+  (*n)++;
+}
+
+/**
+ * Writes the partial tree for a coinbase match.
+ *
+ * @param bits packed bit buffer
+ * @param nbits bits already written
+ * @param hashes consumed hashes, leaf first
+ * @param height tree height; 0 is the leaf
+ * @param leaf internal-order coinbase id
+ * @param siblings internal-order siblings, closest to the leaf first
+ */
+static void mb_node(buffer_t* bits, uint32_t* nbits, buffer_t* hashes, int height, const uint8_t* leaf, const uint8_t siblings[][32]) {
+  mb_bit(bits, nbits, 1);
+  if (height == 0) {
+    buffer_append(hashes, bytes((uint8_t*) leaf, 32));
+    return;
+  }
+  mb_node(bits, nbits, hashes, height - 1, leaf, siblings);
+  mb_bit(bits, nbits, 0);
+  buffer_append(hashes, bytes((uint8_t*) siblings[height - 1], 32));
+}
+
+/**
+ * Serializes a coinbase-only merkleblock.
+ *
+ * @param header 80-byte header whose merkle root matches `leaf` and `siblings`
+ * @param tx_count transaction count
+ * @param leaf internal-order coinbase id
+ * @param siblings internal-order siblings, closest to the leaf first
+ * @param height merkle tree height
+ * @return the merkleblock; the caller frees `data.data`
+ */
+static buffer_t build_merkleblock(const uint8_t* header, uint32_t tx_count, const uint8_t* leaf, const uint8_t siblings[][32], int height) {
+  buffer_t bits   = {0};
+  buffer_t hashes = {0};
+  buffer_t raw    = {0};
+  uint32_t nbits  = 0;
+  uint8_t  le[4];
+  uint8_t  count;
+  mb_node(&bits, &nbits, &hashes, height, leaf, siblings);
+  buffer_append(&raw, bytes((uint8_t*) header, BTC_HEADER_SIZE));
+  le[0] = (uint8_t) tx_count;
+  le[1] = (uint8_t) (tx_count >> 8);
+  le[2] = (uint8_t) (tx_count >> 16);
+  le[3] = (uint8_t) (tx_count >> 24);
+  buffer_append(&raw, bytes(le, 4));
+  count = (uint8_t) (hashes.data.len / 32u);
+  buffer_append(&raw, bytes(&count, 1));
+  buffer_append(&raw, hashes.data);
+  count = (uint8_t) bits.data.len;
+  buffer_append(&raw, bytes(&count, 1));
+  buffer_append(&raw, bits.data);
+  buffer_free(&bits);
+  buffer_free(&hashes);
+  return raw;
+}
+
+void test_merkleblock_coinbase(void) {
+  uint8_t  a[32];
+  uint8_t  b[32];
+  uint8_t  c[32];
+  uint8_t  hab[32];
+  uint8_t  hcc[32];
+  uint8_t  root[32];
+  uint8_t  sibs[2][32];
+  uint8_t  header[80];
+  uint8_t  out_header[80];
+  uint8_t  out_sibs[64];
+  uint32_t tx_count = 0;
+  uint32_t nsib     = 0;
+  buffer_t raw;
+  memset(a, 0x11, sizeof(a));
+  memset(b, 0x22, sizeof(b));
+  memset(c, 0x33, sizeof(c));
+  memset(header, 0, sizeof(header));
+  btc_hash256_pair(a, b, hab);
+  btc_hash256_pair(c, c, hcc);
+  btc_hash256_pair(hab, hcc, root);
+  memcpy(sibs[0], b, 32);
+  memcpy(sibs[1], hcc, 32);
+  memcpy(header + BTC_HEADER_MERKLE, root, 32);
+  raw = build_merkleblock(header, 3, a, sibs, 2);
+  TEST_ASSERT_TRUE(btc_merkleblock_coinbase(raw.data, out_header, &tx_count, out_sibs, &nsib));
+  TEST_ASSERT_EQUAL_UINT32(3, tx_count);
+  TEST_ASSERT_EQUAL_UINT32(2, nsib);
+  TEST_ASSERT_EQUAL_MEMORY(header, out_header, 80);
+  TEST_ASSERT_EQUAL_MEMORY(b, out_sibs, 32);
+  TEST_ASSERT_EQUAL_MEMORY(hcc, out_sibs + 32, 32);
+  TEST_ASSERT_TRUE(btc_merkle_verify(a, 0, 3, bytes(out_sibs, 64), root));
+  raw.data.data[BTC_HEADER_MERKLE] ^= 0x01;
+  TEST_ASSERT_FALSE(btc_merkleblock_coinbase(raw.data, out_header, &tx_count, out_sibs, &nsib));
+  raw.data.data[BTC_HEADER_MERKLE] ^= 0x01;
+  raw.data.len--;
+  TEST_ASSERT_FALSE(btc_merkleblock_coinbase(raw.data, out_header, &tx_count, out_sibs, &nsib));
+  raw.data.len++;
+  {
+    uint8_t  extra = 0;
+    uint8_t* wide;
+    buffer_append(&raw, bytes(&extra, 1));
+    TEST_ASSERT_FALSE(btc_merkleblock_coinbase(raw.data, out_header, &tx_count, out_sibs, &nsib));
+    raw.data.len--;
+    wide = safe_malloc(raw.data.len + 2u);
+    memcpy(wide, raw.data.data, 84);
+    wide[84] = 0xfd;
+    wide[85] = raw.data.data[84];
+    wide[86] = 0;
+    memcpy(wide + 87, raw.data.data + 85, raw.data.len - 85u);
+    TEST_ASSERT_FALSE(btc_merkleblock_coinbase(bytes(wide, raw.data.len + 2u), out_header, &tx_count, out_sibs, &nsib));
+    safe_free(wide);
+    wide = safe_malloc(raw.data.len + 4u);
+    memcpy(wide, raw.data.data, 84);
+    wide[84] = 0xfe;
+    wide[85] = raw.data.data[84];
+    wide[86] = 0;
+    wide[87] = 0;
+    wide[88] = 0;
+    memcpy(wide + 89, raw.data.data + 85, raw.data.len - 85u);
+    TEST_ASSERT_FALSE(btc_merkleblock_coinbase(bytes(wide, raw.data.len + 4u), out_header, &tx_count, out_sibs, &nsib));
+    safe_free(wide);
+  }
+  buffer_free(&raw);
+
+  {
+    uint8_t  pair[32];
+    uint8_t  one[1][32];
+    uint8_t  two_header[80];
+    buffer_t two;
+    btc_hash256_pair(a, b, pair);
+    memcpy(one[0], b, 32);
+    memset(two_header, 0, sizeof(two_header));
+    memcpy(two_header + BTC_HEADER_MERKLE, pair, 32);
+    two = build_merkleblock(two_header, 2, a, one, 1);
+    two.data.data[two.data.len - 1u] |= (uint8_t) (1u << 2);
+    TEST_ASSERT_FALSE(btc_merkleblock_coinbase(two.data, out_header, &tx_count, out_sibs, &nsib));
+    buffer_free(&two);
+  }
+}
+
+/**
+ * Headers and the coinbase proof served to the prover as Bitcoin Core results.
+ */
+typedef struct {
+  uint8_t raw[7][80];
+  char    display[7][65];
+  char    txid[65];
+  char*   coin_hex;
+  char*   merkle_hex;
+} btc_fix_t;
+
+/**
+ * Finds which fixture header a display-order hex string names.
+ *
+ * @param fix fixture
+ * @param hash JSON string
+ * @return index 0..6, or -1
+ */
+static int fixture_index(btc_fix_t* fix, json_t hash) {
+  char* text = json_as_string(hash, NULL);
+  int   i;
+  if (!text) return -1;
+  for (i = 0; i < 7; i++) {
+    if (strcmp(text, fix->display[i]) == 0) {
+      safe_free(text);
+      return i;
+    }
+  }
+  safe_free(text);
+  return -1;
+}
+
+/**
+ * Fills every unanswered Bitcoin RPC request from the fixture.
+ *
+ * @param ctx prover context
+ * @param fix headers, coinbase, and merkleblock
+ */
+static void answer_btc(prover_ctx_t* ctx, btc_fix_t* fix) {
+  data_request_t* req = ctx->state.requests;
+  while (req) {
+    json_t payload;
+    json_t params;
+    char*  name;
+    char*  body = NULL;
+    int    index;
+    if (req->response.data || req->error) {
+      req = req->next;
+      continue;
+    }
+    payload = json_parse((char*) req->payload.data);
+    name    = json_as_string(json_get(payload, "method"), NULL);
+    params  = json_get(payload, "params");
+    TEST_ASSERT_NOT_NULL(name);
+    if (strcmp(name, "getblockhash") == 0) {
+      uint64_t height = json_as_uint64(json_at(params, 0));
+      TEST_ASSERT_TRUE(height >= BTC_MAINNET_CHECKPOINT_HEIGHT && height < BTC_MAINNET_CHECKPOINT_HEIGHT + 7u);
+      index = (int) (height - BTC_MAINNET_CHECKPOINT_HEIGHT);
+      body  = bprintf(NULL, "{\"jsonrpc\":\"2.0\",\"result\":\"%s\",\"id\":1}", fix->display[index]);
+    }
+    else if (strcmp(name, "getblockheader") == 0) {
+      index = fixture_index(fix, json_at(params, 0));
+      TEST_ASSERT_TRUE(index >= 0);
+      body = bprintf(NULL, "{\"jsonrpc\":\"2.0\",\"result\":\"%x\",\"id\":1}", bytes(fix->raw[index], BTC_HEADER_SIZE));
+    }
+    else if (strcmp(name, "getblock") == 0) {
+      index = fixture_index(fix, json_at(params, 0));
+      TEST_ASSERT_TRUE(index >= 0);
+      body = bprintf(NULL, "{\"jsonrpc\":\"2.0\",\"result\":{\"hash\":\"%s\",\"height\":%d,\"nTx\":3050,\"tx\":[\"%s\"]},\"id\":1}", fix->display[index], (uint32_t) (BTC_MAINNET_CHECKPOINT_HEIGHT + (uint32_t) index), fix->txid);
+    }
+    else if (strcmp(name, "getrawtransaction") == 0)
+      body = bprintf(NULL, "{\"jsonrpc\":\"2.0\",\"result\":\"%s\",\"id\":1}", fix->coin_hex);
+    else if (strcmp(name, "gettxoutproof") == 0)
+      body = bprintf(NULL, "{\"jsonrpc\":\"2.0\",\"result\":\"%s\",\"id\":1}", fix->merkle_hex);
+    else
+      TEST_FAIL_MESSAGE(name);
+    safe_free(name);
+    req->response = bytes((uint8_t*) body, (uint32_t) strlen(body));
+    req           = req->next;
+  }
+}
+
+/**
+ * Proves one call against the fixture and checks it with the verifier.
+ *
+ * @param method RPC method
+ * @param params JSON params
+ * @param fix Bitcoin Core stand-in
+ * @param expect expected result bytes
+ * @param expect_len length of `expect`
+ */
+static void prove_and_verify(char* method, char* params, btc_fix_t* fix, const uint8_t* expect, uint32_t expect_len) {
+  prover_ctx_t* ctx = c4_prover_create(method, params, C4_CHAIN_BTC_MAINNET, 0);
+  verify_ctx_t  v;
+  c4_status_t   st;
+  int           guard = 0;
+  json_t        args;
+  TEST_ASSERT_NOT_NULL(ctx);
+  while ((st = c4_prover_execute(ctx)) == C4_PENDING) {
+    TEST_ASSERT_TRUE(guard < 12);
+    guard++;
+    answer_btc(ctx, fix);
+  }
+  if (st != C4_SUCCESS) TEST_FAIL_MESSAGE(ctx->state.error ? ctx->state.error : "prover failed");
+  args = json_parse(params);
+  if (c4_verify_init(&v, ctx->proof, method, args, C4_CHAIN_BTC_MAINNET, 0) != C4_SUCCESS)
+    TEST_FAIL_MESSAGE(v.state.error ? v.state.error : "init failed");
+  TEST_ASSERT_NOT_NULL(v.sync_data.def);
+  TEST_ASSERT_EQUAL_INT(SSZ_TYPE_NONE, v.sync_data.def->type);
+  if (c4_verify(&v) != C4_SUCCESS) TEST_FAIL_MESSAGE(v.state.error ? v.state.error : "verify failed");
+  TEST_ASSERT_TRUE(v.success);
+  TEST_ASSERT_EQUAL_UINT32(expect_len, v.data.bytes.len);
+  TEST_ASSERT_EQUAL_MEMORY(expect, v.data.bytes.data, expect_len);
+  c4_verify_free_data(&v);
+  c4_prover_free(ctx);
+}
+
+void test_prover_header_proof(void) {
+  static const char* final_hex[6] = {
+      "04002020a583da1c3ff29b687248ff737822f8ce4827033a282003000000000000000000bcc07f8618b7b063f833100724e2b40d6ee9dfa78087bfbe5d3441058a63de380e082366194203176d9026cc",
+      "00207e2f6324db68f7433cc1087eeb41f4f3137907a3d5758ab4010000000000000000009ebac463e21126b1fb9789de7737f0b1978baec71cd54c46b20ea32480f8117184092366194203177cd0b8a5",
+      "0000002aa9a07587b54fcc25e10c5b60cee13efb566b6273ccc0020000000000000000009b1720b434d104f11e807d5e009c006ec8d74be2a0c3bb63765ac8ca99e9ae2d190b236619420317cb26b50c",
+      "00404e2819b1349be0faff65e300e9c4d2defe9d26b91c67e8cf010000000000000000008a97b043cdc09695a5984b4382e3a9cbbeeacf88ea188430155797cca3801927520d2366194203172a04eaf5",
+      "00a00020367d271bb55cdd319e34cefd17d8578d451f4b27588402000000000000000000be471b97946eb1d8cb4f004782a8378e448757796f0a6e0215afd087767ff4ca961323661942031723406c85",
+      "00e0ff2f79d012bca116f2026697dde719cd18d0adace3c00e7b02000000000000000000c7df6d4ef5265e273c2b2d7548096b7d7c620dd03fea913b9afcba2cf227c7ae6b15236619420317fd2d68d1",
+  };
+  static const char* sibling_hex[12] = {
+      "9ec667ead0ba5ef32fef31c21271328751851e7cc166f754dae64b004b5fb82b",
+      "5b45735da8e6beb9110b93508eb4d93c0389906c53b0dbc067332368d8bf3d9e",
+      "a0385f320f3a0247e04e371c788a9afea2879ddf498489551dbeac70e4414490",
+      "5b0090d3743bdb905c0520d5976c7152e047dec1b4971598cfc3fae93802e67e",
+      "e5910bfb3cd3faa5e7593ee88b3fcab3de7512e7e5a2e7e93b2b06d871542c1d",
+      "a9ddff55b6cf51a47e0a51ddda339e6c1591a1add6cff25bc0f9e31639803744",
+      "1ea2f399d6a56ca5a8c3eb1afd56512aab5dddecf356701a36905c73aea92466",
+      "61b61c347bccb138b1b73b89ea5659acd6d45ab33b78a71993cd7ce26c9299c2",
+      "72e1f0b021ac81d3c3b9909432a4122519c5f900f1383b8982f60a30f861b624",
+      "32f91667de5cc8074d5e2eff9e4d1924807a1d773b773cad174fc3c34702ce0d",
+      "2bbb2a97546cbea55097292ba7756f2142c667c87fb0cd4b3e66e39a47790db6",
+      "0a310ba044ed34509e5e19d6327d2e925466870803b67bdb5e74787ff34abb3c",
+  };
+  static const char* coin_hex =
+      "010000000001010000000000000000000000000000000000000000000000000000000000000000ffffffff600340d10c192f5669614254432f4d696e65642062792062757a7a3132302f2cfabe6d6d144b553283a6e1a150c9989428c0695e3a1bef7d482ed1f829bbe25897fd37dc10000000000000001058a4c9000cc3a31889b38ae08249000000000000ffffffff03fb80e4f2000000001976a914536ffa992491508dca0354e52f32a3a7a679a53a88ac00000000000000002b6a2952534b424c4f434b3a52e15efafb3e2cf6dc2fc0e6bde5cb1d7d2143f1e089bd874e6b7913005fb2a00000000000000000266a24aa21a9ed88601d3d03ccce017fe2131c4c95a7292e4372983148e62996bb5e2de0e4d1d80120000000000000000000000000000000000000000000000000000000000000000000000000";
+  btc_fix_t        fix;
+  uint8_t          sibs[12][32];
+  uint8_t          coin_buf[400];
+  uint8_t          txid[32];
+  uint8_t          txid_display[32];
+  uint8_t          expect_hash[32];
+  bytes_t          coinbase;
+  buffer_t         merkle;
+  buffer_t         txid_text;
+  char*            header_params;
+  char             hash_method[]   = "getblockhash";
+  char             header_method[] = "getblockheader";
+  char             count_method[]  = "getblockcount";
+  char             hash_params[]   = "[840000]";
+  prover_ctx_t*    rejected;
+  storage_plugin_t saved;
+  storage_plugin_t fake;
+  btc_tx_t         parsed;
+  int              i;
+
+  rejected = c4_prover_create(count_method, "[]", C4_CHAIN_BTC_MAINNET, 0);
+  TEST_ASSERT_EQUAL_INT(C4_ERROR, c4_prover_execute(rejected));
+  TEST_ASSERT_NOT_NULL(rejected->state.error);
+  TEST_ASSERT_NOT_NULL(strstr(rejected->state.error, "not implemented"));
+  c4_prover_free(rejected);
+  rejected = c4_prover_create(hash_method, hash_params, C4_CHAIN_BTC_TESTNET, 0);
+  TEST_ASSERT_EQUAL_INT(C4_ERROR, c4_prover_execute(rejected));
+  TEST_ASSERT_NOT_NULL(rejected->state.error);
+  TEST_ASSERT_NOT_NULL(strstr(rejected->state.error, "not supported"));
+  c4_prover_free(rejected);
+  rejected               = c4_prover_create(hash_method, hash_params, C4_CHAIN_BTC_MAINNET, 0);
+  rejected->client_state = bytes(safe_malloc(4), 4);
+  memcpy(rejected->client_state.data, "junk", 4);
+  TEST_ASSERT_EQUAL_INT(C4_ERROR, c4_prover_execute(rejected));
+  TEST_ASSERT_NOT_NULL(rejected->state.error);
+  TEST_ASSERT_NOT_NULL(strstr(rejected->state.error, "invalid bitcoin client state"));
+  c4_prover_free(rejected);
+
+  memset(&fix, 0, sizeof(fix));
+  memcpy(fix.raw[0], btc_mainnet_checkpoint_header().data, BTC_HEADER_SIZE);
+  for (i = 0; i < 6; i++)
+    load_hex(final_hex[i], fix.raw[i + 1], BTC_HEADER_SIZE);
+  for (i = 0; i < 7; i++) {
+    uint8_t  internal[32];
+    uint8_t  display[32];
+    buffer_t text = stack_buffer(fix.display[i]);
+    btc_hash256(bytes(fix.raw[i], BTC_HEADER_SIZE), internal);
+    btc_hash_reverse(internal, display);
+    bprintf(&text, "%x", bytes(display, 32));
+  }
+  for (i = 0; i < 12; i++)
+    load_hex(sibling_hex[i], sibs[i], 32);
+  coinbase = load_hex(coin_hex, coin_buf, sizeof(coin_buf));
+  TEST_ASSERT_TRUE(btc_tx_parse(coinbase, &parsed));
+  TEST_ASSERT_TRUE(btc_tx_id(&parsed, txid));
+  btc_hash_reverse(txid, txid_display);
+  txid_text = stack_buffer(fix.txid);
+  bprintf(&txid_text, "%x", bytes(txid_display, 32));
+  merkle         = build_merkleblock(fix.raw[0], 3050, txid, sibs, 12);
+  fix.merkle_hex = bprintf(NULL, "%x", merkle.data);
+  fix.coin_hex   = (char*) coin_hex;
+  buffer_free(&merkle);
+  header_params = bprintf(NULL, "[\"%s\",false]", fix.display[0]);
+  load_hex(fix.display[0], expect_hash, 32);
+
+  memset(&saved, 0, sizeof(saved));
+  c4_get_storage_config(&saved);
+  memset(&fake, 0, sizeof(fake));
+  fake.get             = test_store_get;
+  fake.set             = test_store_set;
+  fake.del             = test_store_del;
+  fake.max_sync_states = 1;
+  c4_set_storage_config(&fake);
+  safe_free(g_stored.data);
+  g_stored = NULL_BYTES;
+
+  prove_and_verify(hash_method, hash_params, &fix, expect_hash, 32);
+  prove_and_verify(header_method, header_params, &fix, fix.raw[0], BTC_HEADER_SIZE);
+
+  c4_set_storage_config(&saved);
+  safe_free(g_stored.data);
+  g_stored = NULL_BYTES;
+  safe_free(header_params);
+  safe_free(fix.merkle_hex);
+}
+
+/**
+ * Reports whether a pending `getblockhash` asks for `height`.
+ *
+ * @param ctx prover context
+ * @param height block height
+ * @return true when that request is queued
+ */
+static bool prover_asked_height(prover_ctx_t* ctx, uint32_t height) {
+  data_request_t* req;
+  for (req = ctx->state.requests; req; req = req->next) {
+    json_t payload = json_parse((char*) req->payload.data);
+    char*  name    = json_as_string(json_get(payload, "method"), NULL);
+    bool   match   = false;
+    if (name && strcmp(name, "getblockhash") == 0)
+      match = json_as_uint64(json_at(json_get(payload, "params"), 0)) == height;
+    safe_free(name);
+    if (match) return true;
+  }
+  return false;
+}
+
+void test_prover_epoch_steps(void) {
+  char               method[] = "getblockhash";
+  char               low[]    = "[227835]";
+  char               high[]   = "[4294967290]";
+  char               same[]   = "[840000]";
+  char               far[32];
+  char               edge[32];
+  prover_ctx_t*      ctx;
+  btc_client_state_t client;
+  buffer_t           blob = {0};
+  uint32_t           behind;
+  uint32_t           edge_height;
+  uint32_t           far_height;
+
+  ctx = c4_prover_create(method, low, C4_CHAIN_BTC_MAINNET, 0);
+  TEST_ASSERT_EQUAL_INT(C4_ERROR, c4_prover_execute(ctx));
+  TEST_ASSERT_NULL(ctx->state.requests);
+  TEST_ASSERT_NOT_NULL(strstr(ctx->state.error, "BIP34"));
+  c4_prover_free(ctx);
+  ctx = c4_prover_create(method, high, C4_CHAIN_BTC_MAINNET, 0);
+  TEST_ASSERT_EQUAL_INT(C4_ERROR, c4_prover_execute(ctx));
+  TEST_ASSERT_NULL(ctx->state.requests);
+  TEST_ASSERT_NOT_NULL(strstr(ctx->state.error, "too high"));
+  c4_prover_free(ctx);
+
+  behind = (btc_dap(BTC_MAINNET_CHECKPOINT_HEIGHT) - BTC_TARGET_MAX_DAPS - 1u) * BTC_EPOCH_LENGTH;
+  memset(&client, 0, sizeof(client));
+  client.height = behind;
+  TEST_ASSERT_TRUE(btc_client_state_encode(&client, &blob));
+  ctx               = c4_prover_create(method, same, C4_CHAIN_BTC_MAINNET, 0);
+  ctx->client_state = blob.data;
+  TEST_ASSERT_EQUAL_INT(C4_PENDING, c4_prover_execute(ctx));
+  TEST_ASSERT_TRUE(prover_asked_height(ctx, 838655));
+  TEST_ASSERT_TRUE(prover_asked_height(ctx, BTC_MAINNET_CHECKPOINT_HEIGHT));
+  c4_prover_free(ctx);
+
+  edge_height = (btc_dap(BTC_MAINNET_CHECKPOINT_HEIGHT) + 40u * BTC_TARGET_MAX_DAPS) * BTC_EPOCH_LENGTH;
+  far_height  = edge_height + BTC_EPOCH_LENGTH;
+  snprintf(edge, sizeof(edge), "[%u]", edge_height);
+  snprintf(far, sizeof(far), "[%u]", far_height);
+  ctx = c4_prover_create(method, edge, C4_CHAIN_BTC_MAINNET, 0);
+  TEST_ASSERT_EQUAL_INT(C4_PENDING, c4_prover_execute(ctx));
+  TEST_ASSERT_TRUE(prover_asked_height(ctx, 880991));
+  c4_prover_free(ctx);
+  ctx = c4_prover_create(method, far, C4_CHAIN_BTC_MAINNET, 0);
+  TEST_ASSERT_EQUAL_INT(C4_ERROR, c4_prover_execute(ctx));
+  TEST_ASSERT_NULL(ctx->state.requests);
+  TEST_ASSERT_NOT_NULL(strstr(ctx->state.error, "too long"));
+  c4_prover_free(ctx);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_target_and_genesis_pow);
@@ -1800,6 +2254,9 @@ int main(void) {
   RUN_TEST(test_epoch_path_ssz_shape);
   RUN_TEST(test_client_state_and_epoch_path);
   RUN_TEST(test_header_proof_finality);
+  RUN_TEST(test_merkleblock_coinbase);
+  RUN_TEST(test_prover_header_proof);
+  RUN_TEST(test_prover_epoch_steps);
   return UNITY_END();
 }
 

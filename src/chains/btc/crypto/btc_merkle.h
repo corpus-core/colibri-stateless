@@ -76,6 +76,27 @@ bool btc_merkle_verify(const uint8_t leaf[32], uint32_t index, uint32_t tx_count
  */
 bool btc_merkle_root(const uint8_t* leaves, uint32_t count, uint8_t root[32], bool* mutated);
 
+/**
+ * Extracts the coinbase inclusion proof from a BIP37 `CMerkleBlock`.
+ *
+ * The encoding is the 80-byte header, the transaction count, a compact-size hash count,
+ * internal-order hashes, a compact-size count of flag bytes, and those bytes. Bits inside a
+ * flag byte are packed least-significant-bit first. Unused bits in the last flag byte are padding.
+ * Compact sizes must be minimal. Only the coinbase (index 0) may be a match. Each right child of
+ * the left spine, including an implicit duplicate when the node is missing, is one sibling from
+ * the leaf toward the root, which is the order `btc_merkle_verify` expects.
+ *
+ * `siblings` receives at most 32 hashes. The recomputed root must equal the merkle root in `header`.
+ *
+ * @param raw serialized merkleblock
+ * @param header receives the 80-byte header
+ * @param tx_count receives the transaction count
+ * @param siblings receives `sibling_count` concatenated 32-byte hashes
+ * @param sibling_count receives the number of siblings
+ * @return true when the block contains only the coinbase match and the root matches
+ */
+bool btc_merkleblock_coinbase(bytes_t raw, uint8_t header[80], uint32_t* tx_count, uint8_t* siblings, uint32_t* sibling_count);
+
 #ifdef __cplusplus
 }
 #endif

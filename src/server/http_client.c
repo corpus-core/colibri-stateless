@@ -320,6 +320,7 @@ static long parse_mock_response(buffer_t* buffer) {
 #endif
 
 static server_list_t eth_rpc_servers     = {0};
+static server_list_t btc_rpc_servers     = {0};
 static server_list_t beacon_api_servers  = {0};
 static server_list_t prover_servers      = {0};
 static server_list_t checkpointz_servers = {0};
@@ -330,7 +331,7 @@ static void trigger_cached_curl_requests(request_t* req);
 
 // Helper function to extract RPC method name from request payload
 static char* extract_rpc_method(data_request_t* req) {
-  if (!req || req->type != C4_DATA_TYPE_ETH_RPC || !req->payload.data || req->payload.len == 0) return NULL;
+  if (!req || (req->type != C4_DATA_TYPE_ETH_RPC && req->type != C4_DATA_TYPE_BTC_RPC) || !req->payload.data || req->payload.len == 0) return NULL;
 
   json_t json = json_get(json_parse((char*) req->payload.data), "method");
   if (json.type == JSON_TYPE_STRING) {
@@ -500,7 +501,7 @@ static void call_callback_if_done(request_t* req) {
   for (size_t i = 0; i < req->request_count; i++) {
     single_request_t* r      = req->requests + i;
     char*             method = r->req->url;
-    if (r->req->type == C4_DATA_TYPE_ETH_RPC) {
+    if (r->req->type == C4_DATA_TYPE_ETH_RPC || r->req->type == C4_DATA_TYPE_BTC_RPC) {
       json_t json = json_get(json_parse((char*) r->req->payload.data), "method");
       if (json.type == JSON_TYPE_STRING)
         method = json_as_string(json, &buffer);
@@ -891,6 +892,8 @@ server_list_t* c4_get_server_list(data_request_type_t type) {
   switch (type) {
     case C4_DATA_TYPE_ETH_RPC:
       return (server_list_t*) &eth_rpc_servers;
+    case C4_DATA_TYPE_BTC_RPC:
+      return (server_list_t*) &btc_rpc_servers;
     case C4_DATA_TYPE_BEACON_API:
       return (server_list_t*) &beacon_api_servers;
     case C4_DATA_TYPE_PROVER:
@@ -1460,6 +1463,7 @@ void c4_init_curl(uv_timer_t* timer) {
   }
 
   init_serverlist(&eth_rpc_servers, http_server.rpc_nodes);
+  init_serverlist(&btc_rpc_servers, http_server.btc_rpc_nodes);
   init_serverlist(&beacon_api_servers, http_server.beacon_nodes);
   init_serverlist(&prover_servers, http_server.prover_nodes);
   init_serverlist(&checkpointz_servers, http_server.checkpointz_nodes);
@@ -1508,6 +1512,7 @@ void c4_cleanup_curl() {
   }
 
   c4_free_server_list(&eth_rpc_servers);
+  c4_free_server_list(&btc_rpc_servers);
   c4_free_server_list(&beacon_api_servers);
   c4_free_server_list(&prover_servers);
   c4_free_server_list(&checkpointz_servers);
