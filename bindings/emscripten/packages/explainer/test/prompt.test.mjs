@@ -1486,6 +1486,84 @@ describe('resolveAddressLinks', () => {
         assert.equal(out, 'See short and long.');
     });
 
+    describe('labels containing whitespace', () => {
+        // Our address-book builder keeps curated labels verbatim, so entries
+        // like `Uniswap V2 Router` carry a space. A well-trained SLM copies
+        // them one-to-one into both the link text and the `eth://` URL. The
+        // resolver must not reject these just because the URL contains a
+        // space.
+        const ROUTER = '0x7a250d5630b4cf539739df2c5dacb4c659f2488d';
+        const PAIR = '0xb4e16d0168e52d35cacd2c6185b44281ec28c9dc';
+        const USDC_ADDR = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48';
+        const BOOK_WITH_SPACES = {
+            sender: '0xd8da6bf26964af9d7eed9e03e53415d37aa96045',
+            'Uniswap V2 Router': ROUTER,
+            UniswapV2Pair: PAIR,
+            WETH,
+            USDC: USDC_ADDR,
+        };
+
+        it('resolves a label with spaces in both text and URL', () => {
+            // Observed with the v2 model: this is the exact case that showed
+            // the raw `(eth://Uniswap V2 Router)` tail in the UI before the
+            // ETH_LINK_RE fix. Matching behaviour on first try confirms it.
+            const src = 'Executed via [Uniswap V2 Router](eth://Uniswap V2 Router).';
+            const out = resolveAddressLinks(src, BOOK_WITH_SPACES, linkFor);
+            assert.equal(
+                out,
+                `Executed via [Uniswap V2 Router](https://explorer.test/address/${ROUTER}).`,
+            );
+        });
+
+        it('resolves two space-containing links in the same sentence', () => {
+            // Pass 1 must consume each `(eth://…)` greedily up to its own
+            // closing paren without reaching into the next link.
+            const src = 'From [Uniswap V2 Router](eth://Uniswap V2 Router) to [Uniswap V2 Router](eth://Uniswap V2 Router).';
+            const out = resolveAddressLinks(src, BOOK_WITH_SPACES, linkFor);
+            assert.equal(
+                out,
+                `From [Uniswap V2 Router](https://explorer.test/address/${ROUTER}) to [Uniswap V2 Router](https://explorer.test/address/${ROUTER}).`,
+            );
+        });
+
+        it('mixes space-labels and plain labels in the same sentence', () => {
+            // Exact shape from the user's v2-model report, trimmed to the
+            // explanation text. Every link should resolve.
+            const src = 'The sender successfully swapped 0.01 ETH for 24.42313 USDC. The trade was executed through [Uniswap V2 Router](eth://Uniswap V2 Router), which converted the ETH into [WETH](eth://WETH) and then exchanged it for [USDC](eth://USDC) via the [UniswapV2Pair](eth://UniswapV2Pair).';
+            const out = resolveAddressLinks(src, BOOK_WITH_SPACES, linkFor);
+            assert.equal(
+                out,
+                `The sender successfully swapped 0.01 ETH for 24.42313 USDC. The trade was executed through [Uniswap V2 Router](https://explorer.test/address/${ROUTER}), which converted the ETH into [WETH](https://explorer.test/address/${WETH}) and then exchanged it for [USDC](https://explorer.test/address/${USDC_ADDR}) via the [UniswapV2Pair](https://explorer.test/address/${PAIR}).`,
+            );
+        });
+
+        it('tolerates leading and trailing whitespace inside the eth:// token', () => {
+            // Defensive: if a model ever writes `eth:// WETH ` with pad
+            // whitespace, we still trim to the label.
+            const src = 'Call [WETH](eth://  WETH  ) for info.';
+            const out = resolveAddressLinks(src, BOOK_WITH_SPACES, linkFor);
+            assert.equal(
+                out,
+                `Call [WETH](https://explorer.test/address/${WETH}) for info.`,
+            );
+        });
+
+        it('still strips a space-containing token that is not in the book', () => {
+            const src = 'Mystery [Unknown Thing](eth://Unknown Thing) here.';
+            const out = resolveAddressLinks(src, BOOK_WITH_SPACES, linkFor);
+            assert.equal(out, 'Mystery Unknown Thing here.');
+        });
+
+        it('breaks a Markdown link that spans a newline inside the URL', () => {
+            // A real Markdown link cannot span a bare line break inside the
+            // URL, and `ETH_LINK_RE` excludes `\n` so it doesn't accidentally
+            // swallow an entire paragraph. The malformed input stays as-is.
+            const src = 'See [X](eth://X\n) rest.';
+            const out = resolveAddressLinks(src, BOOK_WITH_SPACES, linkFor);
+            assert.equal(out, src);
+        });
+    });
+
     describe('addr_xxxx fallback labels', () => {
         const RECIPIENT = '0x07ad29705044203840ef1be2eb2b6a5c6c91f719';
         const SHORT = '0x07ad...f719';

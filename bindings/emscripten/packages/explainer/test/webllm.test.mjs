@@ -153,13 +153,35 @@ describe('fine-tuned model records', () => {
                 ],
             },
         };
-        const cfg = buildAppConfig(webllm);
+        // Pass one record explicitly: v1 and v2 share a `model_id`, and
+        // feeding both into `buildAppConfig` would leave two entries with
+        // the same id in `model_list`. WebLLM resolves ids with `.find()`,
+        // so a caller that wants to select v1 vs v2 must pre-filter to the
+        // single record it wants loaded (see Playground's buildExplainerConfig).
+        const cfg = buildAppConfig(webllm, [TSA_EXPLAINER_MODELS[0]]);
         assert.equal(cfg.cacheBackend, 'cache');
         assert.deepEqual(cfg.model_list.map((r) => r.model_id), ['Prebuilt-A', 'colibri-tsa-4b-q4f16_1-MLC']);
         assert.equal(cfg.model_list[1].model, TSA_EXPLAINER_MODELS[0].model);
         assert.equal(cfg.model_list[1].model_lib, 'https://libs.example/v1/Qwen3.5-4B-q4f16_1_cs1k-webgpu.wasm');
-        // Works without a prebuilt list too.
+        // Works without a prebuilt list too. Default `extra` is
+        // `TSA_EXPLAINER_MODELS` as a whole, so the length matches the full
+        // set -- deduplication is a caller concern, not a library concern.
         assert.equal(buildAppConfig({ modelLibURLPrefix: 'p/', modelVersion: 'v' }).model_list.length, TSA_EXPLAINER_MODELS.length);
+    });
+
+    it('buildAppConfig keeps all extra records even when two share a model_id', () => {
+        // Regression: `TSA_EXPLAINER_MODELS` now ships v1 and v2 with the same
+        // `model_id`. `buildAppConfig` must not silently drop one -- it is the
+        // caller's job to pass only the record it wants selected. The order
+        // of the custom records is preserved so a caller can rely on
+        // `model_list[model_list.length - 1]` being the last one it added.
+        const cfg = buildAppConfig({ modelLibURLPrefix: 'p/', modelVersion: 'v' });
+        const tsaEntries = cfg.model_list.filter((r) => r.model_id === 'colibri-tsa-4b-q4f16_1-MLC');
+        assert.equal(tsaEntries.length, TSA_EXPLAINER_MODELS.length);
+        assert.deepEqual(
+            tsaEntries.map((r) => r.weights_version),
+            TSA_EXPLAINER_MODELS.map((r) => r.weights_version),
+        );
     });
 
     it('resolveModelRecord leaves a local weight URL untouched (WebLLM appends resolve/main/ itself)', () => {

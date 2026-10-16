@@ -49,11 +49,29 @@ const PREBUILT_WEBLLM_MODELS: { id: string; size: string }[] = [
     { id: 'Llama-3.2-1B-Instruct-q4f16_1-MLC', size: '~0.9 GB' },
 ];
 
+// Fine-tuned records share one `model_id` across weight versions, so the UI
+// needs a different discriminator. `${model_id}@${weights_version}` is used as
+// the `<option>` value, and split back into `model_id` + `weights_version`
+// when the choice is handed to the explainer. Prebuilt models have no version
+// suffix and pass through unchanged.
+function tsaUIKey(r: typeof TSA_EXPLAINER_MODELS[number]): string {
+    return r.weights_version ? `${r.model_id}@${r.weights_version}` : r.model_id;
+}
+
+/** Split a UI key back into its parts. Prebuilt ids have no `@`. */
+function parseModelUIKey(uiKey: string): { modelId: string; version?: string } {
+    const at = uiKey.indexOf('@');
+    if (at < 0) return { modelId: uiKey };
+    return { modelId: uiKey.slice(0, at), version: uiKey.slice(at + 1) };
+}
+
 // Fine-tuned explainer models first (they were trained on exactly these
-// prompts), then the prebuilt fallbacks.
+// prompts), then the prebuilt fallbacks. Values here are UI keys (see
+// `tsaUIKey`), so two fine-tuned records with the same `model_id` stay
+// distinguishable in the `<select>`.
 const MODELS: Record<LLMProviderType, string[]> = {
     webllm: [
-        ...TSA_EXPLAINER_MODELS.map((r) => r.model_id),
+        ...TSA_EXPLAINER_MODELS.map(tsaUIKey),
         ...PREBUILT_WEBLLM_MODELS.map((m) => m.id),
     ],
     openai: ['gpt-4o-mini', 'gpt-4o'],
@@ -61,8 +79,16 @@ const MODELS: Record<LLMProviderType, string[]> = {
     ollama: ['qwen2.5-coder', 'llama3.1'],
 };
 
+// Human-readable label per UI key. For fine-tuned models the record's `label`
+// field already encodes the version ("v1"/"v2"); for prebuilt models we strip
+// the quantisation suffix for readability.
+const WEBLLM_MODEL_LABEL: Record<string, string> = Object.fromEntries([
+    ...TSA_EXPLAINER_MODELS.map((r) => [tsaUIKey(r), r.label ?? r.model_id]),
+    ...PREBUILT_WEBLLM_MODELS.map((m) => [m.id, m.id.replace(/-q4f16_1-MLC$/, '')]),
+]);
+
 const WEBLLM_MODEL_SIZE: Record<string, string> = Object.fromEntries([
-    ...TSA_EXPLAINER_MODELS.map((r) => [r.model_id, r.download_gb ? `~${r.download_gb.toFixed(1)} GB` : '']),
+    ...TSA_EXPLAINER_MODELS.map((r) => [tsaUIKey(r), r.download_gb ? `~${r.download_gb.toFixed(1)} GB` : '']),
     ...PREBUILT_WEBLLM_MODELS.map((m) => [m.id, m.size]),
 ]);
 
@@ -113,7 +139,7 @@ function webllmModelRecords(): Promise<ModelRecord[] | undefined> {
 const WEBLLM_MODEL_CONTEXT: Record<string, number> = Object.fromEntries(
     TSA_EXPLAINER_MODELS
         .filter((r) => r.overrides?.context_window_size)
-        .map((r) => [r.model_id, r.overrides!.context_window_size!]),
+        .map((r) => [tsaUIKey(r), r.overrides!.context_window_size!]),
 );
 // Prebuilt-model UI default. 4096 was too tight for most non-trivial contracts
 // (hit the WebLLM `ContextWindowSizeExceededError` immediately when the
@@ -284,7 +310,10 @@ function setProgress(progress: number, text: string): void {
     // Surface the model name + size so the user understands what is being
     // fetched and why a multi-GB download can take a while.
     const model = ($('model') as HTMLSelectElement).value;
-    const prettyModel = model.replace(/-q4f16_1-MLC$/, '');
+    // Prefer the label (same string shown in the dropdown) so the user sees
+    // which weights version is being pulled. Prebuilt models fall back to
+    // stripping the quantisation suffix.
+    const prettyModel = WEBLLM_MODEL_LABEL[model] ?? model.replace(/-q4f16_1-MLC$/, '');
     const size = WEBLLM_MODEL_SIZE[model];
 
     // WebLLM uses "Loading model from cache" once the weights are local and only
@@ -336,8 +365,13 @@ function populateModels(): void {
     for (const m of MODELS[provider]) {
         const opt = document.createElement('option');
         opt.value = m;
+        // Prefer the record's `label` so fine-tuned entries that share one
+        // `model_id` (e.g. v1/v2 of the same TSA weights) are visually
+        // distinct in the dropdown. Fall back to the UI key for providers
+        // that have no label map (openai, anthropic, ollama).
+        const label = WEBLLM_MODEL_LABEL[m] ?? m;
         const size = WEBLLM_MODEL_SIZE[m];
-        opt.textContent = size ? `${m} (${size})` : m;
+        opt.textContent = size ? `${label} (${size})` : label;
         select.appendChild(opt);
     }
 
@@ -934,7 +968,11 @@ function renderExplanation(markdown: string): void {
 
 async function buildExplainerConfig(useEnrichment: boolean, chainId: number): Promise<ExplainerConfig> {
     const provider = ($('provider') as HTMLSelectElement).value as LLMProviderType;
-    const model = ($('model') as HTMLSelectElement).value;
+    const uiKey = ($('model') as HTMLSelectElement).value;
+    // Fine-tuned entries use `model_id@weights_version` as the UI value so
+    // v1/v2 are distinguishable in the dropdown. The explainer and WebLLM
+    // itself only know the bare `model_id`, so strip the suffix here.
+    const { modelId: model, version } = parseModelUIKey(uiKey);
     const apiKey = ($('apiKey') as HTMLInputElement).value.trim();
     const baseUrl = ($('baseUrl') as HTMLInputElement).value.trim();
     const language = ($('language') as HTMLSelectElement).value.trim() || 'en';
@@ -954,8 +992,16 @@ async function buildExplainerConfig(useEnrichment: boolean, chainId: number): Pr
     if (systemPrompt) config.systemPrompt = systemPrompt;
     if (provider === 'webllm') {
         if (ctx) config.contextWindowSize = ctx;
-        const records = await webllmModelRecords();
-        if (records) config.webllmModelRecords = [...records];
+        // Only forward the record that matches the user's version choice.
+        // If two records with the same `model_id` were handed to WebLLM, its
+        // `model_list.find(r => r.model_id === id)` would always bind the id
+        // to the first match -- so the dropdown choice between v1 and v2
+        // would be silently ignored.
+        if (version) {
+            const resolved = (await webllmModelRecords()) ?? TSA_EXPLAINER_MODELS;
+            const selected = resolved.find((r) => r.model_id === model && r.weights_version === version);
+            if (selected) config.webllmModelRecords = [selected];
+        }
         config.onModelProgress = ({ progress, text }) => setProgress(progress, text);
         // Render the answer live as the local model streams it. Once tokens
         // arrive the download/load is finished, so the progress bar can go away.
@@ -1314,7 +1360,9 @@ function init(): void {
         // pay for it and the user sees where the weights come from.
         void webllmModelRecords().then((records) => {
             const local = records?.filter((r, i) => r !== TSA_EXPLAINER_MODELS[i]) ?? [];
-            if (local.length) setStatus(`Fine-tuned model weights are served from ${window.location.origin}${SAME_ORIGIN_MODELS_PATH} (${local.map((r) => r.model_id).join(', ')}).`);
+            // Use the UI key (`model_id@weights_version`) so two records
+            // that share a `model_id` do not collapse into one entry.
+            if (local.length) setStatus(`Fine-tuned model weights are served from ${window.location.origin}${SAME_ORIGIN_MODELS_PATH} (${local.map(tsaUIKey).join(', ')}).`);
         });
     }
 }

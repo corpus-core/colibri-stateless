@@ -218,6 +218,13 @@ export function resolveModelRecord(
  * list plus our fine-tuned records (resolved). Custom records win over
  * prebuilt entries with the same `model_id`.
  *
+ * `extra` is appended verbatim and may contain two records that share a
+ * `model_id` (e.g. v1 and v2 of the same TSA weights). Both end up in
+ * `model_list`, but WebLLM resolves ids with `Array.find`, so only the
+ * **first** matching record is actually loaded. A caller that wants a
+ * specific version must therefore pre-filter `extra` to one record per
+ * `model_id` -- `buildAppConfig` itself intentionally does not deduplicate.
+ *
  * @param webllm - Loaded `@mlc-ai/web-llm` module
  * @param extra - Records to append (default: `TSA_EXPLAINER_MODELS`)
  * @return App config with the merged model list

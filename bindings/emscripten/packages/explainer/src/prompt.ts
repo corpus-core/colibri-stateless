@@ -269,8 +269,11 @@ export function resolveAddressLinks(
 
     // Pass 1: resolve `[text](eth://target)` links, replacing the URL with
     // the explorer link and shortening fallback `addr_xxxx` link texts.
+    // `token` is trimmed because `ETH_LINK_RE` accepts any run up to the
+    // closing paren (to admit labels with spaces like `Uniswap V2 Router`),
+    // so a stray `eth:// WETH ` must still look up `WETH`.
     const afterPass1 = normalized.replace(ETH_LINK_RE, (_match, text: string, token: string) => {
-        const address = resolveTarget(token);
+        const address = resolveTarget(token.trim());
         if (!address) return text;
         const url = linkFor(address);
         if (!url) return text;
@@ -323,14 +326,20 @@ export function resolveAddressLinks(
     );
 }
 
-// Matches `[anything-without-brackets](eth://TOKEN)` where TOKEN has no
-// whitespace or closing paren. `eth://` is case-insensitive; the TOKEN
-// capture keeps the original casing so a label look-up stays strict.
-const ETH_LINK_RE = /\[([^\]]*)\]\((?:eth|ETH):\/\/([^)\s]+)\)/g;
+// Matches `[anything-without-brackets](eth://TOKEN)` where TOKEN is any
+// run up to (but not including) the closing paren or a line break. The
+// resolver trims the captured TOKEN, so `eth://Uniswap V2 Router` (and
+// its leading/trailing-whitespace variants) resolve the same as the
+// no-space form a well-trained model would produce. Whitespace inside
+// the token is deliberately kept because labels from the address book
+// can contain spaces (e.g. `Uniswap V2 Router`). `eth://` is
+// case-insensitive; the TOKEN capture keeps its original casing so a
+// label look-up stays strict.
+const ETH_LINK_RE = /\[([^\]]*)\]\((?:eth|ETH):\/\/([^)\n\r]+)\)/g;
 // Same shape, but wrapped in single backticks: `` `[text](eth://TOKEN)` ``.
 // The capture is the Markdown link itself; the replacement drops the
 // surrounding ticks so pass 1 can see a plain link.
-const BACKTICKED_ETH_LINK_RE = /`\s*(\[[^\]]*\]\((?:eth|ETH):\/\/[^)\s]+\))\s*`/g;
+const BACKTICKED_ETH_LINK_RE = /`\s*(\[[^\]]*\]\((?:eth|ETH):\/\/[^)\n\r]+\))\s*`/g;
 // Hex-address fallback in the URL: `eth://0x…`. Case-insensitive because
 // checksummed addresses are mixed-case; the resolver lower-cases before
 // looking the value up in the book.
