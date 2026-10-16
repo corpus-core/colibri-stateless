@@ -211,6 +211,7 @@ static const char* data_request_type_to_string(data_request_type_t type) {
     case C4_DATA_TYPE_PROVER: return "prover";
     case C4_DATA_TYPE_CHECKPOINTZ: return "checkpointz";
     case C4_DATA_TYPE_CACHE: return "cache";
+    case C4_DATA_TYPE_BTC_RPC: return "btc_rpc";
   }
   return "eth_rpc";
 }
