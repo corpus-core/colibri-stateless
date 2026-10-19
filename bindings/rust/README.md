@@ -97,6 +97,22 @@ static archive. Where that archive comes from depends on your build:
 - **BYO archives** -- set `COLIBRI_LIB_DIR=/path/to/dir/with/archives`;
   every static archive in that directory is linked. Handy for embedded
   or cross-compilation targets not covered by the Release matrix.
+
+## Cargo features
+
+- `op` (default) -- enables the OP-Stack verifier and prover
+  (`CHAIN_OP=ON`) in the CMake build. Required to verify Base,
+  OP Mainnet and other OP-Stack rollups. Disable with
+  `--no-default-features` for Ethereum-only consumers:
+
+  ```toml
+  colibri-stateless = { version = "0.1", default-features = false }
+  ```
+
+  The flag only affects the monorepo CMake path. The pre-built
+  release archives (`COLIBRI_LIB_DIR`, downloaded tarball) are built
+  with `CHAIN_OP=ON` and always contain OP support regardless of the
+  feature setting.
 - **docs.rs** -- the native build is skipped (`DOCS_RS` env var);
   only the API docs are produced.
 

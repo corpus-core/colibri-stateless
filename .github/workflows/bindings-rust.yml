@@ -157,8 +157,18 @@ jobs:
       - name: cargo build (release)
         working-directory: bindings/rust
         shell: bash
-        # CHAIN_OP=ON is set in build.rs so cargo test can verify OP-Stack fixtures.
+        # The `op` feature is on by default so cargo test can verify
+        # OP-Stack fixtures.
         run: cargo build --release --target ${{ matrix.target }}
+
+      - name: cargo build (no default features, Ethereum-only)
+        if: matrix.os == 'ubuntu-latest'
+        working-directory: bindings/rust
+        shell: bash
+        # Guards the `--no-default-features` link path (CHAIN_OP=OFF)
+        # for consumers that only verify Ethereum L1. Build-only --
+        # the fixture suite needs OP for `test/data/op_*`.
+        run: cargo build --release --target ${{ matrix.target }} --no-default-features
 
       - name: cargo test (release)
         working-directory: bindings/rust
