@@ -26,6 +26,14 @@ include = [
     "wrapper.h",
 ]
 
+[features]
+# Enable the OP-Stack verifier/prover in the underlying C core. On by default
+# so verifying Base / OP Mainnet / other OP-Stack rollups works out of the
+# box. Disable with `--no-default-features` for Ethereum-only consumers who
+# want to avoid pulling the OP module into their binary.
+default = ["op"]
+op = []
+
 [dependencies]
 libc = "0.2"
 serde = { version = "1", features = ["derive"] }

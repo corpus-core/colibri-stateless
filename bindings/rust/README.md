@@ -100,6 +100,27 @@ static archive. Where that archive comes from depends on your build:
 - **docs.rs** -- the native build is skipped (`DOCS_RS` env var);
   only the API docs are produced.
 
+## Cargo features
+
+- `op` (default) -- enables the OP-Stack verifier and prover
+  (`CHAIN_OP=ON`) in the CMake build. Required to verify Base,
+  OP Mainnet and other OP-Stack rollups. Disable with
+  `--no-default-features` for Ethereum-only consumers:
+
+  ```toml
+  colibri-stateless = { version = "0.1", default-features = false }
+  ```
+
+  The flag only affects the CMake path (monorepo checkout). The
+  pre-built release tarballs downloaded from GitHub Releases are
+  built with `CHAIN_OP=ON` and always contain OP support. Archives
+  supplied via `COLIBRI_LIB_DIR` are linked as-is, so OP support in
+  that mode depends on how those archives were produced.
+
+  When the feature is disabled, the generated dispatcher reports
+  `Unsupported chain` for any OP-Stack chain ID (10 / 8453 / 480 /
+  …); Ethereum-family chain IDs (1, 11155111, 100, …) are unaffected.
+
 ## Testing against shared fixtures
 
 The same fixtures in `test/data/*` used by the C / Python / Dart /
