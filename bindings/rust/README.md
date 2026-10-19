@@ -97,6 +97,8 @@ static archive. Where that archive comes from depends on your build:
 - **BYO archives** -- set `COLIBRI_LIB_DIR=/path/to/dir/with/archives`;
   every static archive in that directory is linked. Handy for embedded
   or cross-compilation targets not covered by the Release matrix.
+- **docs.rs** -- the native build is skipped (`DOCS_RS` env var);
+  only the API docs are produced.
 
 ## Cargo features
 
@@ -109,12 +111,15 @@ static archive. Where that archive comes from depends on your build:
   colibri-stateless = { version = "0.1", default-features = false }
   ```
 
-  The flag only affects the monorepo CMake path. The pre-built
-  release archives (`COLIBRI_LIB_DIR`, downloaded tarball) are built
-  with `CHAIN_OP=ON` and always contain OP support regardless of the
-  feature setting.
-- **docs.rs** -- the native build is skipped (`DOCS_RS` env var);
-  only the API docs are produced.
+  The flag only affects the CMake path (monorepo checkout). The
+  pre-built release tarballs downloaded from GitHub Releases are
+  built with `CHAIN_OP=ON` and always contain OP support. Archives
+  supplied via `COLIBRI_LIB_DIR` are linked as-is, so OP support in
+  that mode depends on how those archives were produced.
+
+  When the feature is disabled, the generated dispatcher reports
+  `Unsupported chain` for any OP-Stack chain ID (10 / 8453 / 480 /
+  …); Ethereum-family chain IDs (1, 11155111, 100, …) are unaffected.
 
 ## Testing against shared fixtures
 

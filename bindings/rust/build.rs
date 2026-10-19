@@ -181,12 +181,10 @@ fn resolve_link_setup(manifest_dir: &Path, target: &str) -> LinkSetup {
 /// Override with `COLIBRI_CMAKE_BUILD_DIR` when the default still ends
 /// up too long (e.g. a deeply nested checkout on Windows).
 fn cmake_build_root(repo_root: &Path, target: &str, op_enabled: bool) -> PathBuf {
-    if let Ok(dir) = env::var("COLIBRI_CMAKE_BUILD_DIR") {
-        let base = PathBuf::from(dir);
-        return if op_enabled { base } else { base.join("no-op") };
-    }
     // `/build-*` is git-ignored at the repo root.
-    let base = repo_root.join("build-rust").join(target);
+    let base = env::var("COLIBRI_CMAKE_BUILD_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| repo_root.join("build-rust").join(target));
     if op_enabled {
         base
     } else {
@@ -230,8 +228,7 @@ fn build_with_cmake(repo_root: &Path, target: &str) -> LinkSetup {
     // `CHAIN_OP` above.
     let mut extra_targets: Vec<&str> = vec!["prover", "eth_verifier", "eth_prover", "api_ffi"];
     if op_enabled {
-        extra_targets.push("op_verifier");
-        extra_targets.push("op_prover");
+        extra_targets.extend(["op_verifier", "op_prover"]);
     }
     for tgt in extra_targets {
         // Use raw `cmake --build <dir> --target <t>` so we don't reset

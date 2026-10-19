@@ -408,8 +408,10 @@ The crate is intentionally lean:
   and other OP-Stack rollups works out of the box. Disable with
   `--no-default-features` for Ethereum-only consumers who want to
   avoid pulling the OP module into their binary. Only affects the
-  CMake path (monorepo checkout); the pre-built release archives
-  downloaded from GitHub always contain OP support.
+  CMake path (monorepo checkout); the pre-built release tarballs
+  downloaded from GitHub always contain OP support. When disabled,
+  the dispatcher returns `Unsupported chain` for OP-Stack chain
+  IDs; Ethereum-family IDs are unaffected.
 - All the heavy lifting -- rustls, tokio, reqwest -- is pulled in
   through minimal feature selections so cross-compilation and audits
   stay predictable.
