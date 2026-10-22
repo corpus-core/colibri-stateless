@@ -144,9 +144,10 @@ Colibri Stateless is a high-performance prover/verifier for Ethereum and Layer-2
   - `scripts/dev/`
     - `scripts/dev/lb/`
   - `scripts/doc/`
-- `src/` (143 .c, 75 .h) -- Core C Library
+- `src/` (154 .c, 85 .h) -- Core C Library
   - `src/api/` (2 .c, 2 .h)
-  - `src/chains/` (102 .c, 50 .h)
+  - `src/chains/` (113 .c, 60 .h)
+    - `src/chains/btc/` (11 .c, 10 .h)
     - `src/chains/eth/` (93 .c, 43 .h) -- Ethereum Chain Module
     - `src/chains/op/` (9 .c, 7 .h) -- OP-Stack Chain Module
   - `src/cli/` (3 .c, 2 .h)
@@ -156,7 +157,7 @@ Colibri Stateless is a high-performance prover/verifier for Ethereum and Layer-2
     - `src/server/web_ui/` -- Colibri Server Web Configuration UI
   - `src/util/` (13 .c, 14 .h) -- Utility Modules
   - `src/verifier/` (1 .c, 1 .h)
-- `test/` (83 .c, 5 .h) -- Test Suite
+- `test/` (84 .c, 5 .h) -- Test Suite
   - `test/data/`
     - `test/data/eth_blockNumber_electra/`
     - `test/data/eth_call1/`
@@ -210,7 +211,7 @@ Colibri Stateless is a high-performance prover/verifier for Ethereum and Layer-2
   - `test/embedded/` (6 .c, 1 .h) -- Build the Docker image
   - `test/eth/`
     - `test/eth/TrieTests/`
-  - `test/unittests/` (77 .c, 4 .h)
+  - `test/unittests/` (78 .c, 4 .h)
   - `test/valgrind/` -- Valgrind Suppressions
 - `valgrind_results/`
 <!-- AUTO:DIRECTORY_MAP:END -->
@@ -244,7 +245,7 @@ ctest --test-dir build/default  # Run tests
 
 | Preset | Description |
 |--------|-------------|
-| `default` | Debug build with CHAIN_OP, HTTP_SERVER, PROVER_CACHE, TEST |
+| `default` | Debug build with CHAIN_OP, CHAIN_BTC, HTTP_SERVER, PROVER_CACHE, TEST |
 | `testing` | Debug build with TEST + COVERAGE |
 | `full-features` | Release build with TEST + HTTP_SERVER |
 | `wasm` | MinSizeRel WASM build via Emscripten |
@@ -256,6 +257,7 @@ ctest --test-dir build/default  # Run tests
 |--------|---------|-------------|
 | `CHAIN_ETH` | ON | Ethereum verification support |
 | `CHAIN_OP` | OFF | OP-Stack verification support |
+| `CHAIN_BTC` | OFF | Bitcoin verification support (ON in the default preset) |
 | `PROVER` | ON | Build prover library |
 | `VERIFIER` | ON | Build verifier library |
 | `CLI` | ON | Build command line tools |
@@ -280,6 +282,7 @@ ctest --test-dir build/default  # Run tests
 | `BLS_DESERIALIZE` | ON | Store BLS keys deserialized. It is faster but uses 25k more memory in cache per period. | CMakeLists.txt |
 | `BUILD_KONA_BRIDGE` | OFF | Build Kona-P2P bridge as static C-FFI library (legacy mode | src/chains/op/kona_bridge/CMakeLists.txt |
 | `C4_PYTHON` | OFF | Build Python bindings | CMakeLists.txt |
+| `CHAIN_BTC` | OFF | includes the Bitcoin verification support | CMakeLists.txt |
 | `CHAIN_ETH` | ON | includes the ETH verification support | CMakeLists.txt |
 | `CHAIN_OP` | OFF | includes the OP-Stack verification support (forced ON for language bindings | CMakeLists.txt |
 | `CLI` | ON | Build command line tools | CMakeLists.txt |

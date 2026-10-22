@@ -10,6 +10,7 @@ This directory contains the core C implementation of Colibri Stateless. All modu
 | Prover | `prover/` | Proof generation engine. Entry point: `prover.h` |
 | Ethereum | `chains/eth/` | ETH chain module (verification, proofs, SSZ types). See [chains/eth/AGENTS.md](chains/eth/AGENTS.md) |
 | OP-Stack | `chains/op/` | OP-Stack chain module (preconfs, ZSTD). See [chains/op/AGENTS.md](chains/op/AGENTS.md) |
+| Bitcoin | `chains/btc/` | Bitcoin chain module (SPV proofs). Built when `CHAIN_BTC` is ON |
 | Utilities | `util/` | SSZ, bytes, state machine, crypto, JSON, logging. See [util/AGENTS.md](util/AGENTS.md) |
 | Server | `server/` | HTTP prover server (libuv/llhttp). See [server/AGENTS.md](server/AGENTS.md) |
 | CLI | `cli/` | Command-line tools (prover, verifier, ssz). See [cli/AGENTS.md](cli/AGENTS.md) |
@@ -86,7 +87,7 @@ All tools read `c4_config.json` (or `C4_CONFIG` env var) for RPC/Beacon API endp
 ### Source Modules (auto-generated)
 
 - `api/` -- 2 .c, 2 .h files
-- `chains/` -- 102 .c, 50 .h files
+- `chains/` -- 113 .c, 60 .h files
 - `cli/` -- 3 .c, 2 .h files
 - `prover/` -- 1 .c, 1 .h files
 - `server/` -- 21 .c, 5 .h files

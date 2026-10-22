@@ -92,6 +92,7 @@ option(PROVER_CACHE "Caches blockhashes and maps, which makes a lot of sense on 
 option(PROVER_TRACE "Collect lightweight prover-internal spans for server export" OFF)
 option(CHAIN_ETH "includes the ETH verification support" ON)
 option(CHAIN_OP "includes the OP-Stack verification support (forced ON for language bindings)" ON)
+option(CHAIN_BTC "includes the Bitcoin verification support" OFF)
 option(ETH_ZKPROOF "includes the ETH ZK-Proof verification support" ON)
 option(ETH_ZKPROOF_BUILD_HOST "Build eth-sync-script host binary (Rust/SP1). Disable for clients/slaves or platforms where SP1 doesn't build." OFF)
 option(PAP "Enable Pragmatic Adaptive Privacy mode in verifier" ON)
@@ -100,6 +101,10 @@ option(PAP "Enable Pragmatic Adaptive Privacy mode in verifier" ON)
 # Make ETH availability visible to all targets (server + chains)
 if(CHAIN_ETH)
   add_definitions(-DCHAIN_ETH)
+endif()
+
+if(CHAIN_BTC)
+  add_definitions(-DCHAIN_BTC)
 endif()
 
 if(USE_MCL)
