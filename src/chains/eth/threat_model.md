@@ -115,7 +115,7 @@ The cross-check applies uniformly to all three sync paths:
 
 | Sync path                                | When triggered                                                                            | What is checked                                                                                                                                                                                                |
 | ---------------------------------------- | ----------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Verifier-driven LightClient updates**  | Verifier fetches `light_client/updates` itself when bridging a gap larger than the WSP.   | After the LCU apply loop, the verifier fetches `head/finality_checkpoints` and the matching `LightClientBootstrap`, then compares `hash_tree_root(bootstrap.currentSyncCommittee.pubkeys)` against the LCU-supplied `nextSyncCommittee.pubkeys` for the period preceding the bootstrap-anchor period. |
+| **Verifier-driven LightClient updates**  | Verifier fetches `light_client/updates` itself when bridging a gap larger than the WSP.   | Before the LCU apply loop, the verifier fetches `head/finality_checkpoints` and the matching `LightClientBootstrap`, verifies its header root against checkpointz and its full `currentSyncCommittee` Merkle branch against `header.stateRoot`, then compares `hash_tree_root(bootstrap.currentSyncCommittee.pubkeys)` against the LCU-supplied `nextSyncCommittee.pubkeys` for the period preceding the bootstrap-anchor period. |
 | **Prover-supplied `LCSyncData`**         | Prover pushes a batch of `light_client/updates` whose finalized header crosses the WSP.   | The prover embeds a `checkpoint_proof` (slim `LightClientBootstrap`-derived anchor) in the `bootstrap` union field. After applying the LCUs, the verifier reconstructs `sync_committee_root` from the LCU-tail pubkeys and the bootstrap's `aggregate_pubkey`, then walks the embedded Merkle branch to the anchor header's `stateRoot` and anchors the header against `checkpointz`. |
 | **Prover-supplied `ZKSyncData`**         | Prover pushes a recursive ZK proof for a sync committee period beyond the WSP.            | First choice: if `checkpoint_witness_keys` are configured **and** the prover delivered matching `signatures`, the EIP-191 signatures over the attested header are verified. Otherwise: the prover embeds a `checkpoint_proof` in the `checkpoint` union and the verifier cross-checks `hash_tree_root(zk_proof.pubkeys)` against the bootstrap's currentSyncCommittee root before anchoring the bootstrap header against `checkpointz`. |
 
@@ -164,11 +164,14 @@ container valid across Deneb (depth 5), Electra/Fulu (depth 6), and Gloas (depth
 
 Each path commits the new sync committee state only after the cross-check has succeeded:
 
-* The **verifier-driven path** runs `c4_check_weak_subjectivity` after the LCU apply
-  loop. On any failure (`C4_ERROR` from SSZ parse, header-root mismatch, missing LCU,
-  pubkeys disagreement) it calls `clear_sync_state(chain_id)` so the apply-loop's
-  optimistically-persisted committees are dropped and the next verification round
-  forces a fresh bootstrap.
+* The **verifier-driven path** runs `c4_check_weak_subjectivity` before the LCU apply
+  loop. Candidate committees remain in the request responses while checkpointz or
+  bootstrap requests are pending, so neither a retry nor another verification
+  context can obtain them from the shared trusted cache. Only after the independent
+  anchor and committee Merkle branch agree does the signature-verifying apply loop
+  persist the fetched committees. On validation failure (SSZ parse, header-root or
+  Merkle-branch mismatch, missing LCU, or pubkeys disagreement), synchronization
+  fails; anchor mismatches clear the local sync state to force a fresh bootstrap.
 * For prover-supplied **`LCSyncData` with `checkpoint_proof`** the cross-check runs
   as a **pre-scan over the SSZ-validated updates**, *before* the apply loop persists
   anything via `c4_set_sync_period`. The pre-scan extracts
