@@ -14,11 +14,23 @@ Recommended options for Embedded/WASM:
 
 ## Interface
 
-The verifier should export a function like:
+The verifier exposes the generic C API:
 
 ```c
-bool verify_sp1_proof(const uint8_t* proof, size_t proof_len, const uint8_t* public_inputs);
+bool c4_verify_zk_proof(bytes_t proof, bytes_t public_inputs, const uint8_t* program_hash);
 ```
+
+It hashes `public_inputs` exactly as supplied and binds the proof to the
+registered Verification Key selected by `program_hash`. The Ethereum sync
+application supplies a 168-byte `VerificationOutput`: the established
+136-byte roots/period/header/domain prefix followed by the 32-byte SP1
+`hash_bn254()` program hash. It reconstructs that final field from the
+registered key before calling the generic verifier.
+
+`verify_zk_proof(proof, public_inputs)` is the default Colibri application wrapper.
+It additionally requires the current 168-byte layout and an appended identity equal
+to the pinned program key. The native CLI and period-store artifact validation use
+this wrapper, so an untrusted public-value file cannot choose another recursive identity.
 
 ## Workflow
 

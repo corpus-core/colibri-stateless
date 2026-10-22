@@ -6,7 +6,10 @@ use k256::SecretKey;
 use sha2::{Digest, Sha256};
 use sha3::{Digest as Sha3Digest, Keccak256};
 use sp1_sdk::network::{FulfillmentStrategy, NetworkMode};
-use sp1_sdk::{Elf, HashableKey, Prover, ProverClient, ProveRequest, ProvingKey, SP1ProofWithPublicValues, SP1Stdin, SP1VerifyingKey};
+use sp1_sdk::{
+    Elf, HashableKey, ProveRequest, Prover, ProverClient, ProvingKey, SP1ProofWithPublicValues,
+    SP1Stdin, SP1VerifyingKey,
+};
 use std::fs::File;
 use std::io::Read;
 use std::time::{Duration, Instant};
@@ -118,7 +121,9 @@ fn save_groth16_outputs(
         .unwrap_or_else(|_| proof_output.replace("_groth16.bin", ".bin"));
 
     println!("Saving Compressed Proof to {}", compressed_path);
-    compressed.save(&compressed_path).expect("Failed to save compressed proof");
+    compressed
+        .save(&compressed_path)
+        .expect("Failed to save compressed proof");
 
     // Save VK for the compressed proof (needed as input for the next recursion step).
     let vk_output = std::env::var("VK_OUTPUT_FILE").unwrap_or("vk_groth16.bin".to_string());
@@ -127,7 +132,10 @@ fn save_groth16_outputs(
     let vk_bytes = bincode::serialize(vk).expect("Failed to serialize VK");
     std::fs::write(&vk_compressed_path, vk_bytes).expect("Failed to save VK");
 
-    println!("Groth16 Proof generated successfully in {:?}", start.elapsed());
+    println!(
+        "Groth16 Proof generated successfully in {:?}",
+        start.elapsed()
+    );
 
     println!("Saving SP1 Groth16 proof to {}", proof_output);
     proof.save(&proof_output).expect("Failed to save proof");
@@ -178,6 +186,31 @@ fn verify_proof<P: Prover>(
     }
 }
 
+/// Build the guest input from the current ELF's key and reject stale or foreign children early.
+///
+/// `previous_key` identifies the supplied compressed child; the other fields are moved
+/// into stdin unchanged. The guest and final verifier still enforce authorization
+/// cryptographically: this host check also keeps execution-only simulation fail-closed.
+fn guest_input(
+    proof_data: ProofData,
+    recursion_data: Option<RecursionData>,
+    previous_key: Option<[u32; 8]>,
+    vk: &SP1VerifyingKey,
+) -> SP1GuestInput {
+    let program_vkey_hash = vk.hash_u32();
+    if let Some(previous_key) = previous_key {
+        assert_eq!(
+            previous_key, program_vkey_hash,
+            "Previous proof program identity mismatch"
+        );
+    }
+    SP1GuestInput {
+        proof_data,
+        recursion_data,
+        program_vkey_hash,
+    }
+}
+
 #[tokio::main]
 async fn main() {
     println!("Starting eth-sync-script...");
@@ -193,6 +226,7 @@ async fn main() {
 
     // Build Recursion Data
     let mut recursion_data = None;
+    let mut previous_key = None;
 
     if let Some(prev_proof_path) = args.prev_proof {
         let prev_vk_path = args
@@ -225,22 +259,15 @@ async fn main() {
         };
 
         stdin.write_proof(*compressed_proof, vk.vk.clone());
+        previous_key = Some(vk.hash_u32());
 
         recursion_data = Some(RecursionData {
-            vkey_hash: vk.vk.hash_u32(),
             public_values_digest: digest,
             public_values: proof.public_values.to_vec(),
         });
 
         println!("Recursion enabled. Validating chain from prev period.");
     }
-
-    // Write the wrapped input
-    let guest_input = SP1GuestInput {
-        proof_data,
-        recursion_data,
-    };
-    stdin.write(&guest_input);
 
     let elf_path = std::env::var("ELF_PATH").unwrap_or_else(|_| {
         "../program/target/riscv32im-succinct-zkvm-elf/release/eth-sync-program".to_string()
@@ -253,8 +280,18 @@ async fn main() {
         println!("Executing program...");
         // Execution always runs locally in the executor, regardless of the proving backend.
         let client = ProverClient::builder().cpu().build().await;
+        let pk = client
+            .setup(elf)
+            .await
+            .expect("Failed to setup proving key");
+        stdin.write(&guest_input(
+            proof_data,
+            recursion_data,
+            previous_key,
+            pk.verifying_key(),
+        ));
         let start = Instant::now();
-        let (mut output, report) = client.execute(elf, stdin).await.unwrap();
+        let (mut output, report) = client.execute(pk.elf().clone(), stdin).await.unwrap();
         println!("Execution finished in {:?}", start.elapsed());
         println!("Cycles: {}", report.total_instruction_count());
 
@@ -286,8 +323,12 @@ async fn main() {
                 .network_for(NetworkMode::Mainnet)
                 .build()
                 .await;
-            let pk = client.setup(elf).await.expect("Failed to setup proving key");
+            let pk = client
+                .setup(elf)
+                .await
+                .expect("Failed to setup proving key");
             let vk = pk.verifying_key().clone();
+            stdin.write(&guest_input(proof_data, recursion_data, previous_key, &vk));
 
             // Auction tuning. `SP1_TIMEOUT_SECS` overrides the request timeout; if
             // `SP1_GAS_LIMIT` is set we skip on-chain simulation and use that explicit cap.
@@ -297,8 +338,9 @@ async fn main() {
                     .and_then(|s| s.parse().ok())
                     .unwrap_or(3600),
             );
-            let gas_limit: Option<u64> =
-                std::env::var("SP1_GAS_LIMIT").ok().and_then(|s| s.parse().ok());
+            let gas_limit: Option<u64> = std::env::var("SP1_GAS_LIMIT")
+                .ok()
+                .and_then(|s| s.parse().ok());
 
             if args.groth16 {
                 println!("1. Generating Compressed Proof (for recursion)...");
@@ -341,8 +383,12 @@ async fn main() {
         } else {
             println!("Using local CPU prover (Groth16 wrap requires Docker/native-gnark)...");
             let client = ProverClient::builder().cpu().build().await;
-            let pk = client.setup(elf).await.expect("Failed to setup proving key");
+            let pk = client
+                .setup(elf)
+                .await
+                .expect("Failed to setup proving key");
             let vk = pk.verifying_key().clone();
+            stdin.write(&guest_input(proof_data, recursion_data, previous_key, &vk));
 
             if args.groth16 {
                 println!("1. Generating Compressed Proof (for recursion)...");

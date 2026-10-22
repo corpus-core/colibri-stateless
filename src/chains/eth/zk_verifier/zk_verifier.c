@@ -17,9 +17,27 @@ typedef struct vk_node {
 
 static vk_node_t* vk_registry = NULL;
 
+static void init_default_vk(void);
+
+/**
+ * Find a verification key already present in the global registry.
+ *
+ * @param program_hash SP1 program hash identifying the key.
+ * @return Registered key, or NULL if the hash is absent.
+ */
+static const zk_vk_t* find_registered_vk(const uint8_t* program_hash) {
+  vk_node_t* curr = vk_registry;
+  while (curr) {
+    if (memcmp(curr->vk.program_hash, program_hash, C4_ZK_PROGRAM_HASH_LEN) == 0)
+      return &curr->vk;
+    curr = curr->next;
+  }
+  return NULL;
+}
+
 void c4_zk_register_vk(const zk_vk_t* vk) {
   // Check if already registered
-  if (c4_zk_get_vk(vk->program_hash) != NULL) return;
+  if (find_registered_vk(vk->program_hash) != NULL) return;
 
   vk_node_t* node = (vk_node_t*) malloc(sizeof(vk_node_t));
   if (!node) return; // OOM
@@ -43,15 +61,13 @@ void c4_zk_register_vk(const zk_vk_t* vk) {
 }
 
 const zk_vk_t* c4_zk_get_vk(const uint8_t* program_hash) {
-  vk_node_t* curr = vk_registry;
-  while (curr) {
-    if (memcmp(curr->vk.program_hash, program_hash, 32) == 0) {
-      return &curr->vk;
-    }
-    curr = curr->next;
-  }
-  return NULL;
+  init_default_vk();
+  return find_registered_vk(program_hash);
 }
+
+/**
+ * Register the compiled-in Groth16 verification key once.
+ */
 
 static void init_default_vk(void) {
   static bool initialized = false;
@@ -61,7 +77,7 @@ static void init_default_vk(void) {
   memset(&vk, 0, sizeof(vk));
 
   // Copy Program Hash
-  memcpy(vk.program_hash, VK_PROGRAM_HASH, 32);
+  memcpy(vk.program_hash, VK_PROGRAM_HASH, C4_ZK_PROGRAM_HASH_LEN);
 
   // Parse Alpha
   uint8_t tmp[128]; // Buffer for points (up to 128 bytes)
@@ -147,7 +163,6 @@ static void init_default_vk(void) {
 #define ZK_NUM_INPUTS    5
 
 bool c4_verify_zk_proof(bytes_t proof, bytes_t public_inputs, const uint8_t* program_hash) {
-  init_default_vk();
   const zk_vk_t* vk = c4_zk_get_vk(program_hash);
   if (!vk) {
     fprintf(stderr, "ZK Verifier: VK not found for program hash\n");
@@ -241,6 +256,11 @@ bool c4_verify_zk_proof(bytes_t proof, bytes_t public_inputs, const uint8_t* pro
 }
 
 bool verify_zk_proof(bytes_t proof, bytes_t public_inputs) {
-
+  if (public_inputs.len != C4_ZK_VERIFICATION_OUTPUT_LEN ||
+      memcmp(public_inputs.data + C4_ZK_VERIFICATION_OUTPUT_PROGRAM_HASH_OFFSET,
+             VK_PROGRAM_HASH, C4_ZK_PROGRAM_HASH_LEN) != 0) {
+    fprintf(stderr, "ZK Verifier: recursive program identity mismatch\n");
+    return false;
+  }
   return c4_verify_zk_proof(proof, public_inputs, VK_PROGRAM_HASH);
 }
