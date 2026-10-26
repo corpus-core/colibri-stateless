@@ -212,6 +212,12 @@ build_macos() {
   lipo -create "${dylibs[@]}" -output "$universal"
   echo "Copied: $universal (universal)"
 
+  # CMake POST_BUILD for each arch overwrites native/libcolibri.dylib with that
+  # slice only; the last arch is x86_64, which breaks arm64 Dart VM tests.
+  # Restore a host-loadable universal binary for local `dart test` / FFI use.
+  cp "$universal" "$DART_NATIVE_DIR/libcolibri.dylib"
+  echo "Restored: $DART_NATIVE_DIR/libcolibri.dylib (universal, for Dart host)"
+
   local plugin_frameworks="$FLUTTER_PLUGIN_DIR/macos/Frameworks"
   if [[ -d "$FLUTTER_PLUGIN_DIR/macos" ]]; then
     mkdir -p "$plugin_frameworks"

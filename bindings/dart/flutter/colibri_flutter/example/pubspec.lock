@@ -36,17 +36,19 @@ packages:
   colibri_flutter:
     dependency: "direct main"
     description:
-      path: ".."
-      relative: true
-    source: path
-    version: "0.2.3"
+      name: colibri_flutter
+      sha256: "5404c73d3930eb85c6a92cc2b6d5995935842cb223d322deeb922878e032b60f"
+      url: "https://pub.dev"
+    source: hosted
+    version: "3.0.2"
   colibri_stateless:
-    dependency: "direct overridden"
+    dependency: transitive
     description:
-      path: "../../.."
-      relative: true
-    source: path
-    version: "0.2.0"
+      name: colibri_stateless
+      sha256: "10a4bc6e0b1dd163910f60ae1dcfb14439606f173f631ed52f290dbd66ec6001"
+      url: "https://pub.dev"
+    source: hosted
+    version: "3.0.2"
   collection:
     dependency: transitive
     description:
