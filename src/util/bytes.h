@@ -234,6 +234,39 @@ size_t buffer_grow(buffer_t* buffer, size_t min_len);
  */
 void* safe_malloc(size_t size) RETURNS_NONNULL M_RET;
 
+#if defined(_MSC_VER)
+#define c4_alignof(type) __alignof(type)
+#else
+#define c4_alignof(type) _Alignof(type)
+#endif
+
+/**
+ * Allocates `size` bytes aligned to `alignment`.
+ *
+ * `malloc` only guarantees alignment up to `max_align_t` (16 bytes on most
+ * 64-bit targets). Types such as `intx_uint256_t` are aligned to 32 bytes, and
+ * GCC then emits aligned vector moves. A 16-byte-aligned heap object makes
+ * those moves fault.
+ *
+ * `alignment` must be a power of two. Smaller or non-power-of-two values are
+ * raised to `sizeof(void *)`. The result is never NULL: allocation failure
+ * aborts, same as `safe_malloc`. Release the pointer with `safe_aligned_free`.
+ *
+ * @param alignment required alignment in bytes
+ * @param size number of bytes to allocate
+ * @return aligned pointer
+ */
+void* safe_aligned_alloc(size_t alignment, size_t size) RETURNS_NONNULL M_RET;
+
+/**
+ * Frees a pointer returned by `safe_aligned_alloc`.
+ *
+ * `free` must not be used on that pointer. NULL is ignored.
+ *
+ * @param ptr aligned pointer, or NULL
+ */
+void safe_aligned_free(void* ptr);
+
 /**
  * calls calloc and check if the returned pointer is not NULL.
  * if the memory could not be allocated, the program will exit with an error message.

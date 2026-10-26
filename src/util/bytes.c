@@ -71,6 +71,22 @@ void* safe_malloc(size_t size) {
   return ptr;
 }
 
+void* safe_aligned_alloc(size_t alignment, size_t size) {
+  if (alignment < sizeof(void*) || (alignment & (alignment - 1)) != 0) alignment = sizeof(void*);
+  if (size == 0) size = 1;
+  size_t prefix = alignment - 1 + sizeof(void*);
+  if (size > SIZE_MAX - prefix) SAFE_ALLOC_ERROR_EXIT("aligned_alloc", "size overflow", "requested size too large");
+  void*     raw     = safe_malloc(size + prefix);
+  uintptr_t aligned = ((uintptr_t) raw + sizeof(void*) + alignment - 1) & ~(uintptr_t) (alignment - 1);
+  ((void**) aligned)[-1] = raw;
+  return (void*) aligned;
+}
+
+void safe_aligned_free(void* ptr) {
+  if (!ptr) return;
+  free(((void**) ptr)[-1]);
+}
+
 void* safe_calloc(size_t num, size_t size) {
   void* ptr = calloc(num, size);
   if (num > 0 && size > 0 && ptr == NULL) {
