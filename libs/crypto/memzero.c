@@ -23,8 +23,10 @@
 #define HAVE_EXPLICIT_BZERO 1
 #endif
 
-// Newlib
-#if defined(__NEWLIB__)
+// Newlib declares explicit_bzero only when BSD interfaces are visible.
+// The embedded toolchain defines _POSIX_C_SOURCE, which clears __BSD_VISIBLE
+// and leaves the function undeclared. The volatile loop below is the fallback.
+#if defined(__NEWLIB__) && defined(__BSD_VISIBLE) && __BSD_VISIBLE
 #define HAVE_EXPLICIT_BZERO 1
 #endif
 
