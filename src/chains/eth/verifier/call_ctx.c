@@ -66,7 +66,7 @@ bool eth_get_call_block_context_from_proof(verify_ctx_t* ctx, eth_call_block_con
   if (!call_ctx) return false;
   if (!call_ctx->el_header.data) {
     if (ctx->proof.def && ctx->proof.def->type != SSZ_TYPE_NONE) {
-      if (c4_verify_block(ctx, ssz_get(&ctx->proof, "elProof"), &call_ctx->el_header, &call_ctx->el_block_hash) != C4_SUCCESS) return false;
+      if (c4_verify_block(ctx, ssz_get(&ctx->proof, "elProof"), &call_ctx->el_header, call_ctx->el_block_hash) != C4_SUCCESS) return false;
     }
     else
       return false;
