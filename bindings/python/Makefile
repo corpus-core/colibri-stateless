@@ -1,5 +1,5 @@
 # Makefile for Colibri Python Bindings
-# Copyright (c) 2025 corpus.core
+# Copyright (c) 2025,2026 corpus.core GmbH
 # SPDX-License-Identifier: MIT
 
 .PHONY: help build clean install install-dev test test-verbose lint format check docs examples all

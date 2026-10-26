@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # iOS XCFramework Creation Script (Device + Simulator)
-# Copyright (c) 2025 corpus.core
+# Copyright (c) 2025,2026 corpus.core GmbH
 
 set -e
 

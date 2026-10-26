@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Colibri Python Bindings Build Script
-# Copyright (c) 2025 corpus.core
+# Copyright (c) 2025,2026 corpus.core GmbH
 # SPDX-License-Identifier: MIT
 
 set -e  # Exit on any error

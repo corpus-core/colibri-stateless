@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025 corpus.core
+ * Copyright (c) 2025,2026 corpus.core GmbH
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
  * this software and associated documentation files (the "Software"), to deal in
@@ -133,6 +133,6 @@ void c4_print_version(FILE* out, const char* program_name) {
   fprintf(out, "  OP Stack:         disabled\n");
 #endif
 
-  fprintf(out, "\nCopyright (c) 2025 corpus.core\n");
+  fprintf(out, "\nCopyright (c) 2025,2026 corpus.core GmbH\n");
   fprintf(out, "License: PolyForm Noncommercial 1.0.0\n");
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025 corpus.core
+ * Copyright (c) 2025,2026 corpus.core GmbH
  * SPDX-License-Identifier: MIT
  *
  * BN254 backend using MCL (`mclBn_*`, curve SNARK1 / Alt-BN128). Selected when `USE_MCL=ON`.

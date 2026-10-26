@@ -2,7 +2,7 @@
 
 # Swift Quick Build Script für lokale Entwicklung
 # Baut nur für die aktuelle Architektur (viel schneller)
-# Copyright (c) 2025 corpus.core
+# Copyright (c) 2025,2026 corpus.core GmbH
 
 set -e
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025 corpus.core
+ * Copyright (c) 2025,2026 corpus.core GmbH
  * SPDX-License-Identifier: MIT
  *
  * EIP-197 BN128 pairing check (address 0x08). Input is a concatenation of 192-byte

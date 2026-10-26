@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025 corpus.core
+ * Copyright (c) 2025,2026 corpus.core GmbH
  * SPDX-License-Identifier: MIT
  *
  * Portable BN254 implementation (intx field arithmetic, Jacobian G1, optimal ate pairing).

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2026 corpus.core
+ * Copyright (c) 2025,2026 corpus.core GmbH
  * SPDX-License-Identifier: MIT
  *
  * Tests for ETH_EL_PROOF_UNION index 2 (sequencerProof) and the OP verify hook.

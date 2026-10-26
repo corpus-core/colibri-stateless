@@ -33,7 +33,7 @@ Every new test file MUST follow this exact structure:
 
 ```c
 /*
- * Copyright (c) 2025 corpus.core
+ * Copyright (c) 2025,2026 corpus.core GmbH
  * SPDX-License-Identifier: MIT
  */
 

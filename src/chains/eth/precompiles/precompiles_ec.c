@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025 corpus.core
+ * Copyright (c) 2025,2026 corpus.core GmbH
  * SPDX-License-Identifier: MIT
  *
  * EIP-196/197 BN128 precompiles (`ECADD` 0x06, `ECMUL` 0x07). Included from `precompiles_basic.c`
