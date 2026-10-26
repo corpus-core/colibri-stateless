@@ -97,7 +97,7 @@ void call_account_set_storage(call_account_t* account, const bytes32_t key, cons
 
 void call_account_reset_accessed(call_account_t* list) {
   for (call_account_t* n = list; n; n = n->next) {
-    n->flags &= ~(ACCOUNT_ACCESSED | ACCOUNT_BALANCE_MODIFIED | ACCOUNT_NONCE_MODIFIED);
+    n->flags &= ~(ACCOUNT_ACCESSED | ACCOUNT_BALANCE_MODIFIED | ACCOUNT_NONCE_MODIFIED | ACCOUNT_CREATED);
     memcpy(n->src_balance, n->balance, 32);
     n->src_nonce = n->nonce;
     for (call_storage_t* s = n->storage; s; s = s->next) {
@@ -118,7 +118,7 @@ void eth_call_account_serialize(buffer_t* out, const call_account_t* account) {
   uint8_t version = CACHE_VERSION;
   buffer_append(out, bytes(&version, 1));
 
-  uint32_to_le(tmp4, account->flags);
+  uint32_to_le(tmp4, account->flags & ~ACCOUNT_CREATED);
   buffer_append(out, bytes(tmp4, 4));
 
   uint64_to_le(tmp8, account->nonce);

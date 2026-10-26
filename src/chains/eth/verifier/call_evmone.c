@@ -24,6 +24,7 @@
 #include "bytes.h"
 #include "call_ctx.h"
 #include "crypto.h"
+#include "eth_account.h"
 #include "eth_verify.h"
 #include "evmone_c_wrapper.h"
 #include "json.h"
@@ -168,6 +169,21 @@ static bool host_account_exists(void* context, const evmc_address* addr) {
   return false;
 }
 
+/**
+ * Records that an SLOAD or SSTORE has no storage proof.
+ *
+ * @param ctx host context
+ * @param addr account that was read
+ * @param key storage key that was read
+ */
+static void fail_unproven_storage(evmone_context_t* ctx, const evmc_address* addr, const evmc_bytes32* key) {
+  call_mark_storage_miss(ctx);
+  if (ctx->ctx->state.error) return;
+  char msg[180];
+  sbprintf(msg, "unproven storage slot 0x%x for 0x%x", bytes((uint8_t*) key->bytes, 32), bytes((uint8_t*) addr->bytes, 20));
+  c4_state_add_error(&ctx->ctx->state, msg);
+}
+
 static evmc_bytes32 host_get_storage(void* context, const evmc_address* addr, const evmc_bytes32* key) {
   evmone_context_t* ctx = (evmone_context_t*) context;
   debug_print_address("get_storage for account", addr);
@@ -188,13 +204,26 @@ static evmc_bytes32 host_get_storage(void* context, const evmc_address* addr, co
       debug_print_bytes32("get_storage result (full_state override -> zero)", &result);
       return result;
     }
+    // The account proof commits to an empty storage trie, so every slot is zero.
+    if ((acc->flags & ACCOUNT_HAS_STORAGE_ROOT) && memcmp(acc->storage_root, EMPTY_ROOT_HASH, 32) == 0) {
+      debug_print_bytes32("get_storage result (empty storage root)", &result);
+      return result;
+    }
+    // CREATE/CREATE2 starts from empty storage. The new account has no proof yet.
+    if (acc->flags & ACCOUNT_CREATED) {
+      debug_print_bytes32("get_storage result (created account)", &result);
+      return result;
+    }
   }
 
   if (ctx->pap_mode) {
     call_account_lazy_fetch_storage(ctx, addr->bytes, key->bytes, result.bytes);
     debug_print_bytes32("get_storage result (pap lazy)", &result);
+    return result;
   }
 
+  EVM_LOG("get_storage: unproven slot");
+  fail_unproven_storage(ctx, addr, key);
   return result;
 }
 
@@ -433,6 +462,25 @@ static void bump_creator_nonce(evmone_context_t* ctx, const address_t sender) {
   acc->flags |= ACCOUNT_HAS_NONCE;
 }
 
+/**
+ * EIP-684: creation fails when the target already has code or a non-zero nonce.
+ *
+ * A missing account, or one only warmed by `access_account`, has neither and
+ * is not a collision. Storage alone does not collide; a successful create
+ * starts from an empty trie.
+ *
+ * @param ctx host context of the caller
+ * @param address computed CREATE or CREATE2 address
+ * @return true when init code must not run
+ */
+static bool create_target_collides(evmone_context_t* ctx, const address_t address) {
+  call_account_t* prior = call_account_find(ctx, address);
+  if (!prior) return false;
+  if ((prior->flags & ACCOUNT_HAS_NONCE) && prior->nonce != 0) return true;
+  if ((prior->flags & ACCOUNT_HAS_CODE) && prior->code.len > 0) return true;
+  return false;
+}
+
 static void host_call(void* context, const struct evmone_message* msg, const uint8_t* code, size_t code_size, struct evmone_result* result) {
   evmone_context_t* ctx = (evmone_context_t*) context;
   EVM_LOG("========Executing child call...");
@@ -489,6 +537,18 @@ static void host_call(void* context, const struct evmone_message* msg, const uin
   if (is_create) {
     bump_creator_nonce(ctx, msg->sender.bytes);
     EVM_LOG("CREATE/CREATE2: bumped creator nonce");
+    // Light failure: the sender nonce stays incremented and evmone leaves the
+    // pushed address at 0 because the status is not success. Refund the gas
+    // stipend; the init-code cost was already charged by the VM.
+    if (create_target_collides(ctx, msg->destination.bytes)) {
+      EVM_LOG("CREATE/CREATE2: collision, creation fails");
+      result->status_code = 1;
+      result->gas_left    = msg->gas;
+      result->gas_refund  = 0;
+      result->output_data = NULL;
+      result->output_size = 0;
+      return;
+    }
   }
 
   const uint8_t* execution_code      = code;
@@ -545,8 +605,12 @@ static void host_call(void* context, const struct evmone_message* msg, const uin
   // Spurious Dragon+: newly created accounts start at nonce 1 (revertible with child).
   if (is_create) {
     call_account_t* created = call_account_get_or_create(&child, msg->destination.bytes);
-    created->nonce          = 1;
-    created->flags |= ACCOUNT_HAS_NONCE;
+    // The copy includes any previously proven slots. A new account does not.
+    call_storage_free_list(created->storage);
+    created->storage = NULL;
+    memcpy(created->storage_root, EMPTY_ROOT_HASH, 32);
+    created->nonce = 1;
+    created->flags |= ACCOUNT_HAS_NONCE | ACCOUNT_HAS_STORAGE_ROOT | ACCOUNT_CREATED;
   }
 
   // Value transfer for CALL/CREATE/CREATE2: debit sender, credit destination on
@@ -598,6 +662,17 @@ static void host_call(void* context, const struct evmone_message* msg, const uin
     }
   }
   add_evm_result(ctx, &exec_result);
+
+  if (is_create && exec_result.status_code == 0) {
+    // Drop slots that belonged to the address before this create. context_apply
+    // then copies only the slots written by the init code. The storage root
+    // itself is not copied by context_apply.
+    call_account_t* parent_acc = call_account_get_or_create(ctx, msg->destination.bytes);
+    call_storage_free_list(parent_acc->storage);
+    parent_acc->storage = NULL;
+    memcpy(parent_acc->storage_root, EMPTY_ROOT_HASH, 32);
+    parent_acc->flags |= ACCOUNT_HAS_STORAGE_ROOT | ACCOUNT_CREATED;
+  }
 
   if (exec_result.status_code == 0)
     context_apply(&child);
@@ -661,7 +736,7 @@ static evmc_bytes32 host_get_block_hash(void* context, int64_t number) {
   EVM_LOG("get_block_hash for block number: %l", (size_t) number);
   evmc_bytes32 result = {0};
   c4_status_t  status = call_fetch_block_hash(ctx, number, result.bytes);
-  if (status == C4_PENDING) ctx->storage_miss = true;
+  if (status == C4_PENDING) call_mark_storage_miss(ctx);
   debug_print_bytes32("get_block_hash result", &result);
   return result;
 }

@@ -73,6 +73,7 @@ typedef enum {
   ACCOUNT_ACCESSED         = 1 << 8,  // EIP-2929: account was accessed in this transaction
   ACCOUNT_BALANCE_MODIFIED = 1 << 9,  // balance was changed during simulation
   ACCOUNT_NONCE_MODIFIED   = 1 << 10, // nonce was changed during simulation
+  ACCOUNT_CREATED          = 1 << 11, // created in this transaction; unread slots are zero
 } call_account_flags_t;
 
 // :: Unified account

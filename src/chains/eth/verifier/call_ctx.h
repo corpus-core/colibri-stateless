@@ -234,6 +234,17 @@ void evm_call_ctx_free(evm_call_ctx_t* evm);
 call_account_t* call_account_find(evmone_context_t* ctx, const address_t address);
 call_account_t* call_account_get_or_create(evmone_context_t* ctx, const address_t address);
 
+/**
+ * Marks this frame and every parent so the EVM run is discarded.
+ *
+ * A child host context is a copy. Setting `storage_miss` only there does not
+ * reach the check at the end of the top-level call, so a nested read would
+ * otherwise finish as success with a zero word.
+ *
+ * @param ctx frame that needs data or saw an unproven read
+ */
+void call_mark_storage_miss(evmone_context_t* ctx);
+
 // :: PAP-mode lazy fetchers
 
 void    call_account_lazy_fetch_storage(evmone_context_t* ctx, const address_t address, const bytes32_t key, bytes32_t result);

@@ -4,7 +4,9 @@
  */
 
 #include "cache.h"
+#include "chains/eth/server/eth_clients.h"
 #include "logger.h"
+#include "rpc_body.h"
 #include "server.h"
 #include <stddef.h> // Added for offsetof
 #include <string.h>
@@ -1173,8 +1175,11 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
 
     curl_easy_setopt(easy, CURLOPT_URL, r->url);
     if (r->req->payload.len && r->req->payload.data) {
-      curl_easy_setopt(easy, CURLOPT_POSTFIELDS, r->req->payload.data);
-      curl_easy_setopt(easy, CURLOPT_POSTFIELDSIZE, (long) r->req->payload.len);
+      bool    nethermind = servers && servers->client_types && selected_index >= 0 && selected_index < (int) servers->count && (servers->client_types[selected_index] & RPC_CLIENT_NETHERMIND) != 0;
+      buffer_free(&r->post_body);
+      bytes_t body = c4_nethermind_access_list_body(r->req->payload, nethermind, &r->post_body);
+      curl_easy_setopt(easy, CURLOPT_POSTFIELDS, body.data);
+      curl_easy_setopt(easy, CURLOPT_POSTFIELDSIZE, (long) body.len);
     }
 
     // Set up headers
@@ -1333,6 +1338,7 @@ void c4_start_curl_requests(request_t* req, c4_state_t* state) {
 
 static void free_single_request(single_request_t* r) {
   buffer_free(&r->buffer);
+  buffer_free(&r->post_body);
   safe_free(r->url);
   if (r->headers) {
     curl_slist_free_all(r->headers);

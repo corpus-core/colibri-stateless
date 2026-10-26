@@ -283,7 +283,8 @@ typedef struct {
   data_request_t*    req;
   CURL*              curl; // list of pending handles
   buffer_t           buffer;
-  request_t*         parent;  // pointer to parent request_t
+  buffer_t           post_body; // rewritten JSON-RPC body (Nethermind access list); empty = use req->payload
+  request_t*         parent;    // pointer to parent request_t
   struct curl_slist* headers; // Store the headers list to free it later
   uint64_t           start_time;
   uint64_t           end_time;

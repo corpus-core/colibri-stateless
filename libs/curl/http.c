@@ -23,6 +23,7 @@
 
 #include "http.h"
 #include "logger.h"
+#include "rpc_body.h"
 #include "state.h"
 #include <curl/curl.h>
 #include <stdlib.h>
@@ -60,6 +61,7 @@ typedef struct {
   data_request_t* request;
   CURL*           curl;
   buffer_t        buffer;
+  buffer_t        post_body;
   char*           url;
 } curl_request_t;
 
@@ -177,6 +179,7 @@ char*       cache_dir = NULL;
 static void curl_request_free(curl_request_t* creq) {
   safe_free(creq->url);
   buffer_free(&creq->buffer);
+  buffer_free(&creq->post_body);
   curl_easy_cleanup(creq->curl);
 }
 
@@ -209,6 +212,73 @@ char* curl_set_test_dir(const char* dir) {
   //  if (MKDIR(REQ_TEST_DIR) != 0) perror("Error creating directory");
 }
 #endif
+
+static size_t curl_append(void* contents, size_t size, size_t nmemb, void* buf);
+
+static bool payload_is_create_access_list(bytes_t payload) {
+  const char* needle = "\"eth_createAccessList\"";
+  size_t      n      = sizeof("\"eth_createAccessList\"") - 1;
+  if (!payload.data || payload.len < n) return false;
+  for (uint32_t i = 0; i + n <= payload.len; i++) {
+    if (memcmp(payload.data + i, needle, n) == 0) return true;
+  }
+  return false;
+}
+
+/**
+ * One web3_clientVersion probe per execution URL.
+ *
+ * The CLI has no server-side client map. Nethermind is the only client that
+ * accepts the extra `optimize` parameter, so the probe result decides whether
+ * the access-list body is rewritten. A failed probe is cached as "not
+ * Nethermind" and the request keeps the portable two-parameter body.
+ *
+ * @param url execution RPC URL already selected for this request
+ * @return true when the endpoint identified itself as Nethermind
+ */
+static bool curl_url_is_nethermind(const char* url) {
+  typedef struct {
+    char* url;
+    bool  nethermind;
+  } rpc_client_cache_t;
+  static rpc_client_cache_t cache[16];
+  static int                cache_len = 0;
+
+  if (!url || strncmp(url, "http", 4) != 0) return false;
+  for (int i = 0; i < cache_len; i++)
+    if (strcmp(cache[i].url, url) == 0) return cache[i].nethermind;
+  if (cache_len >= 16) return false;
+
+  bool               is_nm   = false;
+  CURL*              curl    = curl_easy_init();
+  buffer_t           buf     = {0};
+  struct curl_slist* headers = NULL;
+  if (curl) {
+    const char* body = "{\"jsonrpc\":\"2.0\",\"method\":\"web3_clientVersion\",\"params\":[],\"id\":1}";
+    headers          = curl_slist_append(headers, "Content-Type: application/json");
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long) strlen(body));
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_append);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buf);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 5L);
+    curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+    if (curl_easy_perform(curl) == CURLE_OK && buf.data.data && buf.data.data[buf.data.len] == 0)
+      is_nm = strstr((char*) buf.data.data, "Nethermind/") != NULL;
+  }
+  buffer_free(&buf);
+  if (headers) curl_slist_free_all(headers);
+  if (curl) curl_easy_cleanup(curl);
+
+  char* copy = strdup(url);
+  if (!copy) return is_nm;
+  cache[cache_len].url        = copy;
+  cache[cache_len].nethermind = is_nm;
+  cache_len++;
+  return is_nm;
+}
 
 static size_t curl_append(void* contents, size_t size, size_t nmemb, void* buf) {
   buffer_t* buffer = (buffer_t*) buf;
@@ -298,8 +368,11 @@ static bool configure_curl(curl_request_t* creq) {
 
   curl_easy_setopt(creq->curl, CURLOPT_URL, creq->url);
   if (req->payload.len && req->payload.data) {
-    curl_easy_setopt(creq->curl, CURLOPT_POSTFIELDS, req->payload.data);
-    curl_easy_setopt(creq->curl, CURLOPT_POSTFIELDSIZE, (long) req->payload.len);
+    bool    nethermind = payload_is_create_access_list(req->payload) && curl_url_is_nethermind(creq->url);
+    buffer_free(&creq->post_body);
+    bytes_t body = c4_nethermind_access_list_body(req->payload, nethermind, &creq->post_body);
+    curl_easy_setopt(creq->curl, CURLOPT_POSTFIELDS, body.data);
+    curl_easy_setopt(creq->curl, CURLOPT_POSTFIELDSIZE, (long) body.len);
   }
 
   struct curl_slist* headers = NULL;
@@ -556,6 +629,7 @@ void curl_fetch_all(c4_state_t* state) {
             curl_multi_remove_handle(multi_handle, easy_handle);
             safe_free(creq->url);
             buffer_free(&creq->buffer);
+            buffer_free(&creq->post_body);
             curl_easy_cleanup(easy_handle);
             safe_free(creq);
           }
