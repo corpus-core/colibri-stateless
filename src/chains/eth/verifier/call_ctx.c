@@ -66,12 +66,16 @@ bool eth_get_call_block_context_from_proof(verify_ctx_t* ctx, eth_call_block_con
   if (!call_ctx) return false;
   if (!call_ctx->el_header.data) {
     if (ctx->proof.def && ctx->proof.def->type != SSZ_TYPE_NONE) {
-      if (c4_verify_block(ctx, ssz_get(&ctx->proof, "elProof"), &call_ctx->el_header, &call_ctx->el_block_hash) != C4_SUCCESS) return false;
+      if (c4_verify_block(ctx, ssz_get(&ctx->proof, "elProof"), &call_ctx->el_header, call_ctx->el_block_hash) != C4_SUCCESS) return false;
     }
     else
       return false;
   }
   return eth_get_call_block_context_from_header_data(call_ctx->el_header, out);
+}
+
+void call_mark_storage_miss(evmone_context_t* ctx) {
+  for (evmone_context_t* frame = ctx; frame; frame = frame->parent) frame->storage_miss = true;
 }
 
 call_account_t* call_account_find(evmone_context_t* ctx, const address_t address) {
@@ -151,7 +155,7 @@ void call_account_lazy_fetch_storage(evmone_context_t* ctx, const address_t addr
       // the retry budget, instead of treating the missing `result` as zero.
       if (eth_is_oblivious_unavailable(response)) {
         if (c4_state_retry_after(req, eth_oblivious_retry_delay(req->chain_id, req->retry_count), ETH_OBLIVIOUS_MAX_RETRIES))
-          ctx->storage_miss = true;
+          call_mark_storage_miss(ctx);
         else
           c4_state_add_error(&ctx->ctx->state, "oblivious node did not provide the proof within the retry budget");
         return;
@@ -217,7 +221,7 @@ void call_account_lazy_fetch_storage(evmone_context_t* ctx, const address_t addr
     // A transport-level error against the oblivious node may also be transient
     // (node still warming up). Retry the same node with delay before failing.
     if (is_oblivious && c4_state_retry_after(req, eth_oblivious_retry_delay(req->chain_id, req->retry_count), ETH_OBLIVIOUS_MAX_RETRIES)) {
-      ctx->storage_miss = true;
+      call_mark_storage_miss(ctx);
       return;
     }
 #endif
@@ -234,7 +238,7 @@ void call_account_lazy_fetch_storage(evmone_context_t* ctx, const address_t addr
     new_req->payload        = bytes_dup(buf.data);
     memcpy(new_req->id, req_id, 32);
     c4_state_add_request(&ctx->ctx->state, new_req);
-    ctx->storage_miss = true;
+    call_mark_storage_miss(ctx);
   }
 }
 
@@ -251,8 +255,8 @@ bytes_t call_account_get_code(evmone_context_t* ctx, const address_t address) {
 
   if (!acc) {
     if (ctx->pap_mode) {
-      acc               = call_account_get_or_create(ctx, address);
-      ctx->storage_miss = true;
+      acc = call_account_get_or_create(ctx, address);
+      call_mark_storage_miss(ctx);
       return eth_fetch_account_code(ctx->ctx, acc) == C4_SUCCESS ? acc->code : NULL_BYTES;
     }
 

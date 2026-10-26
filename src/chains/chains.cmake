@@ -353,7 +353,7 @@ function(add_server_handler)
     endif()
 
     set(options "")
-    set(oneValueArgs NAME INIT_FUNC SHUTDOWN_FUNC GET_DETECTION_REQUEST_FUNC PARSE_VERSION_RESPONSE_FUNC GET_CLIENT_MAPPINGS_FUNC METRICS_FUNC CONFIG_FUNC)
+    set(oneValueArgs NAME INIT_FUNC SHUTDOWN_FUNC GET_DETECTION_REQUEST_FUNC PARSE_VERSION_RESPONSE_FUNC GET_CLIENT_MAPPINGS_FUNC METRICS_FUNC CONFIG_FUNC REWRITE_BODY_FUNC)
     set(multiValueArgs SOURCES DEPENDS)
     cmake_parse_arguments(HANDLER "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
 
@@ -373,7 +373,7 @@ function(add_server_handler)
     
     # Append the new handler to the list
     list(APPEND CURRENT_PROPERTIES 
-         "${HANDLER_NAME}:${HANDLER_INIT_FUNC}:${HANDLER_SHUTDOWN_FUNC}:${HANDLER_GET_DETECTION_REQUEST_FUNC}:${HANDLER_PARSE_VERSION_RESPONSE_FUNC}:${HANDLER_GET_CLIENT_MAPPINGS_FUNC}:${HANDLER_METRICS_FUNC}:${HANDLER_CONFIG_FUNC}")
+         "${HANDLER_NAME}:${HANDLER_INIT_FUNC}:${HANDLER_SHUTDOWN_FUNC}:${HANDLER_GET_DETECTION_REQUEST_FUNC}:${HANDLER_PARSE_VERSION_RESPONSE_FUNC}:${HANDLER_GET_CLIENT_MAPPINGS_FUNC}:${HANDLER_METRICS_FUNC}:${HANDLER_CONFIG_FUNC}:${HANDLER_REWRITE_BODY_FUNC}")
     set(SERVER_HANDLER_PROPERTIES "${CURRENT_PROPERTIES}" CACHE INTERNAL "List of all server handler properties" FORCE)
 
     # Add the handler library to the global list of libraries
@@ -426,6 +426,13 @@ function(generate_server_handlers_header)
         endif()
         if(NOT "${config_func}" STREQUAL "")
             file(APPEND ${SERVER_HANDLERS_H} "void ${config_func}();\n")
+        endif()
+        list(LENGTH parts part_count)
+        if(part_count GREATER 8)
+            list(GET parts 8 rewrite_body_func)
+            if(NOT "${rewrite_body_func}" STREQUAL "")
+                file(APPEND ${SERVER_HANDLERS_H} "bytes_t ${rewrite_body_func}(bytes_t payload, uint32_t client_type, buffer_t* out);\n")
+            endif()
         endif()
     endforeach()
     file(APPEND ${SERVER_HANDLERS_H} "\n")
@@ -515,7 +522,21 @@ function(generate_server_handlers_header)
     endforeach()
     file(APPEND ${SERVER_HANDLERS_H} "}\n\n")
 
-
+    # Rewrite-body dispatcher. Each chain sees the body returned by the previous one.
+    file(APPEND ${SERVER_HANDLERS_H} "static bytes_t c4_server_handlers_rewrite_body(bytes_t payload, uint32_t client_type, buffer_t* out) {\n")
+    file(APPEND ${SERVER_HANDLERS_H} "  bytes_t body = payload;\n")
+    foreach(prop ${SERVER_HANDLER_PROPERTIES})
+        string(REPLACE ":" ";" parts "${prop}")
+        list(LENGTH parts part_count)
+        if(part_count GREATER 8)
+            list(GET parts 8 rewrite_body_func)
+            if(NOT "${rewrite_body_func}" STREQUAL "")
+                file(APPEND ${SERVER_HANDLERS_H} "  body = ${rewrite_body_func}(body, client_type, out);\n")
+            endif()
+        endif()
+    endforeach()
+    file(APPEND ${SERVER_HANDLERS_H} "  return body;\n")
+    file(APPEND ${SERVER_HANDLERS_H} "}\n\n")
 
     file(APPEND ${SERVER_HANDLERS_H} "#endif // SERVER_HANDLERS_H\n")
 endfunction()

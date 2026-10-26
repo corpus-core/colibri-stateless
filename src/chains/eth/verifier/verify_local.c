@@ -119,7 +119,7 @@ static ssz_ob_t colibri_decodeTransaction(verify_ctx_t* ctx) {
   if (!success) {
     buffer_free(&tx_data.dynamic);
     buffer_free(&tx_data.fixed);
-    if (ctx->state.error == NULL) c4_state_add_error(ctx, "invalid tx data!");
+    if (ctx->state.error == NULL) c4_state_add_error(&ctx->state, "invalid tx data!");
     return (ssz_ob_t) {0};
   }
   return ssz_builder_to_bytes(&tx_data);

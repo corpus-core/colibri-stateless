@@ -247,21 +247,6 @@ static c4_status_t run_until_done(verify_ctx_t* ctx, evm_call_ctx_t* evm, const 
 }
 
 /**
- * Checks whether `data` contains the string `needle`.
- *
- * @param data bytes to search (may be empty)
- * @param needle NUL-terminated string to find
- * @return true if `needle` occurs in `data`
- */
-static bool bytes_contains(bytes_t data, const char* needle) {
-  size_t n = strlen(needle);
-  if (!data.data || data.len < n) return false;
-  for (size_t i = 0; i + n <= data.len; i++)
-    if (memcmp(data.data + i, needle, n) == 0) return true;
-  return false;
-}
-
-/**
  * Asserts that a 32-byte EVM word equals the right-aligned big-endian `value`.
  *
  * @param word 32-byte word returned by the EVM

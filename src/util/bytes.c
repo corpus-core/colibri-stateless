@@ -36,6 +36,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#if defined(_MSC_VER)
+#include <malloc.h>
+#endif
 // --- Macros and Constants ---
 
 // Macro for iterating over bytes in a bytes_t structure
@@ -69,6 +72,40 @@ void* safe_malloc(size_t size) {
     SAFE_ALLOC_ERROR_EXIT("malloc", size_info, strerror(errno));
   }
   return ptr;
+}
+
+void* safe_aligned_alloc(size_t alignment, size_t size) {
+  // The returned address has to be the base of the allocation. An interior
+  // pointer from an over-allocated malloc block is reported as a possible leak
+  // when the caller keeps it until process exit.
+  if (alignment < sizeof(void*) || (alignment & (alignment - 1)) != 0) alignment = sizeof(void*);
+  if (size == 0) size = 1;
+  char size_info[SIZE_INFO_BUFFER_SIZE];
+#if defined(_MSC_VER)
+  void* ptr = _aligned_malloc(size, alignment);
+  if (!ptr) {
+    sbprintf(size_info, "size %l alignment %l", (uint64_t) size, (uint64_t) alignment);
+    SAFE_ALLOC_ERROR_EXIT("aligned_alloc", size_info, strerror(errno));
+  }
+  return ptr;
+#else
+  void* ptr = NULL;
+  int   rc  = posix_memalign(&ptr, alignment, size);
+  if (rc != 0) {
+    sbprintf(size_info, "size %l alignment %l", (uint64_t) size, (uint64_t) alignment);
+    SAFE_ALLOC_ERROR_EXIT("aligned_alloc", size_info, strerror(rc));
+  }
+  return ptr;
+#endif
+}
+
+void safe_aligned_free(void* ptr) {
+  if (!ptr) return;
+#if defined(_MSC_VER)
+  _aligned_free(ptr);
+#else
+  free(ptr);
+#endif
 }
 
 void* safe_calloc(size_t num, size_t size) {
@@ -744,6 +781,16 @@ bool bytes_eq(bytes_t a, bytes_t b) {
   if (a.data == NULL && b.data == NULL && a.len == 0 && b.len == 0) return true;
   if (!a.data || !b.data) return false;
   return memcmp(a.data, b.data, a.len) == 0;
+}
+
+bool bytes_contains(bytes_t data, const char* needle) {
+  if (!data.data || !needle || data.len == 0) return false;
+  size_t n = strlen(needle);
+  if (n == 0 || n > data.len) return false;
+  for (size_t i = 0; i + n <= data.len; i++) {
+    if (memcmp(data.data + i, needle, n) == 0) return true;
+  }
+  return false;
 }
 uint64_t bytes_as_le(bytes_t data) {
   uint64_t result = 0;

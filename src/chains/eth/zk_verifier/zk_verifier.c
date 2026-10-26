@@ -21,21 +21,16 @@ void c4_zk_register_vk(const zk_vk_t* vk) {
   // Check if already registered
   if (c4_zk_get_vk(vk->program_hash) != NULL) return;
 
-  vk_node_t* node = (vk_node_t*) malloc(sizeof(vk_node_t));
-  if (!node) return; // OOM
+  // The node holds 32-byte-aligned curve points. malloc's 16-byte alignment
+  // makes GCC's aligned copies fault (same as the pairing precompile).
+  vk_node_t* node = (vk_node_t*) safe_aligned_alloc(c4_alignof(vk_node_t), sizeof(vk_node_t));
 
   // Shallow copy the struct
   node->vk = *vk;
   // Deep copy the ic array to ensure persistence if input is stack-allocated
   if (vk->ic_count > 0) {
-    node->vk.ic = (bn254_g1_t*) malloc(sizeof(bn254_g1_t) * vk->ic_count);
-    if (node->vk.ic) {
-      memcpy(node->vk.ic, vk->ic, sizeof(bn254_g1_t) * vk->ic_count);
-    }
-    else {
-      free(node);
-      return;
-    }
+    node->vk.ic = (bn254_g1_t*) safe_aligned_alloc(c4_alignof(bn254_g1_t), sizeof(bn254_g1_t) * vk->ic_count);
+    memcpy(node->vk.ic, vk->ic, sizeof(bn254_g1_t) * vk->ic_count);
   }
 
   node->next  = vk_registry;

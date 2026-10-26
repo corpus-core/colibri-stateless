@@ -21,10 +21,10 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "colibri_common.h"
 #include "beacon.h"
 #include "beacon_types.h"
 #include "bytes.h"
+#include "colibri_common.h"
 #include "config.h"
 #include "crypto.h"
 #include "header_cache.h"
@@ -92,15 +92,15 @@ void init_state(chain_id_t chain_id, const char* period_offsets) {
     exit(EXIT_FAILURE);
   }
 
-  finality_checkpoints     = json_get(finality_checkpoints, "finalized");
-  uint64_t finalized_epoch = json_get_uint64(finality_checkpoints, "epoch");
+  finality_checkpoints      = json_get(finality_checkpoints, "finalized");
+  uint64_t finalized_epoch  = json_get_uint64(finality_checkpoints, "epoch");
   uint64_t finalized_period = finalized_epoch >> chain_spec->epochs_per_period_bits;
 
-  uint32_t offsets[MAX_SYNC_PERIODS] = {0};
-  uint32_t n                         = 0;
-  const char* p                      = period_offsets;
+  uint32_t    offsets[MAX_SYNC_PERIODS] = {0};
+  uint32_t    n                         = 0;
+  const char* p                         = period_offsets;
   while (*p && n < MAX_SYNC_PERIODS) {
-    char* end = NULL;
+    char*         end = NULL;
     unsigned long off = strtoul(p, &end, 10);
     if (end == p) {
       fprintf(stderr, "invalid -I offset list: %s\n", period_offsets);
@@ -441,11 +441,11 @@ int main(int argc, char* argv[]) {
   if (oblivious_url) set_config("oblivious", oblivious_url);
 #ifdef USE_CURL
   if (curl_has_oblivious_nodes()) verify_flags |= VERIFY_FLAG_OBLIVIOUS | VERIFY_FLAG_PAP;
-#endif
-  if (c4_chain_type(chain_id) == C4_CHAIN_TYPE_OP) has_checkpoint = true;
 #ifdef TEST
   if (period_init) init_state(chain_id, period_init);
 #endif
+#endif
+  if (c4_chain_type(chain_id) == C4_CHAIN_TYPE_OP) has_checkpoint = true;
 
   if (has_checkpoint)
     c4_eth_set_trusted_checkpoint(chain_id, trusted_checkpoint);

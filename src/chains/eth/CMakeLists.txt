@@ -227,6 +227,7 @@ add_server_handler(
     server/handle_checkpoints.c
     server/client_detection.c
     server/client_mappings.c
+    server/rpc_body.c
     server/period_store.c
     server/period_store_call.c
     server/period_store_lc.c
@@ -248,6 +249,7 @@ add_server_handler(
   GET_CLIENT_MAPPINGS_FUNC eth_get_client_mappings
   METRICS_FUNC eth_server_metrics
   CONFIG_FUNC eth_configure
+  REWRITE_BODY_FUNC eth_rewrite_rpc_body
 )
 
 # Checkpoint signer CLI (external cronjob helper)
