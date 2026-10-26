@@ -8,15 +8,6 @@
 #include "util/json.h"
 #include <string.h>
 
-static bool bytes_contains(bytes_t hay, const char* needle) {
-  size_t n = strlen(needle);
-  if (!hay.data || n == 0 || hay.len < n) return false;
-  for (uint32_t i = 0; i + n <= hay.len; i++) {
-    if (memcmp(hay.data + i, needle, n) == 0) return true;
-  }
-  return false;
-}
-
 /**
  * Rewrites an `eth_createAccessList` body so Nethermind keeps warm storage keys.
  *

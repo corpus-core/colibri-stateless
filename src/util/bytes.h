@@ -338,6 +338,19 @@ bool bytes_all_equal(bytes_t a, uint8_t value);
 bool bytes_eq(bytes_t a, bytes_t b);
 
 /**
+ * Checks whether `needle` occurs in `data`.
+ *
+ * The search uses the raw bytes of `data` and does not require a trailing NUL.
+ * `NULL` data, a `NULL` needle, an empty needle and a needle longer than
+ * `data` all return false.
+ *
+ * @param data bytes to search
+ * @param needle NUL-terminated string to find
+ * @return true if `needle` occurs in `data`
+ */
+bool bytes_contains(bytes_t data, const char* needle);
+
+/**
  * duplicates a bytes_t.
  * @param data the bytes_t to duplicate
  * @return the duplicated bytes_t

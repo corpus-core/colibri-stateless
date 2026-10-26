@@ -14,27 +14,6 @@
 #include <intrin.h>
 #endif
 
-// Helper function for safe substring search in bytes_t
-static bool bytes_contains_string(bytes_t data, const char* needle) {
-  if (!data.data || !needle || data.len == 0) return false;
-
-  size_t needle_len = strlen(needle);
-  if (needle_len > data.len) return false;
-
-// Use memmem if available, otherwise manual search
-#ifdef __GLIBC__
-  return memmem(data.data, data.len, needle, needle_len) != NULL;
-#else
-  // Manual search for portability
-  for (size_t i = 0; i <= data.len - needle_len; i++) {
-    if (memcmp(data.data + i, needle, needle_len) == 0) {
-      return true;
-    }
-  }
-  return false;
-#endif
-}
-
 // Quick helper: check if a JSON-RPC request is for a specific method without full parse
 static bool req_is_method(data_request_t* req, const char* method_name) {
   if (!req || req->type != C4_DATA_TYPE_ETH_RPC || !req->payload.data || req->payload.len == 0 || !method_name) return false;
@@ -42,7 +21,7 @@ static bool req_is_method(data_request_t* req, const char* method_name) {
   char pattern[128];
   int  n = snprintf(pattern, sizeof(pattern), "\"method\":\"%s\"", method_name);
   if (n <= 0 || (size_t) n >= sizeof(pattern)) return false;
-  return bytes_contains_string(req->payload, pattern);
+  return bytes_contains(req->payload, pattern);
 }
 
 // Helper function to set JSON-RPC error message from error object
@@ -94,12 +73,12 @@ static c4_response_type_t classify_jsonrpc_error_by_code(int error_code, json_t 
       if (message.type == JSON_TYPE_STRING) {
         bytes_t msg_bytes = bytes(message.start, message.len);
         // Check for tier/subscription limitations that should be treated as method not supported
-        if (bytes_contains_string(msg_bytes, "not available on the Free tier") ||
-            bytes_contains_string(msg_bytes, "upgrade to Pay As You Go") ||
-            bytes_contains_string(msg_bytes, "Enterprise for access") ||
-            bytes_contains_string(msg_bytes, "subscription plan") ||
-            bytes_contains_string(msg_bytes, "tier limitation") ||
-            bytes_contains_string(msg_bytes, "plan does not support")) {
+        if (bytes_contains(msg_bytes, "not available on the Free tier") ||
+            bytes_contains(msg_bytes, "upgrade to Pay As You Go") ||
+            bytes_contains(msg_bytes, "Enterprise for access") ||
+            bytes_contains(msg_bytes, "subscription plan") ||
+            bytes_contains(msg_bytes, "tier limitation") ||
+            bytes_contains(msg_bytes, "plan does not support")) {
           set_jsonrpc_error_message(req, error, error_code, "JSON-RPC method not available on current tier");
           return C4_RESPONSE_ERROR_METHOD_NOT_SUPPORTED;
         }
@@ -119,25 +98,25 @@ static c4_response_type_t classify_jsonrpc_error_by_code(int error_code, json_t 
         // (e.g., stateOverrides) for certain methods. In that case, treat it as method-not-supported so the
         // caller can fall back to another upstream client.
         if (req && (req_is_method(req, "eth_createAccessList") || req_is_method(req, "eth_call")) &&
-            (bytes_contains_string(msg_bytes, "Invalid params") || bytes_contains_string(msg_bytes, "invalid params"))) {
+            (bytes_contains(msg_bytes, "Invalid params") || bytes_contains(msg_bytes, "invalid params"))) {
           set_jsonrpc_error_message(req, error, error_code, "JSON-RPC method does not support provided parameters");
           return C4_RESPONSE_ERROR_METHOD_NOT_SUPPORTED;
         }
         // Missing 0x prefix or block range limits are user errors
-        if (bytes_contains_string(msg_bytes, "missing 0x prefix") ||
-            bytes_contains_string(msg_bytes, "Block range limit exceeded") ||
-            bytes_contains_string(msg_bytes, "invalid") ||
-            bytes_contains_string(msg_bytes, "missing") ||
-            bytes_contains_string(msg_bytes, "wrong")) {
+        if (bytes_contains(msg_bytes, "missing 0x prefix") ||
+            bytes_contains(msg_bytes, "Block range limit exceeded") ||
+            bytes_contains(msg_bytes, "invalid") ||
+            bytes_contains(msg_bytes, "missing") ||
+            bytes_contains(msg_bytes, "wrong")) {
           return C4_RESPONSE_ERROR_USER;
         }
         // eth_getProof specific: providers that don't serve historical proofs
-        if (req_is_method(req, "eth_getProof") && (bytes_contains_string(msg_bytes, "distance to target block exceeds maximum proof window") ||
-                                                   bytes_contains_string(msg_bytes, "proof window") ||
-                                                   bytes_contains_string(msg_bytes, "only latest state") ||
-                                                   bytes_contains_string(msg_bytes, "state not available") ||
-                                                   bytes_contains_string(msg_bytes, "state unavailable") ||
-                                                   bytes_contains_string(msg_bytes, "proofs are only available for latest"))) {
+        if (req_is_method(req, "eth_getProof") && (bytes_contains(msg_bytes, "distance to target block exceeds maximum proof window") ||
+                                                   bytes_contains(msg_bytes, "proof window") ||
+                                                   bytes_contains(msg_bytes, "only latest state") ||
+                                                   bytes_contains(msg_bytes, "state not available") ||
+                                                   bytes_contains(msg_bytes, "state unavailable") ||
+                                                   bytes_contains(msg_bytes, "proofs are only available for latest"))) {
           set_jsonrpc_error_message(req, error, error_code, "JSON-RPC method not available for requested state");
           return C4_RESPONSE_ERROR_METHOD_NOT_SUPPORTED;
         }
@@ -157,48 +136,48 @@ static c4_response_type_t classify_jsonrpc_error_by_code(int error_code, json_t 
       if (message.type == JSON_TYPE_STRING) {
         bytes_t msg_bytes = bytes(message.start, message.len);
         // Tier/subscription limitations - method not supported
-        if (bytes_contains_string(msg_bytes, "not available on the Free tier") ||
-            bytes_contains_string(msg_bytes, "upgrade to Pay As You Go") ||
-            bytes_contains_string(msg_bytes, "Enterprise for access") ||
-            bytes_contains_string(msg_bytes, "subscription plan") ||
-            bytes_contains_string(msg_bytes, "tier limitation") ||
-            bytes_contains_string(msg_bytes, "plan does not support") ||
-            bytes_contains_string(msg_bytes, "method not supported") ||
-            bytes_contains_string(msg_bytes, "feature not enabled") ||
-            bytes_contains_string(msg_bytes, "API key is not allowed to access method")) {
+        if (bytes_contains(msg_bytes, "not available on the Free tier") ||
+            bytes_contains(msg_bytes, "upgrade to Pay As You Go") ||
+            bytes_contains(msg_bytes, "Enterprise for access") ||
+            bytes_contains(msg_bytes, "subscription plan") ||
+            bytes_contains(msg_bytes, "tier limitation") ||
+            bytes_contains(msg_bytes, "plan does not support") ||
+            bytes_contains(msg_bytes, "method not supported") ||
+            bytes_contains(msg_bytes, "feature not enabled") ||
+            bytes_contains(msg_bytes, "API key is not allowed to access method")) {
           set_jsonrpc_error_message(req, error, error_code, "JSON-RPC method not available on current tier");
           return C4_RESPONSE_ERROR_METHOD_NOT_SUPPORTED;
         }
         // eth_getProof: historical state not served → treat as method-not-supported for this provider
-        if (req_is_method(req, "eth_getProof") && (bytes_contains_string(msg_bytes, "distance to target block exceeds maximum proof window") ||
-                                                   bytes_contains_string(msg_bytes, "proof window") ||
-                                                   bytes_contains_string(msg_bytes, "only latest state") ||
-                                                   bytes_contains_string(msg_bytes, "state not available") ||
-                                                   bytes_contains_string(msg_bytes, "state unavailable") ||
-                                                   bytes_contains_string(msg_bytes, "root hash mismatch") ||
-                                                   bytes_contains_string(msg_bytes, "witnessTrieRootHash") ||
-                                                   bytes_contains_string(msg_bytes, "expectedRootHash"))) {
+        if (req_is_method(req, "eth_getProof") && (bytes_contains(msg_bytes, "distance to target block exceeds maximum proof window") ||
+                                                   bytes_contains(msg_bytes, "proof window") ||
+                                                   bytes_contains(msg_bytes, "only latest state") ||
+                                                   bytes_contains(msg_bytes, "state not available") ||
+                                                   bytes_contains(msg_bytes, "state unavailable") ||
+                                                   bytes_contains(msg_bytes, "root hash mismatch") ||
+                                                   bytes_contains(msg_bytes, "witnessTrieRootHash") ||
+                                                   bytes_contains(msg_bytes, "expectedRootHash"))) {
           set_jsonrpc_error_message(req, error, error_code, "JSON-RPC method not available for requested state");
           return C4_RESPONSE_ERROR_METHOD_NOT_SUPPORTED;
         }
         // Sync-related errors - retryable
-        else if (bytes_contains_string(msg_bytes, "Header not found") ||
-                 bytes_contains_string(msg_bytes, "Block not found") ||
-                 bytes_contains_string(msg_bytes, "not in sync") ||
-                 bytes_contains_string(msg_bytes, "block number is in the future")) {
+        else if (bytes_contains(msg_bytes, "Header not found") ||
+                 bytes_contains(msg_bytes, "Block not found") ||
+                 bytes_contains(msg_bytes, "not in sync") ||
+                 bytes_contains(msg_bytes, "block number is in the future")) {
           set_jsonrpc_error_message(req, error, error_code, "JSON-RPC sync error");
           return C4_RESPONSE_ERROR_RETRY;
         }
         // Timeout errors - retryable
-        else if (bytes_contains_string(msg_bytes, "Execution timeout") ||
-                 bytes_contains_string(msg_bytes, "timeout")) {
+        else if (bytes_contains(msg_bytes, "Execution timeout") ||
+                 bytes_contains(msg_bytes, "timeout")) {
           set_jsonrpc_error_message(req, error, error_code, "JSON-RPC timeout");
           return C4_RESPONSE_ERROR_RETRY;
         }
         // User errors - not retryable
-        else if (bytes_contains_string(msg_bytes, "Nonce too low") ||
-                 bytes_contains_string(msg_bytes, "Gas limit") ||
-                 bytes_contains_string(msg_bytes, "Transaction cost exceeds")) {
+        else if (bytes_contains(msg_bytes, "Nonce too low") ||
+                 bytes_contains(msg_bytes, "Gas limit") ||
+                 bytes_contains(msg_bytes, "Transaction cost exceeds")) {
           return C4_RESPONSE_ERROR_USER;
         }
       }
@@ -305,16 +284,16 @@ static bool c4_is_beacon_api_sync_lag(long http_code, const char* url, bytes_t r
 
   // Treat common not-available signals as sync/availability lag → retryable
   return (
-      bytes_contains_string(response_body, "Block header/data has not been found") ||
-      bytes_contains_string(response_body, "Block not found") ||
-      bytes_contains_string(response_body, "Header not found") ||
-      bytes_contains_string(response_body, "block not found") ||
-      bytes_contains_string(response_body, "header not found") ||
-      bytes_contains_string(response_body, "unknown block") ||
-      bytes_contains_string(response_body, "unknown header") ||
+      bytes_contains(response_body, "Block header/data has not been found") ||
+      bytes_contains(response_body, "Block not found") ||
+      bytes_contains(response_body, "Header not found") ||
+      bytes_contains(response_body, "block not found") ||
+      bytes_contains(response_body, "header not found") ||
+      bytes_contains(response_body, "unknown block") ||
+      bytes_contains(response_body, "unknown header") ||
       // Light client bootstrap specific
-      bytes_contains_string(response_body, "bootstrap unavailable") ||
-      bytes_contains_string(response_body, "LC bootstrap unavailable"));
+      bytes_contains(response_body, "bootstrap unavailable") ||
+      bytes_contains(response_body, "LC bootstrap unavailable"));
 }
 
 static bool is_parent_root_headers_url(const char* url) {
@@ -324,7 +303,7 @@ static bool is_parent_root_headers_url(const char* url) {
 static bool json_string_field_contains(json_t obj, const char* key, const char* needle) {
   json_t v = json_get(obj, key);
   if (v.type != JSON_TYPE_STRING || !v.start || v.len < 2 || !needle) return false;
-  return bytes_contains_string(bytes((uint8_t*) v.start + 1, (uint32_t) (v.len - 2)), needle);
+  return bytes_contains(bytes((uint8_t*) v.start + 1, (uint32_t) (v.len - 2)), needle);
 }
 
 static bool beacon_headers_data_empty(bytes_t response_body) {
@@ -358,7 +337,7 @@ c4_response_type_t c4_classify_response(long http_code, const char* url, bytes_t
       // only treat null as retryable if the responding node demonstrably lags behind other nodes.
       // This avoids penalising healthy nodes for correct null responses while still retrying
       // when sync lag is the likely cause.
-      bool has_null_result = bytes_contains_string(response_body, "\"result\":null");
+      bool has_null_result = bytes_contains(response_body, "\"result\":null");
       if (has_null_result) {
         bool nullable_method =
             req_is_method(req, "eth_getBlockReceipts") ||
@@ -431,7 +410,7 @@ c4_response_type_t c4_classify_response(long http_code, const char* url, bytes_t
       }
       // Quick check: only parse JSON if "error" appears in first 100 bytes
       // This avoids expensive JSON parsing for successful responses
-      if (bytes_contains_string(bytes_slice(response_body, 0, response_body.len < 100 ? response_body.len : 100), "\"error\"")) {
+      if (bytes_contains(bytes_slice(response_body, 0, response_body.len < 100 ? response_body.len : 100), "\"error\"")) {
         json_t response = json_parse((char*) response_body.data);
         if (response.type == JSON_TYPE_OBJECT) {
           json_t error = json_get(response, "error");
@@ -471,7 +450,7 @@ c4_response_type_t c4_classify_response(long http_code, const char* url, bytes_t
   // Server configuration/infrastructure errors
   // 401/429 remain retryable, but 403 may encode tier/method limitations — try to parse JSON if present
   if (http_code == 401 || http_code == 429) return C4_RESPONSE_ERROR_RETRY;
-  if (http_code == 403 && req && req->type == C4_DATA_TYPE_ETH_RPC && response_body.data && response_body.len > 0 && bytes_contains_string(response_body, "\"error\"")) {
+  if (http_code == 403 && req && req->type == C4_DATA_TYPE_ETH_RPC && response_body.data && response_body.len > 0 && bytes_contains(response_body, "\"error\"")) {
     json_t response = json_parse((char*) response_body.data);
     if (response.type == JSON_TYPE_OBJECT) {
       json_t error = json_get(response, "error");
@@ -484,7 +463,7 @@ c4_response_type_t c4_classify_response(long http_code, const char* url, bytes_t
   // Special handling for HTTP 400 with JSON-RPC errors - check if it's a method not supported error
   if (http_code == 400 && req && req->type == C4_DATA_TYPE_ETH_RPC && response_body.data && response_body.len > 0) {
     // Quick check: only parse JSON if "error" appears in response
-    if (bytes_contains_string(response_body, "\"error\"")) {
+    if (bytes_contains(response_body, "\"error\"")) {
       json_t response = json_parse((char*) response_body.data);
       if (response.type == JSON_TYPE_OBJECT) {
         json_t error = json_get(response, "error");
@@ -503,7 +482,7 @@ c4_response_type_t c4_classify_response(long http_code, const char* url, bytes_t
   // Special handling for HTTP 400 with JSON-RPC errors - check if it's a method not supported error
   if (http_code == 400 && req && req->type == C4_DATA_TYPE_BEACON_API && response_body.data && response_body.len > 0) {
     // Quick check: only parse JSON if "error" appears in response
-    if (bytes_contains_string(response_body, "Unsupported method") || bytes_contains_string(response_body, "Invalid Accept header"))
+    if (bytes_contains(response_body, "Unsupported method") || bytes_contains(response_body, "Invalid Accept header"))
       return C4_RESPONSE_ERROR_METHOD_NOT_SUPPORTED;
     else
       return C4_RESPONSE_ERROR_USER;
@@ -519,7 +498,7 @@ bool c4_error_indicates_not_found(long http_code, data_request_t* req, bytes_t r
   if (http_code == 404) return true;
   if (!req) return false;
   if (req->type == C4_DATA_TYPE_ETH_RPC && response_body.data && response_body.len > 0) {
-    if (bytes_contains_string(response_body, "\"error\"")) {
+    if (bytes_contains(response_body, "\"error\"")) {
       json_t response = json_parse((char*) response_body.data);
       if (response.type == JSON_TYPE_OBJECT) {
         json_t error = json_get(response, "error");
@@ -537,7 +516,7 @@ bool c4_error_indicates_not_found(long http_code, data_request_t* req, bytes_t r
         bool msg_nf = false;
         if (msg.type == JSON_TYPE_STRING) {
           bytes_t m = bytes(msg.start, msg.len);
-          msg_nf    = bytes_contains_string(m, "not found") || bytes_contains_string(m, "Header not found") || bytes_contains_string(m, "Block not found");
+          msg_nf    = bytes_contains(m, "not found") || bytes_contains(m, "Header not found") || bytes_contains(m, "Block not found");
         }
         if (ec == -32601 || msg_nf) return true; // method not found or explicit not found
       }

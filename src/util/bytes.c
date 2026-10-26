@@ -782,6 +782,16 @@ bool bytes_eq(bytes_t a, bytes_t b) {
   if (!a.data || !b.data) return false;
   return memcmp(a.data, b.data, a.len) == 0;
 }
+
+bool bytes_contains(bytes_t data, const char* needle) {
+  if (!data.data || !needle || data.len == 0) return false;
+  size_t n = strlen(needle);
+  if (n == 0 || n > data.len) return false;
+  for (size_t i = 0; i + n <= data.len; i++) {
+    if (memcmp(data.data + i, needle, n) == 0) return true;
+  }
+  return false;
+}
 uint64_t bytes_as_le(bytes_t data) {
   uint64_t result = 0;
   FOREACH_BYTE(data, i) {
