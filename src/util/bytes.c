@@ -36,6 +36,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#if defined(_MSC_VER)
+#include <malloc.h>
+#endif
 // --- Macros and Constants ---
 
 // Macro for iterating over bytes in a bytes_t structure
@@ -72,19 +75,37 @@ void* safe_malloc(size_t size) {
 }
 
 void* safe_aligned_alloc(size_t alignment, size_t size) {
+  // The returned address has to be the base of the allocation. An interior
+  // pointer from an over-allocated malloc block is reported as a possible leak
+  // when the caller keeps it until process exit.
   if (alignment < sizeof(void*) || (alignment & (alignment - 1)) != 0) alignment = sizeof(void*);
   if (size == 0) size = 1;
-  size_t prefix = alignment - 1 + sizeof(void*);
-  if (size > SIZE_MAX - prefix) SAFE_ALLOC_ERROR_EXIT("aligned_alloc", "size overflow", "requested size too large");
-  void*     raw     = safe_malloc(size + prefix);
-  uintptr_t aligned = ((uintptr_t) raw + sizeof(void*) + alignment - 1) & ~(uintptr_t) (alignment - 1);
-  ((void**) aligned)[-1] = raw;
-  return (void*) aligned;
+  char size_info[SIZE_INFO_BUFFER_SIZE];
+#if defined(_MSC_VER)
+  void* ptr = _aligned_malloc(size, alignment);
+  if (!ptr) {
+    sbprintf(size_info, "size %l alignment %l", (uint64_t) size, (uint64_t) alignment);
+    SAFE_ALLOC_ERROR_EXIT("aligned_alloc", size_info, strerror(errno));
+  }
+  return ptr;
+#else
+  void* ptr = NULL;
+  int   rc  = posix_memalign(&ptr, alignment, size);
+  if (rc != 0) {
+    sbprintf(size_info, "size %l alignment %l", (uint64_t) size, (uint64_t) alignment);
+    SAFE_ALLOC_ERROR_EXIT("aligned_alloc", size_info, strerror(rc));
+  }
+  return ptr;
+#endif
 }
 
 void safe_aligned_free(void* ptr) {
   if (!ptr) return;
-  free(((void**) ptr)[-1]);
+#if defined(_MSC_VER)
+  _aligned_free(ptr);
+#else
+  free(ptr);
+#endif
 }
 
 void* safe_calloc(size_t num, size_t size) {

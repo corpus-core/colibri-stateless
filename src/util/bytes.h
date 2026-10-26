@@ -249,8 +249,11 @@ void* safe_malloc(size_t size) RETURNS_NONNULL M_RET;
  * those moves fault.
  *
  * `alignment` must be a power of two. Smaller or non-power-of-two values are
- * raised to `sizeof(void *)`. The result is never NULL: allocation failure
- * aborts, same as `safe_malloc`. Release the pointer with `safe_aligned_free`.
+ * raised to `sizeof(void *)`. The returned address is the base of the
+ * allocation (`posix_memalign`, or `_aligned_malloc` on Windows), so a pointer
+ * kept for the process lifetime stays the block base. The result is never
+ * NULL: allocation failure aborts, same as `safe_malloc`. Release the pointer
+ * with `safe_aligned_free`.
  *
  * @param alignment required alignment in bytes
  * @param size number of bytes to allocate

@@ -235,11 +235,11 @@ void test_create_drops_preexisting_slot(void) {
   call_account_t* prior = make_account(created, NULL, 0, ACCOUNT_HAS_NONCE | ACCOUNT_HAS_STORAGE_ROOT);
   prior->flags &= ~ACCOUNT_HAS_CODE;
   prior->storage_root[0] = 0xab;
-  call_storage_t* slot    = safe_calloc(1, sizeof(call_storage_t));
-  slot->post_value[31]    = 7;
-  slot->src_value[31]     = 7;
-  prior->storage          = slot;
-  factory->next           = prior;
+  call_storage_t* slot   = safe_calloc(1, sizeof(call_storage_t));
+  slot->post_value[31]   = 7;
+  slot->src_value[31]    = 7;
+  prior->storage         = slot;
+  factory->next          = prior;
 
   run_sload(factory, false, &status, &ctx, &evm);
   TEST_ASSERT_EQUAL_INT_MESSAGE(C4_SUCCESS, status, ctx.state.error ? ctx.state.error : "no error");
@@ -269,7 +269,7 @@ void test_nested_pap_sload_requests_storage(void) {
   c4_status_t     status;
   call_account_t* factory = make_account(caller, code, sizeof(code), ACCOUNT_HAS_STORAGE_ROOT);
   memcpy(factory->storage_root, EMPTY_ROOT_HASH, 32);
-  call_account_t* other = make_account(callee, sload_code, sizeof(sload_code), ACCOUNT_HAS_STORAGE_ROOT);
+  call_account_t* other  = make_account(callee, sload_code, sizeof(sload_code), ACCOUNT_HAS_STORAGE_ROOT);
   other->storage_root[0] = 0xab;
   factory->next          = other;
 
