@@ -4,7 +4,6 @@
  */
 
 #include "cache.h"
-#include "chains/eth/server/eth_clients.h"
 #include "logger.h"
 #include "rpc_body.h"
 #include "server.h"
@@ -1175,9 +1174,9 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
 
     curl_easy_setopt(easy, CURLOPT_URL, r->url);
     if (r->req->payload.len && r->req->payload.data) {
-      bool    nethermind = servers && servers->client_types && selected_index >= 0 && selected_index < (int) servers->count && (servers->client_types[selected_index] & RPC_CLIENT_NETHERMIND) != 0;
+      uint32_t client_type = (servers && servers->client_types && selected_index >= 0 && selected_index < (int) servers->count) ? servers->client_types[selected_index] : 0;
       buffer_free(&r->post_body);
-      bytes_t body = c4_nethermind_access_list_body(r->req->payload, nethermind, &r->post_body);
+      bytes_t body = c4_rpc_request_body(r->req->payload, client_type, &r->post_body);
       curl_easy_setopt(easy, CURLOPT_POSTFIELDS, body.data);
       curl_easy_setopt(easy, CURLOPT_POSTFIELDSIZE, (long) body.len);
     }

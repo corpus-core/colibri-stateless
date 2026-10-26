@@ -4,6 +4,7 @@
  */
 
 #include "rpc_body.h"
+#include "chains/eth/server/eth_clients.h"
 #include "json.h"
 #include <string.h>
 
@@ -16,8 +17,15 @@ static bool bytes_contains(bytes_t hay, const char* needle) {
   return false;
 }
 
-bytes_t c4_nethermind_access_list_body(bytes_t payload, bool nethermind, buffer_t* out) {
-  if (!nethermind || !out || !payload.data || payload.len == 0) return payload;
+/**
+ * Rewrites an `eth_createAccessList` body so Nethermind keeps warm storage keys.
+ *
+ * @param payload JSON-RPC request body
+ * @param out destination buffer for a rewritten body; must be zeroed
+ * @return the body to send
+ */
+static bytes_t nethermind_access_list_body(bytes_t payload, buffer_t* out) {
+  if (!out || !payload.data || payload.len == 0) return payload;
   if (!bytes_contains(payload, "\"eth_createAccessList\"")) return payload;
 
   // json_parse needs a trailing NUL. bytes_t does not promise one past len.
@@ -67,4 +75,12 @@ bytes_t c4_nethermind_access_list_body(bytes_t payload, bool nethermind, buffer_
   out->data.data[out->data.len] = 0;
   buffer_free(&tmp);
   return out->data;
+}
+
+bytes_t c4_rpc_request_body(bytes_t payload, uint32_t client_type, buffer_t* out) {
+  if (!out || !payload.data || payload.len == 0) return payload;
+  // Further client-specific body patches go here.
+  if ((client_type & RPC_CLIENT_NETHERMIND) != 0)
+    return nethermind_access_list_body(payload, out);
+  return payload;
 }
