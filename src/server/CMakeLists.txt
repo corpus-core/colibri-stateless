@@ -49,7 +49,6 @@ add_library(serverlib STATIC
   server_control.c
   tracing.c
   http_client.c
-  rpc_body.c
   http_client_errors.c
   http_servers_select.c
   http_head_poller.c

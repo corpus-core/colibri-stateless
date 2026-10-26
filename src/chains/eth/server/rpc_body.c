@@ -4,8 +4,8 @@
  */
 
 #include "rpc_body.h"
-#include "chains/eth/server/eth_clients.h"
-#include "json.h"
+#include "eth_clients.h"
+#include "util/json.h"
 #include <string.h>
 
 static bool bytes_contains(bytes_t hay, const char* needle) {
@@ -77,10 +77,22 @@ static bytes_t nethermind_access_list_body(bytes_t payload, buffer_t* out) {
   return out->data;
 }
 
-bytes_t c4_rpc_request_body(bytes_t payload, uint32_t client_type, buffer_t* out) {
+bytes_t eth_rewrite_rpc_body(bytes_t payload, uint32_t client_type, buffer_t* out) {
   if (!out || !payload.data || payload.len == 0) return payload;
-  // Further client-specific body patches go here.
-  if ((client_type & RPC_CLIENT_NETHERMIND) != 0)
-    return nethermind_access_list_body(payload, out);
-  return payload;
+  // Further Ethereum client patches go here.
+  if ((client_type & RPC_CLIENT_NETHERMIND) == 0) return payload;
+
+  // A previous chain may already have stored `payload` in `out`.
+  if (payload.data == out->data.data) {
+    buffer_t scratch   = {0};
+    bytes_t  rewritten = nethermind_access_list_body(payload, &scratch);
+    if (rewritten.data != scratch.data.data) {
+      buffer_free(&scratch);
+      return payload;
+    }
+    buffer_free(out);
+    *out = scratch;
+    return out->data;
+  }
+  return nethermind_access_list_body(payload, out);
 }

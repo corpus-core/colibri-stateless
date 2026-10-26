@@ -24,7 +24,7 @@
 #include "unity.h"
 #ifdef HTTP_SERVER
 #include "chains/eth/server/eth_clients.h"
-#include "server/rpc_body.h"
+#include "chains/eth/server/rpc_body.h"
 #include <string.h>
 
 static bytes_t body_of(const char* json) {
@@ -37,7 +37,7 @@ void tearDown(void) {}
 void test_access_list_body_unchanged_for_other_clients(void) {
   const char* json = "{\"jsonrpc\":\"2.0\",\"method\":\"eth_createAccessList\",\"params\":[{\"to\":\"0x01\"},\"0x10\"],\"id\":1}";
   buffer_t    out  = {0};
-  bytes_t     got  = c4_rpc_request_body(body_of(json), RPC_CLIENT_GETH, &out);
+  bytes_t     got  = eth_rewrite_rpc_body(body_of(json), RPC_CLIENT_GETH, &out);
   TEST_ASSERT_EQUAL_PTR(json, got.data);
   TEST_ASSERT_NULL(out.data.data);
 }
@@ -45,7 +45,7 @@ void test_access_list_body_unchanged_for_other_clients(void) {
 void test_access_list_body_ignores_other_methods(void) {
   const char* json = "{\"jsonrpc\":\"2.0\",\"method\":\"eth_call\",\"params\":[{\"to\":\"0x01\"},\"0x10\"],\"id\":1}";
   buffer_t    out  = {0};
-  bytes_t     got  = c4_rpc_request_body(body_of(json), RPC_CLIENT_NETHERMIND, &out);
+  bytes_t     got  = eth_rewrite_rpc_body(body_of(json), RPC_CLIENT_NETHERMIND, &out);
   TEST_ASSERT_EQUAL_PTR(json, got.data);
   TEST_ASSERT_NULL(out.data.data);
 }
@@ -53,7 +53,7 @@ void test_access_list_body_ignores_other_methods(void) {
 void test_access_list_body_nethermind_inserts_optimize_false(void) {
   const char* json = "{\"jsonrpc\":\"2.0\",\"method\":\"eth_createAccessList\",\"params\":[{\"to\":\"0x01\"},\"0x10\"],\"id\":1}";
   buffer_t    out  = {0};
-  bytes_t     got  = c4_rpc_request_body(body_of(json), RPC_CLIENT_NETHERMIND, &out);
+  bytes_t     got  = eth_rewrite_rpc_body(body_of(json), RPC_CLIENT_NETHERMIND, &out);
   TEST_ASSERT_NOT_NULL(strstr((char*) got.data, "[{\"to\":\"0x01\"},\"0x10\",null,false]"));
   buffer_free(&out);
 }
@@ -61,7 +61,7 @@ void test_access_list_body_nethermind_inserts_optimize_false(void) {
 void test_access_list_body_nethermind_keeps_state_override(void) {
   const char* json = "{\"jsonrpc\":\"2.0\",\"method\":\"eth_createAccessList\",\"params\":[{\"to\":\"0x01\"},\"0x10\",{\"0x02\":{\"balance\":\"0x1\"}}],\"id\":1}";
   buffer_t    out  = {0};
-  bytes_t     got  = c4_rpc_request_body(body_of(json), RPC_CLIENT_NETHERMIND, &out);
+  bytes_t     got  = eth_rewrite_rpc_body(body_of(json), RPC_CLIENT_NETHERMIND, &out);
   TEST_ASSERT_NOT_NULL(strstr((char*) got.data, "{\"0x02\":{\"balance\":\"0x1\"}},false]"));
   TEST_ASSERT_NULL(strstr((char*) got.data, "null,false"));
   buffer_free(&out);
@@ -73,7 +73,7 @@ void test_access_list_body_without_trailing_nul(void) {
   uint8_t*    raw  = safe_malloc(n);
   memcpy(raw, json, n);
   buffer_t out = {0};
-  bytes_t  got = c4_rpc_request_body(bytes(raw, n), RPC_CLIENT_NETHERMIND, &out);
+  bytes_t  got = eth_rewrite_rpc_body(bytes(raw, n), RPC_CLIENT_NETHERMIND, &out);
   TEST_ASSERT_NOT_NULL(strstr((char*) got.data, ",null,false]"));
   buffer_free(&out);
   safe_free(raw);
@@ -82,7 +82,7 @@ void test_access_list_body_without_trailing_nul(void) {
 void test_access_list_body_leaves_existing_fourth_param(void) {
   const char* json = "{\"jsonrpc\":\"2.0\",\"method\":\"eth_createAccessList\",\"params\":[{\"to\":\"0x01\"},\"0x10\",null,true],\"id\":1}";
   buffer_t    out  = {0};
-  bytes_t     got  = c4_rpc_request_body(body_of(json), RPC_CLIENT_NETHERMIND, &out);
+  bytes_t     got  = eth_rewrite_rpc_body(body_of(json), RPC_CLIENT_NETHERMIND, &out);
   TEST_ASSERT_EQUAL_PTR(json, got.data);
   TEST_ASSERT_NULL(out.data.data);
 }

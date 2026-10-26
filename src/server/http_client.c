@@ -5,8 +5,8 @@
 
 #include "cache.h"
 #include "logger.h"
-#include "rpc_body.h"
 #include "server.h"
+#include "server_handlers.h"
 #include <stddef.h> // Added for offsetof
 #include <string.h>
 #ifdef _WIN32
@@ -1176,7 +1176,7 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
     if (r->req->payload.len && r->req->payload.data) {
       uint32_t client_type = (servers && servers->client_types && selected_index >= 0 && selected_index < (int) servers->count) ? servers->client_types[selected_index] : 0;
       buffer_free(&r->post_body);
-      bytes_t body = c4_rpc_request_body(r->req->payload, client_type, &r->post_body);
+      bytes_t body = c4_server_handlers_rewrite_body(r->req->payload, client_type, &r->post_body);
       curl_easy_setopt(easy, CURLOPT_POSTFIELDS, body.data);
       curl_easy_setopt(easy, CURLOPT_POSTFIELDSIZE, (long) body.len);
     }

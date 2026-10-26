@@ -13,8 +13,10 @@ extern "C" {
 #include "bytes.h"
 
 /**
- * Applies client-specific patches to a JSON-RPC request body.
+ * Ethereum hook for `c4_server_handlers_rewrite_body`.
  *
+ * The generic server calls every chain's rewrite with the client-type bitmask
+ * of the selected URL. This function handles Ethereum execution clients.
  * Nethermind (`RPC_CLIENT_NETHERMIND`) defaults `eth_createAccessList`
  * `optimize` to true and then drops the already-warm transaction recipient,
  * including every storage key read on that account. The fourth parameter
@@ -26,21 +28,22 @@ extern "C" {
  * entries the rewrite inserts `null, false` (no state override). With three
  * entries it appends `false` after the existing override.
  *
- * The prover server is the only caller. It passes the client-type bitmask of
- * the selected execution URL. CLI and language bindings send the original
- * body, because those hosts do not know which client will answer. Further
- * client patches belong in this function.
+ * CLI and language bindings do not call this. They send the original body,
+ * because those hosts do not know which client will answer. Further Ethereum
+ * client patches belong in this function. Other chains register their own
+ * rewrite with `add_server_handler(REWRITE_BODY_FUNC ...)`.
  *
- * When the body is rewritten, the new bytes are stored in `out` and the
- * caller frees that buffer. Otherwise `out` is left untouched and the
- * returned view aliases `payload`.
+ * When the body is rewritten, the new bytes replace `out` and the caller
+ * frees that buffer. `payload` may already alias `out` when a previous chain
+ * rewrote the body. Otherwise `out` is left untouched and the returned view
+ * aliases `payload`.
  *
  * @param payload JSON-RPC request body
  * @param client_type client-type bitmask of the selected server, or 0
- * @param out destination buffer for a rewritten body; must be zeroed
+ * @param out destination buffer for a rewritten body
  * @return the body to send
  */
-bytes_t c4_rpc_request_body(bytes_t payload, uint32_t client_type, buffer_t* out);
+bytes_t eth_rewrite_rpc_body(bytes_t payload, uint32_t client_type, buffer_t* out);
 
 #ifdef __cplusplus
 }
