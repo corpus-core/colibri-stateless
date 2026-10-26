@@ -21,8 +21,9 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "rpc_body.h"
 #include "unity.h"
+#ifdef HTTP_SERVER
+#include "server/rpc_body.h"
 #include <string.h>
 
 static bytes_t body_of(const char* json) {
@@ -95,3 +96,11 @@ int main(void) {
   RUN_TEST(test_access_list_body_without_trailing_nul);
   return UNITY_END();
 }
+#else
+void setUp(void) {}
+void tearDown(void) {}
+int main(void) {
+  UNITY_BEGIN();
+  return UNITY_END();
+}
+#endif

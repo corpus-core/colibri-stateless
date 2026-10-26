@@ -1,24 +1,6 @@
 /*
- * Copyright (c) 2025 corpus.core
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
- *
- * SPDX-License-Identifier: MIT
+ * Copyright 2025 corpus.core
+ * SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
  */
 
 #ifndef rpc_body_h__
@@ -43,6 +25,10 @@ extern "C" {
  * A body that already has four `params` entries is left unchanged. With two
  * entries the rewrite inserts `null, false` (no state override). With three
  * entries it appends `false` after the existing override.
+ *
+ * The prover server is the only caller. It sets `nethermind` from the client
+ * type of the selected execution URL. CLI and language bindings send the
+ * original body, because those hosts do not know which client will answer.
  *
  * When the body is rewritten, the new bytes are stored in `out` and the
  * caller frees that buffer. Otherwise `out` is left untouched and the
