@@ -98,6 +98,34 @@ c4_resolve_package_version() {
   printf '%s' "$v"
 }
 
+# Ensure CHANGELOG.md has a top-level "## <version>" section (pub.dev expects it).
+# Prepends a minimal entry when missing. No-op when the section already exists.
+c4_ensure_changelog_section() {
+  local changelog="$1"
+  local version="$2"
+  local note="${3:-Rebuild / release aligned with Colibri ${version}.}"
+  if [[ ! -f "$changelog" ]]; then
+    echo "Error: CHANGELOG not found: $changelog" >&2
+    return 1
+  fi
+  # Escape dots so "1.2.3" does not match "1X2Y3" under ERE.
+  local version_re="${version//./\\.}"
+  if grep -qE "^##[[:space:]]*${version_re}([[:space:]]|\$)" "$changelog"; then
+    return 0
+  fi
+  local tmp
+  tmp="$(mktemp)"
+  {
+    echo "## ${version}"
+    echo ""
+    echo "- ${note}"
+    echo ""
+    cat "$changelog"
+  } > "$tmp"
+  mv "$tmp" "$changelog"
+  echo "Prepended CHANGELOG section ## ${version}"
+}
+
 # Apply Colibri version to a Dart or Flutter pubspec.yaml in-place.
 # For Flutter packages, sets colibri_stateless: ^<dep_version> (defaults to [version]).
 c4_apply_version_to_pubspec() {

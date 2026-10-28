@@ -1,3 +1,13 @@
+## 3.0.3
+
+- Release aligned with Colibri / npm package version `3.0.3`.
+- Pair with **colibri_flutter** `3.0.3`.
+
+## 3.0.2
+
+- Rebuild native library against Colibri `v3.0.2`.
+- Pair with **colibri_flutter** `3.0.2`.
+
 ## 3.0.0
 
 - Version aligned with the Colibri release / npm package (`@corpus-core/colibri-stateless`): set from `C4_VERSION` or the git tag (e.g. `v3.0.0` → `3.0.0`).

@@ -1,3 +1,13 @@
+## 3.0.3
+
+- Rebuild Android / iOS / macOS natives against Colibri `v3.0.3`.
+- Depends on `colibri_stateless: ^3.0.3`.
+
+## 3.0.2
+
+- Rebuild Android / iOS / macOS natives against Colibri `v3.0.2`.
+- Depends on `colibri_stateless: ^3.0.2`.
+
 ## 3.0.1
 
 - macOS: rebuild universal `libcolibri.dylib` so Dart 3.0 FFI symbols (including `c4_reset_caches`) are exported again.

@@ -21,6 +21,8 @@ rsync -a --exclude='flutter/' --exclude='.dart_tool/' --exclude='.git/' \
   "$DART_DIR/" "$TMP_DIR/"
 
 c4_apply_version_to_pubspec "$TMP_DIR/pubspec.yaml" "$V"
+c4_ensure_changelog_section "$TMP_DIR/CHANGELOG.md" "$V" \
+  "Release aligned with Colibri / npm package version ${V}."
 
 echo "Publishing colibri_stateless from $TMP_DIR (flutter/ excluded, version $V)"
 (cd "$TMP_DIR" && dart pub publish "$@")

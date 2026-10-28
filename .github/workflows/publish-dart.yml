@@ -1,0 +1,137 @@
+# Publish colibri_stateless + colibri_flutter to pub.dev on version tags.
+#
+# Prerequisites (one-time, on pub.dev Admin for BOTH packages):
+#   1. Enable "Automated publishing" → GitHub Actions
+#   2. Repository: corpus-core/colibri-stateless
+#   3. Tag pattern: v{{version}}
+#   4. Enable publishing from push events
+#
+# Auth is OIDC (id-token: write); no PUB_TOKEN secret.
+# Only exact vX.Y.Z tags are published (prerelease tags are ignored so the
+# git tag always matches the pubspec version required by pub.dev).
+#
+# Docs: https://dart.dev/tools/pub/automated-publishing
+name: Publish Dart & Flutter to pub.dev
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+permissions:
+  contents: read
+
+jobs:
+  publish-pubdev:
+    runs-on: macos-latest
+    permissions:
+      contents: read
+      id-token: write # Required for pub.dev OIDC
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Resolve release version from tag
+        id: version
+        run: |
+          TAG_VERSION=${GITHUB_REF#refs/tags/v}
+          # pub.dev OIDC requires git tag == v{{version}} == pubspec version.
+          # Do not strip prerelease suffixes; only pure vX.Y.Z is supported.
+          if [[ ! "$TAG_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Error: only vX.Y.Z release tags are supported (got '$GITHUB_REF')"
+            exit 1
+          fi
+          echo "version=$TAG_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Publishing Dart/Flutter packages as $TAG_VERSION"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Set up Dart (OIDC publisher identity)
+        uses: dart-lang/setup-dart@v1
+
+      - name: Install CMake
+        run: |
+          if ! command -v cmake &> /dev/null; then
+            brew install cmake
+          fi
+          cmake --version
+
+      - name: Set up Android NDK
+        uses: nttld/setup-ndk@v1
+        id: setup-ndk
+        with:
+          ndk-version: r27c
+          link-to-sdk: true
+
+      - name: Export ANDROID_NDK_HOME
+        run: |
+          echo "ANDROID_NDK_HOME=${{ steps.setup-ndk.outputs.ndk-path }}" >> "$GITHUB_ENV"
+          echo "NDK: ${{ steps.setup-ndk.outputs.ndk-path }}"
+
+      - name: Sync package versions to tag
+        env:
+          C4_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          ./bindings/dart/scripts/sync_version.sh --exact
+
+      # Build natives before any pub.dev upload so a late Xcode/NDK failure
+      # cannot leave Dart published without a matching Flutter package.
+      - name: Build Flutter natives (Android / iOS / macOS)
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: |
+          ./bindings/dart/flutter/colibri_flutter/scripts/build_native_libs.sh --all
+
+      - name: Publish colibri_stateless to pub.dev
+        env:
+          C4_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          ./bindings/dart/scripts/publish_colibri_stateless.sh --force
+
+      - name: Wait for colibri_stateless on pub.dev
+        env:
+          C4_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          V="$C4_VERSION"
+          echo "Waiting for colibri_stateless $V to become resolvable..."
+          for i in {1..30}; do
+            TMP=$(mktemp -d)
+            printf 'name: probe\nenvironment:\n  sdk: ^3.0.0\ndependencies:\n  colibri_stateless: %s\n' "$V" > "$TMP/pubspec.yaml"
+            if (cd "$TMP" && dart pub get >/dev/null 2>&1); then
+              echo "colibri_stateless $V is resolvable (attempt $i)"
+              rm -rf "$TMP"
+              exit 0
+            fi
+            rm -rf "$TMP"
+            echo "Not yet available (attempt $i/30); sleeping 20s..."
+            sleep 20
+          done
+          echo "Timed out waiting for colibri_stateless $V on pub.dev"
+          exit 1
+
+      - name: Publish colibri_flutter to pub.dev
+        env:
+          C4_VERSION: ${{ steps.version.outputs.version }}
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: |
+          ./bindings/dart/flutter/colibri_flutter/scripts/publish_colibri_flutter.sh --skip-build --force
+
+      - name: Summary
+        if: success()
+        env:
+          C4_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          echo "## pub.dev publish" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- colibri_stateless \`$C4_VERSION\`: https://pub.dev/packages/colibri_stateless/versions/$C4_VERSION" >> "$GITHUB_STEP_SUMMARY"
+          echo "- colibri_flutter \`$C4_VERSION\`: https://pub.dev/packages/colibri_flutter/versions/$C4_VERSION" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Requires pub.dev automated publishing (GitHub Actions) enabled for both packages." >> "$GITHUB_STEP_SUMMARY"

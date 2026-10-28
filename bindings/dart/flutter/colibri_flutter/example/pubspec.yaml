@@ -1,7 +1,7 @@
 name: colibri_flutter_example
 description: Example app for the colibri_flutter plugin.
 publish_to: "none"
-version: 3.0.2
+version: 3.0.3+1
 
 environment:
   sdk: ">=3.0.0 <4.0.0"
@@ -9,7 +9,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  colibri_flutter: ^3.0.2
+  colibri_flutter: ^3.0.3
 
 dev_dependencies:
   flutter_test:

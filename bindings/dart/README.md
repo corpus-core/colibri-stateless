@@ -8,8 +8,8 @@ Current package versions:
 
 | Package | Version |
 |---------|---------|
-| [`colibri_stateless`](pubspec.yaml) | **3.0.0** (Colibri / npm) |
-| [`colibri_flutter`](flutter/colibri_flutter/pubspec.yaml) | **3.0.0** (same) |
+| [`colibri_stateless`](pubspec.yaml) | **3.0.3** (Colibri / npm) |
+| [`colibri_flutter`](flutter/colibri_flutter/pubspec.yaml) | **3.0.3** (same) |
 
 **Verify Ethereum RPC data cryptographically — without running a full node.**
 
@@ -215,6 +215,22 @@ dart pub publish
 You will be prompted to log in with a Google account (first time: create publisher or link account at [pub.dev](https://pub.dev)).
 
 Recommended: publish from a clean git state and after running `dart test`.
+
+### CI (automated on release tags)
+
+Pushing a tag `vX.Y.Z` runs [`.github/workflows/publish-dart.yml`](../../.github/workflows/publish-dart.yml), which builds Flutter natives first, then publishes `colibri_stateless` and `colibri_flutter` via [OIDC automated publishing](https://dart.dev/tools/pub/automated-publishing) (no `PUB_TOKEN` / long-lived secrets). Only exact `vX.Y.Z` tags are published (prerelease tags like `v1.2.3-rc.1` are not).
+
+One-time setup on pub.dev (Admin → Automated publishing → GitHub Actions) for **both** packages:
+
+| Setting | Value |
+|---------|--------|
+| Packages | `colibri_stateless` **and** `colibri_flutter` |
+| Repository | `corpus-core/colibri-stateless` |
+| Tag pattern | `v{{version}}` (lockstep versions) |
+| Trigger | Enable publishing from `push` events |
+| Auth | OIDC (`id-token: write` in the workflow) |
+
+Automated publishing only works after each package has been published at least once manually. Same-version re-publish is impossible on pub.dev — if Flutter fails after Dart succeeded, publish Flutter manually for that version or cut a new patch tag.
 
 ## Documentation
 

@@ -10,14 +10,15 @@
 # release version (same as npm): C4_VERSION / COLIBRI_VERSION, or exact git tag.
 #
 # Prerequisites:
-#   - ANDROID_NDK_HOME set (for Android .so files)
-#   - macOS with Xcode (for iOS XCFramework)
-#   - dart pub login (authenticated with pub.dev)
+#   - ANDROID_NDK_HOME set (for Android .so files), unless --skip-build
+#   - macOS with Xcode (for iOS XCFramework), unless --skip-build
+#   - Auth: interactive `dart pub login`, or CI OIDC via dart-lang/setup-dart
 #   - colibri_stateless already published at the same version (or compatible ^)
 #
 # Usage:
-#   ./scripts/publish_colibri_flutter.sh           # build + publish
-#   ./scripts/publish_colibri_flutter.sh --dry-run  # build + dry-run publish
+#   ./scripts/publish_colibri_flutter.sh                # build + publish
+#   ./scripts/publish_colibri_flutter.sh --dry-run       # build + dry-run publish
+#   ./scripts/publish_colibri_flutter.sh --skip-build    # reuse existing natives
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -26,17 +27,29 @@ DART_SCRIPTS="$(cd "$PLUGIN_DIR/../../scripts" && pwd)"
 # shellcheck source=../../scripts/colibri_version.sh
 source "$DART_SCRIPTS/colibri_version.sh"
 
+SKIP_BUILD=false
+PUBLISH_ARGS=()
+for arg in "$@"; do
+  case "$arg" in
+    --skip-build) SKIP_BUILD=true ;;
+    *) PUBLISH_ARGS+=("$arg") ;;
+  esac
+done
+set -- "${PUBLISH_ARGS[@]}"
+
 V="$(c4_resolve_package_version --exact)"
-PLUGIN_V="$(awk '/^version:[[:space:]]*/ { print $2; exit }' "$PLUGIN_DIR/pubspec.yaml")"
-if [[ -z "$PLUGIN_V" ]]; then
-  PLUGIN_V="$V"
-fi
+# Align plugin version with Colibri / npm release unless explicitly overridden.
+PLUGIN_V="${C4_FLUTTER_VERSION:-$V}"
 echo "=== colibri_flutter publish (plugin $PLUGIN_V, Colibri core $V) ==="
 echo ""
 
-# Step 1: Build native libraries
-echo "Step 1: Building native libraries..."
-"$SCRIPT_DIR/build_native_libs.sh" --all
+# Step 1: Build native libraries (optional when CI already built them)
+if $SKIP_BUILD; then
+  echo "Step 1: Skipping native build (--skip-build)"
+else
+  echo "Step 1: Building native libraries..."
+  "$SCRIPT_DIR/build_native_libs.sh" --all
+fi
 echo ""
 
 # Step 2: Verify binaries exist
@@ -103,6 +116,8 @@ rsync -a \
   "$PLUGIN_DIR/" "$TMP_DIR/"
 
 c4_apply_version_to_pubspec "$TMP_DIR/pubspec.yaml" "$PLUGIN_V" "$V"
+c4_ensure_changelog_section "$TMP_DIR/CHANGELOG.md" "$PLUGIN_V" \
+  "Rebuild Android / iOS / macOS natives against Colibri ${V}. Depends on colibri_stateless: ^${V}."
 
 # Ensure LICENSE / README / CHANGELOG / natives are present in the copy
 for f in LICENSE README.md CHANGELOG.md pubspec.yaml; do
@@ -128,10 +143,6 @@ fi
 if [[ ! -f "$TMP_DIR/macos/colibri_flutter/Package.swift" ]]; then
   echo "Error: missing macOS Package.swift in publish copy"
   exit 1
-fi
-
-if ! grep -qE "^##[[:space:]]*${PLUGIN_V}([[:space:]]|\$)" "$TMP_DIR/CHANGELOG.md"; then
-  echo "Warning: CHANGELOG.md has no '## $PLUGIN_V' section — pub.dev may warn." >&2
 fi
 
 echo "Publishing colibri_flutter $PLUGIN_V from $TMP_DIR"
