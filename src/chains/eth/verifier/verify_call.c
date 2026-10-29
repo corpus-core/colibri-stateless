@@ -769,9 +769,14 @@ bool verify_call_proof(verify_ctx_t* ctx) {
   if (has_proof && !verify_call_freshness(ctx, ctx)) return false;
 
   if (!evm->accounts && has_proof) {
-    ssz_ob_t accounts = ssz_get(&ctx->proof, "accounts");
-    if (!c4_eth_verify_accounts(ctx, accounts, evm->state_root)) return false;
+    ssz_ob_t  accounts         = ssz_get(&ctx->proof, "accounts");
+    bytes32_t proof_state_root = {0};
+    if (!c4_eth_verify_accounts(ctx, accounts, proof_state_root)) return false;
     if (c4_verify_block(ctx, ssz_get(&ctx->proof, "elProof"), &evm->el_header, evm->el_block_hash) != C4_SUCCESS) return false;
+    bytes_t header_state_root = eth_el_header_get(evm->el_header, EL_STATE_ROOT);
+    if (!header_state_root.data || header_state_root.len != 32 ||
+        memcmp(header_state_root.data, proof_state_root, 32) != 0)
+      RETURN_VERIFY_ERROR(ctx, "state root mismatch between account proof and execution header");
     evm->accounts = call_accounts_from_ssz(accounts);
   }
   if (!prepare_evm_call(ctx, evm, has_overrides)) return false;
