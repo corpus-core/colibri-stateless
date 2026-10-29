@@ -461,13 +461,24 @@ static c4_status_t update_from_zk_sync_data(verify_ctx_t* ctx) {
   }
 
   // Trust anchor passed; now the expensive ZK-proof verification.
-  uint8_t pub_inputs[136] = {0};
+  // `vk_hash` only selects a pinned key; never copy this untrusted transport field
+  // into the guest public values. The registered key supplies the committed identity.
+  if (vk_hash.len != C4_ZK_PROGRAM_HASH_LEN)
+    RETURN_VERIFY_ERROR_STATUS(ctx, "invalid zk program hash length!");
+  const zk_vk_t* vk = c4_zk_get_vk(vk_hash.data);
+  if (!vk)
+    RETURN_VERIFY_ERROR_STATUS(ctx, "unregistered zk program hash!");
+
+  uint8_t pub_inputs[C4_ZK_VERIFICATION_OUTPUT_LEN] = {0};
   memcpy(pub_inputs, spec->zk_sync_keys_root, 32); // root-anchor
   ssz_hash_tree_root(pub_keys, pub_inputs + 32);   // next_keys_root
   uint64_to_le(pub_inputs + 64, period);           // next_period
   ssz_hash_tree_root(header, pub_inputs + 72);     // attested_header_root
   if (!eth_calculate_domain(ctx->chain_id, attested_slot, pub_inputs + 104)) RETURN_VERIFY_ERROR_STATUS(ctx, "unsupported chain!");
-  if (!c4_verify_zk_proof(proof, bytes(pub_inputs, 136), vk_hash.data)) RETURN_VERIFY_ERROR_STATUS(ctx, "invalid zk_proof!");
+  memcpy(pub_inputs + C4_ZK_VERIFICATION_OUTPUT_PROGRAM_HASH_OFFSET,
+         vk->program_hash, sizeof(vk->program_hash));
+  if (!c4_verify_zk_proof(proof, bytes(pub_inputs, sizeof(pub_inputs)), vk->program_hash))
+    RETURN_VERIFY_ERROR_STATUS(ctx, "invalid zk_proof!");
 
   if (!c4_set_sync_period(period, pub_keys.bytes, ctx->chain_id, previous_pubkeys_hash)) RETURN_VERIFY_ERROR_STATUS(ctx, "failed to store next sync committee!");
   log_debug("zk proof verified successfully for period %d!", period);

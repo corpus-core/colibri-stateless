@@ -17,6 +17,7 @@ void tearDown(void) {}
 
 #ifdef ETH_ZKPROOF
 #include "zk_verifier.h"
+#include "zk_verifier_constants.h"
 
 static bytes_t copy_bytes(bytes_t src) {
   bytes_t dst;
@@ -63,12 +64,16 @@ static uint8_t* verify_period_and_get_anchor(int period, const uint8_t* expected
   }
 
   // Verify Structure
-  // [0..31]  = Current Keys Root (Anchor)
-  // [32..63] = Next Keys Root
-  // [64..71] = Next Period (LE)
-  // [72..103] = Attested Header Root (BeaconBlockHeader hash_tree_root)
+  // [0..31]    = Current Keys Root (Anchor)
+  // [32..63]   = Next Keys Root
+  // [64..71]   = Next Period (LE)
+  // [72..103]  = Attested Header Root (BeaconBlockHeader hash_tree_root)
   // [104..135] = Domain (SigningData.domain)
-  TEST_ASSERT_GREATER_OR_EQUAL_INT(136, pub.len);
+  // [136..167] = SP1 Program VKey Hash
+  TEST_ASSERT_EQUAL_UINT32(C4_ZK_VERIFICATION_OUTPUT_LEN, pub.len);
+  TEST_ASSERT_EQUAL_MEMORY(VK_PROGRAM_HASH,
+                           pub.data + C4_ZK_VERIFICATION_OUTPUT_PROGRAM_HASH_OFFSET,
+                           C4_ZK_PROGRAM_HASH_LEN);
 
   // Check Period
   uint64_t next_period = 0;
@@ -185,7 +190,15 @@ void test_verify_tampered(void) {
     TEST_ASSERT_FALSE(verify_zk_proof(proof, pub));
     free(pub.data);
   }
-  // 4. Tamper Proof
+  // 4. Tamper Program VKey Hash
+  {
+    bytes_t pub = copy_bytes(pub_orig);
+    TEST_ASSERT_EQUAL_UINT32(C4_ZK_VERIFICATION_OUTPUT_LEN, pub.len);
+    pub.data[C4_ZK_VERIFICATION_OUTPUT_PROGRAM_HASH_OFFSET] ^= 0xFF;
+    TEST_ASSERT_FALSE(verify_zk_proof(proof, pub));
+    free(pub.data);
+  }
+  // 5. Tamper Proof
   {
     bytes_t proof_mod = copy_bytes(proof);
     if (proof_mod.len > 64)
@@ -200,9 +213,8 @@ void test_verify_tampered(void) {
   free(pub_orig.data);
 }
 
-// Locks the public-output layout of the pre-rotation 1784 fixture (356-byte Groth16).
-// After VK rotation the proof itself is skipped; expected_current/next stay the
-// historical 1784 values so a leftover fixture cannot silently match a new anchor.
+// Retains historical anchor expectations for the 1784 artifact. Its pre-rotation
+// proof is skipped before checking the current 168-byte public-output contract.
 void test_verify_v6_anchor_values(void) {
   bytes_t proof = read_testdata("zk_data/1784/zk_proof_g16.bin");
   bytes_t pub   = read_testdata("zk_data/1784/zk_pub.bin");
@@ -216,14 +228,20 @@ void test_verify_v6_anchor_values(void) {
 
   // SP1 v6 Groth16 proof is 356 bytes (v5 was 260).
   TEST_ASSERT_EQUAL_INT_MESSAGE(356, proof.len, "Expected 356-byte SP1 v6 Groth16 proof");
-  TEST_ASSERT_GREATER_OR_EQUAL_INT(136, pub.len);
 
+  // Pre-rotation fixtures are intentionally skipped before applying the new
+  // 168-byte public-output contract.
   if (!verify_zk_proof(proof, pub)) {
     free(proof.data);
     free(pub.data);
-    TEST_IGNORE_MESSAGE("Skipping v6 anchor test: 1784 fixture does not verify against current VK_PROGRAM_HASH");
+    TEST_IGNORE_MESSAGE("Skipping v6 anchor test: fixture does not verify against current VK_PROGRAM_HASH");
     return;
   }
+
+  TEST_ASSERT_EQUAL_UINT32(C4_ZK_VERIFICATION_OUTPUT_LEN, pub.len);
+  TEST_ASSERT_EQUAL_MEMORY(VK_PROGRAM_HASH,
+                           pub.data + C4_ZK_VERIFICATION_OUTPUT_PROGRAM_HASH_OFFSET,
+                           C4_ZK_PROGRAM_HASH_LEN);
 
   const uint8_t expected_current[32] = {0xc0, 0x23, 0x61, 0xcb, 0x34, 0xfe, 0xce, 0x1e, 0xae, 0x2c, 0x74, 0xbd, 0x67, 0x5d, 0x38, 0x76, 0xc5, 0x3b, 0x93, 0xa7, 0xe8, 0x00, 0x15, 0x74, 0xf5, 0x49, 0xd2, 0x8c, 0xa8, 0x9c, 0xfb, 0x9b};
   const uint8_t expected_next[32]    = {0x59, 0xd1, 0xe4, 0xec, 0x47, 0x79, 0x51, 0x24, 0xfc, 0x89, 0xe3, 0xb0, 0x9a, 0xf7, 0x24, 0x35, 0xc7, 0x21, 0x54, 0x5b, 0x80, 0x7c, 0xfe, 0xfa, 0x4d, 0xb5, 0x6e, 0xd2, 0x1b, 0xa6, 0x92, 0x94};

@@ -135,11 +135,20 @@ static char* trim_key_string(bytes_t key_bytes) {
   return out;
 }
 
+/**
+ * Verify a Groth16 proof and its application-specific public output files.
+ *
+ * @param proof_path Path to the 356-byte Groth16 proof.
+ * @param pub_path Path to the 168-byte VerificationOutput.
+ * @return true when both files are present and form a valid pinned proof.
+ */
 static bool c4_verify_proof_files(const char* proof_path, const char* pub_path) {
   if (!proof_path || !pub_path) return false;
   bytes_t proof = bytes_read((char*) proof_path);
   bytes_t pub   = bytes_read((char*) pub_path);
-  bool    valid = proof.data && pub.data && verify_zk_proof(proof, pub);
+  bool    valid = proof.data && pub.data &&
+               pub.len == C4_ZK_VERIFICATION_OUTPUT_LEN &&
+               verify_zk_proof(proof, pub);
   safe_free(proof.data);
   safe_free(pub.data);
   return valid;

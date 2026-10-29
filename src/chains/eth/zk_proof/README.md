@@ -48,7 +48,7 @@ Artifacts are saved to `build/default/.period_store/<PERIOD>/`:
 *   `zk_vk_raw.bin`: Verification Key for the compressed proof (also fed into recursion).
 *   `zk_proof_g16.bin`: Raw Groth16 proof bytes (356-byte SP1 v6 proof, used by C/Solidity verifiers).
 *   `zk_vk.bin`: Verification Key for the Groth16 wrapper (converted to C via `export_vk`).
-*   `zk_pub.bin`: Public values written as: `current_keys_root (32) | next_keys_root (32) | next_period (u64 LE) | attested_header_root (32) | domain (32)`.
+*   `zk_pub.bin`: 168-byte public values written as: `current_keys_root (32) | next_keys_root (32) | next_period (u64 LE) | attested_header_root (32) | domain (32) | program_hash (32)`.
 
 **`zk_pub.bin` layout (byte offsets):**
 *   `0..31`: `current_keys_root` (trust anchor pubkey root)
@@ -56,6 +56,7 @@ Artifacts are saved to `build/default/.period_store/<PERIOD>/`:
 *   `64..71`: `next_period` (little-endian `u64`)
 *   `72..103`: `attested_header_root` (`hash_tree_root(attested_header.beacon)`)
 *   `104..135`: `domain` (32 bytes, must start with `0x07000000`)
+*   `136..167`: `program_hash` (SP1 `hash_bn254()` encoded as eight canonical 31-bit `u32` words in big-endian order)
 
 ### 2. Generate a Recursive Chain (Loop Mode)
 
@@ -164,6 +165,11 @@ When Colibri is built with `-DUSE_MCL=1` the verifier instead uses **MCL** for a
 *   **Build**: Controlled via `ETH_ZKPROOF` CMake option (Default: ON).
 *   **Interface**: `bool verify_zk_proof(bytes_t proof, bytes_t public_inputs);`
 
+`c4_verify_zk_proof` deliberately hashes the caller-supplied public-value bytes
+unchanged. Application consumers of this layout must use all 168 bytes; the
+sync verifier reconstructs `program_hash` from the selected, registered outer VK
+rather than accepting a separate untrusted identity field.
+
 ## Recursion & Aggregation
 
 The Guest Program supports recursion to create "Update Chains".
@@ -173,3 +179,22 @@ The Guest Program supports recursion to create "Update Chains".
     2.  Checks that the `next_keys_root` of the previous proof matches the `current_keys_root` of the current update.
     3.  **Aggregates**: Outputs the `current_keys_root` from the *previous* proof as its own `current_keys_root`.
 *   **Result**: A single proof attesting to the valid transition from `Period N` to `Period N+k`.
+
+### Recursive program authorization
+
+`SP1GuestInput.program_vkey_hash` is derived by the host from the current guest ELF.
+The guest verifies each child proof against this key and requires the child's committed
+`program_hash` to match. This check applies at every recursive step, so a child cannot
+relabel a chain previously authorized for another program.
+
+The key input is not trusted by itself. `VerificationOutput` appends its packed
+`program_hash` after the original 136 bytes, making the public values 168 bytes.
+The C sync verifier reconstructs the 32-byte field at offset 136 from the registered
+outer program key, binding the entire recursive chain to the same pinned identity
+without embedding a self-referential verification-key constant in the guest.
+
+The Groth16 proof remains 356 bytes and the `ZKSyncDataV6` SSZ layout is unchanged.
+The rebuilt ELF rotates `VK_PROGRAM_HASH`; proofs from an earlier guest must not be
+used as recursion inputs. Follow [the rotation checklist](HOWTO.md) to regenerate
+the baseline and recursive artifacts.
+
