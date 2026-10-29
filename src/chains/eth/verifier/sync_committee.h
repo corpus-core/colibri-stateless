@@ -91,6 +91,12 @@ typedef struct {
  * Implements automatic initialization, caching, and edge-case fallback for period transitions.
  * Uses previous_pubkeys_hash to handle delayed finality at period boundaries.
  *
+ * With USE_CHECKPOINTZ enabled, fetched updates crossing the WSP are anchored before
+ * any of their committees are persisted. Pending checkpoint/bootstrap requests leave
+ * the trusted period cache unchanged, including for other verification contexts.
+ * The bootstrap's full currentSyncCommittee is Merkle-verified against the anchored
+ * header before its public keys are compared with the candidate LCU chain.
+ *
  * @param ctx Verification context
  * @param period Sync committee period number
  * @param state Output parameter for validator state
