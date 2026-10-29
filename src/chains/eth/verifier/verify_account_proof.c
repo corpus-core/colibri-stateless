@@ -55,6 +55,61 @@ static json_t account_block_tag(verify_ctx_t* ctx) {
   return n ? json_at(ctx->args, n - 1) : (json_t) {0};
 }
 
+// Binds the keys in `storageProof` (as supplied by the prover's SSZ container)
+// to the keys the caller requested. The trie path is verified against the
+// *proof-supplied* key, so without this check a genuine proof of a different
+// slot would be served verbatim for the requested one.
+static bool storage_keys_match_request(verify_ctx_t* ctx, ssz_ob_t storage_proofs, eth_account_field_t field) {
+  ssz_ob_t keys = {0};
+  if (field == ETH_ACCOUNT_STORAGE_HASH) {
+    keys.def = NULL;
+    // eth_getStorageAt expects exactly one 32-byte key from the caller.
+    if (json_len(ctx->args) < 2) RETURN_VERIFY_ERROR(ctx, "missing storage slot argument");
+    buffer_t slot_buf = {0};
+    bytes_t  slot     = json_as_bytes(json_at(ctx->args, 1), &slot_buf);
+    if (slot.len != 32) RETURN_VERIFY_ERROR(ctx, "invalid storage slot in request");
+    if (ssz_len(storage_proofs) != 1) RETURN_VERIFY_ERROR(ctx, "unexpected storage proof count: expected one slot");
+    ssz_ob_t proof_entry = ssz_at(storage_proofs, 0);
+    ssz_ob_t proof_key   = ssz_get(&proof_entry, "key");
+    if (proof_key.bytes.len != 32 || memcmp(proof_key.bytes.data, slot.data, 32) != 0)
+      RETURN_VERIFY_ERROR(ctx, "storage proof key does not match requested slot");
+    return true;
+  }
+  if (field == ETH_ACCOUNT_PROOF) {
+    // eth_getProof expects the storageProof set to equal the requested key set:
+    // same count, same order, no duplicates or omissions.
+    if (json_len(ctx->args) < 2) RETURN_VERIFY_ERROR(ctx, "missing storage keys argument");
+    json_t   req_keys = json_at(ctx->args, 1);
+    uint32_t n        = (uint32_t) json_len(req_keys);
+    if (ssz_len(storage_proofs) != n) RETURN_VERIFY_ERROR(ctx, "storage proof count does not match requested key count");
+    for (uint32_t i = 0; i < n; i++) {
+      buffer_t slot_buf = {0};
+      bytes_t  slot     = json_as_bytes(json_at(req_keys, i), &slot_buf);
+      if (slot.len != 32) RETURN_VERIFY_ERROR(ctx, "invalid storage key in request");
+      ssz_ob_t proof_entry = ssz_at(storage_proofs, i);
+      ssz_ob_t proof_key   = ssz_get(&proof_entry, "key");
+      if (proof_key.bytes.len != 32 || memcmp(proof_key.bytes.data, slot.data, 32) != 0)
+        RETURN_VERIFY_ERROR(ctx, "storage proof key does not match requested key set");
+    }
+  }
+  return true;
+}
+
+// Binds an explicit block number (e.g. `"0x14d7970"`) in the last argument to the
+// blockNumber of the verified EL header. `eth_check_latest_freshness` only enforces
+// recency for `"latest"`; a numeric tag must also match the proof's block exactly,
+// or the same genuine proof could be re-served for any block the caller asks for.
+static bool block_tag_matches_header(verify_ctx_t* ctx, json_t block_tag, bytes_t el_header) {
+  if (block_tag.type != JSON_TYPE_STRING) return true; // "latest"/"safe"/"finalized" handled elsewhere
+  if (block_tag.len > 2 && block_tag.start[1] == '0' && block_tag.start[2] == 'x') {
+    uint64_t req_block = json_as_uint64(block_tag);
+    uint64_t hdr_block = eth_el_header_get_uint64(el_header, EL_BLOCK_NUMBER);
+    if (req_block != hdr_block)
+      RETURN_VERIFY_ERROR(ctx, "block number in request does not match the execution header");
+  }
+  return true;
+}
+
 bool verify_hybrid_account_proof(verify_ctx_t* ctx) {
   if (!(ctx->flags & VERIFY_FLAG_HYBRID)) RETURN_VERIFY_ERROR(ctx, "hybrid account proof requires VERIFY_FLAG_HYBRID");
   ssz_ob_t header_data = ssz_get(&ctx->proof, "header_data");
@@ -105,6 +160,8 @@ bool verify_account_proof(verify_ctx_t* ctx) {
   if (c4_verify_block(ctx, ssz_get(&ctx->proof, "elProof"), &el_header, block_hash) != C4_SUCCESS) return false;
   if (!eth_verify_account_proof_exec(ctx, &ctx->proof, state_root, field == ETH_ACCOUNT_PROOF ? ETH_ACCOUNT_STORAGE_HASH : field, values)) RETURN_VERIFY_ERROR(ctx, "invalid account proof!");
   if (memcmp(state_root, eth_el_header_get(el_header, EL_STATE_ROOT).data, 32) != 0) RETURN_VERIFY_ERROR(ctx, "stateRoot mismatch between account proof and execution header!");
+  if (!block_tag_matches_header(ctx, account_block_tag(ctx), el_header)) return false;
+  if (!storage_keys_match_request(ctx, ssz_get(&ctx->proof, "storageProof"), field)) return false;
   if (field && !eth_account_verify_data(ctx, verified_address.data, field, values)) RETURN_VERIFY_ERROR(ctx, "invalid account data!");
   if (!eth_check_latest_freshness(ctx, eth_json_is_latest(account_block_tag(ctx)), true, eth_el_header_get_uint64(el_header, EL_TIMESTAMP))) return false;
 
