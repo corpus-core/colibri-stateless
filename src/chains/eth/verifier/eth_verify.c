@@ -128,6 +128,72 @@ static const char* proofable_methods[] = {
     RPC_METHOD("eth_subscribe", Uint256, Void),
     RPC_METHOD("eth_unsubscribe", Uint256, Void),
 };
+
+// Expected proof container (SSZ union variant) per entry of `proofable_methods`.
+//
+// Verification must bind the *carried* proof container to the proof type the
+// requested method was proven for. Without this check, the dispatcher routed on the
+// *attacker-controlled* union tag alone, so an attacker could answer e.g.
+// `eth_getBalance` with an empty `eth_verifyLogs` proof container and have a
+// well-formed-but-meaningless proof accepted. `proofable_methods` gates which methods
+// require a proof at all; this table pins *which* proof each method requires.
+//
+// Index-aligned with `proofable_methods`. `0` (ETH_SSZ_DATA_NONE) means "no proof
+// accepted" for rows whose third column is `Void` (those methods are already
+// METHOD_UNPROOFABLE / local, so the row only hardens an unreachable path).
+#define PROOF_ROW(data, proof) ETH_SSZ_##proof
+#define PROOF_VOID           0
+static const eth_ssz_type_t proofable_proof_types[] = {
+    PROOF_ROW(Bytes, VERIFY_CALL_PROOF),                         // eth_call
+    PROOF_ROW(Uint64, VERIFY_CALL_PROOF),                        // eth_estimateGas
+    PROOF_ROW(EthSimulationResult, VERIFY_CALL_PROOF),           // colibri_simulateTransaction
+    PROOF_ROW(EthProofData, VERIFY_ACCOUNT_PROOF),               // eth_getProof
+    PROOF_ROW(Uint256, VERIFY_ACCOUNT_PROOF),                    // eth_getBalance
+    PROOF_ROW(EthBlockData, VERIFY_BLOCK_PROOF),                 // eth_getBlockByHash
+    PROOF_ROW(EthBlockData, VERIFY_BLOCK_PROOF),                 // eth_getBlockByNumber
+    PROOF_ROW(Bytes, VERIFY_ACCOUNT_PROOF),                      // eth_getCode
+    PROOF_ROW(ListEthReceiptDataLog, VERIFY_LOGS_PROOF),         // eth_getLogs
+    PROOF_ROW(Void, VERIFY_LOGS_PROOF),                          // eth_verifyLogs
+    PROOF_ROW(Uint256, VERIFY_ACCOUNT_PROOF),                    // eth_getTransactionCount
+    PROOF_ROW(Bytes32, VERIFY_ACCOUNT_PROOF),                    // eth_getStorageAt
+    PROOF_ROW(EthReceiptData, VERIFY_RECEIPT_PROOF),             // eth_getTransactionReceipt
+    PROOF_ROW(ListEthBlockReceipts, VERIFY_BLOCK_RECEIPTS_PROOF), // eth_getBlockReceipts
+    PROOF_ROW(EthTxData, VERIFY_TRANSACTION_PROOF),              // eth_getTransactionByHash
+    PROOF_ROW(EthTxData, VERIFY_TRANSACTION_PROOF),              // eth_getTransactionByBlockHashAndIndex
+    PROOF_ROW(EthTxData, VERIFY_TRANSACTION_PROOF),              // eth_getTransactionByBlockNumberAndIndex
+    PROOF_ROW(Uint256, VERIFY_BLOCK_PROOF),                      // eth_blockNumber
+    PROOF_ROW(EthBlockHeaderData, VERIFY_BLOCK_PROOF),           // eth_getBlockHeader
+    PROOF_ROW(Uint256, VERIFY_BLOCK_PROOF),                      // eth_blobBaseFee
+    PROOF_ROW(Uint256, VERIFY_BLOCK_PROOF),                      // eth_maxPriorityFeePerGas
+    PROOF_VOID, // eth_newPendingTransactionFilter
+    PROOF_VOID, // eth_newFilter
+    PROOF_VOID, // eth_newBlockFilter
+    PROOF_VOID, // eth_getFilterChanges
+    PROOF_VOID, // eth_getFilterLogs
+    PROOF_VOID, // eth_uninstallFilter
+    PROOF_VOID, // eth_subscribe
+    PROOF_VOID, // eth_unsubscribe
+};
+#undef PROOF_ROW
+#undef PROOF_VOID
+
+// Compile-time guard: the two tables must stay index-aligned.
+typedef char proofable_proof_types_drift
+    [(sizeof(proofable_proof_types) / sizeof(proofable_proof_types[0]) ==
+      sizeof(proofable_methods) / sizeof(proofable_methods[0]))
+         ? 1
+         : -1];
+
+// Returns the SSZ union variant the request *must* carry for `ctx->method`, or 0 when
+// the method is not in the proofable table (local / unproofable / unknown).
+static eth_ssz_type_t eth_expected_proof_type(const verify_ctx_t* ctx) {
+  if (!ctx->method) return 0;
+  for (size_t i = 0; i < sizeof(proofable_methods) / sizeof(proofable_methods[0]); i++) {
+    if (strcmp(ctx->method, proofable_methods[i]) == 0)
+      return proofable_proof_types[i];
+  }
+  return 0;
+}
 static const char* local_methods[] = {
     RPC_METHOD("eth_chainId", Uint64, Void),
     RPC_METHOD("eth_accounts", ListAddress, Void),
@@ -312,7 +378,37 @@ const ssz_def_t* c4_eth_get_request_type(chain_type_t chain_type) {
   return chain_type == C4_CHAIN_TYPE_ETHEREUM ? eth_ssz_verification_type(ETH_SSZ_VERIFY_REQUEST) : NULL;
 }
 
+// Reject proofs whose container does not match the proof type the requested
+// method was proven for. The dispatcher below routes on the *attacker-controlled* union
+// tag alone, so without this gate a proof for method A could be verified as method B.
+// Returns `false` when a hard mismatch is found (caller returns immediately, error set).
+static bool c4_eth_check_proof_type(verify_ctx_t* ctx) {
+  eth_ssz_type_t expected = eth_expected_proof_type(ctx);
+  if (expected == 0) return true; // local / unproofable / unknown: nothing to bind here
+
+  const ssz_def_t* expected_def = eth_ssz_verification_type(expected);
+  if (ssz_is_type(&ctx->proof, expected_def)) return true;
+
+  // When logs completeness is required, the legitimate proof is the completeness
+  // variant, not the plain logs proof.
+  if (expected == ETH_SSZ_VERIFY_LOGS_PROOF &&
+      (ctx->flags & VERIFY_FLAG_LOGS_COMPLETENESS) &&
+      ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_LOGS_COMPLETENESS_PROOF)))
+    return true;
+
+  // No-proof variants (`SSZ_TYPE_NONE`) are handled inside the dispatcher: PAP-local
+  // paths, call paths, nullable and sync-data-only paths.
+  if (no_proof(ctx)) return true;
+
+  ctx->state.error = bprintf(NULL, "proof type mismatch: method '%s' requires proof type %d, not the supplied proof",
+                             ctx->method, (int) expected);
+  ctx->success     = false;
+  return false;
+}
+
 bool c4_eth_dispatch_proof(verify_ctx_t* ctx) {
+  if (!c4_eth_check_proof_type(ctx)) return true;
+
 #ifdef ETH_TX
   if (ssz_is_type(&ctx->proof, eth_ssz_verification_type(ETH_SSZ_VERIFY_TRANSACTION_PROOF)))
     verify_tx_proof(ctx);
