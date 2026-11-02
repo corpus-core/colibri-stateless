@@ -59,19 +59,20 @@ RUN --mount=type=bind,source=.git,target=/src/.git \
   -DCMAKE_BUILD_TYPE=MINSIZREL -S . \
   && cmake --build build
 
-# Lay out a flat site: index.html next to the logo, Colibri under /colibri/.
-# The demo page in the repo points at the local cmake preset output; rewrite
-# those two paths so they match this layout. Fail the build if the markers move.
+# Lay out a flat site: index.html next to logo.png, Colibri under /colibri/.
+# The demo page points at the local cmake preset output; rewrite that path
+# so it matches this layout. The page already references logo.png beside
+# itself, so the image is copied next to index.html. Fail the build if
+# either marker moves.
 RUN set -eu; \
   html=/src/bindings/emscripten/test/pap-demo.html; \
-  grep -F "const buildBase = '../../../build/wasm/emscripten';" "$html"; \
-  grep -F 'src="../c4_logo.png"' "$html"; \
+  grep -E "const buildBase = '\\.\\./\\.\\./\\.\\./build/wasm(-debug)?/emscripten';" "$html"; \
+  grep -F 'src="logo.png"' "$html"; \
   mkdir -p /out/colibri; \
   cp -a /src/build/emscripten/. /out/colibri/; \
-  cp /src/bindings/emscripten/c4_logo.png /out/c4_logo.png; \
-  sed \
-  -e "s|const buildBase = '../../../build/wasm/emscripten';|const buildBase = './colibri';|" \
-  -e 's|src="../c4_logo.png"|src="./c4_logo.png"|' \
+  cp /src/bindings/emscripten/test/logo.png /out/logo.png; \
+  sed -E \
+  -e "s|const buildBase = '\\.\\./\\.\\./\\.\\./build/wasm(-debug)?/emscripten';|const buildBase = './colibri';|" \
   "$html" > /out/index.html
 
 # --- Final stage: serve the static site with nginx ---

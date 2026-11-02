@@ -1095,9 +1095,9 @@ INTERNAL c4_status_t eth_run_call_evmone_with_events(verify_ctx_t* ctx, evm_call
     evmone_set_keccak_hook(keccak_hook_cb, &evm->keccak_entries);
 
     // top-level trace entry with traceAddress = []
-    root_trace                = safe_calloc(1, sizeof(trace_entry_t));
-    root_trace->type          = (uint8_t) message.kind;
-    root_trace->gas           = (uint64_t) message.gas;
+    root_trace       = safe_calloc(1, sizeof(trace_entry_t));
+    root_trace->type = (uint8_t) message.kind;
+    root_trace->gas  = (uint64_t) message.gas;
     memcpy(root_trace->from, message.sender.bytes, 20);
     memcpy(root_trace->to, message.destination.bytes, 20);
     memcpy(root_trace->value, message.value.bytes, 32);

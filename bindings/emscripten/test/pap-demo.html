@@ -125,6 +125,41 @@
       letter-spacing: 0.1em;
     }
 
+    [hidden] {
+      display: none !important;
+    }
+
+    .install {
+      min-height: 60vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 1.2rem;
+      padding: 1rem;
+    }
+
+    .install-cmd {
+      font-family: 'SF Mono', 'JetBrains Mono', Menlo, monospace;
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: #5ecf9a;
+      background: #141a2e;
+      border: 1px solid #2a3254;
+      border-radius: 8px;
+      padding: 0.85rem 1.3rem;
+      cursor: pointer;
+    }
+
+    .install-cmd:hover {
+      border-color: #533483;
+    }
+
+    .install-example {
+      width: min(46rem, 100%);
+      margin: 0;
+    }
+
     .cols {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -161,6 +196,10 @@
       word-break: break-all;
     }
 
+    pre.code:empty {
+      display: none;
+    }
+
     /* JSON highlight tokens */
     .j-key {
       color: #7fdbca;
@@ -183,6 +222,18 @@
     }
 
     .j-punct {
+      color: #6b7390;
+    }
+
+    .j-kw {
+      color: #c4a7f0;
+    }
+
+    .j-fn {
+      color: #8ba6ff;
+    }
+
+    .j-cmt {
       color: #6b7390;
     }
 
@@ -403,18 +454,24 @@
   <div class="top">
     <h1>Colibri — Pragmatic Adaptive Privacy</h1>
     <div class="status" id="status"><span class="k">loading…</span></div>
-    <img class="logo" src="../c4_logo.png" alt="Colibri">
+    <img class="logo" src="logo.png" alt="Colibri">
   </div>
 
   <div class="presets" id="presets">
     <!-- filled by JS -->
   </div>
 
-  <div class="cols">
+  <div class="install" id="install">
+    <div class="install-cmd" id="install-cmd" role="button" tabindex="0">npm install @corpus-core/colibri-stateless
+    </div>
+    <pre class="code install-example" id="install-example" hidden></pre>
+  </div>
+
+  <div class="cols" id="cols" hidden>
     <div class="panel left">
       <h2>JSON-RPC Request</h2>
-      <pre class="code wrap" id="request">pick a preset above</pre>
-      <button class="exec" id="execute" disabled>Execute</button>
+      <pre class="code wrap" id="request"></pre>
+      <button class="exec" id="execute" hidden disabled>Execute</button>
       <div id="result"></div>
       <div id="remarks"></div>
     </div>
@@ -435,12 +492,88 @@
   </div>
 
   <script type="module">
+    function playFadeIn(el) {
+      el.classList.remove('fade-in');
+      void el.offsetWidth;
+      el.classList.add('fade-in');
+    }
+
+    // The install snippet is static and must work before the WASM module
+    // finishes loading — the start screen is already on screen by then.
+    const installCmdEl = document.getElementById('install-cmd');
+    const installExampleEl = document.getElementById('install-example');
+
+    // ethers v6: estimateGas takes one TransactionRequest. `blockTag` is a
+    // property of that object ("latest" is the default). A second argument
+    // is not part of the signature, and a value transfer without a funded
+    // `from` reverts, so this calls WETH.totalSupply().
+    function highlightJs(text) {
+      const tokenRe = /(\/\/.*$)|("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|(?<![\w.])(import|from|async|function|const|new|await|return|let|class)\b|(0x[0-9a-fA-F]+\b|\b\d+(?:_\d+)*n?\b)|([A-Za-z_$][\w$]*)(?=\s*:)|([A-Za-z_$][\w$]*)(?=\s*\()|([{}()[\],.;:=+\-*/<>!&|?])/gm;
+      const esc = (s) => String(s).replace(/[&<>"']/g, (c) => (
+        c === '&' ? '&amp;' : c === '<' ? '&lt;' : c === '>' ? '&gt;' : c === '"' ? '&quot;' : '&#39;'
+      ));
+      let html = '';
+      let last = 0;
+      let m;
+      while ((m = tokenRe.exec(text))) {
+        if (m.index > last) html += esc(text.slice(last, m.index));
+        const [, comment, str, keyword, num, key, fn, punct] = m;
+        if (comment) html += `<span class="j-cmt">${esc(comment)}</span>`;
+        else if (str) html += `<span class="j-str">${esc(str)}</span>`;
+        else if (keyword) html += `<span class="j-kw">${keyword}</span>`;
+        else if (num) html += `<span class="j-num">${num}</span>`;
+        else if (key) html += `<span class="j-key">${esc(key)}</span>`;
+        else if (fn) html += `<span class="j-fn">${esc(fn)}</span>`;
+        else if (punct) html += `<span class="j-punct">${esc(punct)}</span>`;
+        last = tokenRe.lastIndex;
+      }
+      if (last < text.length) html += esc(text.slice(last));
+      return html;
+    }
+
+    installExampleEl.innerHTML = highlightJs([
+      'import { BrowserProvider } from "ethers";',
+      'import Colibri from "@corpus-core/colibri-stateless";',
+      '',
+      'async function main() {',
+      '',
+      '    // Initialize the client with the default configuration and RPCs',
+      '    const client = new Colibri({',
+      '        privacy_mode: "basic"',
+      '    });',
+      '',
+      '    // Use the Colibri client as the EIP-1193 provider for ethers (v6)',
+      '    const provider = new BrowserProvider(client);',
+      '',
+      '    // Estimate gas for WETH.totalSupply() on the latest block',
+      '    const gas = await provider.estimateGas({',
+      '        to: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",',
+      '        data: "0x18160ddd",',
+      '        blockTag: "latest"',
+      '    });',
+      '    console.log(gas);',
+      '}',
+      '',
+      'main().catch(console.error);',
+    ].join('\n'));
+    function revealExample() {
+      if (!installExampleEl.hidden) return;
+      installExampleEl.hidden = false;
+      playFadeIn(installExampleEl);
+    }
+    installCmdEl.addEventListener('click', revealExample);
+    installCmdEl.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      e.preventDefault();
+      revealExample();
+    });
+
     // --------------------------------------------------------------
     //  Config
     // --------------------------------------------------------------
     // The default emscripten build target. `wasm-debug` can be used
     // instead for stepping through C in DevTools.
-    const buildBase = '../../../build/wasm/emscripten';
+    const buildBase = '../../../build/wasm-debug/emscripten';
 
     // Mainnet execution-layer RPC used by the prep calls only.
     // The Colibri client picks its own list from the mainnet defaults.
@@ -450,8 +583,8 @@
     const USDC_ADDR = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48';
     const WETH_ADDR = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2';
     const UNIV2_ROUTER = '0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D';
-    // Binance 14 hot wallet — reliably funded on mainnet
-    const RICH_FROM = '0x28C6c06298d514Db089934071355E5743bf21d60';
+    // Kraken hot wallet — reliably funded on mainnet
+    const RICH_FROM = '0xf30ba13e4b04Ce5dC4D254Ae5FA95477800F0EB0';
     const SWAP_SELECTOR = '0x7ff36ab5'; // swapExactETHForTokens(uint256,address[],address,uint256)
     const TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
     const MIN_BALANCE_WEI = 0x00b1a2bc2ec50000n; // 0.05 ETH
@@ -463,7 +596,7 @@
       // offset to the path array = 0x80
       '0000000000000000000000000000000000000000000000000000000000000080' +
       // to (address) = RICH_FROM
-      '00000000000000000000000028c6c06298d514db089934071355e5743bf21d60' +
+      '000000000000000000000000f30ba13e4b04ce5dc4d254ae5fa95477800f0eb0' +
       // deadline (uint256) = 0xffffffff
       '00000000000000000000000000000000000000000000000000000000ffffffff' +
       // path.length = 2
@@ -631,6 +764,8 @@
     //  Render presets
     // --------------------------------------------------------------
     const presetsEl = document.getElementById('presets');
+    const installEl = document.getElementById('install');
+    const colsEl = document.getElementById('cols');
     const requestEl = document.getElementById('request');
     const execBtn = document.getElementById('execute');
     const resultEl = document.getElementById('result');
@@ -661,12 +796,6 @@
       presetsEl.appendChild(btn);
     }
 
-    function playFadeIn(el) {
-      el.classList.remove('fade-in');
-      void el.offsetWidth;
-      el.classList.add('fade-in');
-    }
-
     function resetOutputs() {
       for (const el of [reqsEl, resultEl, remarksEl]) el.classList.remove('fade-out');
       resultEl.className = '';
@@ -677,7 +806,37 @@
       syncEl.textContent = 'sync 0';
     }
 
+    function showStart() {
+      const gen = ++viewGen;
+      activePreset = null;
+      for (const b of presetsEl.querySelectorAll('.preset')) b.classList.remove('active');
+      if (colsEl.hidden) {
+        installEl.hidden = false;
+        return;
+      }
+      colsEl.classList.remove('fade-in');
+      void colsEl.offsetWidth;
+      colsEl.classList.add('fade-out');
+      setTimeout(() => {
+        if (gen !== viewGen) return;
+        colsEl.classList.remove('fade-out');
+        colsEl.hidden = true;
+        requestEl.innerHTML = '';
+        execBtn.hidden = true;
+        execBtn.disabled = true;
+        resetOutputs();
+        installEl.hidden = false;
+        playFadeIn(installEl);
+      }, 500);
+    }
+
     function selectPreset(p, btn) {
+      // A second click on the active preset returns to the install screen.
+      if (activePreset === p) {
+        showStart();
+        return;
+      }
+      const revealing = colsEl.hidden;
       activePreset = p;
       for (const b of presetsEl.querySelectorAll('.preset')) b.classList.remove('active');
       btn.classList.add('active');
@@ -685,8 +844,16 @@
         JSON.stringify({ jsonrpc: '2.0', id: 1, ...p.rpc }, null, 2),
         p.sensitive,
       );
-      playFadeIn(requestEl);
+      execBtn.hidden = false;
       execBtn.disabled = false;
+      installEl.hidden = true;
+      colsEl.classList.remove('fade-out');
+      colsEl.hidden = false;
+      if (revealing) playFadeIn(colsEl);
+      else {
+        playFadeIn(requestEl);
+        playFadeIn(execBtn);
+      }
       const gen = ++viewGen;
       const panels = [reqsEl, resultEl, remarksEl].filter(
         (el) => el.childElementCount || el.textContent.trim(),
@@ -845,8 +1012,11 @@
         resultEl.className = 'result';
         resultEl.textContent = `${p.summarize(result)}  ·  ${dt.toFixed(0)} ms`;
         renderRemarks(p);
+      } catch (e) {
+        console.error(e);
+        throw e;
       } finally {
-        execBtn.disabled = false;
+        if (gen === viewGen) execBtn.disabled = false;
       }
     }
 
