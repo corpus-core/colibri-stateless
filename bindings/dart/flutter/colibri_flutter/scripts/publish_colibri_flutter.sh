@@ -35,7 +35,6 @@ for arg in "$@"; do
     *) PUBLISH_ARGS+=("$arg") ;;
   esac
 done
-set -- "${PUBLISH_ARGS[@]}"
 
 V="$(c4_resolve_package_version --exact)"
 # Align plugin version with Colibri / npm release unless explicitly overridden.
@@ -146,4 +145,5 @@ if [[ ! -f "$TMP_DIR/macos/colibri_flutter/Package.swift" ]]; then
 fi
 
 echo "Publishing colibri_flutter $PLUGIN_V from $TMP_DIR"
-(cd "$TMP_DIR" && dart pub publish "$@")
+# Empty-array expansion must be safe under `set -u` (macOS bash 3.2).
+(cd "$TMP_DIR" && dart pub publish ${PUBLISH_ARGS[@]+"${PUBLISH_ARGS[@]}"})

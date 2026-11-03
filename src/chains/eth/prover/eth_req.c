@@ -221,11 +221,44 @@ c4_status_t eth_create_access_list(prover_ctx_t* ctx, json_t tx, json_t* trace, 
   // out-of-bounds slice into the outbound request.
   if (tx.type != JSON_TYPE_OBJECT || tx.len < 2) THROW_ERROR("invalid tx object for access list");
   tx.len--; // removing the closing '}', so we can add arguments
-            //  TRY_ASYNC_FINAL(c4_send_eth_rpc(ctx, "eth_createAccessList", bprintf(&buf, "[%J,\"maxFeePerGas\":\"0x1\",\"maxPriorityFeePerGas\":\"0x1\"},\"0x%lx\"]", tx, block_number), 12, trace), buffer_free(&buf));
-  if (state_overrides.type == JSON_TYPE_OBJECT)
-    TRY_ASYNC_FINAL(c4_send_eth_rpc(ctx, "eth_createAccessList", bprintf(&buf, "[%J},\"0x%lx\",%J]", tx, block_number, state_overrides), 12, trace, &req), buffer_free(&buf));
-  else
-    TRY_ASYNC_FINAL(c4_send_eth_rpc(ctx, "eth_createAccessList", bprintf(&buf, "[%J},\"0x%lx\"]", tx, block_number), 12, trace, &req), buffer_free(&buf));
+
+  bool with_ov = state_overrides.type == JSON_TYPE_OBJECT;
+  char* params = with_ov ? bprintf(&buf, "[%J},\"0x%lx\",%J]", tx, block_number, state_overrides)
+                         : bprintf(&buf, "[%J},\"0x%lx\"]", tx, block_number);
+  c4_status_t status = c4_send_eth_rpc(ctx, "eth_createAccessList", params, 12, trace, &req);
+  if (status == C4_PENDING) {
+    buffer_free(&buf);
+    return C4_PENDING;
+  }
+  TRY_ASYNC_FINAL(status, buffer_free(&buf));
+
+  // Nethermind optimize=true drops warm `to` keys → empty list (issue #406).
+  // Retry once with optimize=false; legitimately empty lists stay empty.
+  json_t al = json_get(*trace, "accessList");
+  if (al.type == JSON_TYPE_ARRAY && json_len(al) == 0) {
+    json_t          first   = *trace;
+    data_request_t* req1    = req;
+    buffer_free(&buf);
+    buf    = (buffer_t) {0};
+    req    = NULL;
+    params = with_ov ? bprintf(&buf, "[%J},\"0x%lx\",%J,false]", tx, block_number, state_overrides)
+                     : bprintf(&buf, "[%J},\"0x%lx\",null,false]", tx, block_number);
+    status = c4_send_eth_rpc(ctx, "eth_createAccessList", params, 12, trace, &req);
+    if (status == C4_PENDING) {
+      buffer_free(&buf);
+      return C4_PENDING;
+    }
+    if (status != C4_SUCCESS) {
+      // Client rejected the 4th param (or other error) — keep the first result.
+      safe_free(ctx->state.error);
+      ctx->state.error = NULL;
+      *trace           = first;
+      req              = req1;
+      status           = C4_SUCCESS;
+    }
+    buffer_free(&buf);
+  }
+
   log_debug("access list: %j", trace);
   if (req && !req->validated) {
     CHECK_JSON(*trace, JSON_ACCESS_LIST_FIELDS, "Invalid results for access list: ");
@@ -325,7 +358,8 @@ c4_status_t c4_send_eth_rpc(prover_ctx_t* ctx, char* method, char* params, uint3
       json_t error = json_get(response, "error");
       if (error.type == JSON_TYPE_OBJECT) {
         json_t code = json_get(error, "code");
-        if (code.len == 6 && strncmp(code.start, "-32602", 6) == 0)
+        // Skip node-retry for eth_createAccessList: caller may fall back without optimize=false.
+        if (code.len == 6 && strncmp(code.start, "-32602", 6) == 0 && strcmp(method, "eth_createAccessList") != 0)
           RETRY_REQUEST(data_request);
 #ifdef ETH_OBLIVIOUS
         else if (strcmp(method, "eth_getProof") == 0 && eth_is_oblivious_unavailable(response)) {
