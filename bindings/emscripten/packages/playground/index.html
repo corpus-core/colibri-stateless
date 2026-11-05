@@ -59,6 +59,9 @@
                 target="_blank" rel="noopener">Local LLM via WebGPU</a>
         </nav>
 
+        <div class="workspace">
+        <div class="col col-left">
+
         <section class="examples" aria-label="Example transactions">
             <h2>Try a sample transaction</h2>
             <div id="examples-grid" class="examples-grid"></div>
@@ -272,6 +275,14 @@
             </ul>
         </div>
 
+        </div>
+        <div class="col col-right">
+
+        <div id="result-placeholder" class="result-placeholder panel">
+            <h2>Explanation</h2>
+            <p>Pick an example or fill in the transaction on the left, then click <strong>Simulate &amp; Explain</strong>. The verified explanation and debug data will appear here.</p>
+        </div>
+
         <div id="status" class="status"></div>
 
         <div id="progress-wrap" class="progress-wrap hidden">
@@ -314,6 +325,9 @@
             <h2>Error</h2>
             <pre id="error-text"></pre>
         </section>
+
+        </div>
+        </div>
     </main>
 
     <script type="module" src="/src/main.ts"></script>
