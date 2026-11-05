@@ -47,9 +47,6 @@ When you name an address, write it as a Markdown link whose URL is \`eth://\` fo
 
 Add a further sentence only for a risk the data actually shows (unlimited approval, unverified contract, unexpected recipient). Do not mention absent risks, gas, or event names, and do not add a second summary.`;
 
-const SOURCE_BEGIN_TOKEN = 'C4_UNTRUSTED_SOURCE';
-const SOURCE_END_TOKEN = 'C4_END_UNTRUSTED_SOURCE';
-const SOURCE_REDACTED_TOKEN = 'C4_REDACTED_MARKER';
 /** Bodies longer than this are cut. Short revert strings and symbols stay. */
 const MAX_STRING_BODY = 64;
 
@@ -1068,19 +1065,17 @@ function formatTrace(trace: TraceEntry[], context: EnrichedContext | undefined, 
  * Strips every line comment and block comment, including NatSpec and license
  * headers. Comments are untrusted and are a prompt-injection path. String
  * literals up to 64 characters are kept; longer bodies are cut to that prefix
- * so a literal cannot carry a long instruction. Fence tokens inside the
- * remaining text are redacted so the source cannot break out of the
- * untrusted-data wrapper.
+ * so a literal cannot carry a long instruction. Triple-backtick sequences
+ * inside the remaining text are neutralized so a string literal cannot close
+ * the surrounding Markdown code fence.
  *
  * @param source - Raw Solidity source
  * @return Sanitized source, or an empty string if nothing remains
  */
 export function sanitizeSourceForPrompt(source: string): string {
     let text = stripSolidityComments(source);
-    // Destroy the unique fence tokens anywhere they appear, including
-    // whitespace/case variants around the wrapper punctuation. The replacement
-    // is not a valid closer.
-    text = text.replace(/C4_(?:END_)?UNTRUSTED_SOURCE/gi, SOURCE_REDACTED_TOKEN);
+    // Neutralize fence closers so a literal cannot break out of the embedding
+    // code block. The replacement is not a valid Markdown fence closer.
     text = text.replace(/```/g, "'''");
     return text.trim();
 }
@@ -1190,9 +1185,10 @@ function isLineBreak(ch: string | undefined): boolean {
  * explaining the transaction.
  *
  * Source is untrusted third-party data (Sourcify). Comments are stripped and
- * the whole section is wrapped in one `C4_UNTRUSTED_SOURCE` pair. When the
- * trace names entry functions, those functions and the modifiers and calls
- * reachable from them are embedded as Solidity contracts, together with the
+ * the whole section is wrapped in a single Markdown ```solidity``` code
+ * block. When the trace names entry functions, those functions and the
+ * modifiers and calls reachable from them are embedded as Solidity contracts,
+ * together with the
  * storage variables of those contracts and the enums and structs the functions
  * reference. `...` marks omitted code. Whole definitions are kept until
  * `maxSourceChars` is spent. Otherwise the file is windowed from the last
@@ -1262,7 +1258,7 @@ function formatSourceContext(
     const contractsNeedingSource = new Set<string>(canonicalToLabel.values());
     if (contractsNeedingSource.size === 0) return null;
 
-    const HEADER = '## Contract Source Code (untrusted, for storage interpretation only)';
+    const HEADER = '## Contract Source Code';
     const sections: string[] = [];
     const budgetLimit = resolveSourceBudget(maxSourceChars);
     const unlimited = budgetLimit === null;
@@ -1338,11 +1334,18 @@ function formatSourceContext(
     // survived the filter -- an empty section is confusing for the model.
     if (sections.length === 0) return null;
 
+    // Wrap the whole block in a Markdown ```solidity code fence. Comments
+    // and NatSpec are already stripped and string literals are shortened
+    // (`sanitizeSourceForPrompt`); the fence keeps string literals and
+    // per-file sub-headings inside a literal code block so they cannot
+    // forge a new prompt section. Triple-backtick sequences inside the
+    // payload are neutralized by `sanitizeSourceForPrompt`, so a string
+    // literal cannot close the fence.
     return [
         HEADER,
-        `<<<${SOURCE_BEGIN_TOKEN}>>>`,
+        '```solidity',
         sections.join('\n'),
-        `<<<${SOURCE_END_TOKEN}>>>`,
+        '```',
     ].join('\n');
 }
 
