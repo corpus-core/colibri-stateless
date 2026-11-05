@@ -25,9 +25,61 @@ body {
 }
 
 .app {
-    max-width: 860px;
+    max-width: 1400px;
     margin: 0 auto;
     padding: 2rem 1.25rem 4rem;
+}
+
+/* Two-column workspace: inputs on the left, results on the right. Falls
+   back to a single column below 1024px, matching the previous layout. */
+.workspace {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1rem;
+}
+
+@media (min-width: 1024px) {
+    .workspace {
+        /* Keep the input column from stealing all the space on wide
+           viewports; a slightly narrower left column keeps the config
+           panel compact and leaves more room for the explanation. */
+        grid-template-columns: minmax(0, 7fr) minmax(0, 8fr);
+        gap: 1.25rem;
+        align-items: start;
+    }
+}
+
+.col {
+    min-width: 0;
+}
+
+/* Initial-state hint shown in the right column before anything has
+   been generated. Hidden automatically as soon as progress, result, or
+   error becomes visible. */
+.result-placeholder {
+    color: var(--muted);
+    font-size: .9rem;
+}
+
+.result-placeholder p {
+    margin: 0;
+}
+
+.col-right:has(
+    > #progress-wrap:not(.hidden),
+    > #result:not(.hidden),
+    > #error:not(.hidden)
+) .result-placeholder {
+    display: none;
+}
+
+/* On narrow viewports the right column sits below the left column,
+   so the placeholder would just repeat the button's call to action.
+   Hide it in the single-column fallback. */
+@media (max-width: 1023px) {
+    .result-placeholder {
+        display: none;
+    }
 }
 
 header {
