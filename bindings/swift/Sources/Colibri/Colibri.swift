@@ -240,6 +240,8 @@ public class Colibri {
     // Endpoint arrays default to empty; when empty at request time, per-chain fallbacks
     // from defaultProvers/defaultEthRpcs/defaultBeaconApis/defaultCheckpointz are used.
     public var eth_rpcs: [String] = []
+    /// Execution RPCs for the L1 of an L2. Nil or empty uses the built-in defaults.
+    public var l1EthRpcs: [String]? = nil
     public var beacon_apis: [String] = []
     public var provers: [String] = []
     public var checkpointz: [String] = []
@@ -692,6 +694,7 @@ public class Colibri {
                     let effCheckpointz = self.checkpointz.isEmpty ? Colibri.defaultCheckpointz(for: self.chainId) : self.checkpointz
 
                     let requestType = request["type"] as? String
+                    let reqChain = (request["chain_id"] as? NSNumber)?.uint64Value ?? 0
                     let servers: [String]
                     if requestType == "checkpointz" {
                         servers = effCheckpointz + effBeaconApis
@@ -701,10 +704,35 @@ public class Colibri {
                         servers = effProvers
                     } else if requestType == "beacon_api" {
                         servers = effBeaconApis
-                    } else if let payload = request["payload"] as? [String: Any],
-                              payload["method"] as? String == "eth_getProof",
-                              !self.obliviousNodes.isEmpty {
-                        servers = self.obliviousNodes
+                    } else if requestType == nil || requestType == "eth_rpc" {
+                        if reqChain == 0 {
+                            let errorMsg = "chain_id was not set on the eth_rpc request"
+                            errorMsg.withCString { c4_req_set_error(reqPtr, UnsafeMutablePointer(mutating: $0), 0) }
+                            return
+                        } else if reqChain == self.chainId {
+                            if let payload = request["payload"] as? [String: Any],
+                               payload["method"] as? String == "eth_getProof",
+                               !self.obliviousNodes.isEmpty {
+                                servers = self.obliviousNodes
+                            } else {
+                                servers = effEthRpcs
+                            }
+                        } else if reqChain == c4_get_l1_chain_id_for_l2(self.chainId) {
+                            if let explicit = self.l1EthRpcs, !explicit.isEmpty {
+                                servers = explicit
+                            } else {
+                                servers = Colibri.defaultEthRpcs(for: reqChain)
+                            }
+                            if servers.isEmpty {
+                                let errorMsg = "no RPC configured for chain_id \(reqChain)"
+                                errorMsg.withCString { c4_req_set_error(reqPtr, UnsafeMutablePointer(mutating: $0), 0) }
+                                return
+                            }
+                        } else {
+                            let errorMsg = "no RPC configured for chain_id \(reqChain)"
+                            errorMsg.withCString { c4_req_set_error(reqPtr, UnsafeMutablePointer(mutating: $0), 0) }
+                            return
+                        }
                     } else {
                         servers = effEthRpcs
                     }

@@ -29,6 +29,7 @@ export interface C4W {
     _c4w_req_set_response: (reqPtr: number, data: number, len: number, node_index: number) => void;
     _c4w_req_set_error: (reqPtr: number, error: number, node_index: number) => void;
     _c4w_get_method_type: (chain_id: bigint, method: number, params: number, flags: number) => number;
+    _c4w_get_l1_chain_id_for_l2: (chain_id: bigint) => bigint;
     _c4w_create_verify_ctx: (proof: number, proof_len: number, method: number, args: number, chain_id: bigint, trusted_checkpoint: number, witness_keys: number, flags: number, min_latest_block_ts: bigint) => number;
     _c4w_free_verify_ctx: (verifyCtx: number) => void;
     _c4w_verify_proof: (verifyCtx: number) => number;

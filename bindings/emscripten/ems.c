@@ -104,6 +104,10 @@ method_type_t EMSCRIPTEN_KEEPALIVE c4w_get_method_type(uint64_t chain_id, char* 
                             params ? json_parse(params) : (json_t){0}, (verify_flags_t) flags);
 }
 
+uint64_t EMSCRIPTEN_KEEPALIVE c4w_get_l1_chain_id_for_l2(uint64_t chain_id) {
+  return (uint64_t) c4_get_l1_chain_id_for_l2((chain_id_t) chain_id);
+}
+
 /* ── Unified RPC API ── */
 
 void* EMSCRIPTEN_KEEPALIVE c4w_create_rpc_ctx(char* method, char* params, uint64_t chain_id, uint32_t prover_flags, uint32_t verify_flags, int prover_mode) {

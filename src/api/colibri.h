@@ -34,6 +34,11 @@ typedef struct {
 #define BYTES_T_DEFINED
 #endif
 
+#ifndef C4_CHAIN_ID_T_DEFINED
+#define C4_CHAIN_ID_T_DEFINED
+typedef uint64_t chain_id_t;
+#endif
+
 // : APIs
 
 // :: Public Bindings API
@@ -1224,6 +1229,21 @@ int c4_get_method_support(uint64_t chain_id, char* method, char* params, uint32_
  * @return The current version number
  */
 uint32_t c4_get_current_version_number(void);
+
+/**
+ * Returns the L1 chain id that settles `chain`.
+ *
+ * Hosts call this to pick the RPC list for a data request whose `chain_id`
+ * is not the chain the client was configured with. The HTTP body of that
+ * request is unchanged; only the chosen node list differs.
+ *
+ * TODO: read `l1_chain_id` from the EEZ chain config. Until that mapping
+ * exists this returns Ethereum mainnet (`1`) for every chain.
+ *
+ * @param chain client chain id (prover, verifier, or RPC context)
+ * @return L1 chain id, currently always `1`
+ */
+chain_id_t c4_get_l1_chain_id_for_l2(chain_id_t chain);
 
 // :: Unified RPC API
 //

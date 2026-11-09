@@ -22,6 +22,7 @@
  */
 import type { C4Runtime } from './runtime.js';
 import { Config as C4Config, DataRequest } from './types.js';
+import { default_config } from './chains.js';
 
 export type AcceptKind = 'json' | 'octet';
 
@@ -167,6 +168,36 @@ export async function fetch_rpc(urls: string[], payload: any, as_proof: boolean 
   throw new Error(last_error);
 }
 
+function configuredRpcs(conf: C4Config): string[] {
+  return conf.rpcs || [...((conf.prover || []).map(p => p + (p.endsWith('/') ? '' : '/') + 'unverified_rpc'))];
+}
+
+/**
+ * RPC list for one ETH-RPC request.
+ *
+ * The configured chain keeps `conf.rpcs` (including when that chain is already
+ * the L1). A request for the L1 of a different chain uses `conf.l1Rpcs`, or the
+ * built-in defaults for the chain id returned by the runtime. Any other chain,
+ * and chain id 0, is an error.
+ */
+function ethRpcServers(runtime: C4Runtime, req: DataRequest, conf: C4Config): string[] {
+  const configured = Number(conf.chainId);
+  const want = Number(req.chain_id || 0);
+  if (!want) throw new Error('chain_id was not set on the eth_rpc request');
+  if (want === configured) {
+    if (req.payload?.method === 'eth_getProof' && conf.oblivious_nodes?.length)
+      return [...conf.oblivious_nodes];
+    return configuredRpcs(conf);
+  }
+  const l1 = Number(runtime.getL1ChainId(BigInt(configured)));
+  if (want === l1) {
+    if (conf.l1Rpcs && conf.l1Rpcs.length) return [...conf.l1Rpcs];
+    const defaults = default_config[String(l1)]?.rpcs;
+    if (defaults && defaults.length) return [...defaults];
+  }
+  throw new Error(`no RPC configured for chain_id ${want}`);
+}
+
 /**
  * Handles a C4 data request by fetching from configured servers, setting the
  * response or error back into the C context, and leveraging cache if present.
@@ -178,9 +209,9 @@ export async function handle_request(runtime: C4Runtime, req: DataRequest, conf:
   // Honor a requested delay before (re-)executing (e.g. oblivious-node retry backoff).
   if (req.delay && req.delay > 0) await new Promise(resolve => setTimeout(resolve, req.delay));
   let servers: string[] = [];
-  if (req.type === 'eth_rpc' && req.payload?.method === 'eth_getProof' && conf.oblivious_nodes?.length) {
-    servers = [...conf.oblivious_nodes];
-  } else switch (req.type) {
+  try {
+    if (!req.type || req.type === 'eth_rpc') servers = ethRpcServers(runtime, req, conf);
+    else switch (req.type) {
     case 'checkpointz':
       servers = [...(conf.checkpointz || []), ...(conf.beacon_apis || []), ...(conf.prover || [])];
       break;
@@ -191,8 +222,12 @@ export async function handle_request(runtime: C4Runtime, req: DataRequest, conf:
       servers = [...(conf.prover || [])];
       break;
     default:
-      servers = conf.rpcs || [...((conf.prover || []).map(p => p + (p.endsWith('/') ? '' : '/') + 'unverified_rpc'))];
+      servers = configuredRpcs(conf);
       break;
+    }
+  } catch (e) {
+    runtime.reqSetError(req, (e instanceof Error) ? e.message : String(e), 0);
+    return;
   }
   let path = (req.type == 'eth_rpc' && req.payload)
     ? `rpc: ${req.payload?.method}(${req.payload?.params.join(',')})`

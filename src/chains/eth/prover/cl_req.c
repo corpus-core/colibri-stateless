@@ -73,7 +73,7 @@ static c4_status_t send_request_impl(prover_ctx_t*           ctx,
     buffer_add_chars(&buffer, "?");
     buffer_add_chars(&buffer, query);
   }
-  sha256(buffer.data, id);
+  c4_chain_request_id(id, ctx->chain_id, buffer.data);
   data_request_t* data_request = c4_state_get_data_request_by_id(&ctx->state, id);
   if (data_request) {
     buffer_free(&buffer);
@@ -88,6 +88,7 @@ static c4_status_t send_request_impl(prover_ctx_t*           ctx,
   data_request->url                   = (char*) buffer.data.data;
   data_request->encoding              = data_encoding;
   data_request->method                = C4_DATA_METHOD_GET;
+  data_request->chain_id              = ctx->chain_id;
   data_request->type                  = data_type;
   data_request->ttl                   = ttl;
   data_request->preferred_client_type = client_type;

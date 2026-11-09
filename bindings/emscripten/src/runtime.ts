@@ -57,6 +57,8 @@ export interface C4Runtime {
     readonly kind: 'wasm' | 'native';
 
     getMethodType(chainId: bigint, method: string, paramsJson: string | null, flags: number): number;
+    /** L1 chain id that settles `chainId`. Today this is always mainnet. */
+    getL1ChainId(chainId: bigint): bigint;
 
     createProverCtx(method: string, argsJson: string, chainId: bigint, flags: number): CtxHandle;
     /** Executes one prover step. On success, `result` contains the proof bytes. */

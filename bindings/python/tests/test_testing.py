@@ -379,4 +379,4 @@ class TestDataRequest:
         assert request.encoding == "json"
         assert request.request_type == "eth_rpc"
         assert request.exclude_mask == 0
-        assert request.chain_id == 1
+        assert request.chain_id == 0

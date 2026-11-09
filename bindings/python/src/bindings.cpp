@@ -313,6 +313,10 @@ PYBIND11_MODULE(_native, m) {
         "Check method support type",
         py::arg("chain_id"), py::arg("method"), py::arg("params") = "", py::arg("flags") = 0);
 
+  m.def("get_l1_chain_id_for_l2", &c4_get_l1_chain_id_for_l2,
+        "L1 chain id that settles the given chain. Currently always Ethereum mainnet.",
+        py::arg("chain_id"));
+
   m.def("get_current_version_number", &c4_get_current_version_number,
         "Return the current Colibri library version number (uint32 as int).");
 

@@ -209,6 +209,10 @@ int main(int argc, char* argv[]) {
   }
   buffer_add_chars(&buffer, "]");
 
+#ifdef USE_CURL
+  curl_set_chain_id(chain_id);
+#endif
+
   // Create prover context with parsed arguments
   prover_ctx_t* ctx = c4_prover_create(method, (char*) buffer.data.data, chain_id, flags);
   ctx->client_state = client_state; // Set client state if loaded from chain_store

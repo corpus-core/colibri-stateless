@@ -112,6 +112,9 @@ extern "C" {
     // Utilities
     // ------------------------------------------------------------------
 
+    /// L1 chain id that settles `chain_id`. Currently always Ethereum mainnet.
+    pub fn c4_get_l1_chain_id_for_l2(chain_id: u64) -> u64;
+
     /// Query whether an RPC method is proofable / unproofable / local /
     /// unsupported. Returns a `c4_method_type_t` value (see `MethodType`).
     ///

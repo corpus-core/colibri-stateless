@@ -35,6 +35,10 @@ function createRuntime(c4w: C4W): C4Runtime {
     return {
         kind: 'wasm',
 
+        getL1ChainId(chainId) {
+            return c4w._c4w_get_l1_chain_id_for_l2(chainId);
+        },
+
         getMethodType(chainId, method, paramsJson, flags) {
             const free_buffers: number[] = [];
             const type = c4w._c4w_get_method_type(

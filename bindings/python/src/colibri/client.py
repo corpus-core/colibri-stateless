@@ -56,6 +56,7 @@ class Colibri:
         chain_id: int = 1,
         provers: List[str] = None,
         eth_rpcs: List[str] = None,
+        l1_eth_rpcs: Optional[List[str]] = None,
         beacon_apis: List[str] = None,
         checkpointz: List[str] = None,
         oblivious_nodes: Optional[List[str]] = None,
@@ -79,6 +80,8 @@ class Colibri:
             chain_id: Blockchain chain ID (default: 1 for Ethereum Mainnet)
             provers: List of prover server URLs
             eth_rpcs: List of Ethereum RPC URLs
+            l1_eth_rpcs: Optional execution RPCs for the L1 of an L2. None or empty
+                uses the built-in defaults for that L1.
             beacon_apis: List of beacon chain API URLs
             checkpointz: List of checkpointz server URLs
             oblivious_nodes: TEE RPC endpoints for eth_getProof (privacy-preserving storage reads)
@@ -111,6 +114,7 @@ class Colibri:
         # Fix Python falsy-array bug: [] or default returns default!
         self.provers = provers if provers is not None else self._get_default_provers(chain_id)
         self.eth_rpcs = eth_rpcs if eth_rpcs is not None else self._get_default_eth_rpcs(chain_id)
+        self.l1_eth_rpcs = list(l1_eth_rpcs) if l1_eth_rpcs else None
         self.beacon_apis = beacon_apis if beacon_apis is not None else self._get_default_beacon_apis(chain_id)
         self.checkpointz = checkpointz if checkpointz is not None else self._get_default_checkpointz(chain_id)
         self.oblivious_nodes = oblivious_nodes if oblivious_nodes is not None else []
@@ -163,6 +167,40 @@ class Colibri:
     def _get_default_checkpointz(chain_id: int) -> List[str]:
         """Get default checkpointz URLs for chain"""
         return default_checkpointz(chain_id)
+
+    def _l1_chain_id(self) -> int:
+        """L1 chain id that settles this client, from the native library."""
+        native = _get_native()
+        if native is None:
+            return 1
+        return int(native.get_l1_chain_id_for_l2(int(self.chain_id)))
+
+    def _eth_rpc_servers(self, request: DataRequest) -> List[str]:
+        """RPC list for one ETH-RPC request.
+
+        The configured chain keeps ``eth_rpcs``. A request for the L1 of a
+        different chain uses ``l1_eth_rpcs``, or the built-in defaults for the
+        chain id returned by the native library. Any other chain, and chain id
+        0, is an error.
+        """
+        want = int(request.chain_id or 0)
+        if want == 0:
+            raise HTTPError("chain_id was not set on the eth_rpc request")
+        if want == int(self.chain_id):
+            if (
+                request.payload
+                and request.payload.get("method") == "eth_getProof"
+                and self.oblivious_nodes
+            ):
+                return list(self.oblivious_nodes)
+            return list(self.eth_rpcs)
+        if want == self._l1_chain_id():
+            if self.l1_eth_rpcs:
+                return list(self.l1_eth_rpcs)
+            defaults = self._get_default_eth_rpcs(want)
+            if defaults:
+                return list(defaults)
+        raise HTTPError(f"no RPC configured for chain_id {want}")
 
     def _get_verify_flags(self) -> int:
         """Return verify flags for C API (e.g. VERIFY_FLAG_PAP = 2, VERIFY_FLAG_OBLIVIOUS = 64, VERIFY_FLAG_SKIP_WSP_CHECK = 128)."""
@@ -510,13 +548,8 @@ class Colibri:
                         servers = self.provers
                     else:
                         servers = self.beacon_apis
-                elif (
-                    request.request_type == "eth_rpc"
-                    and request.payload
-                    and request.payload.get("method") == "eth_getProof"
-                    and self.oblivious_nodes
-                ):
-                    servers = self.oblivious_nodes
+                elif request.request_type == "eth_rpc":
+                    servers = self._eth_rpc_servers(request)
                 else:
                     servers = self.eth_rpcs
 

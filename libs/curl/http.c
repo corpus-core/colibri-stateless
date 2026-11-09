@@ -24,6 +24,7 @@
 #include "http.h"
 #include "logger.h"
 #include "state.h"
+#include "../../src/cli/default_chains.generated.h"
 #include <curl/curl.h>
 #include <stdlib.h>
 #include <string.h>
@@ -65,6 +66,7 @@ typedef struct {
 
 static trace_config_t trace_config   = {0};
 static curl_nodes_t   curl_nodes     = {0};
+static chain_id_t     curl_chain_id  = 0;
 const char*           CURL_METHODS[] = {"GET", "POST", "PUT", "DELETE"};
 
 #define DEFAULT_CONFIG "{\"eth_rpc\":[\"https://eth.llamarpc.com\",\"https://rpc.payload.de\",\"https://ethereum-rpc.publicnode.com\"]," \
@@ -100,11 +102,16 @@ bool curl_has_oblivious_nodes(void) {
   return curl_nodes.oblivious.type == JSON_TYPE_ARRAY && json_len(curl_nodes.oblivious) > 0;
 }
 
+void curl_set_chain_id(chain_id_t chain_id) {
+  curl_chain_id = chain_id;
+}
+
 void curl_set_config(json_t config) {
   init_config();
   json_t nodes = {0};
 
   if ((nodes = json_get(config, "eth_rpc")).type == JSON_TYPE_ARRAY) replace_config(&curl_nodes.eth_rpc, nodes);
+  if ((nodes = json_get(config, "eth_rpc_l1")).type == JSON_TYPE_ARRAY) replace_config(&curl_nodes.eth_rpc_l1, nodes);
   if ((nodes = json_get(config, "beacon_api")).type == JSON_TYPE_ARRAY) replace_config(&curl_nodes.beacon_api, nodes);
   if ((nodes = json_get(config, "checkpointz")).type == JSON_TYPE_ARRAY) replace_config(&curl_nodes.checkpointz, nodes);
   if ((nodes = json_get(config, "oblivious")).type == JSON_TYPE_ARRAY) replace_config(&curl_nodes.oblivious, nodes);
@@ -136,13 +143,31 @@ static bool req_payload_is_eth_get_proof(data_request_t* req) {
   return is_proof;
 }
 
+static json_t default_eth_rpc_for(chain_id_t chain_id) {
+  const char* spec = c4_default_chain_config_json(chain_id);
+  if (!spec) return (json_t) {0};
+  json_t root = json_parse((char*) spec);
+  return json_get(root, "eth_rpc");
+}
+
+static bool curl_eth_rpc_uses_l1(data_request_t* req) {
+  if (curl_chain_id == 0 || req->chain_id == 0 || req->chain_id == curl_chain_id) return false;
+  return req->chain_id == c4_get_l1_chain_id_for_l2(curl_chain_id);
+}
+
 static json_t get_nodes(data_request_t* req) {
   init_config();
   buffer_t buffer = {0};
 
   switch (req->type) {
     case C4_DATA_TYPE_ETH_RPC:
-      if (req_payload_is_eth_get_proof(req) && curl_nodes.oblivious.type == JSON_TYPE_ARRAY && curl_nodes.oblivious.len > 2)
+      if (curl_eth_rpc_uses_l1(req)) {
+        if (curl_nodes.eth_rpc_l1.type == JSON_TYPE_ARRAY && json_len(curl_nodes.eth_rpc_l1) > 0)
+          add_nodes(&buffer, curl_nodes.eth_rpc_l1);
+        else
+          add_nodes(&buffer, default_eth_rpc_for(req->chain_id));
+      }
+      else if (req_payload_is_eth_get_proof(req) && curl_nodes.oblivious.type == JSON_TYPE_ARRAY && curl_nodes.oblivious.len > 2)
         add_nodes(&buffer, curl_nodes.oblivious);
       else {
         add_nodes(&buffer, curl_nodes.eth_rpc);
@@ -246,6 +271,15 @@ static bool configure_request(curl_request_t* creq) {
   if (cache_dir && check_cache(req)) return false;
 
 #endif
+  // curl_chain_id 0 means the caller never called curl_set_chain_id. The CLI
+  // sets it. Other curl users (and the unit tests that predate this setter)
+  // keep the single primary list. Once a chain is set, a foreign chain is an error.
+  if (req->type == C4_DATA_TYPE_ETH_RPC && curl_chain_id != 0 && req->chain_id != curl_chain_id && !curl_eth_rpc_uses_l1(req)) {
+    char     tmp[96];
+    buffer_t msg = stack_buffer(tmp);
+    bprintf(&msg, "no RPC configured for chain_id %l", (uint64_t) req->chain_id);
+    return_error(req, (char*) msg.data.data);
+  }
   json_t servers = get_nodes(req);
 
   if (req->type != C4_DATA_TYPE_REST_API && servers.type != JSON_TYPE_ARRAY) {

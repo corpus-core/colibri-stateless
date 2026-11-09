@@ -232,7 +232,7 @@ void c4i_add_data_request(buffer_t* result, data_request_t* req, bool req_ptr_as
     bprintf(result, "{\"req_ptr\": \"%l\",", (uint64_t) (uintptr_t) req);
   else
     bprintf(result, "{\"req_ptr\": %l,", (uint64_t) (uintptr_t) req);
-  bprintf(result, "\"chain_id\": %d,", (uint32_t) req->chain_id);
+  bprintf(result, "\"chain_id\": %l,", (uint64_t) req->chain_id);
   bprintf(result, "\"encoding\": \"%s\",", encoding_to_string(req->encoding));
   bprintf(result, "\"exclude_mask\": \"%d\",", (uint32_t) req->node_exclude_mask);
   if (req->delay)

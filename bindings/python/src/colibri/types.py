@@ -122,7 +122,7 @@ class DataRequest:
         encoding: str = "json",
         request_type: str = "eth_rpc",
         exclude_mask: int = 0,
-        chain_id: int = 1,
+        chain_id: int = 0,
         delay: int = 0,
         ttl: int = 0,
     ):
@@ -152,7 +152,7 @@ class DataRequest:
             encoding=data.get("encoding", "json"),
             request_type=data.get("type", "eth_rpc"),
             exclude_mask=int(data.get("exclude_mask", 0)),
-            chain_id=int(data.get("chain_id", 1)),
+            chain_id=int(data.get("chain_id", 0)),
             delay=int(data.get("delay", 0)),
             ttl=int(data.get("ttl", 0)),
         )

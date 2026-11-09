@@ -129,6 +129,8 @@ export type ProverMode = 'local' | 'remote' | 'hybrid' | 'proxy' | 'light_client
 // C4Client configuration
 export interface Config extends ChainConfig {
     chainId: number | string;
+    /** Execution RPCs for the L1 that settles `chainId`. Empty uses the built-in defaults for that L1. */
+    l1Rpcs?: string[];
     checkpoint_witness_keys?: string;
     cache?: Cache;
     debug?: boolean;

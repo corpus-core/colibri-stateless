@@ -34,6 +34,7 @@ class Colibri {
     this.chainId = 1,
     List<String>? provers,
     List<String>? ethRpcs,
+    List<String>? ethRpcsL1,
     List<String>? beaconApis,
     List<String>? checkpointz,
     List<String>? obliviousNodes,
@@ -57,6 +58,7 @@ class Colibri {
   })  : provers = provers ?? defaultProvers(chainId),
         _onDebug = onDebug,
         ethRpcs = ethRpcs ?? defaultEthRpcs(chainId),
+        ethRpcsL1 = ethRpcsL1,
         beaconApis = beaconApis ?? defaultBeaconApis(chainId),
         checkpointz = checkpointz ?? defaultCheckpointz(chainId),
         obliviousNodes = obliviousNodes ?? const [],
@@ -78,6 +80,8 @@ class Colibri {
   final List<String> provers;
   /// Execution RPC URLs for unproofable methods and data.
   final List<String> ethRpcs;
+  /// Optional execution RPCs for the L1 of an L2. Null uses the built-in defaults.
+  final List<String>? ethRpcsL1;
   /// Beacon API URLs for checkpoint and light client data.
   final List<String> beaconApis;
   /// Checkpointz-style URLs for finalized checkpoint bootstrap.
@@ -450,11 +454,34 @@ class Colibri {
       case 'prover':
         return provers;
       default:
-        if (request.payload?['method'] == 'eth_getProof' && obliviousNodes.isNotEmpty) {
-          return obliviousNodes;
-        }
-        return ethRpcs;
+        return _ethRpcServers(request);
     }
+  }
+
+  /// RPC list for one ETH-RPC request.
+  ///
+  /// The configured chain keeps [ethRpcs]. A request for the L1 of a different
+  /// chain uses [ethRpcsL1], or the built-in defaults for the chain id returned
+  /// by the native library. Any other chain, and chain id 0, is an error.
+  List<String> _ethRpcServers(DataRequest request) {
+    final want = request.chainId;
+    if (want == 0) {
+      throw HTTPError('chain_id was not set on the eth_rpc request');
+    }
+    if (want == chainId) {
+      if (request.payload?['method'] == 'eth_getProof' && obliviousNodes.isNotEmpty) {
+        return obliviousNodes;
+      }
+      return ethRpcs;
+    }
+    final l1 = _native.l1ChainId(chainId);
+    if (want == l1) {
+      final explicit = ethRpcsL1;
+      if (explicit != null && explicit.isNotEmpty) return explicit;
+      final defaults = defaultEthRpcs(l1);
+      if (defaults.isNotEmpty) return defaults;
+    }
+    throw HTTPError('no RPC configured for chain_id $want');
   }
 
   /// Send a single HTTP request for a pending data request.

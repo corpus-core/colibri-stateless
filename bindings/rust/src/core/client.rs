@@ -37,6 +37,8 @@ pub struct ColibriConfig {
     pub chain_id: u64,
     pub provers: Vec<String>,
     pub eth_rpcs: Vec<String>,
+    /// Execution RPCs for the L1 of an L2. Empty uses the built-in defaults.
+    pub l1_eth_rpcs: Vec<String>,
     pub beacon_apis: Vec<String>,
     pub checkpointz: Vec<String>,
     pub oblivious_nodes: Vec<String>,
@@ -63,6 +65,7 @@ impl ColibriConfig {
             chain_id,
             provers: default_provers(chain_id),
             eth_rpcs: default_eth_rpcs(chain_id),
+            l1_eth_rpcs: Vec::new(),
             beacon_apis: default_beacon_apis(chain_id),
             checkpointz: default_checkpointz(chain_id),
             oblivious_nodes: Vec::new(),
@@ -168,6 +171,11 @@ impl ColibriBuilder {
     /// Execution-layer JSON-RPC endpoints.
     pub fn eth_rpcs(mut self, urls: impl IntoIterator<Item = impl Into<String>>) -> Self {
         self.config.eth_rpcs = urls.into_iter().map(Into::into).collect();
+        self
+    }
+    /// Execution RPCs for the L1 of an L2. Empty keeps the built-in defaults.
+    pub fn l1_eth_rpcs(mut self, urls: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        self.config.l1_eth_rpcs = urls.into_iter().map(Into::into).collect();
         self
     }
     /// Beacon-chain REST endpoints.
@@ -501,12 +509,13 @@ impl Colibri {
 
         let servers = self.pick_servers(req, use_prover_fallback);
         if servers.is_empty() {
+            let message = if req.request_type == RequestType::EthRpc {
+                format!("no RPC configured for chain_id {}", req.chain_id)
+            } else {
+                format!("no servers configured for {:?}", req.request_type)
+            };
             unsafe {
-                let _ = req_set_error(
-                    req.req_ptr,
-                    &format!("no servers configured for {:?}", req.request_type),
-                    0,
-                );
+                let _ = req_set_error(req.req_ptr, &message, 0);
             }
             return;
         }
@@ -517,6 +526,36 @@ impl Colibri {
                 let _ = req_set_error(req.req_ptr, &err.to_string(), 0);
             },
         }
+    }
+
+    /// RPC list for one ETH-RPC request.
+    ///
+    /// The configured chain keeps `eth_rpcs`. A request for the L1 of a
+    /// different chain uses `l1_eth_rpcs`, or the built-in defaults for the
+    /// chain id returned by the C library. Any other chain, and chain id 0,
+    /// yields an empty list so the caller reports the missing configuration.
+    fn eth_rpc_servers(&self, req: &DataRequest) -> Vec<String> {
+        let want = req.chain_id;
+        if want == 0 {
+            return Vec::new();
+        }
+        if want == self.config.chain_id {
+            if is_get_proof(req) && !self.config.oblivious_nodes.is_empty() {
+                return self.config.oblivious_nodes.clone();
+            }
+            return self.config.eth_rpcs.clone();
+        }
+        let l1 = unsafe { crate::ffi::c4_get_l1_chain_id_for_l2(self.config.chain_id) };
+        if want == l1 {
+            if !self.config.l1_eth_rpcs.is_empty() {
+                return self.config.l1_eth_rpcs.clone();
+            }
+            let defaults = default_eth_rpcs(l1);
+            if !defaults.is_empty() {
+                return defaults;
+            }
+        }
+        Vec::new()
     }
 
     fn pick_servers(&self, req: &DataRequest, use_prover_fallback: bool) -> Vec<String> {
@@ -534,13 +573,7 @@ impl Colibri {
                     self.config.beacon_apis.clone()
                 }
             }
-            RequestType::EthRpc => {
-                if is_get_proof(req) && !self.config.oblivious_nodes.is_empty() {
-                    self.config.oblivious_nodes.clone()
-                } else {
-                    self.config.eth_rpcs.clone()
-                }
-            }
+            RequestType::EthRpc => self.eth_rpc_servers(req),
             // `intern`, `cache`, `rest_api` -- fall back to the generic
             // eth_rpc list; the C core does not normally emit these to
             // the host.

@@ -72,7 +72,10 @@ typedef enum {
 } chain_type_t;
 
 /** Packed chain identity: top 8 bits = `chain_type_t`, low 56 bits = network-specific id. */
+#ifndef C4_CHAIN_ID_T_DEFINED
+#define C4_CHAIN_ID_T_DEFINED
 typedef uint64_t chain_id_t;
+#endif
 
 /** Well-known Ethereum L1 testnets and networks (see `chains.c` for full list). */
 extern const chain_id_t C4_CHAIN_MAINNET;
@@ -148,6 +151,17 @@ static inline bool c4_chains_get_props(chain_id_t chain_id, chain_properties_t* 
  * @return chain type enum value
  */
 chain_type_t c4_chain_type(chain_id_t chain_id);
+
+/**
+ * Returns the L1 chain id that settles `chain`.
+ *
+ * TODO: read `l1_chain_id` from the EEZ chain config. Until that mapping
+ * exists this returns Ethereum mainnet (`1`) for every chain.
+ *
+ * @param chain client chain id
+ * @return L1 chain id, currently always `1`
+ */
+chain_id_t c4_get_l1_chain_id_for_l2(chain_id_t chain);
 
 /**
  * Extracts the lower 56 bits of `chain_id` (EVM chain id or chain-specific number).
