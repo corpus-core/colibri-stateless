@@ -174,6 +174,7 @@ class Colibri:
         chain_id: int = 1,
         provers: Optional[List[str]] = None,
         eth_rpcs: Optional[List[str]] = None,
+        l1_eth_rpcs: Optional[List[str]] = None,
         beacon_apis: Optional[List[str]] = None,
         trusted_checkpoint: Optional[str] = None,
         include_code: bool = False,
@@ -193,6 +194,11 @@ class Colibri:
             chain_id: Blockchain chain ID (1=Ethereum, 137=Polygon, etc.)
             provers: Remote prover URLs (empty list = local proof generation)
             eth_rpcs: Ethereum RPC endpoints for execution layer
+            l1_eth_rpcs: Optional execution RPCs for the L1 of the configured chain.
+                A request whose chain id is that L1, and different from `chain_id`, uses this list.
+                The L1 id comes from `c4_get_l1_chain_id_for_l2` and is currently always Ethereum mainnet (`1`).
+                `None` or an empty list uses the built-in default execution RPCs for that L1.
+                Requests for the configured chain keep using `eth_rpcs`, including when `chain_id` is already `1`.
             beacon_apis: Beacon chain API endpoints
             trusted_checkpoint: Optional trusted checkpoint block hash for anchoring
             include_code: Include contract code in local eth_call proofs. Default False.
