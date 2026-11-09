@@ -316,6 +316,14 @@ function doc_id(method) {
         .replace(/([a-z])([A-Z])/g, '$1-$2')  // Füge - zwischen lowercase und uppercase ein
         .toLowerCase();  // Konvertiere zu lowercase
 }
+
+function rpc_reference_url(rpc, rpc_docs) {
+    if (rpc.method.startsWith('colibri_')) return `colibri-rpc-methods/${rpc.method.toLowerCase()}.md`
+    const base = (rpc_docs && (rpc_docs[rpc.chain] || rpc_docs.eth)) || 'https://www.alchemy.com/docs/node/ethereum/ethereum-api-endpoints'
+    // Bitcoin Core documents each RPC as its own page, named after the method.
+    if (rpc.chain === 'btc') return `${base}/${rpc.method}.html`
+    return `${base}/${doc_id(rpc.method)}`
+}
 function create_rpc_table(section, sections, rpc_docs) {
     section.children.forEach(child => create_rpc_table(child, sections, rpc_docs))
     if (!section.rpcs || section.rpcs.length == 0) return
@@ -346,9 +354,7 @@ function create_rpc_table(section, sections, rpc_docs) {
     section.content.push('  <tbody>');
 
     for (let rpc of section.rpcs) {
-        const doc_url = rpc_docs[rpc.chain] || 'https://www.alchemy.com/docs/node/ethereum/ethereum-api-endpoints'
-        let link = `${doc_url}/${doc_id(rpc.method)}`
-        if (rpc.method.startsWith('colibri_')) link = `colibri-rpc-methods/${rpc.method.toLowerCase()}.md`
+        const link = rpc_reference_url(rpc, rpc_docs)
         const methodLink = `<a href="${link}" target="_blank" rel="noopener noreferrer">${rpc.method}</a>`;
         const statusIcon = rpc.status == 'proofable' ? '✅' : (rpc.status == 'local' ? '🟢' : '❌');
 

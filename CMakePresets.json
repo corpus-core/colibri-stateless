@@ -10,6 +10,7 @@
                 "CMAKE_BUILD_TYPE": "Debug",
                 "CMAKE_EXPORT_COMPILE_COMMANDS": "1",
                 "CHAIN_OP": "1",
+                "CHAIN_BTC": "1",
                 "HTTP_SERVER": "1",
                 "PROVER_CACHE": "1",
                 "TEST": "1"
@@ -59,6 +60,7 @@
                 "WASM": "1",
                 "WASM_EMBED": "0",
                 "CHAIN_OP": "0",
+                "CHAIN_BTC": "0",
                 "HTTP_SERVER": "0",
                 "PROVER_CACHE": "0",
                 "CMAKE_EXPORT_COMPILE_COMMANDS": "1",

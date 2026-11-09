@@ -15,6 +15,9 @@ const doc_files = [
 
     "chains/op/verifier/op_verify.c",
 
+    "chains/btc/verifier/btc_verify.c",
+    "chains/btc/ssz/btc_types.c",
+
     "chains/eth/threat_model.md",
     "chains/eth/pap.md",
     "chains/eth/tsa.md",
@@ -76,6 +79,7 @@ const extern_types = {
 const rpc_docs = {
     eth: 'https://www.alchemy.com/docs/node/ethereum/ethereum-api-endpoints',
     op: 'https://www.alchemy.com/docs/node/op-mainnet/op-mainnet-api-endpoints',
+    btc: 'https://developer.bitcoin.org/reference/rpc',
 }
 
 const summary = read_summary()

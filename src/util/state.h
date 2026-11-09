@@ -194,7 +194,8 @@ typedef enum {
   C4_DATA_TYPE_INTERN      = 3, ///< Request is handled internally within the prover server
   C4_DATA_TYPE_PROVER      = 4, ///< Request is handled by the prover server
   C4_DATA_TYPE_CHECKPOINTZ = 5, ///< Request is handled by a checkpointz server
-  C4_DATA_TYPE_CACHE       = 6  ///< In-process snapshot of locally cached data; `id` identifies the entry, `response` carries the cached bytes (no I/O)
+  C4_DATA_TYPE_CACHE       = 6, ///< In-process snapshot of locally cached data; `id` identifies the entry, `response` carries the cached bytes (no I/O)
+  C4_DATA_TYPE_BTC_RPC     = 7  ///< Request is handled by a Bitcoin Core JSON-RPC endpoint (`btc_rpc` in the host config)
 
 } data_request_type_t;
 

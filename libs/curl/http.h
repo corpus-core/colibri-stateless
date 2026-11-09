@@ -41,6 +41,7 @@ typedef struct {
   json_t checkpointz;
   json_t beacon_api;
   json_t eth_rpc;
+  json_t btc_rpc;
   json_t oblivious;
   json_t prover;
   json_t chain_store;

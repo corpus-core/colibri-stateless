@@ -67,7 +67,7 @@ static trace_config_t trace_config   = {0};
 static curl_nodes_t   curl_nodes     = {0};
 const char*           CURL_METHODS[] = {"GET", "POST", "PUT", "DELETE"};
 
-#define DEFAULT_CONFIG "{\"eth_rpc\":[\"https://eth.llamarpc.com\",\"https://rpc.payload.de\",\"https://ethereum-rpc.publicnode.com\"]," \
+#define DEFAULT_CONFIG "{\"eth_rpc\":[\"https://eth.llamarpc.com\",\"https://rpc.payload.de\",\"https://ethereum-rpc.publicnode.com\"],"  \
                        "\"beacon_api\":[\"http://unstable.mainnet.beacon-api.nimbus.team/\",\"https://lodestar-mainnet.chainsafe.io/\"]," \
                        "\"checkpointz\":[\"https://sync-mainnet.beaconcha.in\",\"https://beaconstate.info\",\"https://sync.invis.tools\",\"https://beaconstate.ethstaker.cc\"]}"
 
@@ -105,6 +105,7 @@ void curl_set_config(json_t config) {
   json_t nodes = {0};
 
   if ((nodes = json_get(config, "eth_rpc")).type == JSON_TYPE_ARRAY) replace_config(&curl_nodes.eth_rpc, nodes);
+  if ((nodes = json_get(config, "btc_rpc")).type == JSON_TYPE_ARRAY) replace_config(&curl_nodes.btc_rpc, nodes);
   if ((nodes = json_get(config, "beacon_api")).type == JSON_TYPE_ARRAY) replace_config(&curl_nodes.beacon_api, nodes);
   if ((nodes = json_get(config, "checkpointz")).type == JSON_TYPE_ARRAY) replace_config(&curl_nodes.checkpointz, nodes);
   if ((nodes = json_get(config, "oblivious")).type == JSON_TYPE_ARRAY) replace_config(&curl_nodes.oblivious, nodes);
@@ -141,6 +142,9 @@ static json_t get_nodes(data_request_t* req) {
   buffer_t buffer = {0};
 
   switch (req->type) {
+    case C4_DATA_TYPE_BTC_RPC:
+      add_nodes(&buffer, curl_nodes.btc_rpc);
+      break;
     case C4_DATA_TYPE_ETH_RPC:
       if (req_payload_is_eth_get_proof(req) && curl_nodes.oblivious.type == JSON_TYPE_ARRAY && curl_nodes.oblivious.len > 2)
         add_nodes(&buffer, curl_nodes.oblivious);
@@ -400,8 +404,9 @@ static void log_request(curl_request_t* creq, bool success, bytes_t data, char* 
   else
     bprintf(&buf, "-> %r ", data);
   char* server = strdup(creq->url ? creq->url : "");
-  char* host = strncmp(server, "http://", 7) == 0 ? server + 7 : strncmp(server, "https://", 8) == 0 ? server + 8 : server;
-  char* end =strchr(host, '/');
+  char* host   = strncmp(server, "http://", 7) == 0 ? server + 7 : strncmp(server, "https://", 8) == 0 ? server + 8
+                                                                                                       : server;
+  char* end    = strchr(host, '/');
   if (end) *end = '\0';
   if (creq->request->type != C4_DATA_TYPE_ETH_RPC) host = creq->url;
   if (creq->request->payload.len && creq->request->payload.data)
