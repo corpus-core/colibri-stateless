@@ -260,6 +260,16 @@ static const ssz_def_t ETH_WITNESS_HEADER_PROOF[] = {
     SSZ_LIST("witnesses", ETH_BLOCKHASH_WITNESS_CONTAINER, 16), // cap 16 is the product allow-list size, not an encoding limit
 };
 
+static const ssz_def_t EEZ_L1_PROOF[] = {
+    SSZ_PROG_BYTES("elHeader"),                  // RLP-serialized execution-layer l2 header
+    SSZ_CONTAINER("account", ETH_ACCOUNT_PROOF), // Proof of the blockhash based on the AccountProof from L1
+};
+
+static const ssz_def_t ETH_EIP2935_PROOF[] = {
+    SSZ_PROG_BYTES("elHeader"),                  // RLP-serialized execution-layer l2 header
+    SSZ_CONTAINER("account", ETH_ACCOUNT_PROOF), // Proof of the blockhash based on EIP-2935. the blockNumber will be taken from the header
+};
+
 // Shared block proof used by account, tx, receipt, logs, call and block proofs.
 // Either a cached hash, a full consensus-layer proof, a sequencer-signed
 // execution payload (L2), or a reserved witness-signed EL header.
@@ -270,7 +280,8 @@ static const ssz_def_t ETH_EL_PROOF_UNION[] = {
     SSZ_CONTAINER("clProof", ETH_CL_HEADER_PROOF),           // 1: full consensus-layer proof of the EL header
     SSZ_CONTAINER("sequencerProof", ETH_SEQUENCER_PROOF),    // 2: sequencer-signed execution payload (OP-Stack)
     SSZ_CONTAINER("witnessProof", ETH_WITNESS_HEADER_PROOF), // 3: reserved; c4_verify_block rejects until ecrecover+allow-list exist
-    SSZ_CONTAINER("eezL1Proof", ETH_ACCOUNT_PROOF)           // 4: Proof of the blockhash based on the EEZ Prxy contract in L1
+    SSZ_CONTAINER("eezL1Proof", EEZ_L1_PROOF),               // 4: Proof of the blockhash based on the EEZ Prxy contract in L1
+    SSZ_CONTAINER("eip2935", ETH_EIP2935_PROOF)              // 5: Proof of the blockhash based on EIP-2935
 };
 
 // ::: Logs Proof
