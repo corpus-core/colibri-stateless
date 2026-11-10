@@ -106,6 +106,10 @@ const c4_status_t c4_get_validators(verify_ctx_t* ctx, uint32_t period, c4_sync_
  * additionally anchor the finalized header against a `checkpointz` endpoint, unless
  * `VERIFY_FLAG_SKIP_WSP_CHECK` is set on the context or `USE_CHECKPOINTZ` is disabled.
  *
+ * The sync committee state is the one of `c4_get_l1_chain_id_for_l2(ctx->chain_id)`: for an
+ * L2 that settles on L1 (EEZ) all periods, the chain state and all requests issued here use
+ * the L1 chain id. `ctx->chain_id` itself is unchanged when the function returns.
+ *
  * @param ctx Verification context containing sync_data
  * @return C4_SUCCESS on success, C4_ERROR on failure, C4_PENDING if waiting for network requests
  */

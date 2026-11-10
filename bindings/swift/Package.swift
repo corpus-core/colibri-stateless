@@ -31,6 +31,9 @@ let package = Package(
                     // OP Stack support (NEW - these were missing!)
                     "../../build_macos_arm/src/chains/op/libop_verifier.a",
                     "../../build_macos_arm/src/chains/op/libop_prover.a",
+                    // EEZ support (CHAIN_EEZ is ON by default; the generated dispatchers reference it)
+                    "../../build_macos_arm/src/chains/eez/libeez_verifier.a",
+                    "../../build_macos_arm/src/chains/eez/libeez_prover.a",
                     "../../build_macos_arm/libs/zstd/zstd_build/lib/libzstd.a",
                     "../../build_macos_arm/libs/evmone/libevmone_wrapper.a",
                     "../../build_macos_arm/_deps/evmone_external-build/libevmone.a",

@@ -569,6 +569,20 @@ static c4_status_t fetch_updates_data(prover_ctx_t* ctx, syncdata_state_t* sync_
 }
 
 c4_status_t c4_get_syncdata_proof(prover_ctx_t* ctx, syncdata_state_t* sync_data, ssz_builder_t* builder) {
+  // The block was proven by an L1 prover response (EEZ). That prover already built the
+  // sync data for the client state we forwarded, so we pass its variant through as is.
+  // This must happen before the flag checks below: the flags describe what *this* prover
+  // would fetch, not what the L1 prover already delivered.
+  // The L1 prover is the only source of sync data for such a block. When it delivered
+  // none (the client is already in sync) the proof carries none either: this chain has
+  // no consensus layer, so nothing below (LC updates, ZK proof, period store) applies.
+  if (sync_data->l1_sync_data.def) {
+    if (sync_data->l1_sync_data.def->type != SSZ_TYPE_NONE && sync_data->l1_sync_data.bytes.len) {
+      builder->def = sync_data->l1_sync_data.def;
+      buffer_append(&builder->fixed, sync_data->l1_sync_data.bytes);
+    }
+    return C4_SUCCESS;
+  }
   // nothing to be done - no data to be added.
   if (ctx->flags & C4_PROVER_FLAG_HYBRID) return C4_SUCCESS; // no need to handle this for hybrid mode.
   if ((ctx->flags & C4_PROVER_FLAG_INCLUDE_SYNC) == 0 && !(ctx->flags & C4_PROVER_FLAG_ZK_PROOF)) return C4_SUCCESS;
@@ -812,6 +826,15 @@ static c4_status_t update_syncdata_state(prover_ctx_t* ctx, syncdata_state_t* sy
 
 c4_status_t c4_check_blockroot_proof(prover_ctx_t* ctx, blockroot_proof_t* block_proof, eth_block_t* src_block) {
   if (ctx->flags & C4_PROVER_FLAG_HYBRID) return C4_SUCCESS;
+  // EEZ blocks are proven by an L1 prover response. Its sync data is handed to
+  // `c4_get_syncdata_proof` through the sync state; there is no CL header of our own.
+  // Hybrid mode never gets here with such a block: its header comes from a remote prover
+  // of the L2, which delivers the sync data with its own answer.
+  if (src_block->proof_type == C4_BLOCK_PROOF_TYPE_EEZ) {
+    block_proof->sync.l1_sync_data = src_block->eez.sync_data;
+    // a missing union (should not happen for a validated L1 answer) still marks the sync data as delegated
+    if (!block_proof->sync.l1_sync_data.def) block_proof->sync.l1_sync_data.def = &ssz_none;
+  }
   // hybrid / cache / sequencer blocks have no CL header to prove.
   if (src_block->proof_type != C4_BLOCK_PROOF_TYPE_BEACON) return C4_SUCCESS;
   const chain_spec_t* chain = c4_eth_get_chain_spec(ctx->chain_id);

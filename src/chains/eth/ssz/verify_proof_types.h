@@ -226,6 +226,14 @@ static const ssz_def_t ETH_HEADER_PROOFS_UNION[] = {
 // The `sequencerProof` is used to prove the execution payload of an OP-Stack or other L2.
 // The `witnessProof` is used to prove the EL block hash with a list of witness signatures.
 //
+// Two further variants cover L2 chains whose block hash is anchored in the state of another chain:
+//   - `eezL1Proof`: the L2 block hash is a storage value of the EEZ proxy contract on L1, proven by an L1 account proof
+//   - `eip2935`: the block hash is a storage value of the EIP-2935 history contract of a newer, already proven block ( not implemented yet )
+//
+// Both nest an `EthAccountProof`, whose own `elProof` is again an `ETH_EL_PROOF_UNION`. The proof
+// therefore forms a chain: each link proves the state root that authenticates the next block hash,
+// until a `clProof` anchors the chain in the sync committee of the L1.
+//
 
 // Sequencer-signed execution payload (OP-Stack and other L2s). The payload bytes
 // are a fork-dependent prefix plus the SSZ execution payload, optionally ZSTD-compressed:
@@ -260,11 +268,51 @@ static const ssz_def_t ETH_WITNESS_HEADER_PROOF[] = {
     SSZ_LIST("witnesses", ETH_BLOCKHASH_WITNESS_CONTAINER, 16), // cap 16 is the product allow-list size, not an encoding limit
 };
 
+// L2 header of an EEZ (Ethereum Economic Zone) rollup, proven through L1 state.
+//
+// The EEZ proxy contract on L1 stores one `RollupConfig` per rollup. Its `root` field holds the
+// hash of the last L2 block that was posted to L1. `account` is an `eth_getProof`-style proof of
+// exactly this storage slot, and `account.elProof` proves the L1 execution header it was taken
+// from. It must be a `clProof`; a cached `blockHash` is not accepted for the L1 block.
+//
+// The storage slot depends only on the `rollupId` of the chain:
+//
+// ```
+// base = keccak256(pad32(rollupId) || pad32(2))   // mapping `rollups` lives in slot 2
+// base + 0 : rollupContract
+// base + 1 : root            <- the proven L2 block hash
+// base + 2 : etherBalance
+// ```
+//
+// The verifier
+//
+// 1. checks that `account.address` is the EEZ proxy configured for the chain,
+// 2. checks that `account.storageProof` holds exactly one entry whose `key` is `base + 1`,
+// 3. verifies `account.elProof` as an L1 header and the account and storage proof against its `stateRoot`,
+// 4. rejects a missing or zero storage value (no block has been posted for the rollup),
+// 5. accepts `elHeader` only if `keccak256(elHeader)` equals the proven storage value.
+//
+// The hash on L1 is an anchor, not the head of the L2: RollupX posts it every 15 minutes while
+// the L2 is active, every 4 hours while it is idle, and additionally with each cross-chain
+// transaction. As long as this is the only block proof of an EEZ chain, `latest`, `safe` and
+// `finalized` are resolved on L1, and the proven L2 block is the one L1 knew at that L1 block.
 static const ssz_def_t EEZ_L1_PROOF[] = {
     SSZ_PROG_BYTES("elHeader"),                  // RLP-serialized execution-layer l2 header
     SSZ_CONTAINER("account", ETH_ACCOUNT_PROOF), // Proof of the blockhash based on the AccountProof from L1
 };
 
+// Header of an older block, proven through the EIP-2935 history contract of a newer block.
+//
+// EIP-2935 stores the hashes of the last 8191 blocks in the storage of the system contract
+// `0x0000F90827F1C53a10cb7A02335B175320002935`. The hash of block `n` lives in slot `n % 8191`
+// and can be read from the state of every block in `n + 1 .. n + 8191`. A block never holds
+// its own hash.
+//
+// `account` is the account proof of that contract for the slot of `elHeader`'s block number.
+// `account.elProof` proves the newer block whose `stateRoot` the proof is checked against. On an
+// EEZ rollup that newer block is the one anchored on L1, so `account.elProof` is an `eezL1Proof`.
+//
+// This variant is reserved: no prover creates it yet and `c4_verify_block` rejects it.
 static const ssz_def_t ETH_EIP2935_PROOF[] = {
     SSZ_PROG_BYTES("elHeader"),                  // RLP-serialized execution-layer l2 header
     SSZ_CONTAINER("account", ETH_ACCOUNT_PROOF), // Proof of the blockhash based on EIP-2935. the blockNumber will be taken from the header
@@ -275,13 +323,16 @@ static const ssz_def_t ETH_EIP2935_PROOF[] = {
 // execution payload (L2), or a reserved witness-signed EL header.
 // `ssz_is_valid` only checks the wire shape; `c4_verify_block` authenticates
 // variants 0–2. Variant 3 (`witnessProof`) is rejected until ecrecover + allow-list.
+// Variant 4 (`eezL1Proof`) is authenticated by the EEZ chain module and only for
+// EEZ chains. Variant 5 (`eip2935`) is reserved and rejected.
+// New variants are appended; existing indices are frozen.
 static const ssz_def_t ETH_EL_PROOF_UNION[] = {
     SSZ_BYTES32("blockHash"),                                // 0: cached: verifier already holds this verified EL header
     SSZ_CONTAINER("clProof", ETH_CL_HEADER_PROOF),           // 1: full consensus-layer proof of the EL header
     SSZ_CONTAINER("sequencerProof", ETH_SEQUENCER_PROOF),    // 2: sequencer-signed execution payload (OP-Stack)
     SSZ_CONTAINER("witnessProof", ETH_WITNESS_HEADER_PROOF), // 3: reserved; c4_verify_block rejects until ecrecover+allow-list exist
-    SSZ_CONTAINER("eezL1Proof", EEZ_L1_PROOF),               // 4: Proof of the blockhash based on the EEZ Prxy contract in L1
-    SSZ_CONTAINER("eip2935", ETH_EIP2935_PROOF)              // 5: Proof of the blockhash based on EIP-2935
+    SSZ_CONTAINER("eezL1Proof", EEZ_L1_PROOF),               // 4: Proof of the blockhash based on the EEZ Proxy contract in L1
+    SSZ_CONTAINER("eip2935", ETH_EIP2935_PROOF)              // 5: Proof of the blockhash based on EIP-2935; reserved, c4_verify_block rejects it
 };
 
 // ::: Logs Proof

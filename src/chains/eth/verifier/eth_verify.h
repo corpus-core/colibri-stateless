@@ -55,6 +55,9 @@ c4_status_t c4_verify_header(verify_ctx_t* ctx, ssz_ob_t header, ssz_ob_t block_
 // into the proof (`clProof`) or into a C4_DATA_TYPE_CACHE snapshot attached to
 // ctx->state (`blockHash` / `sequencerProof`), so it stays valid for the lifetime of the
 // verify_ctx and is freed automatically with it.
+// A `clProof` is rejected when `ctx->chain_id` settles on another chain
+// (`c4_get_l1_chain_id_for_l2(ctx->chain_id) != ctx->chain_id`, i.e. EEZ): such a chain has
+// no consensus layer, its blocks are proven by the hook of its chain type.
 c4_status_t c4_verify_block(verify_ctx_t* ctx, ssz_ob_t block, bytes_t* el_header, bytes32_t block_hash);
 
 /**
@@ -150,6 +153,11 @@ bool eth_json_is_unproofable_tag(json_t block_tag);
  * The check is **disabled** when `ctx->min_latest_block_ts == 0` (the host
  * opted out) or when `is_latest == false` (the request used a pinned tag).
  * When the check is enabled but `has_ts == false` the gate fails closed.
+ *
+ * The check is also **suspended for EEZ chains** (`C4_CHAIN_TYPE_EEZ`): their
+ * `latest` is the last L2 block posted to L1 and can be up to 4 hours old.
+ * This is a temporary exception of EEZ milestone 1; a host that needs a
+ * freshness bound on such a chain must check the block timestamp itself.
  *
  * @param ctx     verification context (supplies the host lower bound + error sink)
  * @param is_latest `true` if the request used the `"latest"` block tag

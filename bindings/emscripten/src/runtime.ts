@@ -57,7 +57,7 @@ export interface C4Runtime {
     readonly kind: 'wasm' | 'native';
 
     getMethodType(chainId: bigint, method: string, paramsJson: string | null, flags: number): number;
-    /** L1 chain id that settles `chainId`. Today this is always mainnet. */
+    /** L1 chain id that settles `chainId`: Ethereum mainnet for an EEZ L2 such as RollupX, `chainId` itself for every other chain. */
     getL1ChainId(chainId: bigint): bigint;
 
     createProverCtx(method: string, argsJson: string, chainId: bigint, flags: number): CtxHandle;

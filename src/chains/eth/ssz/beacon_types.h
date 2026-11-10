@@ -80,6 +80,7 @@ typedef enum {
   ETH_SSZ_SEQUENCER_PROOF      = 32, // ETH_EL_PROOF_UNION index 2
   ETH_SSZ_WITNESS_HEADER_PROOF = 33, // ETH_EL_PROOF_UNION index 3
   ETH_SSZ_EL_BLOCK_CONTENT     = 34, // ETH_BLOCK_BODY_UNION content variant
+  ETH_SSZ_EEZ_L1_PROOF         = 35, // ETH_EL_PROOF_UNION index 4
 
 } eth_ssz_type_t;
 

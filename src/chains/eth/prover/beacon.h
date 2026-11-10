@@ -46,6 +46,7 @@ typedef enum {
   C4_BLOCK_PROOF_TYPE_NONE      = 0, // hybrid / cache: only `el_header` is set, and `el_body` if requested
   C4_BLOCK_PROOF_TYPE_BEACON    = 1, // `beacon` is set; a consensus-layer block proof can be built
   C4_BLOCK_PROOF_TYPE_SEQUENCER = 2, // `sequencer` is set
+  C4_BLOCK_PROOF_TYPE_EEZ       = 3, // `eez` is set; the block hash is proven by an L1 account proof
 } c4_block_proof_type_t;
 
 typedef struct {
@@ -64,6 +65,12 @@ typedef struct {
   bytes_t signature; // 65-byte sequencer signature, borrowed from the request
 } eth_block_sequencer_t;
 
+// Further EEZ block proofs (blocks newer or older than the L1 anchor) add their fields here.
+typedef struct {
+  ssz_ob_t account;   // L1 `EthAccountProof` of the EEZ proxy storage slot, borrowed from the L1 prover response
+  ssz_ob_t sync_data; // `sync_data` of the L1 prover response (selected union variant, may be `none`), borrowed
+} eth_block_eez_t;
+
 typedef struct {
   c4_block_proof_type_t proof_type;    // which side of the union is valid
   bytes_t               el_header;     // RLP-serialized execution-layer header
@@ -73,6 +80,7 @@ typedef struct {
   union {
     eth_block_beacon_t    beacon;
     eth_block_sequencer_t sequencer;
+    eth_block_eez_t       eez;
   };
 } eth_block_t;
 
@@ -101,9 +109,10 @@ c4_status_t c4_eth_get_signblock_and_parent(prover_ctx_t* ctx, bytes32_t sig_roo
 
 /**
  * Resolves an execution-layer block identifier into `eth_block_t`.
- * `proof_type` may be `BEACON` (default), `NONE` (hybrid / header cache), or
- * `SEQUENCER` (OP preconf). Callers must check `proof_type` before reading
- * `.beacon` or `.sequencer`.
+ * `proof_type` may be `BEACON` (default), `NONE` (hybrid / header cache),
+ * `SEQUENCER` (OP preconf), or `EEZ` (L1 account proof of the EEZ proxy).
+ * Callers must check `proof_type` before reading `.beacon`, `.sequencer`
+ * or `.eez`.
  *
  * @param ctx prover context
  * @param block JSON block identifier

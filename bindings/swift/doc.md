@@ -185,7 +185,8 @@ public class Colibri {
 
     /// Optional execution RPCs for the L1 of the configured chain.
     /// Nil or empty uses the built-in defaults for that L1. The L1 id comes from
-    /// `c4_get_l1_chain_id_for_l2` and is currently always Ethereum mainnet (`1`).
+    /// `c4_get_l1_chain_id_for_l2`: an EEZ L2 such as RollupX maps to the L1 it settles on
+    /// (Ethereum mainnet, `1`), every other chain maps to itself and never uses this list.
     /// Requests for the configured chain keep using `eth_rpcs`, including when
     /// that chain is already mainnet. Any other chain id is an error.
     public var l1EthRpcs: [String]?

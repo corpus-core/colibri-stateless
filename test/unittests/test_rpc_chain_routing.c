@@ -32,10 +32,23 @@
 void setUp(void) {}
 void tearDown(void) {}
 
-void test_l1_chain_id_is_mainnet(void) {
+// L1s and OP-Stack L2s keep their own id; only an EEZ L2 maps to the L1 it settles on.
+void test_l1_chain_id_passes_through_except_eez(void) {
   TEST_ASSERT_TRUE(c4_get_l1_chain_id_for_l2(1) == 1);
-  TEST_ASSERT_TRUE(c4_get_l1_chain_id_for_l2(10) == 1);
-  TEST_ASSERT_TRUE(c4_get_l1_chain_id_for_l2(8453) == 1);
+  TEST_ASSERT_TRUE(c4_get_l1_chain_id_for_l2(10) == 10);
+  TEST_ASSERT_TRUE(c4_get_l1_chain_id_for_l2(8453) == 8453);
+  TEST_ASSERT_TRUE(c4_get_l1_chain_id_for_l2(C4_CHAIN_SEPOLIA) == C4_CHAIN_SEPOLIA);
+  TEST_ASSERT_TRUE(c4_get_l1_chain_id_for_l2(C4_CHAIN_EEZ_ROLLUPX) == C4_CHAIN_MAINNET);
+  TEST_ASSERT_TRUE(c4_get_l1_chain_id_for_l2(0xaa29f) == 1);
+}
+
+void test_eez_chain_type(void) {
+  TEST_ASSERT_EQUAL_INT(C4_CHAIN_TYPE_EEZ, c4_chain_type(C4_CHAIN_EEZ_ROLLUPX));
+  TEST_ASSERT_EQUAL_INT(8, C4_CHAIN_TYPE_EEZ);
+  // neighbours must keep their type
+  TEST_ASSERT_EQUAL_INT(C4_CHAIN_TYPE_ETHEREUM, c4_chain_type(C4_CHAIN_MAINNET));
+  TEST_ASSERT_EQUAL_INT(C4_CHAIN_TYPE_OP, c4_chain_type(C4_CHAIN_OP_BASE));
+  TEST_ASSERT_EQUAL_INT(C4_CHAIN_TYPE_ETHEREUM, c4_chain_type(0xaa29e));
 }
 
 void test_eth_rpc_request_carries_chain_and_distinct_ids(void) {
@@ -87,7 +100,8 @@ void test_mockname_ignores_chain_id(void) {
 
 int main(void) {
   UNITY_BEGIN();
-  RUN_TEST(test_l1_chain_id_is_mainnet);
+  RUN_TEST(test_l1_chain_id_passes_through_except_eez);
+  RUN_TEST(test_eez_chain_type);
   RUN_TEST(test_eth_rpc_request_carries_chain_and_distinct_ids);
   RUN_TEST(test_mockname_ignores_chain_id);
   return UNITY_END();

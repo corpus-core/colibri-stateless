@@ -480,7 +480,13 @@ static c4_status_t update_from_zk_sync_data(verify_ctx_t* ctx) {
 #endif
 }
 
-INTERNAL c4_status_t c4_update_from_sync_data(verify_ctx_t* ctx) {
+/**
+ * Applies `ctx->sync_data` to the sync committee state of `ctx->chain_id`.
+ *
+ * @param ctx verification context; `ctx->chain_id` must be the chain that owns the sync committee
+ * @return `C4_SUCCESS`, `C4_PENDING`, or `C4_ERROR`
+ */
+static c4_status_t update_from_sync_data(verify_ctx_t* ctx) {
   if (ssz_is_error(ctx->sync_data)) RETURN_VERIFY_ERROR_STATUS(ctx, "invalid sync_data!");
   if (ctx->sync_data.def->type == SSZ_TYPE_NONE) return C4_SUCCESS;
 
@@ -491,6 +497,18 @@ INTERNAL c4_status_t c4_update_from_sync_data(verify_ctx_t* ctx) {
     return update_from_zk_sync_data(ctx);
   else
     RETURN_VERIFY_ERROR_STATUS(ctx, "unknown sync_data type!");
+}
+
+INTERNAL c4_status_t c4_update_from_sync_data(verify_ctx_t* ctx) {
+  // Sync data always describes the sync committee of the chain that finalizes the
+  // blocks. For an L2 that settles on L1 (EEZ) this is the L1 chain: periods, the
+  // chain state and every request issued while syncing must use the L1 chain id.
+  // `c4_get_l1_chain_id_for_l2` returns the chain itself for all other chains.
+  chain_id_t chain_id = ctx->chain_id;
+  ctx->chain_id       = c4_get_l1_chain_id_for_l2(chain_id);
+  c4_status_t status  = update_from_sync_data(ctx);
+  ctx->chain_id       = chain_id;
+  return status;
 }
 
 fork_id_t c4_eth_get_fork_for_lcb(chain_id_t chain_id, bytes_t data) {

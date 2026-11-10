@@ -173,7 +173,7 @@ class MainActivity : AppCompatActivity() {
 
 `ethRpcs` is the execution RPC list for the configured chain. An empty array uses the built-in defaults for that chain.
 
-`ethRpcsL1` (optional, default empty) is the execution RPC list for the L1 of the configured chain. A request whose chain id is that L1, and different from `chainId`, uses this list. The L1 id comes from `c4_get_l1_chain_id_for_l2` and is currently always Ethereum mainnet (`1`). An empty list uses the built-in default execution RPCs for that L1. Requests for the configured chain keep using `ethRpcs`, including when `chainId` is already mainnet. Any other chain id is an error.
+`ethRpcsL1` (optional, default empty) is the execution RPC list for the L1 of the configured chain. A request whose chain id is that L1, and different from `chainId`, uses this list. The L1 id comes from `c4_get_l1_chain_id_for_l2`: an EEZ L2 such as RollupX maps to the L1 it settles on (Ethereum mainnet, `1`), every other chain maps to itself and never uses this list. An empty list uses the built-in default execution RPCs for that L1. Requests for the configured chain keep using `ethRpcs`, including when `chainId` is already mainnet. Any other chain id is an error.
 
 ```kotlin
 val base = Colibri(

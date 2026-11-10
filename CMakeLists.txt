@@ -92,6 +92,7 @@ option(PROVER_CACHE "Caches blockhashes and maps, which makes a lot of sense on 
 option(PROVER_TRACE "Collect lightweight prover-internal spans for server export" OFF)
 option(CHAIN_ETH "includes the ETH verification support" ON)
 option(CHAIN_OP "includes the OP-Stack verification support (forced ON for language bindings)" ON)
+option(CHAIN_EEZ "includes the EEZ (Ethereum Economic Zone) verification support" ON)
 option(ETH_ZKPROOF "includes the ETH ZK-Proof verification support" ON)
 option(ETH_ZKPROOF_BUILD_HOST "Build eth-sync-script host binary (Rust/SP1). Disable for clients/slaves or platforms where SP1 doesn't build." OFF)
 option(PAP "Enable Pragmatic Adaptive Privacy mode in verifier" ON)

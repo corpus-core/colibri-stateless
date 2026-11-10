@@ -152,8 +152,8 @@ let client = Colibri::builder(1)
     // Optional local sources for local / hybrid proofs.
     .eth_rpcs(vec!["https://eth.llamarpc.com".into()])
     // Optional L1 execution RPCs. This mainnet client keeps using `eth_rpcs`.
-    // An L2 client sends L1 requests here; an empty list uses the built-in
-    // defaults for that L1 (currently Ethereum mainnet).
+    // An EEZ L2 client (e.g. RollupX) sends L1 requests here; an empty list uses
+    // the built-in defaults for that L1 (Ethereum mainnet).
     .l1_eth_rpcs(vec!["https://eth.llamarpc.com".into()])
     .beacon_apis(vec!["https://lodestar-mainnet.chainsafe.io".into()])
     .checkpointz(vec!["https://checkpointz.example".into()])

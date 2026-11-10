@@ -335,11 +335,14 @@ void test_block_proof_union_index_2_is_sequencer(void) {
   const ssz_def_t* block = ssz_get_def(proof, "elProof");
   TEST_ASSERT_NOT_NULL(block);
   TEST_ASSERT_EQUAL_INT(SSZ_TYPE_UNION, block->type);
+  // The selectors are part of the wire format: new variants are appended, never inserted.
   TEST_ASSERT_EQUAL_INT(6, block->def.container.len);
   TEST_ASSERT_EQUAL_STRING("blockHash", block->def.container.elements[0].name);
   TEST_ASSERT_EQUAL_STRING("clProof", block->def.container.elements[1].name);
   TEST_ASSERT_EQUAL_STRING("sequencerProof", block->def.container.elements[2].name);
   TEST_ASSERT_EQUAL_STRING("witnessProof", block->def.container.elements[3].name);
+  TEST_ASSERT_EQUAL_STRING("eezL1Proof", block->def.container.elements[4].name);
+  TEST_ASSERT_EQUAL_STRING("eip2935", block->def.container.elements[5].name);
 }
 
 void test_verify_block_without_hook_rejects_unknown_variant(void) {

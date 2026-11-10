@@ -220,12 +220,14 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, "  -o <proof_file> proof file to write\n");
     fprintf(stderr, "  -I <offsets> comma-separated offsets from the finalized period (TEST). -I 2 = two periods ago; -I 3,0 = oldest and current (gap in between)\n");
     fprintf(stderr, "  -p url of the prover\n");
+    fprintf(stderr, "  --prover-l1 <url> prover of the L1 chain of an L2 (EEZ). Comma-separated like -p. Defaults to the built-in provers of the L1 chain\n");
     fprintf(stderr, "  -m <mode> prover mode: local, remote, hybrid\n");
     fprintf(stderr, "  -L local proof (shorthand for -m local)\n");
     fprintf(stderr, "  -r rpc url\n");
+    fprintf(stderr, "  --rpc-l1 <url> execution rpc of the L1 chain of an L2. Comma-separated like -r. Defaults to the built-in rpcs of the L1 chain\n");
     fprintf(stderr, "  -Z oblivious node url (TEE RPC for eth_getProof during eth_call; sets VERIFY_FLAG_OBLIVIOUS)\n");
-    fprintf(stderr, "  -b beacon url\n");
-    fprintf(stderr, "  -x checkpointz url\n");
+    fprintf(stderr, "  -b beacon url (for an L2 that settles on L1 (EEZ): beacon url of the L1 chain)\n");
+    fprintf(stderr, "  -x checkpointz url (for an L2 that settles on L1 (EEZ): checkpointz url of the L1 chain)\n");
     fprintf(stderr, "  -n <SIGNERS> if set, the verifier uses checkpoints signed by the given signers (multiple addresses are concatinated bytes with 20 bytes each)\n");
     fprintf(stderr, "  -P enable PAP (Pragmatic Adaptive Privacy) mode\n");
     fprintf(stderr, "  -W skip the Weak Subjectivity Period check (VERIFY_FLAG_SKIP_WSP_CHECK). SECURITY: only safe with an alternative trust anchor (witness signatures, hard-coded checkpoint, signed package).\n");
@@ -258,6 +260,7 @@ int main(int argc, char* argv[]) {
   char*            oblivious_url          = NULL;
   char*            rpc_url                = NULL;
   char*            rpc_l1_url             = NULL;
+  char*            prover_l1_url          = NULL;
   char*            beacon_url             = NULL;
   char*            checkpointz_url        = NULL;
   char*            prover_url             = NULL;
@@ -278,6 +281,14 @@ int main(int argc, char* argv[]) {
         exit(EXIT_FAILURE);
       }
       rpc_l1_url = argv[++i];
+      continue;
+    }
+    if (strcmp(argv[i], "--prover-l1") == 0) {
+      if (i + 1 >= argc) {
+        fprintf(stderr, "--prover-l1 requires a URL\n");
+        exit(EXIT_FAILURE);
+      }
+      prover_l1_url = argv[++i];
       continue;
     }
     if (*argv[i] == '-') {
@@ -432,6 +443,10 @@ int main(int argc, char* argv[]) {
   }
   buffer_add_chars(&args, "]");
   json_t default_config = json_parse(get_default_config(chain_name, &chain_id, NULL));
+  // An L2 that settles on L1 (EEZ) has no sync committee of its own: the sync state, the
+  // trusted checkpoint and all beacon / checkpointz requests belong to its L1 chain.
+  // For every other chain this is the chain itself.
+  chain_id_t sync_chain_id = c4_get_l1_chain_id_for_l2(chain_id);
 #ifdef EL_HEADER_CACHE
   c4_header_cache_load(chain_id);
   c4_prover_header_tags_load(chain_id);
@@ -447,31 +462,37 @@ int main(int argc, char* argv[]) {
   if (prover_mode_set && prover_mode == C4_PROVER_MODE_LOCAL) prover_url = NULL;
   if (rpc_url) set_config("eth_rpc", rpc_url);
   if (rpc_l1_url) set_config("eth_rpc_l1", rpc_l1_url);
+  if (prover_l1_url) set_config("prover_l1", prover_l1_url);
 #ifdef USE_CURL
   curl_set_chain_id(chain_id);
 #endif
   if (beacon_url) set_config("beacon_api", beacon_url);
   if (checkpointz_url) set_config("checkpointz", checkpointz_url);
+  if (sync_chain_id != chain_id) {
+    // the only consensus layer such an L2 talks to is the one of its L1
+    if (beacon_url) set_config("beacon_api_l1", beacon_url);
+    if (checkpointz_url) set_config("checkpointz_l1", checkpointz_url);
+  }
   if (oblivious_url) set_config("oblivious", oblivious_url);
 #ifdef USE_CURL
   if (curl_has_oblivious_nodes()) verify_flags |= VERIFY_FLAG_OBLIVIOUS | VERIFY_FLAG_PAP;
 #ifdef TEST
-  if (period_init) init_state(chain_id, period_init);
+  if (period_init) init_state(sync_chain_id, period_init);
 #endif
 #endif
   if (c4_chain_type(chain_id) == C4_CHAIN_TYPE_OP) has_checkpoint = true;
 
   if (has_checkpoint)
-    c4_eth_set_trusted_checkpoint(chain_id, trusted_checkpoint);
-  else if (c4_get_chain_state(chain_id).status == C4_STATE_SYNC_EMPTY && !use_zk_proof) {
+    c4_eth_set_trusted_checkpoint(sync_chain_id, trusted_checkpoint);
+  else if (c4_get_chain_state(sync_chain_id).status == C4_STATE_SYNC_EMPTY && !use_zk_proof) {
     bytes32_t  checkpoint = {0};
     uint64_t   epoch      = 0;
     c4_state_t state      = {0};
 #ifdef USE_CURL
-    if (!c4_req_checkpointz_status(&state, chain_id, &epoch, checkpoint) && !state.error) {
+    if (!c4_req_checkpointz_status(&state, sync_chain_id, &epoch, checkpoint) && !state.error) {
       curl_fetch_all(&state);
-      if (c4_req_checkpointz_status(&state, chain_id, &epoch, checkpoint))
-        c4_eth_set_trusted_checkpoint(chain_id, checkpoint);
+      if (c4_req_checkpointz_status(&state, sync_chain_id, &epoch, checkpoint))
+        c4_eth_set_trusted_checkpoint(sync_chain_id, checkpoint);
     }
     c4_state_free(&state);
 #endif

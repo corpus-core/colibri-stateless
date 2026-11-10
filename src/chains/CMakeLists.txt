@@ -25,3 +25,7 @@ endif()
 if(CHAIN_OP)
     add_subdirectory(op)
 endif()
+# EEZ rollups are proven through their L1 and reuse the Ethereum modules.
+if(CHAIN_EEZ AND CHAIN_ETH)
+    add_subdirectory(eez)
+endif()

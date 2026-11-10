@@ -119,6 +119,22 @@ foreach(test_source ${TEST_SOURCES})
             target_compile_definitions(${test_name} PRIVATE NO_CHAIN_OP=1)
         endif()
     endif()
+
+    # EEZ tests call the module directly (chain table, storage proof, block hooks).
+    if("${test_name}" MATCHES "^test_eez_")
+        if(CHAIN_EEZ AND CHAIN_ETH)
+            target_link_libraries(${test_name} PRIVATE eez_verifier eez_prover)
+            target_include_directories(${test_name} PRIVATE
+                ${CMAKE_SOURCE_DIR}/src/chains/eth/verifier
+                ${CMAKE_SOURCE_DIR}/src/chains/eth/ssz
+                ${CMAKE_SOURCE_DIR}/src/chains/eth/prover
+                ${CMAKE_SOURCE_DIR}/src/chains/eez/verifier
+                ${CMAKE_SOURCE_DIR}/src/chains/eez/prover
+            )
+        else()
+            target_compile_definitions(${test_name} PRIVATE NO_CHAIN_EEZ=1)
+        endif()
+    endif()
     
     
     # Add server dependencies if HTTP_SERVER is enabled

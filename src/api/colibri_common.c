@@ -166,7 +166,7 @@ static void enrich_pending_prover_requests(c4_rpc_ctx_t* ctx) {
     buffer_t  out = {0};
     bytes32_t lbh = {0};
     buffer_append(&out, bytes(req->payload.data, req->payload.len - 1));
-    c4_append_prover_request_props(&out, ctx->client_state, ctx->chain_id, ctx->prover_flags, ctx->witness_keys, get_last_block_hash(ctx, lbh));
+    c4_append_prover_request_props(&out, ctx->client_state, c4_get_l1_chain_id_for_l2(ctx->chain_id), ctx->prover_flags, ctx->witness_keys, get_last_block_hash(ctx, lbh));
     append_proxy_fields(&out, ctx);
     bprintf(&out, "}");
     safe_free(req->payload.data);
@@ -311,7 +311,9 @@ char* c4i_build_verifier_json_status(c4_status_t status, c4_state_t* state,
  */
 static void rpc_capture_snapshots(c4_rpc_ctx_t* ctx) {
   if (!ctx || ctx->client_state.data) return; // already captured
-  ctx->client_state  = c4_get_client_state(ctx->chain_id);
+  // The client state is the sync committee state. An L2 that settles on L1 (EEZ) uses the
+  // one of its L1; for all other chains `c4_get_l1_chain_id_for_l2` is the chain itself.
+  ctx->client_state  = c4_get_client_state(c4_get_l1_chain_id_for_l2(ctx->chain_id));
   c4_init_ctx_t init = {.chain_id = ctx->chain_id, .client_state = ctx->client_state, .snapshots = NULL};
   c4_init_rpc_ctx(&init);
   ctx->snapshots = init.snapshots;
@@ -349,8 +351,9 @@ void c4_set_checkpoint(chain_id_t chain_id, const char* checkpoint_hex) {
 #ifdef CHAIN_ETH
   if (checkpoint_hex && strlen(checkpoint_hex) == 66) {
     bytes32_t checkpoint;
+    // the checkpoint anchors a sync committee, which for an L2 settling on L1 (EEZ) is the one of its L1
     if (hex_to_bytes(checkpoint_hex + 2, 64, bytes(checkpoint, 32)) == 32)
-      c4_eth_set_trusted_checkpoint(chain_id, checkpoint);
+      c4_eth_set_trusted_checkpoint(c4_get_l1_chain_id_for_l2(chain_id), checkpoint);
   }
 #else
   (void) chain_id;
@@ -493,7 +496,7 @@ static c4_status_t rpc_handle_remote_proof(c4_rpc_ctx_t* ctx) {
     buffer_free(&method_buf);
     buffer_free(&params_buf);
     bytes32_t lbh = {0};
-    c4_append_prover_request_props(&payload, ctx->client_state, ctx->chain_id, ctx->prover_flags, ctx->witness_keys, get_last_block_hash(ctx, lbh));
+    c4_append_prover_request_props(&payload, ctx->client_state, c4_get_l1_chain_id_for_l2(ctx->chain_id), ctx->prover_flags, ctx->witness_keys, get_last_block_hash(ctx, lbh));
     append_proxy_fields(&payload, ctx);
     bprintf(&payload, "}");
     ctx->rpc_state.requests->payload = payload.data;
@@ -617,7 +620,9 @@ static prover_ctx_t* create_prover_from_request(c4_rpc_ctx_t* rpc_ctx, data_requ
   char* params_str = bprintf(NULL, "%j", params);
   safe_free(tmp);
 
-  prover_ctx_t* pctx = c4_prover_create(method_str, params_str, rpc_ctx->chain_id, rpc_ctx->prover_flags);
+  // A verifier may ask for a proof of another chain than the one of the request (the
+  // request names it in `chain_id`); without one the proof is for the chain of the request.
+  prover_ctx_t* pctx = c4_prover_create(method_str, params_str, req->chain_id ? req->chain_id : rpc_ctx->chain_id, rpc_ctx->prover_flags);
   safe_free(method_str);
   safe_free(params_str);
   if (!pctx) {
