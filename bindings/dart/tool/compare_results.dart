@@ -152,6 +152,9 @@ Future<List<CompareResult>> compareAll() async {
     final useAccesslist = (content['use_accesslist'] as bool?) ?? true;
     final pap = (content['pap'] as bool?) ?? false;
     final remoteProver = (content['remote_prover'] as bool?) ?? false;
+    // An L2 that is proven on another L1 (EEZ) asks the L1 prover even when the
+    // proof is created locally: keep a mock prover and select local mode explicitly.
+    final l1Prover = !remoteProver && needsL1Prover(chainId, libraryPath: libraryPath);
 
     Colibri.resetNativeCaches(libraryPath: libraryPath);
 
@@ -165,7 +168,8 @@ Future<List<CompareResult>> compareAll() async {
     // itself is covered by test_verify_call_freshness.
     final colibri = Colibri(
       chainId: chainId,
-      provers: remoteProver ? ['http://mock-prover'] : const [],
+      provers: remoteProver || l1Prover ? ['http://mock-prover'] : const [],
+      proverMode: l1Prover ? ProverMode.local : null,
       trustedCheckpoint: trusted,
       includeCode: includeCode,
       useAccesslist: useAccesslist,

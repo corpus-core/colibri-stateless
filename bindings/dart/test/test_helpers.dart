@@ -10,6 +10,9 @@ import 'dart:typed_data';
 /// Import Colibri types used by the storage interface.
 import 'package:colibri_stateless/colibri.dart';
 
+/// Import the native bindings to query chain properties.
+import 'package:colibri_stateless/src/native.dart';
+
 /// Import HTTP request/response types for the mock responder.
 import 'package:http/http.dart' as http;
 
@@ -41,6 +44,14 @@ List<Directory> discoverTestDirs() {
       .whereType<Directory>()
       .where((dir) => File('${dir.path}${Platform.pathSeparator}test.json').existsSync())
       .toList();
+}
+
+/// Whether the blocks of [chainId] are proven on a different L1 chain (EEZ L2s).
+///
+/// Creating a proof for such a chain needs the prover of the L1 chain even in local
+/// mode, so its fixtures cannot run with an empty prover list.
+bool needsL1Prover(int chainId, {String? libraryPath}) {
+  return ColibriNative.load(libraryPath: libraryPath).l1ChainId(chainId) != chainId;
 }
 
 /// Storage that throws on [get] to exercise native callback error paths.
