@@ -20,6 +20,7 @@ const RUST_CONST = {
   100: 'GNOSIS',
   10200: 'CHIADO',
   7091047534: 'PLATABERGET',
+  696991: 'ROLLUPX',
 };
 
 const RUST_DOC = {
@@ -28,6 +29,7 @@ const RUST_DOC = {
   100: 'Gnosis Chain.',
   10200: 'Chiado testnet (Gnosis).',
   7091047534: 'Platåberget (Glamsterdam devnet-8).',
+  696991: 'RollupX (EEZ).',
 };
 
 function loadSpec() {
@@ -263,14 +265,14 @@ function genRs(spec) {
   out += '        assert_eq!(gnosis[1], "https://gnosis1.colibri-proof.tech");\n';
   out += '    }\n\n';
   out += '    #[test]\n';
-    out += '    fn plataberget_defaults() {\n';
-    out += '        assert_eq!(\n';
-    out += '            default_provers(PLATABERGET),\n';
-    out += '            vec!["https://plataberget.colibri-proof.tech"]\n';
-    out += '        );\n';
-    out += '        assert!(default_eth_rpcs(PLATABERGET)[0].contains("/execution"));\n';
-    out += '        assert!(default_beacon_apis(PLATABERGET)[0].contains("/consensus"));\n';
-    out += '    }\n\n';
+  out += '    fn plataberget_defaults() {\n';
+  out += '        assert_eq!(\n';
+  out += '            default_provers(PLATABERGET),\n';
+  out += '            vec!["https://plataberget.colibri-proof.tech"]\n';
+  out += '        );\n';
+  out += '        assert!(default_eth_rpcs(PLATABERGET)[0].contains("/execution"));\n';
+  out += '        assert!(default_beacon_apis(PLATABERGET)[0].contains("/consensus"));\n';
+  out += '    }\n\n';
   out += '    #[test]\n';
   out += '    fn unknown_chain_has_prover_fallback_only() {\n';
   out += '        assert!(!default_provers(999999).is_empty());\n';

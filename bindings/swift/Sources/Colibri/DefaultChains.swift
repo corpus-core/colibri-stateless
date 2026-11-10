@@ -28,6 +28,8 @@ enum DefaultChains {
             return ["https://chiado.colibri-proof.tech"]
         case 7091047534:
             return ["https://plataberget.colibri-proof.tech"]
+        case 696991:
+            return ["https://mainnet.colibri-proof.tech"]
         default:
             return ["https://c4.incubed.net"]
         }
@@ -67,6 +69,8 @@ enum DefaultChains {
                 "https://plataberget.colibri-proof.tech/execution",
                 "https://rpc.glamsterdam-devnet-8.ethpandaops.io/",
             ]
+        case 696991:
+            return ["https://rollupx.eez.dev/rpc/l2"]
         default:
             return []
         }
@@ -99,6 +103,8 @@ enum DefaultChains {
                 "https://plataberget.colibri-proof.tech/consensus",
                 "https://beacon.glamsterdam-devnet-8.ethpandaops.io/",
             ]
+        case 696991:
+            return ["https://mainnet.colibri-proof.tech/consensus"]
         default:
             return []
         }
@@ -128,6 +134,8 @@ enum DefaultChains {
             return ["https://checkpoint.chiadochain.net"]
         case 7091047534:
             return ["https://checkpoint-sync.glamsterdam-devnet-8.ethpandaops.io"]
+        case 696991:
+            return ["https://mainnet.colibri-proof.tech/consensus"]
         default:
             return []
         }
