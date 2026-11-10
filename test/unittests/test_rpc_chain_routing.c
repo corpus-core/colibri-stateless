@@ -29,34 +29,8 @@
 #include "unity.h"
 #include <string.h>
 
-#ifdef HTTP_SERVER
-#include "server/server.h"
-#endif
-
-#ifdef HTTP_SERVER
-static uint64_t saved_server_chain = 0;
-static char*    saved_server_l1    = NULL;
-static int      server_state_saved = 0;
-
-static char* test_block_network(const char* url, const char* payload) {
-  (void) url;
-  (void) payload;
-  return NULL;
-}
-#endif
-
 void setUp(void) {}
-
-void tearDown(void) {
-#ifdef HTTP_SERVER
-  if (server_state_saved) {
-    http_server.chain_id     = saved_server_chain;
-    http_server.rpc_l1_nodes = saved_server_l1;
-    c4_test_url_rewriter     = NULL;
-    server_state_saved       = 0;
-  }
-#endif
-}
+void tearDown(void) {}
 
 void test_l1_chain_id_is_mainnet(void) {
   TEST_ASSERT_TRUE(c4_get_l1_chain_id_for_l2(1) == 1);
@@ -111,59 +85,10 @@ void test_mockname_ignores_chain_id(void) {
   safe_free(name_l2);
 }
 
-#ifdef HTTP_SERVER
-void test_server_eth_rpc_list_follows_chain(void) {
-  saved_server_chain       = http_server.chain_id;
-  saved_server_l1          = http_server.rpc_l1_nodes;
-  server_state_saved       = 1;
-  http_server.rpc_l1_nodes = (char*) "https://l1.example";
-  c4_test_url_rewriter     = test_block_network;
-
-  data_request_t req = {0};
-  req.type           = C4_DATA_TYPE_ETH_RPC;
-  server_list_t* primary = c4_get_server_list(C4_DATA_TYPE_ETH_RPC);
-
-  http_server.chain_id = 1;
-  req.chain_id         = 1;
-  TEST_ASSERT_EQUAL_PTR(primary, c4_get_effective_server_list(C4_DATA_TYPE_ETH_RPC, NULL, &req));
-
-  req.chain_id = 0;
-  TEST_ASSERT_NULL(c4_get_effective_server_list(C4_DATA_TYPE_ETH_RPC, NULL, &req));
-  req.chain_id = 10;
-  TEST_ASSERT_NULL(c4_get_effective_server_list(C4_DATA_TYPE_ETH_RPC, NULL, &req));
-
-  http_server.chain_id = 8453;
-  req.chain_id         = 8453;
-  TEST_ASSERT_EQUAL_PTR(primary, c4_get_effective_server_list(C4_DATA_TYPE_ETH_RPC, NULL, &req));
-
-  server_list_t proxy = {0};
-  proxy.count         = 1;
-  request_t parent    = {0};
-  parent.proxy_rpc_servers = &proxy;
-  TEST_ASSERT_EQUAL_PTR(&proxy, c4_get_effective_server_list(C4_DATA_TYPE_ETH_RPC, &parent, &req));
-
-  req.chain_id = 1;
-  server_list_t* l1 = c4_get_effective_server_list(C4_DATA_TYPE_ETH_RPC, NULL, &req);
-  TEST_ASSERT_NOT_NULL(l1);
-  TEST_ASSERT_TRUE(l1 != primary);
-  TEST_ASSERT_TRUE(l1->count == 1);
-  TEST_ASSERT_EQUAL_STRING("https://l1.example", l1->urls[0]);
-  TEST_ASSERT_EQUAL_PTR(l1, c4_get_effective_server_list(C4_DATA_TYPE_ETH_RPC, &parent, &req));
-
-  req.chain_id = 10;
-  TEST_ASSERT_NULL(c4_get_effective_server_list(C4_DATA_TYPE_ETH_RPC, &parent, &req));
-  req.chain_id = 0;
-  TEST_ASSERT_NULL(c4_get_effective_server_list(C4_DATA_TYPE_ETH_RPC, &parent, &req));
-}
-#endif
-
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_l1_chain_id_is_mainnet);
   RUN_TEST(test_eth_rpc_request_carries_chain_and_distinct_ids);
   RUN_TEST(test_mockname_ignores_chain_id);
-#ifdef HTTP_SERVER
-  RUN_TEST(test_server_eth_rpc_list_follows_chain);
-#endif
   return UNITY_END();
 }

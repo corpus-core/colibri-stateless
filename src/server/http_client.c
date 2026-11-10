@@ -7,10 +7,8 @@
 #include "logger.h"
 #include "server.h"
 #include "server_handlers.h"
-#include "util/json.h"
 #include <stddef.h> // Added for offsetof
 #include <string.h>
-#include "../cli/default_chains.generated.h"
 #ifdef _WIN32
 #include "util/win_compat.h"
 #endif
@@ -323,9 +321,6 @@ static long parse_mock_response(buffer_t* buffer) {
 #endif
 
 static server_list_t eth_rpc_servers     = {0};
-static server_list_t l1_rpc_servers      = {0};
-static bool          l1_rpc_ready        = false;
-static char*         l1_rpc_csv_owned    = NULL;
 static server_list_t beacon_api_servers  = {0};
 static server_list_t prover_servers      = {0};
 static server_list_t checkpointz_servers = {0};
@@ -439,8 +434,8 @@ static pending_request_t* pending_find(single_request_t* req) {
 }
 
 static inline bool pending_request_matches(data_request_t* in, data_request_t* pending) {
-  // The JSON-RPC body does not carry the chain, so two in-flight ETH-RPC
-  // requests with the same method and params must not share a response.
+  // The JSON-RPC body does not carry the chain, so two in-flight requests
+  // with the same method and params must not share a response.
   if (in->chain_id != pending->chain_id) return false;
   if (in->type != pending->type || in->encoding != pending->encoding || in->method != pending->method) return false;
   if ((in->url == NULL) != (pending->url == NULL)) return false;
@@ -567,7 +562,7 @@ static void handle_curl_events() {
     }
 #endif
 
-    server_list_t* servers           = c4_get_effective_server_list(r->req->type, r->parent, r->req);
+    server_list_t* servers           = c4_get_effective_server_list(r->req->type, r->parent);
     r->end_time                      = current_ms();
     uint64_t           response_time = r->end_time - r->start_time;
     c4_response_type_t response_type = c4_classify_response(http_code,
@@ -911,51 +906,7 @@ server_list_t* c4_get_server_list(data_request_type_t type) {
   }
 }
 
-static void init_serverlist(server_list_t* list, char* servers);
-
-static char* default_l1_rpc_csv(chain_id_t chain_id) {
-  const char* spec = c4_default_chain_config_json(chain_id);
-  if (!spec) return NULL;
-  json_t root = json_parse((char*) spec);
-  json_t rpcs = json_get(root, "eth_rpc");
-  if (rpcs.type != JSON_TYPE_ARRAY || json_len(rpcs) == 0) return NULL;
-  buffer_t buf   = {0};
-  bool     first = true;
-  json_for_each_value(rpcs, item) {
-    char* url = json_as_string(item, NULL);
-    if (!url) continue;
-    if (!first) buffer_add_chars(&buf, ",");
-    first = false;
-    buffer_add_chars(&buf, url);
-    safe_free(url);
-  }
-  return (char*) buf.data.data;
-}
-
-static server_list_t* c4_l1_rpc_servers(void) {
-  if (!l1_rpc_ready) {
-    const char* csv = http_server.rpc_l1_nodes;
-    if (!csv || !csv[0]) {
-      l1_rpc_csv_owned = default_l1_rpc_csv(c4_get_l1_chain_id_for_l2((chain_id_t) http_server.chain_id));
-      csv              = l1_rpc_csv_owned;
-    }
-    init_serverlist(&l1_rpc_servers, (char*) csv);
-    c4_detect_server_client_types(&l1_rpc_servers, C4_DATA_TYPE_ETH_RPC);
-    c4_detect_archive_status(&l1_rpc_servers);
-    // The head poller stores one global list. Starting it for L1 would replace
-    // polling of the configured chain, so this list is used without a poller.
-    l1_rpc_ready = true;
-  }
-  return &l1_rpc_servers;
-}
-
-server_list_t* c4_get_effective_server_list(data_request_type_t type, request_t* req, data_request_t* data_req) {
-  if (type == C4_DATA_TYPE_ETH_RPC && data_req) {
-    chain_id_t want = data_req->chain_id;
-    chain_id_t own  = (chain_id_t) http_server.chain_id;
-    if (want == 0 || (want != own && want != c4_get_l1_chain_id_for_l2(own))) return NULL;
-    if (want != own) return c4_l1_rpc_servers();
-  }
+server_list_t* c4_get_effective_server_list(data_request_type_t type, request_t* req) {
   if (req) {
     if (type == C4_DATA_TYPE_ETH_RPC && req->proxy_rpc_servers && req->proxy_rpc_servers->count > 0)
       return req->proxy_rpc_servers;
@@ -1145,13 +1096,7 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
   }
   else {
     // Cache miss - proceed with normal request handling
-    server_list_t* servers = c4_get_effective_server_list(r->req->type, r->parent, r->req);
-    if (r->req->type == C4_DATA_TYPE_ETH_RPC && !servers) {
-      r->req->error = bprintf(NULL, "no RPC configured for chain_id %l", (uint64_t) r->req->chain_id);
-      r->end_time   = current_ms();
-      call_callback_if_done(r->parent);
-      return;
-    }
+    server_list_t* servers = c4_get_effective_server_list(r->req->type, r->parent);
 
     int selected_index = -1;
 
@@ -1411,7 +1356,7 @@ bool c4_check_retry_request(request_t* req) {
   for (size_t i = 0; i < req->request_count; i++) {
     single_request_t* r       = req->requests + i;
     data_request_t*   pending = r->req;
-    server_list_t*    servers = c4_get_effective_server_list(pending->type, req, pending);
+    server_list_t*    servers = c4_get_effective_server_list(pending->type, req);
 
     if (pending->error && servers) {
       // Check if too many servers are unhealthy (might indicate user error)
@@ -1571,10 +1516,6 @@ void c4_cleanup_curl() {
   }
 
   c4_free_server_list(&eth_rpc_servers);
-  c4_free_server_list(&l1_rpc_servers);
-  safe_free(l1_rpc_csv_owned);
-  l1_rpc_csv_owned = NULL;
-  l1_rpc_ready     = false;
   c4_free_server_list(&beacon_api_servers);
   c4_free_server_list(&prover_servers);
   c4_free_server_list(&checkpointz_servers);

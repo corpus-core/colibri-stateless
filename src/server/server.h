@@ -111,7 +111,6 @@ typedef struct {
   int            req_timeout;
   uint64_t       chain_id;
   char*          rpc_nodes;
-  char*          rpc_l1_nodes; // optional L1 execution RPCs; empty uses the built-in defaults for c4_get_l1_chain_id_for_l2
   char*          prover_nodes;
   char*          v2_prover; // base URL of a legacy 2.x prover to forward proof requests for clients with version < 3.0.0 (empty = disabled)
   char*          beacon_nodes;
@@ -582,16 +581,11 @@ server_list_t* c4_get_server_list(data_request_type_t type);
 /**
  * Returns proxy override lists from the current `request_t` when present, else the global list.
  *
- * For `C4_DATA_TYPE_ETH_RPC`, a `data_req` whose chain is the L1 of the server chain
- * (`c4_get_l1_chain_id_for_l2`) uses the L1 list instead. The proxy list applies only
- * to the server's own chain. A chain that is neither of those returns NULL.
- *
  * @param type request type (RPC or Beacon for proxy mode)
  * @param req optional request carrying per-client proxy lists
- * @param data_req optional data request whose `chain_id` selects the RPC list
  * @return list to use for server selection (do not free unless it is a proxy list owned by `req`)
  */
-server_list_t* c4_get_effective_server_list(data_request_type_t type, request_t* req, data_request_t* data_req);
+server_list_t* c4_get_effective_server_list(data_request_type_t type, request_t* req);
 
 /**
  * Frees URLs, health stats, and client-type arrays allocated by `c4_parse_server_config`.

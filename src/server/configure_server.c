@@ -27,7 +27,6 @@ http_server_t http_server = {
     .req_timeout       = 120,
     .chain_id          = 1,
     .rpc_nodes         = "https://eth.llamarpc.com,https://rpc.payload.de,https://ethereum-rpc.publicnode.com",
-    .rpc_l1_nodes      = "",
     .beacon_nodes      = "https://lodestar-mainnet.chainsafe.io/",
     .prover_nodes      = "",
     .v2_prover         = "",
@@ -121,7 +120,6 @@ static void config() {
 
   c4_configure_add_section("backends");
   conf_string(&http_server.rpc_nodes, "RPC", "rpc", 'r', "list of rpc endpoints");
-  conf_string(&http_server.rpc_l1_nodes, "RPC_L1", "rpc_l1", 0, "optional comma-separated L1 execution RPCs; empty uses built-in defaults for the L1 chain");
   conf_string(&http_server.beacon_nodes, "BEACON", "beacon", 'b', "list of beacon nodes api endpoints");
   conf_string(&http_server.prover_nodes, "PROVER", "prover", 'R', "list of remote prover endpoints");
   conf_string(&http_server.v2_prover, "V2_PROVER", "v2_prover", 0, "base URL of a legacy 2.x prover for clients requesting version < 3.0.0 (empty = disabled)");
