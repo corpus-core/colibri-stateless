@@ -115,6 +115,9 @@ typedef _GetMethodSupport = int Function(
   int,
 );
 
+typedef _L1ChainIdNative = ffi.Uint64 Function(ffi.Uint64);
+typedef _L1ChainId = int Function(int);
+
 typedef _FreeNative = ffi.Void Function(ffi.Pointer<ffi.Void>);
 typedef _Free = void Function(ffi.Pointer<ffi.Void>);
 
@@ -249,6 +252,7 @@ class ColibriNative {
     _verifyFreeCtx = _lib.lookupFunction<_FreeCtxNative, _FreeCtx>('c4_verify_free_ctx');
     _getMethodSupport =
         _lib.lookupFunction<_GetMethodSupportNative, _GetMethodSupport>('c4_get_method_support');
+    _l1ChainId = _lib.lookupFunction<_L1ChainIdNative, _L1ChainId>('c4_get_l1_chain_id_for_l2');
     _free = _libc.lookupFunction<_FreeNative, _Free>('free');
     _setStorageConfig =
         _lib.lookupFunction<_SetStorageConfigNative, _SetStorageConfig>('c4_set_storage_config');
@@ -283,6 +287,7 @@ class ColibriNative {
   late final _ExecuteStatus _verifyExecuteJsonStatus;
   late final _FreeCtx _verifyFreeCtx;
   late final _GetMethodSupport _getMethodSupport;
+  late final _L1ChainId _l1ChainId;
   late final _Free _free;
   late final _SetStorageConfig _setStorageConfig;
   late final _CreateRpcCtx _createRpcCtx;
@@ -447,6 +452,9 @@ class ColibriNative {
   /// [params] is the optional JSON params string (used e.g. in PAP mode to
   /// check cached data availability). [flags] are verify flags (0 = default,
   /// 2 = VERIFY_FLAG_PAP).
+  /// L1 chain id that settles [chainId]. Today this is always mainnet.
+  int l1ChainId(int chainId) => _l1ChainId(chainId);
+
   int getMethodSupport(int chainId, String method, {String? params, int flags = 0}) {
     final methodPtr = method.toNativeUtf8();
     final paramsPtr = params?.toNativeUtf8();

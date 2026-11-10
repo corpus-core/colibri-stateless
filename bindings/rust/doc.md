@@ -151,6 +151,10 @@ let client = Colibri::builder(1)
 
     // Optional local sources for local / hybrid proofs.
     .eth_rpcs(vec!["https://eth.llamarpc.com".into()])
+    // Optional L1 execution RPCs. This mainnet client keeps using `eth_rpcs`.
+    // An L2 client sends L1 requests here; an empty list uses the built-in
+    // defaults for that L1 (currently Ethereum mainnet).
+    .l1_eth_rpcs(vec!["https://eth.llamarpc.com".into()])
     .beacon_apis(vec!["https://lodestar-mainnet.chainsafe.io".into()])
     .checkpointz(vec!["https://checkpointz.example".into()])
 
@@ -174,6 +178,13 @@ let client = Colibri::builder(1)
 
 The builder is fully chainable; every setter has a sensible default so
 you only override what you need.
+
+`l1_eth_rpcs` is optional. A request whose chain id is the L1 returned by
+`c4_get_l1_chain_id_for_l2`, and different from the client chain, uses that
+list. The function currently always returns Ethereum mainnet (`1`). An empty
+list uses the built-in default execution RPCs for that L1. Requests for the
+configured chain keep using `eth_rpcs`, including when that chain is already
+mainnet. Any other chain id is an error.
 
 ### Core methods
 

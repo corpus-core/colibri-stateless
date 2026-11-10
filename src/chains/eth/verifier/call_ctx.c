@@ -142,7 +142,7 @@ void call_account_lazy_fetch_storage(evmone_context_t* ctx, const address_t addr
     bprintf(&buf, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_getProof\",\"params\":[\"0x%x\",[\"0x%x\"],\"latest\"]}", bytes((uint8_t*) address, 20), bytes((uint8_t*) key, 32));
   else
     bprintf(&buf, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_getStorageAt\",\"params\":[\"0x%x\",\"0x%x\",\"latest\"]}", bytes((uint8_t*) address, 20), bytes((uint8_t*) key, 32));
-  keccak(buf.data, req_id);
+  c4_chain_request_id(req_id, ctx->ctx->chain_id, buf.data);
 
   data_request_t* req = c4_state_get_data_request_by_id(&ctx->ctx->state, req_id);
   if (req && req->response.data) {

@@ -218,9 +218,9 @@ class DataRequest {
       excludeMask: excludeMask,
       chainId: () {
         final raw = data['chain_id'];
-        if (raw == null) return 1;
+        if (raw == null) return 0;
         if (raw is num) return raw.toInt();
-        return int.tryParse(raw.toString()) ?? 1;
+        return int.tryParse(raw.toString()) ?? 0;
       }(),
       payload: normalizedPayload,
       delay: delay,

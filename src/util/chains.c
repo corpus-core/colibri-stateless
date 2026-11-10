@@ -78,3 +78,10 @@ chain_type_t c4_chain_type(chain_id_t chain_id) {
 uint64_t c4_chain_specific_id(chain_id_t chain_id) {
   return chain_id & 0xffffffffffffff;
 }
+
+chain_id_t c4_get_l1_chain_id_for_l2(chain_id_t chain) {
+  (void) chain;
+  // TODO: read l1_chain_id from the EEZ chain config. Until that mapping
+  // exists every chain settles on Ethereum mainnet.
+  return 1;
+}

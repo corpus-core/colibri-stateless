@@ -124,6 +124,8 @@ class Colibri(
     // from defaultProvers/defaultEthRpcs/defaultBeaconApis/defaultCheckpointz are used.
     var provers: Array<String> = emptyArray(),
     var ethRpcs: Array<String> = emptyArray(),
+    /** Execution RPCs for the L1 of an L2. Empty uses the built-in defaults for that L1. */
+    var ethRpcsL1: Array<String> = emptyArray(),
     var beaconApis: Array<String> = emptyArray(),
     var checkpointz: Array<String> = emptyArray(),
     var obliviousNodes: Array<String> = emptyArray(), // TEE RPC endpoints for eth_getProof
@@ -241,6 +243,32 @@ class Colibri(
     private fun effectiveBeaconApis(): Array<String> = if (beaconApis.isEmpty()) defaultBeaconApis(chainId) else beaconApis
     private fun effectiveCheckpointz(): Array<String> = if (checkpointz.isEmpty()) defaultCheckpointz(chainId) else checkpointz
 
+    /**
+     * RPC list for one ETH-RPC request.
+     *
+     * The configured chain keeps [ethRpcs]. A request for the L1 of a different
+     * chain uses [ethRpcsL1], or the built-in defaults for the chain id returned
+     * by [c4_get_l1_chain_id_for_l2]. Any other chain, and chain id 0, is an error.
+     */
+    private fun ethRpcServers(request: JSONObject): Array<String> {
+        val want = request.optLong("chain_id", 0L).toBigInteger()
+        if (want == BigInteger.ZERO) {
+            throw IllegalArgumentException("chain_id was not set on the eth_rpc request")
+        }
+        if (want == chainId) {
+            if (request.optJSONObject("payload")?.optString("method") == "eth_getProof" && obliviousNodes.isNotEmpty())
+                return obliviousNodes
+            return effectiveEthRpcs()
+        }
+        val l1 = com.corpuscore.colibri.c4.c4_get_l1_chain_id_for_l2(chainId)
+        if (want == l1) {
+            if (ethRpcsL1.isNotEmpty()) return ethRpcsL1
+            val defaults = defaultEthRpcs(l1)
+            if (defaults.isNotEmpty()) return defaults
+        }
+        throw IllegalArgumentException("no RPC configured for chain_id $want")
+    }
+
     private fun serversForRequest(request: JSONObject, useProverFallback: Boolean = false): Array<String> {
         val type = request.optString("type", "eth_rpc")
         return when (type) {
@@ -250,12 +278,7 @@ class Colibri(
                 if (useProverFallback && effProvers.isNotEmpty()) effProvers else effectiveBeaconApis()
             }
             "prover" -> effectiveProvers()
-            else -> {
-                if (request.optJSONObject("payload")?.optString("method") == "eth_getProof" && obliviousNodes.isNotEmpty())
-                    obliviousNodes
-                else
-                    effectiveEthRpcs()
-            }
+            else -> ethRpcServers(request)
         }
     }
 
@@ -464,9 +487,11 @@ class Colibri(
                                  try {
                                      fetchRequest(serversForRequest(request), request)
                                  } catch (e: Exception) {
-                                     // Log error during fetchRequest and potentially set error on C side if possible/needed
                                      println("Error handling pending request $i: ${e.message}")
-                                     // Optionally rethrow or mark request as failed via c4_req_set_error if fetchRequest doesn't
+                                     val reqPtr = request.optLong("req_ptr", 0L)
+                                     if (reqPtr != 0L) {
+                                         com.corpuscore.colibri.c4.c4_req_set_error(reqPtr, e.message ?: "request failed", 0)
+                                     }
                                  }
                             }
                         }
@@ -631,7 +656,10 @@ class Colibri(
                                      fetchRequest(serversForRequest(request, useProverFallback = true), request)
                                  } catch (e: Exception) {
                                      println("Error handling pending request $i: ${e.message}")
-                                     // Consider setting error on C side via c4_req_set_error
+                                     val reqPtr = request.optLong("req_ptr", 0L)
+                                     if (reqPtr != 0L) {
+                                         com.corpuscore.colibri.c4.c4_req_set_error(reqPtr, e.message ?: "request failed", 0)
+                                     }
                                  }
                             }
                         }
@@ -722,6 +750,10 @@ class Colibri(
                                     fetchRequest(serversForRequest(request, useProverFallback = true), request)
                                 } catch (e: Exception) {
                                     println("Error handling pending request $i: ${e.message}")
+                                    val reqPtr = request.optLong("req_ptr", 0L)
+                                    if (reqPtr != 0L) {
+                                        com.corpuscore.colibri.c4.c4_req_set_error(reqPtr, e.message ?: "request failed", 0)
+                                    }
                                 }
                             }
                         }

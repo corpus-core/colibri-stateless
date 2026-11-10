@@ -169,6 +169,20 @@ class MainActivity : AppCompatActivity() {
 
 ## Configuration
 
+### Execution RPCs
+
+`ethRpcs` is the execution RPC list for the configured chain. An empty array uses the built-in defaults for that chain.
+
+`ethRpcsL1` (optional, default empty) is the execution RPC list for the L1 of the configured chain. A request whose chain id is that L1, and different from `chainId`, uses this list. The L1 id comes from `c4_get_l1_chain_id_for_l2` and is currently always Ethereum mainnet (`1`). An empty list uses the built-in default execution RPCs for that L1. Requests for the configured chain keep using `ethRpcs`, including when `chainId` is already mainnet. Any other chain id is an error.
+
+```kotlin
+val base = Colibri(
+    chainId = 8453.toBigInteger(),
+    ethRpcs = arrayOf("https://mainnet.base.org"),
+    ethRpcsL1 = arrayOf("https://eth.llamarpc.com")
+)
+```
+
 ### eth_call proof options
 
 - `includeCode` (`Boolean`, default `false`) -- include contract bytecode when building local `eth_call` proofs.

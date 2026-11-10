@@ -40,6 +40,7 @@ import { module_dir } from './wasm.js';
 
 type NativeBinding = {
     getMethodType(chainId: bigint, method: string, paramsJson: string | null, flags: number): number;
+    getL1ChainId(chainId: bigint): bigint;
 
     createProverCtx(method: string, argsJson: string, chainId: bigint, flags: number): unknown;
     executeProverCtx(ctx: unknown): string;
@@ -99,6 +100,7 @@ function createNativeRuntime(binding: NativeBinding): C4Runtime {
         kind: 'native',
 
         getMethodType: binding.getMethodType,
+        getL1ChainId: (chainId) => binding.getL1ChainId(chainId),
 
         createProverCtx: binding.createProverCtx,
         executeProverCtx(ctx: CtxHandle): RuntimeStatus {

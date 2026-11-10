@@ -45,10 +45,10 @@ static bool is_nullable_method(char* method) {
 }
 
 /** Builds the JSON-RPC POST body and its request id. Caller owns `payload`. */
-static buffer_t eth_rpc_payload(char* method, char* params, bytes32_t id) {
+static buffer_t eth_rpc_payload(char* method, char* params, chain_id_t chain_id, bytes32_t id) {
   buffer_t buffer = {0};
   bprintf(&buffer, "{\"jsonrpc\":\"2.0\",\"method\":\"%s\",\"params\":%s,\"id\":1}", method, params);
-  sha256(buffer.data, id);
+  c4_chain_request_id(id, chain_id, buffer.data);
   return buffer;
 }
 
@@ -126,7 +126,7 @@ c4_status_t eth_debug_get_raw_block(prover_ctx_t* ctx, const uint8_t* block_hash
 
   if (!block_hash) THROW_ERROR("debug_getRawBlock: missing block hash");
   sbprintf(tmp, "[\"0x%x\"]", bytes((uint8_t*) block_hash, 32));
-  payload = eth_rpc_payload("debug_getRawBlock", tmp, id);
+  payload = eth_rpc_payload("debug_getRawBlock", tmp, ctx->chain_id, id);
   buffer_free(&payload);
   req = c4_state_get_data_request_by_id(&ctx->state, id);
   // After the first successful conversion `response` is raw RLP, not a JSON-RPC envelope.
@@ -309,7 +309,7 @@ c4_status_t c4_send_eth_rpc(prover_ctx_t* ctx, char* method, char* params, uint3
   // to coordinate for this request, regardless of caching state.
   eth_cu_add(ctx, cu_for_eth_rpc_method(method));
   bytes32_t       id           = {0};
-  buffer_t        buffer       = eth_rpc_payload(method, params, id);
+  buffer_t        buffer       = eth_rpc_payload(method, params, ctx->chain_id, id);
   data_request_t* data_request = c4_state_get_data_request_by_id(&ctx->state, id);
   if (data_request) {
     if (req) *req = data_request;
@@ -379,6 +379,7 @@ c4_status_t c4_send_eth_rpc(prover_ctx_t* ctx, char* method, char* params, uint3
     data_request->encoding = C4_DATA_ENCODING_JSON;
     data_request->method   = C4_DATA_METHOD_POST;
     data_request->type     = C4_DATA_TYPE_ETH_RPC;
+    data_request->chain_id = ctx->chain_id;
     data_request->ttl      = ttl;
     c4_state_add_request(&ctx->state, data_request);
     if (req) *req = data_request;

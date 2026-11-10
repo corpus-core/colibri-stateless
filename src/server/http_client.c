@@ -434,6 +434,9 @@ static pending_request_t* pending_find(single_request_t* req) {
 }
 
 static inline bool pending_request_matches(data_request_t* in, data_request_t* pending) {
+  // The JSON-RPC body does not carry the chain, so two in-flight requests
+  // with the same method and params must not share a response.
+  if (in->chain_id != pending->chain_id) return false;
   if (in->type != pending->type || in->encoding != pending->encoding || in->method != pending->method) return false;
   if ((in->url == NULL) != (pending->url == NULL)) return false;
   if (in->url && strcmp(in->url, pending->url) != 0) return false;

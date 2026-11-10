@@ -140,7 +140,7 @@ INTERNAL c4_status_t eth_fetch_account_code(verify_ctx_t* ctx, call_account_t* a
   c4_get_storage_config(&cache);
   bprintf(&buf, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\": \"eth_getCode\", \"params\": [\"0x%x\", \"latest\"]}", bytes(ac->address, 20));
   bytes32_t hash = {0};
-  keccak(buf.data, hash);
+  c4_chain_request_id(hash, ctx->chain_id, buf.data);
   data_request_t* req = c4_state_get_data_request_by_id(&ctx->state, hash);
   if (req && req->response.data) {
     buffer_reset(&buf);

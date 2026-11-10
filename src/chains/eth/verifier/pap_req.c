@@ -105,7 +105,7 @@ c4_status_t pap_request_eth_rpc(verify_ctx_t* ctx, const char* method, const cha
   buffer_t  payload = {0};
   bytes32_t req_id;
   bprintf(&payload, "{\"jsonrpc\":\"2.0\",\"method\":\"%s\",\"params\":%s,\"id\":1}", method, params);
-  keccak(payload.data, req_id);
+  c4_chain_request_id(req_id, ctx->chain_id, payload.data);
 
   data_request_t* req = c4_state_get_data_request_by_id(&ctx->state, req_id);
   if (req && req->response.data) {

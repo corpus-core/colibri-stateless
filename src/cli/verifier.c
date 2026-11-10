@@ -172,6 +172,7 @@ void init_state(chain_id_t chain_id, const char* period_offsets) {
 // | `-o`           | `<proof_file>`  | Proof file to write        |         |
 // | `-p`           | `<prover_url>` | URL of the prover           |         |
 // | `-r`           | `<rpc_url>` | URL of the rpc-prover          |         |
+// | `--rpc-l1`     | `<rpc_url>` | Optional execution RPC for the L1 of an L2. Comma-separated like `-r`. When omitted, the built-in defaults for `c4_get_l1_chain_id_for_l2` are used. |         |
 // | `-b`           | `<beacon_url>` | URL of the beacon-api|         |
 // | `-x`           | `<checkpointz_url>` | URL of a checkpointz or beacon-api|         |
 // | `-m`           | `<mode>`        | Prover mode: `local`, `remote`, `hybrid` |         |
@@ -256,6 +257,7 @@ int main(int argc, char* argv[]) {
   verify_flags_t   verify_flags           = 0;
   char*            oblivious_url          = NULL;
   char*            rpc_url                = NULL;
+  char*            rpc_l1_url             = NULL;
   char*            beacon_url             = NULL;
   char*            checkpointz_url        = NULL;
   char*            prover_url             = NULL;
@@ -270,6 +272,14 @@ int main(int argc, char* argv[]) {
   buffer_add_chars(&args, "[");
 
   for (int i = 1; i < argc; i++) {
+    if (strcmp(argv[i], "--rpc-l1") == 0) {
+      if (i + 1 >= argc) {
+        fprintf(stderr, "--rpc-l1 requires a URL\n");
+        exit(EXIT_FAILURE);
+      }
+      rpc_l1_url = argv[++i];
+      continue;
+    }
     if (*argv[i] == '-') {
       for (char* c = argv[i] + 1; *c; c++) {
         switch (*c) {
@@ -436,6 +446,10 @@ int main(int argc, char* argv[]) {
   }
   if (prover_mode_set && prover_mode == C4_PROVER_MODE_LOCAL) prover_url = NULL;
   if (rpc_url) set_config("eth_rpc", rpc_url);
+  if (rpc_l1_url) set_config("eth_rpc_l1", rpc_l1_url);
+#ifdef USE_CURL
+  curl_set_chain_id(chain_id);
+#endif
   if (beacon_url) set_config("beacon_api", beacon_url);
   if (checkpointz_url) set_config("checkpointz", checkpointz_url);
   if (oblivious_url) set_config("oblivious", oblivious_url);

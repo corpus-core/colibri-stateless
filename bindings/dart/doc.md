@@ -109,6 +109,7 @@ class Colibri {
     this.chainId = 1,
     List<String>? provers,
     List<String>? ethRpcs,
+    List<String>? ethRpcsL1,
     List<String>? beaconApis,
     List<String>? checkpointz,
     List<String>? obliviousNodes,
@@ -143,6 +144,8 @@ class Colibri {
 
 Constructor: **libraryPath** overrides the default native library (or use env `COLIBRI_DART_LIBRARY`). **storage** registers a custom cache; **zkProof** requests ZK proofs from remote provers when using **rpc** with provers. **onDebug** can contain sensitive data; do not forward to production logging.
 
+**ethRpcsL1** (`List<String>?`, default `null`) is the optional execution RPC list for the L1 of the configured chain. A request whose chain id is that L1, and different from `chainId`, uses this list. The L1 id comes from `c4_get_l1_chain_id_for_l2` and is currently always Ethereum mainnet (`1`). `null` or an empty list uses the built-in default execution RPCs for that L1. Requests for the configured chain keep using **ethRpcs**, including when `chainId` is already `1`. Any other chain id is an error.
+
 **useAccesslist** (`bool`, default `true`) prefers `eth_createAccessList` when building local `eth_call` / `eth_estimateGas` / `colibri_simulateTransaction` proofs. Set to `false` only to opt into the legacy `debug_traceCall` prestateTracer path (`C4_PROVER_FLAG_USE_DEBUG_TRACE`). Most RPC providers support `eth_createAccessList`; `debug_traceCall` often does not. Irrelevant when proofs come from a remote prover that already chose its own path.
 
 **logsCompleteness** (`bool`, default `false`) makes `eth_getLogs` produce (prover) and require (verifier) a **completeness proof** over the requested block range `[fromBlock, toBlock]`. The proof guarantees that no matching log was omitted, not just that the returned logs are valid. It sets the prover flag (`1 << 12`) and the verifier flag (`1 << 9`) and requires a prover that supports it. The range end (`toBlock`) may be a pinned block hash/number or `"latest"`; `"safe"`/`"finalized"` are not supported yet. Tracks issue #128.
@@ -173,6 +176,14 @@ final colibri = Colibri(
   trustedCheckpoint: '0x…',  // optional
   libraryPath: 'native/libcolibri.dylib',
   useAccesslist: true, // default: eth_createAccessList for local eth_call proofs
+);
+
+// Optional L1 RPCs. Used when a request targets the L1 of this chain
+// (currently Ethereum mainnet). Omitted or empty uses the built-in defaults.
+final base = Colibri(
+  chainId: 8453,
+  ethRpcs: ['https://mainnet.base.org'],
+  ethRpcsL1: ['https://eth.llamarpc.com'],
 );
 ```
 

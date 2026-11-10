@@ -281,6 +281,15 @@ The constructor of the colibri client accepts a configuration-object, which may 
         "https://eth-mainnet.g.alchemy.com/v2/<APIKEY>",
         "https://rpc.ankr.com/eth/<APIKEY>" ]})
      ```
+- `l1Rpcs` - optional execution RPCs for the L1 of the configured chain
+    Requests whose `chain_id` is the L1 returned by `c4_get_l1_chain_id_for_l2` are sent to this list when that L1 differs from `chainId`. The function currently always returns Ethereum mainnet (`1`). Omit the list, or pass an empty array, to use the built-in default execution RPCs for that L1. Requests for the configured chain keep using `rpcs`, including when `chainId` is already `1`. Any other chain id is an error.
+     ```js
+     new Colibri({
+       chainId: 8453,
+       rpcs: ["https://mainnet.base.org"],
+       l1Rpcs: ["https://eth-mainnet.g.alchemy.com/v2/<APIKEY>"]
+     })
+     ```
 - `prover` - urls for remote prover
     an array of endpoints for remote prover. This allows to generate the proof in the backend, where caches can speed up the process.
     ```js

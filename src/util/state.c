@@ -173,10 +173,28 @@ bool c4_state_retry_after(data_request_t* req, uint32_t delay_ms, uint16_t max_r
   return true;
 }
 
+void c4_chain_request_id(bytes32_t out, chain_id_t chain_id, bytes_t material) {
+  uint8_t  prefix[8];
+  uint64_t chain = (uint64_t) chain_id;
+  for (int i = 0; i < 8; i++) {
+    prefix[i] = (uint8_t) (chain & 0xffu);
+    chain >>= 8;
+  }
+  buffer_t buf = {0};
+  buffer_append(&buf, bytes(prefix, 8));
+  if (material.data && material.len) buffer_append(&buf, material);
+  sha256(buf.data, out);
+  buffer_free(&buf);
+}
+
 void c4_state_add_request(c4_state_t* state, data_request_t* data_request) {
   log_debug("adding request type %d : %s %r", data_request->type, data_request->url ? "url" : "rpc", data_request->url ? bytes(data_request->url, strlen(data_request->url)) : data_request->payload);
   if (bytes_all_zero(bytes(data_request->id, C4_BYTES32_SIZE))) {
-    if (data_request->payload.len)
+    if (data_request->chain_id) {
+      bytes_t material = data_request->payload.len ? data_request->payload : bytes((uint8_t*) (data_request->url ? data_request->url : ""), data_request->url ? (uint32_t) strlen(data_request->url) : 0);
+      c4_chain_request_id(data_request->id, data_request->chain_id, material);
+    }
+    else if (data_request->payload.len)
       sha256(data_request->payload, data_request->id);
     else
       sha256(bytes(data_request->url, strlen(data_request->url)), data_request->id);

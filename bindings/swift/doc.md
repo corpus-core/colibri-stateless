@@ -179,6 +179,16 @@ public class Colibri {
     
     /// List of Prover URLs (empty = local proof generation)
     public var provers: [String]
+
+    /// Execution RPC URLs for the configured chain. Empty uses the built-in defaults.
+    public var eth_rpcs: [String]
+
+    /// Optional execution RPCs for the L1 of the configured chain.
+    /// Nil or empty uses the built-in defaults for that L1. The L1 id comes from
+    /// `c4_get_l1_chain_id_for_l2` and is currently always Ethereum mainnet (`1`).
+    /// Requests for the configured chain keep using `eth_rpcs`, including when
+    /// that chain is already mainnet. Any other chain id is an error.
+    public var l1EthRpcs: [String]?
     
     /// Proof generation mode: .local, .remote (default), or .hybrid
     public var proverMode: ProverMode?

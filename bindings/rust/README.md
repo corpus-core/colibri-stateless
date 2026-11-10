@@ -71,6 +71,7 @@ let balance = client
 | **Pluggable storage** | In-memory, file-system, or a custom `Storage` impl |
 | **Pluggable transport** | Default `reqwest` handler, or your own `RequestHandler` |
 | **PAP privacy** | Optional Pragmatic Adaptive Privacy mode (experimental) |
+| **L1 RPCs** | Optional `l1_eth_rpcs` for the L1 of the configured chain. Empty uses the built-in defaults (currently Ethereum mainnet). The configured chain keeps `eth_rpcs`. |
 | **Shared fixtures** | Replays the monorepo `test/data/*` corpus via `colibri_stateless::testing` |
 
 See the full API tour in the crate-level docs on

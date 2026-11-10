@@ -240,7 +240,7 @@ void main() {
       expect(req.encoding, 'json');
       expect(req.requestType, 'eth_rpc');
       expect(req.excludeMask, 0);
-      expect(req.chainId, 1);
+      expect(req.chainId, 0);
       expect(req.payload, isNull);
     });
 

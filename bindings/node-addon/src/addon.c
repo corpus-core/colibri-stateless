@@ -358,6 +358,17 @@ static napi_value register_storage(napi_env env, napi_callback_info info) {
 
 /* ── method type ─────────────────────────────────────────────────────── */
 
+// getL1ChainId(chainId) -> bigint
+static napi_value get_l1_chain_id(napi_env env, napi_callback_info info) {
+  GET_ARGS(env, info, 1);
+  uint64_t chain_id = 0;
+  if (!get_u64(env, argv[0], &chain_id)) return NULL;
+  uint64_t l1 = (uint64_t) c4_get_l1_chain_id_for_l2((chain_id_t) chain_id);
+  napi_value result;
+  NAPI_CALL(env, napi_create_bigint_uint64(env, l1, &result));
+  return result;
+}
+
 // getMethodType(chainId, method, paramsJson | null, flags) -> number
 static napi_value get_method_type(napi_env env, napi_callback_info info) {
   GET_ARGS(env, info, 4);
@@ -734,6 +745,7 @@ static napi_value init(napi_env env, napi_value exports) {
     napi_callback fn;
   } functions[] = {
       {"getMethodType", get_method_type},
+      {"getL1ChainId", get_l1_chain_id},
       {"createProverCtx", create_prover_ctx},
       {"executeProverCtx", execute_prover_ctx},
       {"getProof", get_proof},

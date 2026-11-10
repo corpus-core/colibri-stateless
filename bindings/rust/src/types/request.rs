@@ -87,7 +87,7 @@ pub struct DataRequest {
     #[serde(rename = "req_ptr", deserialize_with = "deser_u64_from_str_or_num")]
     pub req_ptr: u64,
 
-    /// Chain ID for the request (informational).
+    /// Chain ID the host uses to select the RPC list. `0` is not a valid key.
     #[serde(default)]
     pub chain_id: u64,
 

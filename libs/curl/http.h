@@ -41,6 +41,7 @@ typedef struct {
   json_t checkpointz;
   json_t beacon_api;
   json_t eth_rpc;
+  json_t eth_rpc_l1;
   json_t oblivious;
   json_t prover;
   json_t chain_store;
@@ -50,6 +51,8 @@ typedef struct {
 void curl_fetch(data_request_t* req);
 void curl_fetch_all(c4_state_t* state);
 void curl_set_config(json_t config);
+/** Records the chain the process is proving or verifying, so ETH-RPC requests for another chain can use the L1 list. */
+void curl_set_chain_id(chain_id_t chain_id);
 /** @return true if the loaded config has at least one oblivious node URL */
 bool curl_has_oblivious_nodes(void);
 #ifdef TEST
