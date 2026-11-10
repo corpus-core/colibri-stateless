@@ -26,6 +26,7 @@
 
 static const ssz_def_t ETH_HEADER_PROOFS_UNION[4];
 static const ssz_def_t PROOF_HEADER[4];
+static const ssz_def_t ETH_ACCOUNT_PROOF[4];
 
 // : Ethereum
 //
@@ -269,6 +270,7 @@ static const ssz_def_t ETH_EL_PROOF_UNION[] = {
     SSZ_CONTAINER("clProof", ETH_CL_HEADER_PROOF),           // 1: full consensus-layer proof of the EL header
     SSZ_CONTAINER("sequencerProof", ETH_SEQUENCER_PROOF),    // 2: sequencer-signed execution payload (OP-Stack)
     SSZ_CONTAINER("witnessProof", ETH_WITNESS_HEADER_PROOF), // 3: reserved; c4_verify_block rejects until ecrecover+allow-list exist
+    SSZ_CONTAINER("eezL1Proof", ETH_ACCOUNT_PROOF)           // 4: Proof of the blockhash based on the EEZ Prxy contract in L1
 };
 
 // ::: Logs Proof
