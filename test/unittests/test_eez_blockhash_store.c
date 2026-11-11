@@ -93,6 +93,49 @@ void test_deserialize_rejects_garbage(void) {
   TEST_ASSERT_NULL(eez_bh_deserialize(bytes(bad_magic, 200)));
 }
 
+// Three additional structural failure modes the watcher relies on when discarding a
+// corrupted on-disk snapshot: missing hashes tail, over-claimed proof count, and a
+// proof-node length that would run past the blob. Each must return NULL and must not
+// leak the partially constructed snapshot.
+void test_deserialize_structural_failures(void) {
+  // Case A: valid header, 0 proof nodes, but the 8191 * 32 hashes tail is missing.
+  // Hits the `off + sizeof(bytes32_t) * EEZ_BH_SLOT_COUNT != blob.len` branch.
+  uint8_t header_only[184] = {0};
+  memcpy(header_only, "EEZB", 4);
+  header_only[4] = 0x01; // version LE = 1
+  TEST_ASSERT_NULL(eez_bh_deserialize(bytes(header_only, sizeof(header_only))));
+
+  // Case B: proof_count = 1 but zero bytes follow the 184-byte header, so the length
+  // prefix read must fail. Hits the `off + 2 > blob.len` branch.
+  uint8_t header_count[184] = {0};
+  memcpy(header_count, "EEZB", 4);
+  header_count[4]   = 0x01;
+  header_count[182] = 0x01; // count LE = 1
+  TEST_ASSERT_NULL(eez_bh_deserialize(bytes(header_count, sizeof(header_count))));
+
+  // Case C: proof_count = 1 and we have the 2-byte length prefix, but the claimed node
+  // length overruns the blob. Hits the `off + nlen > blob.len` branch.
+  uint8_t header_overrun[184 + 2 + 3] = {0};
+  memcpy(header_overrun, "EEZB", 4);
+  header_overrun[4]   = 0x01;
+  header_overrun[182] = 0x01;
+  // claim a 100-byte node even though only 3 bytes of payload follow
+  header_overrun[184] = 0x64;
+  header_overrun[185] = 0x00;
+  TEST_ASSERT_NULL(eez_bh_deserialize(bytes(header_overrun, sizeof(header_overrun))));
+}
+
+// NULL-safety contract of the public API. Both calls must be no-ops; a caller holding a
+// freed or never-initialized snapshot pointer must not crash.
+void test_null_safety(void) {
+  eez_bh_serialize(NULL, NULL);
+  buffer_t buf = {0};
+  eez_bh_serialize(NULL, &buf); // must not append anything and must not crash
+  TEST_ASSERT_EQUAL_UINT32(0, buf.data.len);
+  buffer_free(&buf);
+  eez_bh_snapshot_free(NULL);
+}
+
 // Minimal stand-in for the parent `request_t`: `c4_internal_call_finish` reads
 // `req->request_count` and `req->cb` -- the latter is called once the whole batch is
 // done. The stub uses a no-op callback and a `request_count` of 1 so the batch
@@ -144,6 +187,51 @@ void test_internal_handler_rejects_malformed_path(void) {
   TEST_ASSERT_TRUE(c4_handle_eez_blockhash(&r));
   TEST_ASSERT_NOT_NULL(req.error);
   TEST_ASSERT_NOT_NULL(strstr(req.error, "no snapshot"));
+  TEST_ASSERT_EQUAL_INT(1, finished_count);
+  safe_free(req.error);
+  req.error = NULL;
+
+  // Slot index exactly at `EEZ_BH_SLOT_COUNT` (8191) must be rejected as out of range.
+  // The existing "999999" case already exercises a very large value; this one checks the
+  // boundary to catch an off-by-one in the `>=` comparison.
+  req.url        = "eez_blockhash/100/8191";
+  finished_count = 0;
+  TEST_ASSERT_TRUE(c4_handle_eez_blockhash(&r));
+  TEST_ASSERT_NOT_NULL(req.error);
+  TEST_ASSERT_NOT_NULL(strstr(req.error, "slot"));
+  TEST_ASSERT_EQUAL_INT(1, finished_count);
+  safe_free(req.error);
+  req.error = NULL;
+
+  // Highest valid slot index (`EEZ_BH_SLOT_COUNT - 1` == 8190) must pass parsing and
+  // then fall through to the "no snapshot" error because `g_state.active` is NULL.
+  // This confirms the boundary parses correctly rather than being rejected as slot
+  // out-of-range.
+  req.url        = "eez_blockhash/100/8190";
+  finished_count = 0;
+  TEST_ASSERT_TRUE(c4_handle_eez_blockhash(&r));
+  TEST_ASSERT_NOT_NULL(req.error);
+  TEST_ASSERT_NOT_NULL(strstr(req.error, "no snapshot"));
+  TEST_ASSERT_EQUAL_INT(1, finished_count);
+  safe_free(req.error);
+  req.error = NULL;
+
+  // Missing slot segment entirely: "eez_blockhash/100" has no '/' after the anchor and
+  // must be rejected as malformed anchor path.
+  req.url        = "eez_blockhash/100";
+  finished_count = 0;
+  TEST_ASSERT_TRUE(c4_handle_eez_blockhash(&r));
+  TEST_ASSERT_NOT_NULL(req.error);
+  TEST_ASSERT_EQUAL_INT(1, finished_count);
+  safe_free(req.error);
+  req.error = NULL;
+
+  // Trailing garbage in the slot segment ("8/x") must be rejected -- strtoull will
+  // leave `slot_end` pointing at 'x', failing `*slot_end != '\0'`.
+  req.url        = "eez_blockhash/100/8x";
+  finished_count = 0;
+  TEST_ASSERT_TRUE(c4_handle_eez_blockhash(&r));
+  TEST_ASSERT_NOT_NULL(req.error);
   TEST_ASSERT_EQUAL_INT(1, finished_count);
   safe_free(req.error);
 }
@@ -215,12 +303,50 @@ void test_trie_build_and_verify_round_trip(void) {
   TEST_ASSERT_NULL(trie);
 }
 
+// A fresh EEZ chain commits before the EIP-2935 contract has any populated slot. Its
+// `storageHash` is the Ethereum empty-trie root `keccak256(rlp(""))`. The watcher must
+// accept that snapshot without building any trie node -- otherwise the first anchor on
+// a fresh rollup never publishes. Both the positive and negative cases hit the `!any`
+// branch of `eez_bh_build_and_verify_trie`, which is unreachable in the round-trip test.
+void test_empty_trie_matches_empty_root(void) {
+  bytes32_t hashes[EEZ_BH_SLOT_COUNT];
+  memset(hashes, 0, sizeof(hashes));
+
+  // Ethereum's canonical empty-trie root: keccak256(rlp("")). Hard-coded in the
+  // Yellow Paper and matches the constant in `blockhash_store.c`.
+  const uint8_t EMPTY_TRIE_ROOT[32] = {
+      0x56, 0xe8, 0x1f, 0x17, 0x1b, 0xcc, 0x55, 0xa6,
+      0xff, 0x83, 0x45, 0xe6, 0x92, 0xc0, 0xf8, 0x6e,
+      0x5b, 0x48, 0xe0, 0x1b, 0x99, 0x6c, 0xad, 0xc0,
+      0x01, 0x62, 0x2f, 0xb5, 0xe3, 0x63, 0xb4, 0x21};
+
+  // Positive: all-zero hashes with the empty-trie root is treated as a valid trie.
+  node_t*   trie = (node_t*) 0xdeadbeef; // sentinel: must be reset to NULL by the API
+  bytes32_t root;
+  memcpy(root, EMPTY_TRIE_ROOT, 32);
+  TEST_ASSERT_TRUE(eez_bh_build_and_verify_trie(hashes, root, &trie));
+  // The empty-trie branch does NOT return a trie (there is nothing to build), only
+  // `true`. Callers that need a trie must check both.
+  TEST_ASSERT_NULL(trie);
+
+  // Negative: all-zero hashes with any other root must be rejected.
+  bytes32_t wrong_root;
+  memcpy(wrong_root, EMPTY_TRIE_ROOT, 32);
+  wrong_root[0] ^= 0x01;
+  trie = (node_t*) 0xdeadbeef;
+  TEST_ASSERT_FALSE(eez_bh_build_and_verify_trie(hashes, wrong_root, &trie));
+  TEST_ASSERT_NULL(trie);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_serialize_round_trip);
   RUN_TEST(test_deserialize_rejects_garbage);
+  RUN_TEST(test_deserialize_structural_failures);
+  RUN_TEST(test_null_safety);
   RUN_TEST(test_internal_handler_rejects_malformed_path);
   RUN_TEST(test_trie_build_and_verify_round_trip);
+  RUN_TEST(test_empty_trie_matches_empty_root);
   return UNITY_END();
 }
 
