@@ -439,10 +439,27 @@ static c4_status_t call_apply_authorization_list(verify_ctx_t* ctx, call_account
 // would find no block context. The actual freshness logic lives in
 // `eth_check_latest_freshness` so all block-tag methods share one error path.
 static bool verify_call_freshness(verify_ctx_t* ctx, verify_ctx_t* proof_ctx) {
-  bool                     is_latest = eth_json_is_latest(json_at(ctx->args, 1));
+  json_t                   block_id  = json_at(ctx->args, 1);
+  bool                     is_latest = block_id.type == JSON_TYPE_NOT_FOUND || eth_json_is_latest(block_id); // the block defaults to latest
   eth_call_block_context_t bctx      = {0};
   bool                     has_ts    = eth_get_call_block_context_from_proof(proof_ctx, &bctx);
   return eth_check_latest_freshness(ctx, is_latest, has_ts, bctx.timestamp);
+}
+
+/**
+ * Checks that the verified block of a call proof is the block of the request.
+ *
+ * The block identifier of a call is optional and defaults to `latest`, which matches
+ * every verified block (its age is checked by `verify_call_freshness`).
+ *
+ * @param ctx verification context holding the arguments (error sink)
+ * @param evm call context holding the verified header and its hash
+ * @return `true` if the call ran on the requested block
+ */
+static bool verify_call_block(verify_ctx_t* ctx, evm_call_ctx_t* evm) {
+  json_t block_id = json_at(ctx->args, 1);
+  if (block_id.type == JSON_TYPE_NOT_FOUND) return true;
+  return eth_check_requested_block(ctx, block_id, evm->el_header, evm->el_block_hash);
 }
 
 // shared helper: resolve codes, apply state overrides and EIP-7702 authorization list
@@ -560,6 +577,9 @@ static bool pap_verify_proof_response(verify_ctx_t* ctx, call_account_t* call_ac
     c4_state_add_error(&ctx->state, "proofCall state proof verification failed");
     goto cleanup;
   }
+
+  // the storage has to be proven against the block the call was requested for
+  if (!verify_call_block(ctx, evm)) goto cleanup;
 
   // Freshness gate for PAP: in PAP mode there is no usable proof when
   // verify_call_proof first runs, so the direct-path gate skips it. The call
@@ -766,12 +786,22 @@ bool verify_call_proof(verify_ctx_t* ctx) {
     CHECK_JSON_VERIFY(ctx->args, "[{to:address,data:bytes,gas?:hexuint,value?:hexuint,gasPrice?:hexuint,from?:address},block,{*:{balance?:hexuint,code?:bytes,state?:{*:bytes32},stateDiff?:{*:bytes32}}}]", "Invalid transaction");
   evm->sim_flags = is_simulate ? c4_eth_sim_flags_from_args(ctx->args) : 0;
 
+  // Without a proof the call would run on an empty state. Only PAP may start without one,
+  // because it fetches and verifies the state itself.
+  if (!has_proof && !is_pap) RETURN_VERIFY_ERROR(ctx, "missing call proof");
   if (has_proof && !verify_call_freshness(ctx, ctx)) return false;
 
   if (!evm->accounts && has_proof) {
     ssz_ob_t accounts = ssz_get(&ctx->proof, "accounts");
     if (!c4_eth_verify_accounts(ctx, accounts, evm->state_root)) return false;
     if (c4_verify_block(ctx, ssz_get(&ctx->proof, "elProof"), &evm->el_header, evm->el_block_hash) != C4_SUCCESS) return false;
+
+    // The account proofs only prove that the accounts are part of *some* state. They are
+    // the state of the verified block only if their root is the state root of its header.
+    bytes_t header_state_root = eth_el_header_get(evm->el_header, EL_STATE_ROOT);
+    if (!header_state_root.data || header_state_root.len != 32 || memcmp(header_state_root.data, evm->state_root, 32) != 0)
+      RETURN_VERIFY_ERROR(ctx, "State root mismatch between accounts and execution header");
+    if (!verify_call_block(ctx, evm)) return false;
     evm->accounts = call_accounts_from_ssz(accounts);
   }
   if (!prepare_evm_call(ctx, evm, has_overrides)) return false;
