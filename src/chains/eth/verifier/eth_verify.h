@@ -159,6 +159,26 @@ bool eth_json_is_unproofable_tag(json_t block_tag);
  */
 bool eth_check_latest_freshness(verify_ctx_t* ctx, bool is_latest, bool has_ts, uint64_t block_ts);
 
+/**
+ * Checks that a verified execution block is the block the request asked for.
+ *
+ * A proof is only an answer to the request if it was built for the requested block.
+ * Without this check a valid proof of any other block would be accepted.
+ *
+ * - a block number has to be the number of the verified header
+ * - a block hash (32 bytes) has to be the hash of the verified header
+ * - `"latest"`, `"safe"` and `"finalized"` match every verified block; the age of a
+ *   `"latest"` block is checked by `eth_check_latest_freshness`
+ * - `"pending"`, `"earliest"` and everything else is rejected
+ *
+ * @param ctx verification context (error sink)
+ * @param req_block block identifier of the request (JSON string from `ctx->args`)
+ * @param el_header verified RLP-encoded execution header
+ * @param block_hash verified hash of `el_header`
+ * @return `true` if the verified block is the requested one; `false` with an error set otherwise
+ */
+bool eth_check_requested_block(verify_ctx_t* ctx, json_t req_block, bytes_t el_header, const bytes32_t block_hash);
+
 #ifdef ETH_OBLIVIOUS
 // :: Oblivious node delayed-retry
 //

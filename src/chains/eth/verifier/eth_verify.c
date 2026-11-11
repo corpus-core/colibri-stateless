@@ -24,6 +24,7 @@
 #include "eth_verify.h"
 #include "beacon_types.h"
 #include "chains.h"
+#include "el_header.h"
 #include "eth_bloom.h"
 #include "header_cache.h"
 #include "json.h"
@@ -187,6 +188,28 @@ static bool eth_json_is_tag(json_t block_tag, const char* literal, size_t litera
 bool eth_json_is_unproofable_tag(json_t block_tag) {
   return eth_json_is_tag(block_tag, "\"pending\"", sizeof("\"pending\"") - 1) ||
          eth_json_is_tag(block_tag, "\"earliest\"", sizeof("\"earliest\"") - 1);
+}
+
+bool eth_check_requested_block(verify_ctx_t* ctx, json_t req_block, bytes_t el_header, const bytes32_t block_hash) {
+  if (req_block.type != JSON_TYPE_STRING || req_block.len < 3) RETURN_VERIFY_ERROR(ctx, "missing or unsupported block identifier");
+  if (eth_json_is_unproofable_tag(req_block)) RETURN_VERIFY_ERROR(ctx, "block tag not provable");
+  if (eth_json_is_latest(req_block) ||
+      eth_json_is_tag(req_block, "\"safe\"", sizeof("\"safe\"") - 1) ||
+      eth_json_is_tag(req_block, "\"finalized\"", sizeof("\"finalized\"") - 1)) return true;
+
+  CHECK_JSON_VERIFY(req_block, req_block.len == 68 ? "bytes32" : "hexuint", "block identifier: ");
+
+  if (req_block.len == 68) { // hash
+    bytes32_t hash = {0};
+    buffer_t  buf  = stack_buffer(hash);
+    if (json_as_bytes(req_block, &buf).len != 32 || memcmp(hash, block_hash, 32) != 0) RETURN_VERIFY_ERROR(ctx, "blockhash mismatch");
+    return true;
+  }
+
+  // a block number has at most 16 nibbles: quotes + "0x" + nibbles
+  if (req_block.len > 20) RETURN_VERIFY_ERROR(ctx, "invalid block number");
+  if (eth_el_header_get_uint64(el_header, EL_BLOCK_NUMBER) != json_as_uint64(req_block)) RETURN_VERIFY_ERROR(ctx, "blocknumber mismatch");
+  return true;
 }
 
 // Parameter index of the block-tag argument for a given method, or:
