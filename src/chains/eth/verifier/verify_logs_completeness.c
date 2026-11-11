@@ -278,8 +278,14 @@ bool verify_logs_completeness(verify_ctx_t* ctx) {
   // Hard upper bound before any allocation: progressive lists are not length-capped by SSZ.
   if (count > VERIFY_LOGS_COMPLETENESS_MAX_BLOCKS) RETURN_VERIFY_ERROR(ctx, "completeness range too large!");
 
+  // A completeness proof answers eth_getLogs only. For every other method its (possibly
+  // empty) list of logs would be returned as a verified result.
+  if (!ctx->method || strcmp(ctx->method, "eth_getLogs") != 0) RETURN_VERIFY_ERROR(ctx, "method mismatch for logs completeness proof");
+
   json_t filter = json_at(ctx->args, 0);
   if (filter.type != JSON_TYPE_OBJECT) RETURN_VERIFY_ERROR(ctx, "eth_getLogs completeness requires a filter object!");
+  // The proven range is matched with fromBlock/toBlock only, so a block selected by its hash can not be proven.
+  if (json_get(filter, "blockHash").type != JSON_TYPE_NOT_FOUND) RETURN_VERIFY_ERROR(ctx, "blockHash filter is not supported for completeness");
 
   if ((uint64_t) ssz_len(blocks) != count) RETURN_VERIFY_ERROR(ctx, "completeness proof block count mismatch!");
 

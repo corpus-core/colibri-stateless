@@ -281,10 +281,14 @@ static bytes_t encode_matching_full_receipts(bytes_t query_bloom, buffer_t* rbuf
   return encode_full_receipts(&receipt, 1, tx_proof->bytes, bytes(tx0, 4));
 }
 
+// Method of the verified request; a completeness proof only answers eth_getLogs.
+static char* verify_method = "eth_getLogs";
+
 static bool run_verify_ex(ssz_ob_t proof, json_t args, bytes_t cached_hdr, const uint8_t* cached_hash,
                           uint64_t min_latest_ts, c4_state_t* state_out, ssz_ob_t* data_out) {
   verify_ctx_t ctx        = {0};
   ctx.chain_id            = C4_CHAIN_MAINNET;
+  ctx.method              = verify_method;
   ctx.proof               = proof;
   ctx.args                = args;
   ctx.min_latest_block_ts = min_latest_ts;
@@ -581,6 +585,41 @@ static void test_completeness_accepts_chained_bloom_negative(void) {
                            st.error ? st.error : "chained bloom-negative completeness should verify");
   TEST_ASSERT_NULL(st.error);
   c4_state_free(&st);
+  safe_free(proof.bytes.data);
+  safe_free(none.data);
+  safe_free(older.data);
+  safe_free(newer.data);
+}
+
+// A completeness proof yields a (here empty) list of logs. For any other method, or for a
+// block selected by hash, that list is not an answer to the request.
+static void test_completeness_rejects_other_requests(void) {
+  bytes_t   older      = make_el_header(0xff, NULL, NULL, NULL, NULL_BYTES, 1);
+  bytes32_t older_hash = {0};
+  keccak(older, older_hash);
+  bytes_t   newer      = make_el_header(0x100, older_hash, NULL, NULL, NULL_BYTES, 2);
+  bytes32_t newer_hash = {0};
+  keccak(newer, newer_hash);
+
+  bytes_t     none       = encode_none_block();
+  bytes_t     headers[1] = {older};
+  bytes_t     blocks[2]  = {none, none};
+  ssz_ob_t    proof      = build_proof(newer_hash, headers, 1, blocks, 2);
+  const char* methods[]  = {"eth_verifyLogs", "eth_call", "eth_estimateGas", "eth_blockNumber", NULL};
+  for (size_t i = 0; i < sizeof(methods) / sizeof(methods[0]); i++) {
+    c4_state_t st = {0};
+    verify_method = (char*) methods[i];
+    bool ok       = run_verify_ex(proof, json_parse(PINNED_RANGE_ARGS), newer, newer_hash, 0, &st, NULL);
+    verify_method = "eth_getLogs";
+    assert_verify_error(ok, &st, "method mismatch for logs completeness proof");
+    c4_state_free(&st);
+  }
+
+  c4_state_t st      = {0};
+  json_t     by_hash = json_parse("[{\"fromBlock\":\"0xff\",\"toBlock\":\"0x100\",\"blockHash\":\"0x1111111111111111111111111111111111111111111111111111111111111111\"}]");
+  assert_verify_error(run_verify_ex(proof, by_hash, newer, newer_hash, 0, &st, NULL), &st, "blockHash filter is not supported for completeness");
+  c4_state_free(&st);
+
   safe_free(proof.bytes.data);
   safe_free(none.data);
   safe_free(older.data);
@@ -919,6 +958,7 @@ int main(void) {
   RUN_TEST(test_completeness_rejects_stale_latest);
   RUN_TEST(test_completeness_rejects_range_binding_mismatch);
   RUN_TEST(test_completeness_accepts_chained_bloom_negative);
+  RUN_TEST(test_completeness_rejects_other_requests);
   RUN_TEST(test_completeness_accepts_empty_full_receipts);
   RUN_TEST(test_completeness_rejects_missing_match_tx);
   RUN_TEST(test_completeness_rejects_invalid_tx_proof);
