@@ -50,6 +50,9 @@ extern "C" {
 #define SSZ_BITS_PER_CHUNK  256                  /**< Bits per Merkle chunk (32 * 8) */
 #define SSZ_MAX_UINT_SIZE   32                   /**< Maximum size for uint types in bytes */
 #define SSZ_MAX_BYTES       (1024 * 1024 * 1024) /**< Maximum SSZ object size (1GB) to prevent integer overflows */
+#ifndef SSZ_MAX_NESTING
+#define SSZ_MAX_NESTING 32 /**< Maximum nesting of objects `ssz_is_valid` follows; the deepest object of the test suite has 10 levels */
+#endif
 
 /** Maximum serialized size for progressive bit lists (EIP-7916 defines no capacity),
  * chosen so the bit length always fits into 32 bits without wrapping. */
@@ -556,6 +559,8 @@ bool ssz_is_type(ssz_ob_t* ob, const ssz_def_t* def);
  * - For bit lists/vectors: length is correct
  *
  * If recursive=true, recursively validates all nested objects.
+ * Type definitions may refer to themselves, so the nesting of an object is not bounded by
+ * its type. Objects nested deeper than `SSZ_MAX_NESTING` levels are invalid.
  *
  * IMPORTANT: All user/network data MUST be validated with this function before use.
  * After validation, no further safety checks are performed.

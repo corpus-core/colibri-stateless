@@ -47,6 +47,11 @@ bool verify_receipt_proof(verify_ctx_t* ctx) {
   bytes32_t block_hash    = {0};
   bytes_t   raw_tx        = {0};
 
+  // A receipt proof only answers eth_getTransactionReceipt, and the receipt it is compared
+  // with has to be a receipt: the fields of any other data can not be read.
+  if (!ctx->method || strcmp(ctx->method, "eth_getTransactionReceipt") != 0) RETURN_VERIFY_ERROR(ctx, "method mismatch for receipt proof");
+  if (!ssz_is_type(&ctx->data, eth_ssz_verification_type(ETH_SSZ_DATA_RECEIPT))) RETURN_VERIFY_ERROR(ctx, "receipt proof requires a receipt as data");
+
   if (c4_verify_block(ctx, ssz_get(&ctx->proof, "elProof"), &el_header, block_hash) != C4_SUCCESS) return false;
   if (!c4_verify_mpt_proof(ctx,
                            tx_proof, tx_index,

@@ -70,8 +70,13 @@ bool verify_block_receipts_proof_for(verify_ctx_t* ctx, ssz_ob_t receipts_proof,
 bool verify_block_receipts_proof(verify_ctx_t* ctx) {
   bytes_t   el_header;
   bytes32_t block_hash;
+  if (!ctx->method || strcmp(ctx->method, "eth_getBlockReceipts") != 0) RETURN_VERIFY_ERROR(ctx, "method mismatch for block receipts proof");
   if (ctx->data.def->type != SSZ_TYPE_NONE) RETURN_VERIFY_ERROR(ctx, "data must be empty; verifier builds receipt data from RLP!");
   if (!verify_block_receipts_proof_for(ctx, ctx->proof, &el_header, block_hash)) RETURN_VERIFY_ERROR(ctx, "invalid block receipts proof!");
+
+  // the receipts are only an answer to the request if they are the ones of the requested block
+  if (!eth_check_requested_block(ctx, json_at(ctx->args, 0), el_header, block_hash)) return false;
+  if (!eth_check_latest_freshness(ctx, eth_json_is_latest(json_at(ctx->args, 0)), true, eth_el_header_get_uint64(el_header, EL_TIMESTAMP))) return false;
 
   // write data for the block receipts
   ssz_builder_t data_builder    = ssz_builder_for_type(ETH_SSZ_DATA_BLOCK_RECEIPTS);

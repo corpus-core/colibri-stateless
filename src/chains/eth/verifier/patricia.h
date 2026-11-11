@@ -123,6 +123,11 @@ void mpt_proof_free(mpt_proof_t* proof);
 /**
  * Verify an ordered Patricia Merkle proof (nodes from root to leaf).
  *
+ * A proof that is empty or ends before the path is resolved (the last node still refers
+ * to a further node) proves neither the value nor its absence and is `PATRICIA_INVALID`.
+ * The caller has to compare `root` with the trusted root; the nodes are only authenticated
+ * by that comparison.
+ *
  * @param root output: calculated root hash of the first proof node
  * @param path key as raw bytes (converted to nibbles internally)
  * @param proof SSZ list of serialized nodes in walk order

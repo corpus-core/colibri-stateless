@@ -82,7 +82,9 @@ c4_status_t c4_verify_init(verify_ctx_t* ctx, bytes_t request_bytes, char* metho
   ctx->chain_id = chain_id;
   ctx->method   = method;
   ctx->args     = args;
-  ctx->flags    = flags;
+  // The data of a request is a view into the request. Ownership is only taken by the verifier
+  // when it builds the result itself, so the flag is never accepted from the host.
+  ctx->flags = flags & ~((verify_flags_t) VERIFY_FLAG_FREE_DATA);
   return C4_SUCCESS;
 }
 

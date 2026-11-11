@@ -45,27 +45,46 @@
 
 const uint8_t* EMPTY_HASH      = (uint8_t*) "\xc5\xd2\x46\x01\x86\xf7\x23\x3c\x92\x7e\x7d\xb2\xdc\xc7\x03\xc0\xe5\x00\xb6\x53\xca\x82\x27\x3b\x7b\xfa\xd8\x04\x5d\x85\xa4\x70";
 const uint8_t* EMPTY_ROOT_HASH = (uint8_t*) "\x56\xe8\x1f\x17\x1b\xcc\x55\xa6\xff\x83\x45\xe6\x92\xc0\xf8\x6e\x5b\x48\xe0\x1b\x99\x6c\xad\xc0\x01\x62\x2f\xb5\xe3\x63\xb4\x21";
-static bool    verify_storage(verify_ctx_t* ctx, ssz_ob_t storage_proofs, bytes32_t storage_hash, bytes_t values) {
+
+/**
+ * Verifies the storage proofs of an account against its storage root.
+ *
+ * Runs before the account itself is authenticated against a block, so nothing read from
+ * the proofs may be trusted here: every storage value is checked to be an RLP string of
+ * at most 32 bytes before it is copied.
+ *
+ * @param ctx verification context (error sink)
+ * @param storage_proofs the `storageProof` list of the account proof
+ * @param storage_hash storage root taken from the account, or the empty root
+ * @param values optional buffer of at least 32 bytes receiving the 32 byte big-endian value of proof `i` at offset `i * 32`; proofs beyond its length are verified but not stored
+ * @return `true` if every storage proof is a valid inclusion or exclusion proof for its key
+ */
+static bool verify_storage(verify_ctx_t* ctx, ssz_ob_t storage_proofs, bytes32_t storage_hash, bytes_t values) {
   if (values.data) memset(values.data, 0, 32);
-  int  len      = ssz_len(storage_proofs);
-  bool is_empty = memcmp(storage_hash, EMPTY_ROOT_HASH, 32) == 0;
+  uint32_t len      = ssz_len(storage_proofs);
+  bool     is_empty = memcmp(storage_hash, EMPTY_ROOT_HASH, 32) == 0;
   //  if (len != 0 && memcmp(storage_hash, EMPTY_ROOT_HASH, 32) == 0) RETURN_VERIFY_ERROR(ctx, "invalid storage proof because an empty storage hash can not have values!");
-  for (int i = 0; i < len; i++) {
+  for (uint32_t i = 0; i < len; i++) {
     bytes32_t path    = {0};
     bytes32_t root    = {0};
     ssz_ob_t  storage = ssz_at(storage_proofs, i);
     ssz_ob_t  proof   = ssz_get(&storage, "proof");
     ssz_ob_t  key     = ssz_get(&storage, "key");
     bytes_t   leaf    = {0};
+    bool      store   = values.data && values.len >= (i + 1) * 32;
+    if (store) memset(values.data + i * 32, 0, 32); // a slot which does not exist holds zero
     if (is_empty) {
       if (ssz_len(proof) != 0) RETURN_VERIFY_ERROR(ctx, "invalid storage proof because an empty storage hash can not have values!");
       continue;
     }
     keccak(key.bytes, path);
-    if (patricia_verify(root, bytes(path, 32), proof, &leaf) == PATRICIA_INVALID) RETURN_VERIFY_ERROR(ctx, "invalid storage proof!");
+    patricia_result_t result = patricia_verify(root, bytes(path, 32), proof, &leaf);
+    if (result == PATRICIA_INVALID) RETURN_VERIFY_ERROR(ctx, "invalid storage proof!");
     if (memcmp(root, storage_hash, 32) != 0) RETURN_VERIFY_ERROR(ctx, "invalid storage root!");
-    if (values.data && values.len >= (i + 1) * 32 && rlp_decode(&leaf, 0, &leaf) == RLP_ITEM)
-      memcpy(values.data + (i + 1) * 32 - leaf.len, leaf.data, leaf.len);
+    if (result == PATRICIA_NOT_EXISTING) continue;
+    // a storage value is the RLP encoding of an integer of at most 32 bytes
+    if (!leaf.data || rlp_decode(&leaf, 0, &leaf) != RLP_ITEM || leaf.len > 32) RETURN_VERIFY_ERROR(ctx, "invalid storage value!");
+    if (store) memcpy(values.data + (i + 1) * 32 - leaf.len, leaf.data, leaf.len);
   }
 
   return true;
@@ -79,6 +98,8 @@ INTERNAL bool eth_verify_account_proof_exec(verify_ctx_t* ctx, ssz_ob_t* proof, 
   bytes_t   field_value   = {0};
   bytes32_t storage_hash  = {0};
 
+  // an account which does not exist has no storage: every slot is proven absent by the empty root
+  memcpy(storage_hash, EMPTY_ROOT_HASH, 32);
   keccak(address.bytes, address_hash);
 
   switch (field) {
@@ -102,6 +123,7 @@ INTERNAL bool eth_verify_account_proof_exec(verify_ctx_t* ctx, ssz_ob_t* proof, 
     if (rlp_decode(&rlp_account, 2, &field_value) != RLP_ITEM) RETURN_VERIFY_ERROR(ctx, "invalid account proof for storage hash!");
     // get the storage hash from the proof
     if (field_value.len > 32) RETURN_VERIFY_ERROR(ctx, "invalid account proof for storage hash!");
+    memset(storage_hash, 0, 32);
     memcpy(storage_hash, field_value.data, field_value.len);
 
     // get the field value from the proof
@@ -236,19 +258,23 @@ eth_account_field_t eth_account_get_field(verify_ctx_t* ctx) {
   return ETH_ACCOUNT_NONE;
 }
 
-static bytes_t get_leaf(ssz_ob_t proof) {
-  bytes_t node = ssz_at(proof, ssz_len(proof) - 1).bytes;
-  if (rlp_decode(&node, 0, &node) != RLP_LIST) return NULL_BYTES;
-  int len = rlp_decode(&node, -1, NULL);
-
-  if (len == 17)
-    rlp_decode(&node, 16, &node);
-  else if (len == 2)
-    rlp_decode(&node, 1, &node);
-  else
-    return NULL_BYTES;
-
-  return node;
+/**
+ * Returns the RLP encoded account an account proof holds for its address.
+ *
+ * The last node of an account proof is only the account if the proof is an inclusion
+ * proof. The proof of an account which does not exist may end in the leaf of another
+ * account, whose values must not be returned.
+ *
+ * @param proof the account proof (`accountProof` and `address`), already verified against the state root
+ * @return the RLP encoded account, or `NULL_BYTES` if the account does not exist
+ */
+static bytes_t get_account(ssz_ob_t* proof) {
+  bytes32_t path    = {0};
+  bytes32_t root    = {0};
+  bytes_t   account = {0};
+  keccak(ssz_get(proof, "address").bytes, path);
+  if (patricia_verify(root, bytes(path, 32), ssz_get(proof, "accountProof"), &account) != PATRICIA_FOUND) return NULL_BYTES;
+  return account;
 }
 
 bool eth_account_verify_data(verify_ctx_t* ctx, address_t verified_address, eth_account_field_t field, bytes_t values) {
@@ -256,7 +282,8 @@ bool eth_account_verify_data(verify_ctx_t* ctx, address_t verified_address, eth_
   bytes32_t expected_value = {0};
   buffer_t  address_buf    = stack_buffer(expected_value);
   bytes_t   req_address    = json_as_bytes(json_at(ctx->args, 0), &address_buf);
-  if (req_address.data && (req_address.len != 20 || memcmp(req_address.data, verified_address, 20) != 0)) RETURN_VERIFY_ERROR(ctx, "proof does not match the address in request");
+  // the address has to be readable: a value which can not be compared must not pass
+  if (!req_address.data || req_address.len != 20 || memcmp(req_address.data, verified_address, 20) != 0) RETURN_VERIFY_ERROR(ctx, "proof does not match the address in request");
   if (!data.def) RETURN_VERIFY_ERROR(ctx, "invalid data!");
   if (data.def->type == SSZ_TYPE_NONE) {
     switch (field) {
@@ -278,7 +305,7 @@ bool eth_account_verify_data(verify_ctx_t* ctx, address_t verified_address, eth_
       case ETH_ACCOUNT_PROOF: {
         ssz_builder_t builder       = ssz_builder_for_type(ETH_SSZ_DATA_PROOF);
         ssz_ob_t      storage_proof = ssz_get(&ctx->proof, "storageProof");
-        bytes_t       account       = get_leaf(ssz_get(&ctx->proof, "accountProof"));
+        bytes_t       account       = get_account(&ctx->proof);
         bytes_t       value         = {0};
         // Address is authoritative from the proof container (verified against the
         // trie path when the account leaf is checked).
