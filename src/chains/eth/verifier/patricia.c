@@ -68,38 +68,101 @@ static uint8_t* patricia_to_nibbles(bytes_t p, bool prefix) {
   return nibbles;
 }
 
-static int handle_node(bytes_t* raw, uint8_t** k, int last_node, bytes_t* last_val, uint8_t* next_hash, size_t* depth) {
-  bytes_t val;
-  bytes_t node;
+// Result of walking one node of a proof. The values differ from `patricia_result_t`: a walk
+// which still expects a node is no result of a verification, see `to_patricia_result`.
+typedef enum {
+  WALK_INVALID      = 0, // the node is malformed or does not fit the proof
+  WALK_CONTINUE     = 1, // the walk continues with the node of the returned hash
+  WALK_NOT_EXISTING = 2, // the path is proven absent
+  WALK_FOUND        = 3  // the value of the path was found
+} walk_result_t;
 
-  if (MAX_DEPTH < (++(*depth))) return 0;
+/**
+ * Maps the result of a finished walk to the result of the verification.
+ *
+ * A walk which still expects a node belongs to a proof which is empty or ends before the
+ * path is resolved. Such a proof neither proves the value nor its absence.
+ *
+ * @param result result of the last walked node
+ * @return PATRICIA_FOUND, PATRICIA_NOT_EXISTING or PATRICIA_INVALID
+ */
+static patricia_result_t to_patricia_result(walk_result_t result) {
+  switch (result) {
+    case WALK_FOUND: return PATRICIA_FOUND;
+    case WALK_NOT_EXISTING: return PATRICIA_NOT_EXISTING;
+    default: return PATRICIA_INVALID;
+  }
+}
 
-  rlp_decode(raw, 0, &node);
+/**
+ * Returns the complete RLP encoding (header and payload) of a node embedded in its parent.
+ *
+ * A node is only embedded when its encoding is shorter than 32 bytes, so its list header
+ * is always the single byte right in front of the payload.
+ *
+ * @param parent payload of the parent node
+ * @param child payload of the embedded list as decoded from the parent
+ * @param embedded receives the encoded embedded node
+ * @return true if the child is a well-formed embedded node inside the parent
+ */
+static bool embedded_node(bytes_t parent, bytes_t child, bytes_t* embedded) {
+  if (!parent.data || !child.data || child.len >= 31) return false;
+  if (child.data <= parent.data || child.data + child.len > parent.data + parent.len) return false;
+  if (child.data[-1] != 0xc0 + child.len) return false;
+  *embedded = bytes(child.data - 1, child.len + 1);
+  return true;
+}
+
+/**
+ * Walks one node of a Merkle Patricia proof.
+ *
+ * The node is not authenticated yet when it is the first one of a proof, so every length
+ * and every decoding result is checked here.
+ *
+ * @param raw RLP encoded node
+ * @param k remaining nibbles of the path, terminated by 0xFF; advanced by the consumed nibbles
+ * @param last_node NODE_LAST if no further node follows in an ordered proof, NODE_MORE if one follows, NODE_LOOKUP for an unordered proof
+ * @param last_val receives the value if the path ends in this node
+ * @param next_hash receives the hash of the next node if the walk continues
+ * @param depth number of nodes walked so far, limited to MAX_DEPTH
+ * @return WALK_INVALID if the node is invalid, WALK_CONTINUE if the walk continues with next_hash, WALK_NOT_EXISTING if the path does not exist, WALK_FOUND if the value was found
+ */
+static walk_result_t handle_node(bytes_t* raw, uint8_t** k, int last_node, bytes_t* last_val, uint8_t* next_hash, size_t* depth) {
+  bytes_t    val  = {0};
+  bytes_t    node = {0};
+  rlp_type_t type = RLP_NOT_FOUND;
+
+  if (MAX_DEPTH < (++(*depth))) return WALK_INVALID;
+
+  if (rlp_decode(raw, 0, &node) != RLP_LIST) return WALK_INVALID;
   switch ((int) rlp_decode(&node, -1, NULL)) {
 
     case NODE_BRANCH:
       if (**k == 0xFF) {
-        if (!last_node || rlp_decode(&node, 16, &node) != RLP_ITEM) return 0;
+        if (!last_node || rlp_decode(&node, 16, &node) != RLP_ITEM) return WALK_INVALID;
         *last_val = node;
-        return node.len == 0 ? 2 : 3;
+        return node.len == 0 ? WALK_NOT_EXISTING : WALK_FOUND;
       }
 
-      if (rlp_decode(&node, **k, &val) == RLP_LIST) { // found embedded node in branch
-        rlp_decode(&node, (**k) - 1, &node);
+      type = rlp_decode(&node, **k, &val);
+      if (type == RLP_LIST) { // found embedded node in branch
+        // decode the embedded node
+        bytes_t embedded = {0};
+        if (!embedded_node(node, val, &embedded)) return WALK_INVALID;
         *k += 1;
-        node = bytes(node.data + node.len, val.data + val.len - node.data); // decode the embedded node
-        return handle_node(&node, k, last_node == NODE_LOOKUP ? NODE_LOOKUP : (**k == 0xFF || *(*k + 1) == 0xFF), last_val, next_hash, depth);
+        // an embedded node is part of the node holding it, so it is the last one if its holder is
+        return handle_node(&embedded, k, last_node, last_val, next_hash, depth);
       }
-      else if (val.len != 32) // we got a NULL, which means value does not exists
-        return 2;
-      else
-        memcpy(next_hash, val.data, 32); // the hash of the next node
+      if (type != RLP_ITEM) return WALK_INVALID;
+      if (val.len == 0) return WALK_NOT_EXISTING; // we got a NULL, which means value does not exists
+      if (val.len != 32) return WALK_INVALID;     // a child is either empty, embedded or a hash
+      memcpy(next_hash, val.data, 32);            // the hash of the next node
       *k += 1;
-      return 1;
+      return WALK_CONTINUE;
 
     case NODE_LEAF:
-      if (rlp_decode(&node, 0, &val) != RLP_ITEM)
-        return 0;
+      if (rlp_decode(&node, 0, &val) != RLP_ITEM || val.len == 0) // the path holds at least its prefix
+        return WALK_INVALID;
       else {
         uint8_t* pn      = patricia_to_nibbles(val, 1);
         int      match   = patricia_match_nibbles(pn, *k);
@@ -107,46 +170,46 @@ static int handle_node(bytes_t* raw, uint8_t** k, int last_node, bytes_t* last_v
         int      is_leaf = *val.data & 32;
         safe_free(pn);
 
-        if (match < np_len) return last_node ? 2 : 0;
+        if (match < np_len) return last_node ? WALK_NOT_EXISTING : WALK_INVALID;
 
         *k += np_len;
-        if (rlp_decode(&node, 1, &val) == RLP_LIST) { // embedded
-          rlp_decode(&node, 0, &node);
-          node.data += node.len;
-          node.len = val.data + val.len - node.data;
-
-          return handle_node(&node, k, last_node == NODE_LOOKUP ? NODE_LOOKUP : (k && *k && *(k + 1) == NULL), last_val, next_hash, depth);
+        type = rlp_decode(&node, 1, &val);
+        if (type == RLP_LIST) { // embedded
+          bytes_t embedded = {0};
+          if (!embedded_node(node, val, &embedded)) return WALK_INVALID;
+          return handle_node(&embedded, k, last_node, last_val, next_hash, depth);
         }
-        else if (**k == 0xFF) { // we reached the end of the path
+        if (type != RLP_ITEM) return WALK_INVALID;
+        if (**k == 0xFF) { // we reached the end of the path
           if (is_leaf) {
             *last_val = val;
-            return last_node ? 3 : 0;
+            return last_node ? WALK_FOUND : WALK_INVALID;
           }
           else if (last_node == NODE_LAST)
-            return 0; // ordered proof ended on an extension; value lives in the next node
+            return WALK_INVALID; // ordered proof ended on an extension; value lives in the next node
 
           // follow the extension, which should lead to branch with the value.
-          if (val.len != 32) return 0;
+          if (val.len != 32) return WALK_INVALID;
           memcpy(next_hash, val.data, 32);
-          return 1;
+          return WALK_CONTINUE;
         }
         else if (is_leaf)           // we found a leaf matching the path, but the patch is not complete yet.
-          return last_node ? 2 : 0; // it is either a proof, that the account does not exist or an error.
+          return last_node ? WALK_NOT_EXISTING : WALK_INVALID; // it is either a proof, that the account does not exist or an error.
         else {                      // it is an extension and we follow the extension to the branch.
-          if (val.len != 32) return 0;
+          if (val.len != 32) return WALK_INVALID;
           memcpy(next_hash, val.data, 32);
-          return 1;
+          return WALK_CONTINUE;
         }
       }
 
     default:
-      return 0;
+      return WALK_INVALID;
   }
-  return 1;
+  return WALK_CONTINUE;
 }
 
 INTERNAL patricia_result_t patricia_verify(bytes32_t root, bytes_t path, ssz_ob_t proof, bytes_t* expected) {
-  int       result     = 1;
+  walk_result_t result     = WALK_CONTINUE;
   uint8_t*  nibbles    = patricia_to_nibbles(path, 0);
   uint8_t*  key        = nibbles;
   bytes_t   last_value = NULL_BYTES;
@@ -163,17 +226,20 @@ INTERNAL patricia_result_t patricia_verify(bytes32_t root, bytes_t path, ssz_ob_
       memcpy(root, node_hash, 32);
     }
     else if (memcmp(expected_hash, node_hash, 32)) {
-      result = 0;
+      result = WALK_INVALID;
       break;
     }
-    if (1 != (result = handle_node(&witness.bytes, &key, i + 1 == proof_len, &last_value, expected_hash, &depth))) break;
+    result = handle_node(&witness.bytes, &key, i + 1 == proof_len ? NODE_LAST : NODE_MORE, &last_value, expected_hash, &depth);
+    if (result != WALK_CONTINUE) break;
   }
 
-  if (result && expected)
-    *expected = result == 2 ? NULL_BYTES : last_value;
+  // A walk which still expects a node (empty or truncated proof) ends as PATRICIA_INVALID.
+  patricia_result_t verified = to_patricia_result(result);
+  if (verified != PATRICIA_INVALID && expected)
+    *expected = verified == PATRICIA_NOT_EXISTING ? NULL_BYTES : last_value;
 
   if (nibbles) safe_free(nibbles);
-  return result == 3 ? PATRICIA_FOUND : (patricia_result_t) result;
+  return verified;
 }
 
 static int mpt_find_hash(const mpt_proof_t* proof, const uint8_t* hash) {
@@ -213,7 +279,7 @@ INTERNAL void mpt_proof_free(mpt_proof_t* proof) {
 }
 
 INTERNAL patricia_result_t patricia_verify_multi(mpt_proof_t* proof, bytes_t path, bytes_t* leaf) {
-  int       result     = 0;
+  walk_result_t result     = WALK_INVALID;
   uint8_t*  nibbles    = NULL;
   uint8_t*  key        = NULL;
   bytes_t   last_value = NULL_BYTES;
@@ -229,26 +295,27 @@ INTERNAL patricia_result_t patricia_verify_multi(mpt_proof_t* proof, bytes_t pat
   nibbles = patricia_to_nibbles(path, 0);
   key     = nibbles;
   memcpy(next_hash, proof->root, 32);
-  result = 1;
+  result = WALK_CONTINUE;
 
-  while (result == 1) {
+  while (result == WALK_CONTINUE) {
     ssz_ob_t witness = ssz_at(proof->nodes, (uint32_t) idx);
     if (!witness.bytes.data) {
-      result = 0;
+      result = WALK_INVALID;
       break;
     }
     result = handle_node(&witness.bytes, &key, NODE_LOOKUP, &last_value, next_hash, &depth);
-    if (result != 1) break;
+    if (result != WALK_CONTINUE) break;
     idx = mpt_find_hash(proof, next_hash);
     if (idx < 0) {
-      result = 0;
+      result = WALK_INVALID;
       break;
     }
   }
 
-  if (result && leaf)
-    *leaf = result == 2 ? NULL_BYTES : last_value;
+  patricia_result_t verified = to_patricia_result(result);
+  if (verified != PATRICIA_INVALID && leaf)
+    *leaf = verified == PATRICIA_NOT_EXISTING ? NULL_BYTES : last_value;
 
   if (nibbles) safe_free(nibbles);
-  return result == 3 ? PATRICIA_FOUND : (patricia_result_t) result;
+  return verified;
 }
