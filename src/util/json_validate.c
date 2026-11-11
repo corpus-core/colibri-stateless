@@ -181,7 +181,7 @@ static const char* check_object(json_t ob, const char* def, const char* error_pr
 
 static const char* check_hex(json_t val, int len, bool isuint, const char* error_prefix) {
   if (val.type != JSON_TYPE_STRING) ERROR("%sExpected hex string", error_prefix);
-  if (val.start[1] != '0' && val.start[2] != 'x') ERROR("%sExpected hex prefixed (0x) string", error_prefix);
+  if (val.len < 4 || val.start[1] != '0' || val.start[2] != 'x') ERROR("%sExpected hex prefixed (0x) string", error_prefix);
   int l = 0;
   for (int i = 3; i < val.len - 1; i++, l++) {
     if (!isxdigit((unsigned char) val.start[i])) ERROR("%sExpected hex string", error_prefix);
