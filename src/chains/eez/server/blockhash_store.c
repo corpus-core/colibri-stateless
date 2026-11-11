@@ -55,10 +55,11 @@ typedef struct {
 // time; the pipeline is simple enough that an explicit state machine keeps the control
 // flow readable.
 typedef enum {
-  EEZ_BH_IDLE          = 0, // waiting for the next timer tick
-  EEZ_BH_SCAN_LOGS     = 1, // eth_getLogs on L1 running
-  EEZ_BH_FETCH_HEADER  = 2, // eth_getBlockByHash on L2 running
-  EEZ_BH_FETCH_PROOF   = 3, // eth_getProof on L2 running
+  EEZ_BH_IDLE         = 0, // waiting for the next timer tick
+  EEZ_BH_GET_HEAD     = 1, // eth_blockNumber on L1 running (bootstrap only)
+  EEZ_BH_SCAN_LOGS    = 2, // eth_getLogs on L1 running
+  EEZ_BH_FETCH_HEADER = 3, // eth_getBlockByHash on L2 running
+  EEZ_BH_FETCH_PROOF  = 4, // eth_getProof on L2 running
 } eez_bh_phase_t;
 
 typedef struct {
@@ -263,7 +264,9 @@ static void eez_bh_write_done_cb(void* user_data, file_data_t* files, int num_fi
     log_warn("eez_blockhash_store: writing snapshot failed: %s", files[0].error);
   else
     log_info("eez_blockhash_store: snapshot written to %s", files[0].path);
-  safe_free(files[0].path);
+  // `c4_file_data_array_free` frees `path`, `error`, (optionally) `data` and the array
+  // itself. The previous code also called `safe_free(files[0].path)` here, which caused
+  // a double-free as soon as a snapshot was published. Leave the cleanup to the helper.
   c4_file_data_array_free(files, num_files, 1);
 }
 
@@ -395,6 +398,18 @@ static void eez_bh_handle_proof_response(data_request_t* req) {
   // Verify the trie: if this check passes we know the server owns a storage proof for
   // the exact account root and the hashes are authenticated by it. The trie survives
   // the verification so the internal handler can mint storage proofs from it directly.
+  //
+  // Note on the trust model: this storage-root match is only an *internal consistency
+  // check* between the slot values and the accountProof scalar fields the L2 RPC
+  // returned. It does NOT prove that `storageHash` is the real storage root of the
+  // EIP-2935 contract -- that binding is performed on the verifier side, where the
+  // accountProof is walked against the L1-anchored stateRoot
+  // (`eth_verify_storage_proof` in `src/chains/eth/verifier/eth_account.c`, called
+  // from `c4_verify_eip2935_block` in `src/chains/eth/verifier/eip2935.c`). A
+  // malicious L2 RPC that lies about both the hashes and the accountProof could pass
+  // this check, but its proofs will fail client-side. Do not remove this check:
+  // without it a buggy node could silently publish snapshots that only break the
+  // eventual client verification instead of being dropped here.
   node_t* trie = NULL;
   if (!eez_bh_build_and_verify_trie(g_state.building->hashes, g_state.building->storage_hash, &trie)) {
     eez_bh_fail("locally built EIP-2935 trie root does not match the storageHash of the account proof", NULL);
@@ -499,6 +514,12 @@ static bool eez_bh_parse_log(json_t entry, eez_bh_event_t* out) {
   return true;
 }
 
+// Captured upper bound of the current scan window. The L1 head is fetched once per tick
+// right before the log scan, so the watcher can safely advance `last_scanned_l1_block`
+// even when no event was returned in the window (previously the watcher would stay
+// pinned at 0 forever when the head block contained no match).
+static uint64_t g_scan_upper_bound = 0;
+
 static void eez_bh_handle_logs_cb(client_t* client, void* data, data_request_t* r) {
   (void) client;
   (void) data;
@@ -511,6 +532,10 @@ static void eez_bh_handle_logs_cb(client_t* client, void* data, data_request_t* 
   json_t root   = json_parse((char*) r->response.data);
   json_t result = json_get(root, "result");
   if (result.type != JSON_TYPE_ARRAY) {
+    // Even an empty / error-like response must advance the scan pointer; otherwise
+    // the watcher would keep re-scanning the same growing window forever.
+    if (g_scan_upper_bound > g_state.last_scanned_l1_block)
+      g_state.last_scanned_l1_block = g_scan_upper_bound;
     g_state.phase = EEZ_BH_IDLE;
     c4_request_free(r);
     return;
@@ -530,12 +555,11 @@ static void eez_bh_handle_logs_cb(client_t* client, void* data, data_request_t* 
     newest  = evt;
     any     = true;
   }
-  // Remember how far we scanned so the next tick skips what we already saw. The
-  // `toBlock=latest` pin is not available in the response, so we use the newest block
-  // we saw a log in; if there was no log, we still advance by one block to avoid
-  // re-scanning. The initial bootstrap also sets this field.
-  if (any && newest.l1_block_number > g_state.last_scanned_l1_block)
-    g_state.last_scanned_l1_block = newest.l1_block_number;
+  // Advance the scan pointer to the end of the window we just covered. Using the
+  // captured `g_scan_upper_bound` instead of "max event block" ensures progress even
+  // when no matching event appeared in the window (idle periods of the rollup).
+  if (g_scan_upper_bound > g_state.last_scanned_l1_block)
+    g_state.last_scanned_l1_block = g_scan_upper_bound;
 
   c4_request_free(r);
 
@@ -557,34 +581,65 @@ static void eez_bh_handle_logs_cb(client_t* client, void* data, data_request_t* 
   eez_bh_fetch_header();
 }
 
-static void eez_bh_scan_logs(void) {
-  if (g_state.phase != EEZ_BH_IDLE) return;
+// Hard cap on how many L1 blocks the watcher scans per tick. Most RPC providers
+// reject wider windows ("range too wide" / "query returned more than X results").
+#define EEZ_BH_MAX_SCAN_RANGE 1024
 
-  uint64_t from = g_state.last_scanned_l1_block ? g_state.last_scanned_l1_block + 1 : 0;
+static void eez_bh_scan_logs(uint64_t head) {
+  if (g_state.phase != EEZ_BH_IDLE && g_state.phase != EEZ_BH_GET_HEAD) return;
+
+  uint64_t from = g_state.last_scanned_l1_block ? g_state.last_scanned_l1_block + 1 : head;
+  if (from > head) {
+    // No new blocks since the last scan.
+    g_state.phase = EEZ_BH_IDLE;
+    return;
+  }
+  // Clip the window so a long outage does not produce a `range too wide` error.
+  if (head > from + EEZ_BH_MAX_SCAN_RANGE) head = from + EEZ_BH_MAX_SCAN_RANGE;
+  g_scan_upper_bound = head;
 
   buffer_t params = {0};
-  if (!g_state.bootstrap_done) {
-    // First tick: do not scan the whole history, only the latest block. The next tick
-    // moves `last_scanned_l1_block` forward and from then on we always scan from
-    // `last+1` to `latest`.
-    g_state.bootstrap_done = true;
-    bprintf(&params,
-            "[{\"address\":\"0x%x\",\"topics\":[\"0x%x\"],\"fromBlock\":\"latest\",\"toBlock\":\"latest\"}]",
-            bytes((uint8_t*) g_state.conf->proxy, ADDRESS_SIZE),
-            bytes((uint8_t*) L2_EXECUTION_PERFORMED_TOPIC, 32));
-  }
-  else {
-    bprintf(&params,
-            "[{\"address\":\"0x%x\",\"topics\":[\"0x%x\"],\"fromBlock\":\"0x%lx\",\"toBlock\":\"latest\"}]",
-            bytes((uint8_t*) g_state.conf->proxy, ADDRESS_SIZE),
-            bytes((uint8_t*) L2_EXECUTION_PERFORMED_TOPIC, 32),
-            from);
-  }
+  bprintf(&params,
+          "[{\"address\":\"0x%x\",\"topics\":[\"0x%x\"],\"fromBlock\":\"0x%lx\",\"toBlock\":\"0x%lx\"}]",
+          bytes((uint8_t*) g_state.conf->proxy, ADDRESS_SIZE),
+          bytes((uint8_t*) L2_EXECUTION_PERFORMED_TOPIC, 32),
+          from, head);
 
   data_request_t* req = eez_bh_build_eth_rpc(g_state.conf->l1_chain_id, "eth_getLogs", (const char*) params.data.data);
   buffer_free(&params);
-  g_state.phase = EEZ_BH_SCAN_LOGS;
+  g_state.phase          = EEZ_BH_SCAN_LOGS;
+  g_state.bootstrap_done = true;
   c4_add_request(&watcher_client, req, NULL, eez_bh_handle_logs_cb);
+}
+
+// -----------------------------------------------------------------------------
+// Phase 0: eth_blockNumber on L1 to anchor the scan window (bootstrap only)
+// -----------------------------------------------------------------------------
+
+static void eez_bh_handle_head_cb(client_t* client, void* data, data_request_t* r) {
+  (void) client;
+  (void) data;
+  if (r->error) {
+    log_warn("eez_blockhash_store: eth_blockNumber on L1 failed: %s", r->error);
+    g_state.phase = EEZ_BH_IDLE;
+    c4_request_free(r);
+    return;
+  }
+  json_t result = json_get(json_parse((char*) r->response.data), "result");
+  if (result.type != JSON_TYPE_STRING) {
+    g_state.phase = EEZ_BH_IDLE;
+    c4_request_free(r);
+    return;
+  }
+  uint64_t head = json_as_uint64(result);
+  c4_request_free(r);
+  eez_bh_scan_logs(head);
+}
+
+static void eez_bh_fetch_head_and_scan(void) {
+  data_request_t* req = eez_bh_build_eth_rpc(g_state.conf->l1_chain_id, "eth_blockNumber", "[]");
+  g_state.phase       = EEZ_BH_GET_HEAD;
+  c4_add_request(&watcher_client, req, NULL, eez_bh_handle_head_cb);
 }
 
 // -----------------------------------------------------------------------------
@@ -595,7 +650,9 @@ static void eez_bh_timer_cb(uv_timer_t* handle) {
   (void) handle;
   if (graceful_shutdown_in_progress) return;
   if (g_state.phase != EEZ_BH_IDLE) return; // previous poll still in flight
-  eez_bh_scan_logs();
+  // Every tick starts with an `eth_blockNumber` on L1 so the log window has an explicit
+  // numeric upper bound even in idle periods and across restarts.
+  eez_bh_fetch_head_and_scan();
 }
 
 static void eez_bh_load_persisted(void) {
@@ -629,9 +686,14 @@ static void eez_bh_load_persisted(void) {
   if (snap) {
     node_t* trie = NULL;
     if (eez_bh_build_and_verify_trie(snap->hashes, snap->storage_hash, &trie)) {
-      g_state.active      = snap;
-      g_state.active_trie = trie;
-      log_info("eez_blockhash_store: loaded persisted snapshot for L2 block %l from %s", snap->anchor_number, path);
+      g_state.active                = snap;
+      g_state.active_trie           = trie;
+      // Resume the L1 scan from where the last snapshot left off so the first tick
+      // after restart does not re-scan `0..latest` (which every provider rejects).
+      g_state.last_scanned_l1_block = snap->l1_block_number;
+      g_state.bootstrap_done        = true;
+      log_info("eez_blockhash_store: loaded persisted snapshot for L2 block %l (L1 block %l) from %s",
+               snap->anchor_number, snap->l1_block_number, path);
     }
     else {
       log_warn("eez_blockhash_store: persisted snapshot at %s failed trie verification, discarding", path);
@@ -701,11 +763,21 @@ static void json_append_bytes_array(buffer_t* out, ssz_ob_t list) {
 }
 
 // Finishes the request with an error. Ownership of `msg` is NOT taken (strdup'd).
+// `strdup` can only fail on OOM; the server treats OOM as fatal elsewhere, but we still
+// fall back to a static-string pointer here so the parent request never stays pending
+// and hangs the prover.
 static void eez_bh_internal_fail(single_request_t* r, const char* msg) {
   r->req->error = strdup(msg);
+  if (!r->req->error) r->req->error = strdup("eez_blockhash: OOM");
   c4_internal_call_finish(r);
 }
 
+// Documentation of the trust model, mirrored from `eez_bh_handle_proof_response`: the
+// response we synthesize here is a *reproduction* of what the L2 RPC would have
+// returned at commit time. The accountProof we re-emit is still bound to the L1-anchored
+// stateRoot on the verifier side; our local trie only authenticates that the slot
+// values are consistent with the account's storageHash. Any other handler that modifies
+// this flow must preserve that invariant.
 bool c4_handle_eez_blockhash(single_request_t* r) {
   if (!r || !r->req || !r->req->url) return false;
   if (strncmp(r->req->url, EEZ_BH_INTERNAL_PREFIX, sizeof(EEZ_BH_INTERNAL_PREFIX) - 1) != 0) return false;
