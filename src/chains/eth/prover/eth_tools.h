@@ -123,8 +123,10 @@ void eth_add_account_proof_fields(ssz_builder_t* account, json_t eth_proof, byte
  *
  * EIP-2935 keeps the hashes of the last 8191 blocks in the storage of the history contract.
  * The proof is an `eth_getProof` of that contract for the slot of `block_number`, taken at
- * `newer_block_number`. It is not checked here: the caller decides whether the block lies
- * in the history window, and the verifier checks the proof against the newer block.
+ * `newer_block_number`. Only the shape of the answer is checked here (exactly one storage
+ * proof, and it is about the requested slot); the Merkle proof is not verified: the caller
+ * decides whether the block lies in the history window, and the verifier checks the proof
+ * against the newer block.
  *
  * @param ctx prover context
  * @param block_number number of the block whose hash is read

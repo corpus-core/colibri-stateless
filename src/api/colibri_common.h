@@ -78,7 +78,7 @@ typedef enum {
  * by the verifier (e.g. PAP proofCall). Only one is active at a time.
  */
 typedef struct {
-  data_request_t* request; ///< borrowed pointer into verifier.state.requests
+  data_request_t* request; ///< borrowed pointer into verifier.state.requests, or into prover->state.requests while the main prover runs
   prover_ctx_t*   ctx;     ///< owned prover context
 } request_prover_t;
 
@@ -86,7 +86,7 @@ typedef struct {
  * Prover mode controlling how proofs are generated and verified.
  */
 typedef enum {
-  C4_PROVER_MODE_LOCAL        = 0, ///< proof built locally (requires Beacon API + execution client)
+  C4_PROVER_MODE_LOCAL        = 0, ///< proof built locally (requires Beacon API + execution client); no remote prover is used, a proof of another chain the prover needs (L1 proof of an L2 that settles on L1) is built locally as well
   C4_PROVER_MODE_REMOTE       = 1, ///< proof fetched entirely from remote prover server
   C4_PROVER_MODE_HYBRID       = 2, ///< header proof from remote server, execution data from RPC provider
   C4_PROVER_MODE_PROXY        = 3, ///< like remote; client sends RPC/Beacon URLs in proof request (prover server)
@@ -121,7 +121,7 @@ typedef struct {
   char* proxy_rpc_urls;
   char* proxy_beacon_urls;
 
-  request_prover_t* request_prover; ///< active local prover for a verifier-emitted PROVER request (NULL if idle)
+  request_prover_t* request_prover; ///< active local prover for a verifier-emitted PROVER request (NULL if idle); while the proof is built locally also for a PROVER request of the main prover (proof of another chain, e.g. the L1 proof an EEZ rollup needs; not in hybrid and light-client mode)
 
   /**
    * Snapshot of `client_state` taken once in `RPC_PHASE_INIT` (owned).

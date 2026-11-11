@@ -67,11 +67,16 @@ void eth_eip2935_slot(uint64_t block_number, bytes32_t slot);
  * 2. `account.address` is the history contract and `account.storageProof` holds exactly
  *    one entry.
  * 3. The account proof and the storage proof verify against the `stateRoot` of the
- *    newer block, and the proven value is non-zero and equals `keccak256(elHeader)`.
- * 4. `elHeader` has the shape of an execution header.
+ *    newer block.
+ * 4. The proven value is non-zero and equals `keccak256(elHeader)`, and `elHeader` has
+ *    the shape of an execution header.
  * 5. The proven storage key is the slot of the block number of `elHeader`
- *    (`eth_eip2935_slot`), and that number lies in the history window of the newer
- *    block: `newer - 8191 <= number < newer`.
+ *    (`eth_eip2935_slot`).
+ * 6. That number lies in the history window of the newer block:
+ *    `newer - 8191 <= number < newer`.
+ *
+ * On success the header is stored in the header cache of `ctx->chain_id`, so follow-up
+ * proofs can reference the block by hash only (`blockHash` variant).
  *
  * The function does not decide whether a chain may use this variant. `c4_verify_block`
  * does not call it; a chain module that accepts `eip2935` proofs calls it from its

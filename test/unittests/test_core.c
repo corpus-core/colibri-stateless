@@ -208,6 +208,51 @@ void test_json() {
     buffer_free(&owned);
   }
 
+  // json_as_bytes32: a hex string of 1 to 32 bytes as a left-padded 32-byte word
+  {
+    struct {
+      uint8_t word[32];
+      uint8_t canary[8];
+    } g;
+    uint8_t expected[32] = {0};
+    memset(&g, 0xAA, sizeof(g));
+
+    // a quantity and the full word give the same result
+    expected[30] = 0x1e;
+    expected[31] = 0x76;
+    TEST_ASSERT_TRUE(json_as_bytes32(json_parse("\"0x1e76\""), g.word));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(expected, g.word, 32);
+    memset(g.word, 0xAA, 32);
+    TEST_ASSERT_TRUE(json_as_bytes32(json_parse("\"0x0000000000000000000000000000000000000000000000000000000000001e76\""), g.word));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(expected, g.word, 32);
+
+    // odd number of nibbles and zero
+    expected[30] = 0x0e;
+    TEST_ASSERT_TRUE(json_as_bytes32(json_parse("\"0xe76\""), g.word));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(expected, g.word, 32);
+    memset(expected, 0, 32);
+    memset(g.word, 0xAA, 32);
+    TEST_ASSERT_TRUE(json_as_bytes32(json_parse("\"0x0\""), g.word));
+    TEST_ASSERT_EQUAL_HEX8_ARRAY(expected, g.word, 32);
+
+    // rejected values leave the word all zero: too long, empty, no hex, no string
+    static const char* rejected[] = {
+        "\"0x010000000000000000000000000000000000000000000000000000000000001e76\"",
+        "\"0x\"",
+        "\"0xzz\"",
+        "\"\"",
+        "4711",
+        "null",
+        "[]",
+    };
+    for (size_t i = 0; i < sizeof(rejected) / sizeof(rejected[0]); i++) {
+      memset(g.word, 0xAA, 32);
+      TEST_ASSERT_FALSE_MESSAGE(json_as_bytes32(json_parse(rejected[i]), g.word), rejected[i]);
+      TEST_ASSERT_EQUAL_HEX8_ARRAY_MESSAGE(expected, g.word, 32, rejected[i]);
+    }
+    for (int i = 0; i < 8; i++) TEST_ASSERT_EQUAL_HEX8(0xAA, g.canary[i]);
+  }
+
   // regression (F-07C606): json_get_path must not overflow its 256-byte scratch
   // buffer when a path segment is >= 256 bytes. A well-formed lookup still works.
   {

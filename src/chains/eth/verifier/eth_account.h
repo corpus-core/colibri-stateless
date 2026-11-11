@@ -73,7 +73,28 @@ bool eth_get_storage_value(ssz_ob_t storage, const bytes32_t key, bytes32_t valu
  * @param value receives the 32-byte big-endian storage value (left-padded)
  * @return `C4_SUCCESS` or `C4_ERROR`
  */
-c4_status_t         eth_verify_storage_slot(c4_state_t* state, ssz_ob_t account, const address_t address, const bytes32_t slot, bytes_t state_root, bytes32_t value);
+c4_status_t eth_verify_storage_slot(c4_state_t* state, ssz_ob_t account, const address_t address, const bytes32_t slot, bytes_t state_root, bytes32_t value);
+
+/**
+ * Verifies an account proof with exactly one storage proof against a state root, like
+ * `eth_verify_storage_slot`, but for a slot the caller does not know beforehand: the
+ * storage key is taken from the proof and returned.
+ *
+ * Used where the expected slot depends on data that is only trusted once the value is
+ * known (the `eip2935` block proof: the slot derives from the block number of a header
+ * that is authenticated by the proven value). The caller must check the returned key.
+ *
+ * All other checks and errors are the ones of `eth_verify_storage_slot`.
+ *
+ * @param state error sink
+ * @param account `EthAccountProof` container (`accountProof`, `address`, `storageProof`); `elProof` is not read
+ * @param address 20-byte address of the contract the proof must be about
+ * @param state_root 32-byte state root of the block
+ * @param slot receives the 32-byte storage key the proof is about
+ * @param value receives the 32-byte big-endian storage value (left-padded)
+ * @return `C4_SUCCESS` or `C4_ERROR`
+ */
+c4_status_t         eth_verify_storage_proof(c4_state_t* state, ssz_ob_t account, const address_t address, bytes_t state_root, bytes32_t slot, bytes32_t value);
 eth_account_field_t eth_account_get_field(verify_ctx_t* ctx);
 bool                eth_account_verify_data(verify_ctx_t* ctx, address_t verified_address, eth_account_field_t field, bytes_t values);
 c4_status_t         eth_fetch_account_code(verify_ctx_t* ctx, call_account_t* ac);

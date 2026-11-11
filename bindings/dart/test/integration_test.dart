@@ -114,9 +114,6 @@ void main() {
       final useAccesslist = (content['use_accesslist'] as bool?) ?? true;
       final pap = (content['pap'] as bool?) ?? false;
       final remoteProver = (content['remote_prover'] as bool?) ?? false;
-      /// An L2 that is proven on another L1 (EEZ) asks the L1 prover even when the
-      /// proof is created locally: keep a mock prover and select local mode explicitly.
-      final l1Prover = !remoteProver && needsL1Prover(chainId, libraryPath: _resolveLibraryPath());
 
       Colibri.resetNativeCaches(libraryPath: _resolveLibraryPath());
 
@@ -135,8 +132,7 @@ void main() {
       /// old"). The check itself is covered by test_verify_call_freshness.
       final colibri = Colibri(
         chainId: chainId,
-        provers: remoteProver || l1Prover ? ['http://mock-prover'] : const [],
-        proverMode: l1Prover ? ProverMode.local : null,
+        provers: remoteProver ? ['http://mock-prover'] : const [],
         trustedCheckpoint: trusted,
         includeCode: includeCode,
         useAccesslist: useAccesslist,
@@ -167,9 +163,8 @@ void main() {
   /// Prover fails (500) then fallback to local createProof succeeds via fixture mock.
   /// `listSync()` order is filesystem-dependent (differs between e.g. APFS and ext4), so
   /// sort for a deterministic pick and skip fixtures the local createProof fallback cannot
-  /// regenerate: `remote_prover` proofs are only produced by a real remote prover,
-  /// `requires_chain_store` needs a populated chain store, and a chain that is proven on
-  /// another L1 (EEZ) needs the prover, which is down in this test, for the L1 part.
+  /// regenerate: `remote_prover` proofs are only produced by a real remote prover, and
+  /// `requires_chain_store` needs a populated chain store.
   final fallbackCandidates = [...testDirs]..sort((a, b) => a.path.compareTo(b.path));
   Directory? fallbackDir;
   for (final candidate in fallbackCandidates) {
@@ -178,7 +173,6 @@ void main() {
     ) as Map<String, dynamic>;
     if ((cfg['requires_chain_store'] as bool?) ?? false) continue;
     if ((cfg['remote_prover'] as bool?) ?? false) continue;
-    if (hasNative && needsL1Prover((cfg['chain_id'] as num).toInt(), libraryPath: _resolveLibraryPath())) continue;
     fallbackDir = candidate;
     break;
   }

@@ -3,8 +3,8 @@
   "params":["latest",false],
   "chain_id": 696991,
   "pap": false,
-  "prover_mode": "local",
-  "remote_prover": false,
+  "prover_mode": "remote",
+  "remote_prover": true,
   "expected_result": {
   "number":"0x889da",
   "hash":"0xdfa307b750921da7ba51362dac4c00bc81766d1344bca4f385ac2137f009aaf3",

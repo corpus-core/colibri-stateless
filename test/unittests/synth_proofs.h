@@ -66,7 +66,7 @@ typedef struct {
 } synth_t;
 
 // Fills a trie with unrelated entries so the proven key sits below branch nodes.
-static void add_filler(node_t** root, const char* domain) {
+static void synth_add_filler(node_t** root, const char* domain) {
   for (uint32_t i = 0; i < 24; i++) {
     bytes32_t path  = {0};
     buffer_t  seed  = {0};
@@ -81,7 +81,7 @@ static void add_filler(node_t** root, const char* domain) {
 }
 
 // Copy of a list of byte strings without its last element.
-static ssz_ob_t without_last(ssz_ob_t list) {
+static ssz_ob_t synth_without_last(ssz_ob_t list) {
   uint32_t      len     = ssz_len(list);
   ssz_builder_t builder = {.def = list.def};
   TEST_ASSERT_TRUE(len >= 2);
@@ -105,7 +105,7 @@ static synth_t synth_account_proof(const uint8_t* contract, const uint8_t* slot,
   int            fields         = opts.account_fields ? opts.account_fields : 4;
 
   // storage trie
-  add_filler(&storage, "storage");
+  synth_add_filler(&storage, "storage");
   if (!opts.slot_missing) {
     keccak(bytes((uint8_t*) slot, 32), path);
     rlp_add_item(&buf, value);
@@ -120,7 +120,7 @@ static synth_t synth_account_proof(const uint8_t* contract, const uint8_t* slot,
     if (opts.empty_storage_proof)
       storage_proof = (ssz_ob_t) {.def = full.def, .bytes = bytes(safe_calloc(1, 1), 0)};
     else
-      storage_proof = without_last(full);
+      storage_proof = synth_without_last(full);
     safe_free(full.bytes.data);
   }
 
@@ -134,14 +134,14 @@ static synth_t synth_account_proof(const uint8_t* contract, const uint8_t* slot,
   rlp_to_list(&buf);
 
   // account trie
-  add_filler(&accounts, "accounts");
+  synth_add_filler(&accounts, "accounts");
   keccak(bytes((uint8_t*) address, 20), path);
   patricia_set_value(&accounts, bytes(path, 32), buf.data);
   memcpy(out.state_root, patricia_get_root(accounts).data, 32);
   ssz_ob_t account_proof = patricia_create_merkle_proof(accounts, bytes(path, 32));
   if (opts.truncate_account) {
     ssz_ob_t full = account_proof;
-    account_proof = without_last(full);
+    account_proof = synth_without_last(full);
     safe_free(full.bytes.data);
   }
 
@@ -220,25 +220,26 @@ typedef struct {
   bool           unknown_newer;  // the newer block is not a verified header of the context
   uint8_t        inner_selector; // selector of `account.elProof`; 0 = `blockHash`
   synth_opts_t   account;        // deviations of the account proof
-} eip2935_opts_t;
+} synth_eip2935_opts_t;
 
 typedef struct {
   ssz_ob_t     proof;        // `eip2935` union member, bytes owned
   bytes_t      older_header; // owned
   bytes32_t    older_hash;
+  bytes_t      newer_header; // owned copy of the newer header
   bytes32_t    newer_hash;
   verify_ctx_t ctx; // holds the newer header as a verified snapshot
-} eip2935_case_t;
+} synth_eip2935_case_t;
 
 // Builds an `eip2935` proof for `opts` and a verify context of `chain` that already
 // verified the newer block (attached as a snapshot, the way `blockHash` proofs find it).
-static eip2935_case_t synth_eip2935_case(eip2935_opts_t opts, chain_id_t chain) {
-  eip2935_case_t out       = {.ctx = {.chain_id = chain}};
-  uint64_t       newer     = opts.newer ? opts.newer : SYNTH_EIP2935_NEWER;
-  bytes32_t      slot      = {0};
-  bytes32_t      other     = {0};
-  bytes32_t      state     = {0};
-  uint8_t        inner[33] = {0};
+static synth_eip2935_case_t synth_eip2935_case(synth_eip2935_opts_t opts, chain_id_t chain) {
+  synth_eip2935_case_t out       = {.ctx = {.chain_id = chain}};
+  uint64_t             newer     = opts.newer ? opts.newer : SYNTH_EIP2935_NEWER;
+  bytes32_t            slot      = {0};
+  bytes32_t            other     = {0};
+  bytes32_t            state     = {0};
+  uint8_t              inner[33] = {0};
 
   // older header and the value of its history slot
   memset(state, 0x11, 32);
@@ -262,6 +263,7 @@ static eip2935_case_t synth_eip2935_case(eip2935_opts_t opts, chain_id_t chain) 
     TEST_ASSERT_EQUAL_UINT32(32, el_proof.bytes.len);
     memcpy(el_proof.bytes.data, out.newer_hash, 32);
   }
+  out.newer_header = bytes_dup(newer_header);
   if (opts.unknown_newer)
     safe_free(newer_header.data);
   else
@@ -276,10 +278,11 @@ static eip2935_case_t synth_eip2935_case(eip2935_opts_t opts, chain_id_t chain) 
   return out;
 }
 
-static void synth_eip2935_free(eip2935_case_t* c) {
+static void synth_eip2935_free(synth_eip2935_case_t* c) {
   c4_verify_free_data(&c->ctx);
   safe_free(c->proof.bytes.data);
   safe_free(c->older_header.data);
+  safe_free(c->newer_header.data);
 }
 
 #endif

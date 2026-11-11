@@ -128,6 +128,19 @@ char* json_new_string(json_t parent) RETURNS_NONNULL;
 bytes_t json_as_bytes(json_t value, buffer_t* buffer) NONNULL_FOR((2));
 
 /**
+ * Reads a hex string of at most 32 bytes into a 32-byte big-endian word.
+ *
+ * A shorter value is left-padded with zeros, so a quantity (`"0x1e76"`) and a full word
+ * (`"0x00…1e76"`) give the same result. Anything that is not a hex string of 1 to 32 bytes
+ * is rejected and leaves `out` all zero.
+ *
+ * @param value JSON string token with a `0x`-prefixed hex value
+ * @param out receives the 32-byte word (a `bytes32_t`)
+ * @return `true` if the value was a hex string of at most 32 bytes
+ */
+bool json_as_bytes32(json_t value, uint8_t out[32]);
+
+/**
  * Convert JSON value to byte array. Handles hex strings and numbers.
  * @param value JSON value to convert
  * @param target bytes_t to store the result

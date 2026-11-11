@@ -46,7 +46,7 @@ typedef enum {
   C4_BLOCK_PROOF_TYPE_NONE      = 0, // hybrid / cache: only `el_header` is set, and `el_body` if requested
   C4_BLOCK_PROOF_TYPE_BEACON    = 1, // `beacon` is set; a consensus-layer block proof can be built
   C4_BLOCK_PROOF_TYPE_SEQUENCER = 2, // `sequencer` is set
-  C4_BLOCK_PROOF_TYPE_EEZ       = 3, // `eez` is set; the block hash is proven by an L1 account proof
+  C4_BLOCK_PROOF_TYPE_EEZ       = 3, // `eez` is set; the block hash is proven by an L1 account proof, or by an `eip2935` proof on top of it
 } c4_block_proof_type_t;
 
 typedef struct {
@@ -65,12 +65,19 @@ typedef struct {
   bytes_t signature; // 65-byte sequencer signature, borrowed from the request
 } eth_block_sequencer_t;
 
-// Further EEZ block proofs (blocks newer or older than the L1 anchor) add their fields here.
+// Inputs of an `eip2935` block proof (see `c4_eth_add_eip2935_proof`). Both fields are unset
+// when the block is proven directly.
 typedef struct {
-  ssz_ob_t account;       // L1 `EthAccountProof` of the EEZ proxy storage slot, borrowed from the L1 prover response
-  ssz_ob_t sync_data;     // `sync_data` of the L1 prover response (selected union variant, may be `none`), borrowed
-  bytes_t  anchor_header; // RLP header of the anchor; only set for a block older than the anchor (`eip2935` proof)
-  json_t   history_proof; // `eth_getProof` of the EIP-2935 history contract at the anchor; only set with `anchor_header`
+  bytes_t newer_header;  // RLP header of the newer block whose state holds the hash of the block
+  json_t  history_proof; // `eth_getProof` of the EIP-2935 history contract at the newer block (`c4_eth_get_eip2935_proof`); only set with `newer_header`
+} eth_block_eip2935_t;
+
+// Further EEZ block proofs (blocks newer than the L1 anchor or older than the EIP-2935
+// window) add their fields here.
+typedef struct {
+  ssz_ob_t            account;   // L1 `EthAccountProof` of the EEZ proxy storage slot, borrowed from the L1 prover response
+  ssz_ob_t            sync_data; // `sync_data` of the L1 prover response (selected union variant, may be `none`), borrowed
+  eth_block_eip2935_t history;   // only set for a block older than the anchor (`eip2935` proof): `newer_header` is the RLP header of the anchor
 } eth_block_eez_t;
 
 typedef struct {

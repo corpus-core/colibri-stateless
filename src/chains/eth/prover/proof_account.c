@@ -53,18 +53,23 @@ static void add_dynamic_byte_list(json_t bytes_list, ssz_builder_t* builder, cha
   buffer_free(&tmp);
 }
 
+/**
+ * Builds the `storageProof` list of an `EthAccountProof` from the `storageProof` array of
+ * an `eth_getProof` result.
+ *
+ * @param def SSZ definition of the `storageProof` list
+ * @param storage_list `storageProof` array of the `eth_getProof` result, validated by `eth_get_proof` (`key:hex32`)
+ * @return builder of the list, owned by the caller
+ */
 static ssz_builder_t create_storage_proof(const ssz_def_t* def, json_t storage_list) {
   ssz_builder_t storage_proof = {.def = def};
-  bytes32_t     tmp;
-  buffer_t      tmp_buffer = stack_buffer(tmp);
-  int           len        = json_len(storage_list);
+  int           len           = json_len(storage_list);
   json_for_each_value(storage_list, entry) {
     ssz_builder_t storage_builder = {.def = def->def.vector.type};
     // Some nodes echo the key the way it was requested, others as a quantity without
     // leading zeros. The SSZ field is a fixed 32-byte word: left-pad a shorter key.
-    bytes32_t key     = {0};
-    bytes_t   raw_key = json_as_bytes(json_get(entry, "key"), &tmp_buffer);
-    if (raw_key.len <= 32) memcpy(key + 32 - raw_key.len, raw_key.data, raw_key.len);
+    bytes32_t key = {0};
+    json_as_bytes32(json_get(entry, "key"), key);
     ssz_add_bytes(&storage_builder, "key", bytes(key, 32));
     add_dynamic_byte_list(json_get(entry, "proof"), &storage_builder, "proof");
     ssz_add_dynamic_list_builders(&storage_proof, len, storage_builder);

@@ -39,8 +39,7 @@ c4_status_t c4_eth_get_eip2935_proof(prover_ctx_t* ctx, uint64_t block_number, u
   char      address[JSON_ADDRESS_SIZE] = {0};
   char      key[JSON_BYTES32_SIZE]     = {0};
   bytes32_t slot                       = {0};
-  bytes32_t stored_bytes               = {0};
-  buffer_t  value                      = stack_buffer(stored_bytes);
+  bytes32_t returned_key               = {0};
 
   memset(block_hash, 0, 32);
   eth_eip2935_slot(block_number, slot);
@@ -56,15 +55,12 @@ c4_status_t c4_eth_get_eip2935_proof(prover_ctx_t* ctx, uint64_t block_number, u
   if (storage.type != JSON_TYPE_ARRAY || json_len(storage) != 1) THROW_ERROR("eth_getProof of the EIP-2935 history contract must return exactly one storage proof");
 
   // the answer must be about the requested slot (a node may strip the leading zeros of the key)
-  bytes32_t returned_key = {0};
-  bytes_t   raw_key      = json_as_bytes(json_get(json_at(storage, 0), "key"), &value);
-  if (raw_key.len <= 32) memcpy(returned_key + 32 - raw_key.len, raw_key.data, raw_key.len);
-  if (!raw_key.data || raw_key.len > 32 || memcmp(returned_key, slot, 32) != 0) THROW_ERROR("eth_getProof of the EIP-2935 history contract returned the proof of another slot");
+  if (!json_as_bytes32(json_get(json_at(storage, 0), "key"), returned_key) || memcmp(returned_key, slot, 32) != 0)
+    THROW_ERROR("eth_getProof of the EIP-2935 history contract returned the proof of another slot");
 
   // the value is a quantity: no leading zeros, at most 32 bytes
-  bytes_t stored = json_as_bytes(json_get(json_at(storage, 0), "value"), &value);
-  if (stored.len > 32) THROW_ERROR("eth_getProof of the EIP-2935 history contract returned an invalid storage value");
-  memcpy(block_hash + 32 - stored.len, stored.data, stored.len);
+  if (!json_as_bytes32(json_get(json_at(storage, 0), "value"), block_hash))
+    THROW_ERROR("eth_getProof of the EIP-2935 history contract returned an invalid storage value");
   return C4_SUCCESS;
 }
 

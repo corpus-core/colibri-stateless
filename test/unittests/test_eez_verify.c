@@ -23,7 +23,7 @@
 
 // Tests of the EEZ (Ethereum Economic Zone) module, milestone 1.
 //
-// Three groups:
+// Four groups:
 //
 //   1. chain table, slot computation and method types (no proof involved)
 //   2. `eez_get_l1_storage_value` against synthetic Merkle-Patricia tries, so every
@@ -34,8 +34,23 @@
 //      prover and the dispatch of the verifier. The checks of the `eip2935` proof itself
 //      are not EEZ-specific and are tested in `test_eip2935.c`.
 //
-// The fixture holds one answer of the Ethereum mainnet prover (`eth_getStorageAt` on the
-// EEZ proxy) and the anchored L2 block 0x889da of RollupX. The `eth_getBlockByHash_0x1111..`,
+// Two fixtures:
+//
+// - `eez_eth_getBlockByNumber_local` is a recording of local mode: the raw L1 data (beacon
+//   blocks, `eth_getProof` of the EEZ proxy, light client bootstrap) and the anchored L2
+//   block 0x8de40 of RollupX. No prover is involved; the unified RPC pipeline builds the L1
+//   proof itself. All tests that run the RPC pipeline in local mode use it. It also holds
+//   the answer of an L1 prover for the same L1 data (`eth_getStorageAt_….ssz`, written by
+//   `colibri-prover` from the files of this fixture): a stand-alone prover of the L2 (the
+//   `createProof` / `getProof` API of the bindings, which does not run the RPC pipeline)
+//   still asks the prover of its L1.
+// - `eez_eth_getBlockByNumber` holds the answer of a prover instead: for the L2 request
+//   (`eth_getBlockByNumber_latest_false.ssz`, remote mode, written by `colibri-prover` from
+//   the files of this fixture) and for the L1 request of the L2 prover (`eth_getStorageAt` on
+//   the EEZ proxy, recorded from the Ethereum mainnet prover), plus the anchored L2 block
+//   0x889da. The tests that drive the prover of the L2 directly use it.
+//
+// In `eez_eth_getBlockByNumber`, the anchored L2 block is 0x889da of RollupX. The `eth_getBlockByHash_0x1111..`,
 // `0x2222..`, `0x3333..` and `0x4444..` files are hand-made: copies of the anchor block with a
 // different `hash` / `number` (or a `null` result), used to reach the error messages for
 // blocks that are not the anchor. The files of block 0x889d9 (`0x3652..`, the parent of the
@@ -60,9 +75,11 @@
 #include "synth_proofs.h"
 #include "version.h"
 
-#define ROLLUPX     C4_CHAIN_EEZ_ROLLUPX
-#define FIXTURE     "eez_eth_getBlockByNumber"
-#define L1_RESPONSE FIXTURE "/eth_getStorageAt_0x4b2760f84b83d6b3829e30a7573b0172b6d6402c_0x679795a0195a1b76cdebb7c51d74e058aee929.ssz"
+#define ROLLUPX C4_CHAIN_EEZ_ROLLUPX
+#define FIXTURE "eez_eth_getBlockByNumber"
+// recording of local mode (raw L1 data instead of an L1 prover answer)
+#define LOCAL_FIXTURE "eez_eth_getBlockByNumber_local"
+#define L1_RESPONSE   FIXTURE "/eth_getStorageAt_0x4b2760f84b83d6b3829e30a7573b0172b6d6402c_0x679795a0195a1b76cdebb7c51d74e058aee929.ssz"
 
 // values of the fixture
 #define ANCHOR_NUMBER     0x889da
@@ -72,12 +89,18 @@
 #define ROLLUPX_PROXY     "4b2760f84b83d6b3829e30a7573b0172b6d6402c"
 // keccak256(pad32(rollupId = 2) ++ pad32(mapping slot = 2)) + 1
 #define ROLLUPX_ROOT_SLOT "679795a0195a1b76cdebb7c51d74e058aee92919b8c3389af86ef24535e8a28d"
-// finalized beacon block root the fixture was recorded with (the L1 answer bootstraps from it)
+// values of the local-mode fixture
+#define LOCAL_ANCHOR_NUMBER     0x8de40
+#define LOCAL_ANCHOR_NUMBER_HEX "0x8de40"
+#define LOCAL_ANCHOR_HASH       "0xb4a0e700501016a08b4360751cea5dd4696f837cad22863a79caf7ba547caa08"
+// finalized beacon block root the local-mode fixture was recorded with
+#define LOCAL_CHECKPOINT "0x3c657ef6f07e8831971e9bc78fa8bd15b6e743141ee333d2c767ff781251b668"
 // parent of the anchor, recorded from RollupX
-#define PARENT_NUMBER      0x889d9
-#define PARENT_NUMBER_HEX  "0x889d9"
-#define PARENT_HASH_HEX    "36523831d64a5c58c1cb5fdaaa47975c96930b036257a4d4c35e48ce5dadeac2"
-#define PARENT_HASH        "0x" PARENT_HASH_HEX
+#define PARENT_NUMBER     0x889d9
+#define PARENT_NUMBER_HEX "0x889d9"
+#define PARENT_HASH_HEX   "36523831d64a5c58c1cb5fdaaa47975c96930b036257a4d4c35e48ce5dadeac2"
+#define PARENT_HASH       "0x" PARENT_HASH_HEX
+// finalized beacon block root the fixture was recorded with (the L1 answer bootstraps from it)
 #define FIXTURE_CHECKPOINT "0x4c9531434eb47654e6d047040b161dc4a66c7af301caf9968f3bad03534db85c"
 
 void setUp(void) {
@@ -94,14 +117,14 @@ void tearDown(void) {
 // helpers
 // ---------------------------------------------------------------------------
 
-// Answers all pending requests of `state` from the fixture. A request without a
+// Answers all pending requests of `state` from the fixture `dir`. A request without a
 // recorded answer fails with an error naming the missing file.
-static void answer_from_fixture(c4_state_t* state) {
+static void answer_from(c4_state_t* state, const char* dir) {
   data_request_t* req = NULL;
   while ((req = c4_state_get_pending_request(state))) {
     char  path[1024];
     char* name = c4_req_mockname(req);
-    snprintf(path, sizeof(path), "%s/%s", FIXTURE, name);
+    snprintf(path, sizeof(path), "%s/%s", dir, name);
     bytes_t content = read_testdata(path);
     if (content.data)
       req->response = content;
@@ -109,6 +132,11 @@ static void answer_from_fixture(c4_state_t* state) {
       req->error = bprintf(NULL, "no fixture for %s", name);
     safe_free(name);
   }
+}
+
+// Answers all pending requests of `state` from the fixture with the prover answers.
+static void answer_from_fixture(c4_state_t* state) {
+  answer_from(state, FIXTURE);
 }
 
 // Runs the prover for RollupX against the fixture.
@@ -181,20 +209,28 @@ static bytes_t flip_byte(bytes_t request, const uint8_t* target) {
   return copy;
 }
 
-// Runs a request through the unified RPC pipeline (local prover + verifier).
+// The error of an RPC context, wherever the failing phase left it.
+static const char* rpc_error(c4_rpc_ctx_t* rpc) {
+  if (rpc->error) return rpc->error;
+  if (rpc->verifier.state.error) return rpc->verifier.state.error;
+  return rpc->prover ? rpc->prover->state.error : NULL;
+}
+
+// Runs a request through the unified RPC pipeline in local mode (local prover for the L2
+// and for its L1, then the verifier), answered from the local-mode fixture.
 // Returns the status; `result` and `error` receive owned strings.
 static c4_status_t run_rpc(const char* method, const char* args, uint64_t min_latest_block_ts, char** result, char** error) {
   c4_rpc_ctx_t* rpc    = c4_rpc_ctx_create(method, args, ROLLUPX, 0, 0, C4_PROVER_MODE_LOCAL);
   c4_status_t   status = C4_PENDING;
   if (min_latest_block_ts) c4_rpc_ctx_set_min_latest_block_ts(rpc, min_latest_block_ts);
-  for (int i = 0; i < 30 && status == C4_PENDING; i++) {
+  for (int i = 0; i < 40 && status == C4_PENDING; i++) {
     status = c4_rpc_execute(rpc);
-    if (status == C4_PENDING) answer_from_fixture(c4_rpc_get_state(rpc));
+    if (status == C4_PENDING) answer_from(c4_rpc_get_state(rpc), LOCAL_FIXTURE);
   }
   TEST_ASSERT_NOT_EQUAL_MESSAGE(C4_PENDING, status, "rpc did not finish");
   if (result) *result = status == C4_SUCCESS ? ssz_dump_to_str(rpc->verifier.data, false, true) : NULL;
   if (error) {
-    const char* msg = rpc->error ? rpc->error : rpc->verifier.state.error;
+    const char* msg = rpc_error(rpc);
     *error          = msg ? strdup(msg) : NULL;
   }
   c4_rpc_ctx_free(rpc);
@@ -563,8 +599,43 @@ void test_storage_value_truncated_proofs(void) {
 
 // local prover + verifier, sync committee already known
 void test_fixture_block_by_number(void) {
-  run_rpc_test(FIXTURE, 0, 0);
+  // local mode: the proof of the L2 block and the L1 proof inside it are built locally
+  run_rpc_test(LOCAL_FIXTURE, 0, 0);
   // everything the verifier persisted for the sync committee belongs to the L1
+  TEST_ASSERT_TRUE(stored("states_1"));
+  TEST_ASSERT_FALSE(stored("states_696991"));
+}
+
+// The stand-alone prover of the L2 (no RPC pipeline around it, as in `createProof` of the
+// bindings) asks the prover of the L1. The local-mode fixture holds that answer as well, and
+// the proof is the one the RPC pipeline builds on its own.
+void test_local_fixture_serves_the_standalone_prover(void) {
+  char*         error  = NULL;
+  c4_status_t   status = C4_PENDING;
+  int           l1     = 0;
+  prover_ctx_t* ctx    = c4_prover_create("eth_getBlockByNumber", "[\"latest\",false]", ROLLUPX, 0);
+  for (int i = 0; i < 20 && status == C4_PENDING; i++) {
+    status = c4_prover_execute(ctx);
+    for (data_request_t* req = ctx->state.requests; req; req = req->next)
+      if (req->type == C4_DATA_TYPE_PROVER && c4_state_is_pending(req)) l1++;
+    if (status == C4_PENDING) answer_from(&ctx->state, LOCAL_FIXTURE);
+  }
+  TEST_ASSERT_EQUAL_INT_MESSAGE(C4_SUCCESS, status, ctx->state.error ? ctx->state.error : "prover failed");
+  TEST_ASSERT_EQUAL_INT_MESSAGE(1, l1, "the prover of the L1 is asked once");
+  bytes_t request = bytes_dup(ctx->proof);
+  c4_prover_free(ctx);
+
+  set_state(ROLLUPX, LOCAL_FIXTURE);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(C4_SUCCESS, verify_request(request, "eth_getBlockByNumber", "[\"latest\",false]", ROLLUPX, &error, NULL), error ? error : "no error");
+  ssz_ob_t el = eez_proof_of(request);
+  TEST_ASSERT_EQUAL_UINT64(LOCAL_ANCHOR_NUMBER, eth_el_header_get_uint64(ssz_get(&el, "elHeader").bytes, EL_BLOCK_NUMBER));
+  safe_free(request.data);
+  safe_free(error);
+}
+
+// Remote mode: the prover of the L2 builds the complete proof, the client only verifies.
+void test_fixture_block_by_number_remote(void) {
+  run_rpc_test(FIXTURE, 0, 0);
   TEST_ASSERT_TRUE(stored("states_1"));
   TEST_ASSERT_FALSE(stored("states_696991"));
 }
@@ -573,10 +644,35 @@ void test_fixture_block_by_number(void) {
 // sync data of the L1 prover answer is carried over into the L2 proof and applied to the
 // state of the L1 chain.
 void test_fixture_sync_data_is_forwarded_and_stored_for_l1(void) {
-  char* result = NULL;
-  char* error  = NULL;
+  char* error = NULL;
   // set through the L2 chain id: a checkpoint is a beacon root, so it lands on the L1
   c4_set_checkpoint(ROLLUPX, FIXTURE_CHECKPOINT);
+  TEST_ASSERT_TRUE(stored("states_1"));
+  TEST_ASSERT_FALSE(stored("states_696991"));
+  TEST_ASSERT_FALSE(stored("sync_1_1907"));
+
+  // the proof of the L2 prover, which got the sync data from the prover of the L1
+  bytes_t request = prove("eth_getBlockByNumber", "[\"latest\",false]", &error);
+  TEST_ASSERT_NOT_NULL_MESSAGE(request.data, error ? error : "prover failed");
+  safe_free(error);
+  error = NULL;
+
+  c4_status_t status = verify_request(request, "eth_getBlockByNumber", "[\"latest\",false]", ROLLUPX, &error, NULL);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(C4_SUCCESS, status, error ? error : "no error");
+
+  TEST_ASSERT_TRUE_MESSAGE(stored("sync_1_1907"), "sync committee of the L1 period must be stored");
+  TEST_ASSERT_FALSE_MESSAGE(stored("states_696991"), "no sync state may be stored for the L2 chain id");
+  TEST_ASSERT_FALSE(stored("sync_696991_1907"));
+  safe_free(request.data);
+  safe_free(error);
+}
+
+// Local mode from a trusted checkpoint only: the proof carries no sync data, the verifier
+// asks the Beacon API of the L1 for it and stores the result for the L1 chain.
+void test_local_mode_from_a_checkpoint(void) {
+  char* result = NULL;
+  char* error  = NULL;
+  c4_set_checkpoint(ROLLUPX, LOCAL_CHECKPOINT);
   TEST_ASSERT_TRUE(stored("states_1"));
   TEST_ASSERT_FALSE(stored("states_696991"));
   TEST_ASSERT_FALSE(stored("sync_1_1907"));
@@ -584,8 +680,8 @@ void test_fixture_sync_data_is_forwarded_and_stored_for_l1(void) {
   c4_status_t status = run_rpc("eth_getBlockByNumber", "[\"latest\",false]", 0, &result, &error);
   TEST_ASSERT_EQUAL_INT_MESSAGE(C4_SUCCESS, status, error ? error : "no error");
   TEST_ASSERT_NOT_NULL(result);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(result, "\"number\":\"" ANCHOR_NUMBER_HEX "\""), result);
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(result, "\"hash\":\"" ANCHOR_HASH "\""), result);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(result, "\"number\":\"" LOCAL_ANCHOR_NUMBER_HEX "\""), result);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(result, "\"hash\":\"" LOCAL_ANCHOR_HASH "\""), result);
 
   TEST_ASSERT_TRUE_MESSAGE(stored("sync_1_1907"), "sync committee of the L1 period must be stored");
   TEST_ASSERT_FALSE_MESSAGE(stored("states_696991"), "no sync state may be stored for the L2 chain id");
@@ -637,25 +733,39 @@ void test_fixture_methods_and_block_identifiers(void) {
   char* error  = NULL;
 
   // header only: the header is rebuilt from eth_getBlockByHash
-  set_state(ROLLUPX, FIXTURE);
+  set_state(ROLLUPX, LOCAL_FIXTURE);
   TEST_ASSERT_EQUAL_INT_MESSAGE(C4_SUCCESS, run_rpc("eth_blockNumber", "[]", 0, &result, &error), error ? error : "no error");
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(result, ANCHOR_NUMBER_HEX), result);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(result, LOCAL_ANCHOR_NUMBER_HEX), result);
   safe_free(result);
   safe_free(error);
 
   static const char* accepted[][2] = {
-      {"eth_getBlockByNumber", "[\"safe\",false]"},
-      {"eth_getBlockByNumber", "[\"finalized\",false]"},
-      {"eth_getBlockByNumber", "[\"" ANCHOR_NUMBER_HEX "\",false]"}, // the anchor by number
-      {"eth_getBlockByHash", "[\"" ANCHOR_HASH "\",false]"},         // the anchor by hash
+      {"eth_getBlockByNumber", "[\"" LOCAL_ANCHOR_NUMBER_HEX "\",false]"}, // the anchor by number
+      {"eth_getBlockByHash", "[\"" LOCAL_ANCHOR_HASH "\",false]"},         // the anchor by hash
   };
   for (size_t i = 0; i < sizeof(accepted) / sizeof(accepted[0]); i++) {
     reset_local_filecache();
     c4_header_cache_clear();
-    set_state(ROLLUPX, FIXTURE);
+    set_state(ROLLUPX, LOCAL_FIXTURE);
     TEST_ASSERT_EQUAL_INT_MESSAGE(C4_SUCCESS, run_rpc(accepted[i][0], accepted[i][1], 0, &result, &error), error ? error : accepted[i][1]);
-    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(result, "\"hash\":\"" ANCHOR_HASH "\""), result);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(result, "\"hash\":\"" LOCAL_ANCHOR_HASH "\""), result);
     safe_free(result);
+    safe_free(error);
+  }
+
+  // `safe` and `finalized` are passed on to L1 (see `test_l1_prover_request_block_tag`):
+  // here the L2 prover gets the same L1 answer for them, and the proof verifies
+  static const char* tags[] = {"[\"safe\",false]", "[\"finalized\",false]"};
+  for (size_t i = 0; i < sizeof(tags) / sizeof(tags[0]); i++) {
+    reset_local_filecache();
+    c4_header_cache_clear();
+    set_state(ROLLUPX, FIXTURE);
+    bytes_t request = prove("eth_getBlockByNumber", tags[i], &error);
+    TEST_ASSERT_NOT_NULL_MESSAGE(request.data, error ? error : tags[i]);
+    safe_free(error);
+    error = NULL;
+    TEST_ASSERT_EQUAL_INT_MESSAGE(C4_SUCCESS, verify_request(request, "eth_getBlockByNumber", tags[i], ROLLUPX, &error, NULL), error ? error : tags[i]);
+    safe_free(request.data);
     safe_free(error);
   }
 }
@@ -664,7 +774,7 @@ void test_fixture_methods_and_block_identifiers(void) {
 void test_fixture_latest_passes_freshness_bound(void) {
   char* result = NULL;
   char* error  = NULL;
-  set_state(ROLLUPX, FIXTURE);
+  set_state(ROLLUPX, LOCAL_FIXTURE);
   TEST_ASSERT_EQUAL_INT_MESSAGE(C4_SUCCESS, run_rpc("eth_getBlockByNumber", "[\"latest\",false]", UINT64_MAX, &result, &error), error ? error : "no error");
   safe_free(result);
   safe_free(error);
@@ -1637,12 +1747,107 @@ void test_hybrid_and_light_client_mode(void) {
 
 // --- small additions that close surviving mutants ---------------------------
 
-// Local RPC pipeline: the L1 prover request carries the client state of the L1 chain.
-void test_rpc_sends_l1_client_state_to_l1_prover(void) {
-  set_state(ROLLUPX, FIXTURE); // states_1 = 0x0173070000, nothing stored for the L2 chain id
-  c4_rpc_ctx_t* rpc = c4_rpc_ctx_create("eth_blockNumber", "[]", ROLLUPX, 0, 0, C4_PROVER_MODE_LOCAL);
-  TEST_ASSERT_EQUAL_INT(C4_PENDING, c4_rpc_execute(rpc));
-  data_request_t* req = c4_state_get_pending_request(c4_rpc_get_state(rpc));
+// Runs the RPC pipeline for `eth_blockNumber` in `mode` against the local-mode fixture and
+// counts what the host is asked for. A request of the prover of the L2 (remote mode) fails,
+// a request whose mock name starts with `fail_prefix` (may be NULL) fails as well.
+typedef struct {
+  int         l1_prover; // PROVER requests for the L1 chain
+  int         l2_prover; // PROVER requests for the rollup
+  int         l1_rpc;    // execution RPC requests for the L1 chain
+  int         l2_rpc;    // execution RPC requests for the rollup
+  int         l1_beacon; // Beacon API requests, always for the L1 chain
+  int         other;     // anything else, including a Beacon API request for the rollup
+  c4_status_t status;
+  char*       error; // owned
+} host_requests_t;
+
+static host_requests_t run_and_count(c4_prover_mode_t mode, const char* fail_prefix) {
+  host_requests_t out = {.status = C4_PENDING};
+  c4_rpc_ctx_t*   rpc = c4_rpc_ctx_create("eth_blockNumber", "[]", ROLLUPX, 0, 0, mode);
+  for (int i = 0; i < 40 && out.status == C4_PENDING; i++) {
+    out.status = c4_rpc_execute(rpc);
+    if (out.status != C4_PENDING) break;
+    data_request_t* req = NULL;
+    while ((req = c4_state_get_pending_request(c4_rpc_get_state(rpc)))) {
+      char* name = c4_req_mockname(req);
+      bool  l1   = req->chain_id == C4_CHAIN_MAINNET;
+      bool  l2   = req->chain_id == ROLLUPX;
+      if (req->type == C4_DATA_TYPE_PROVER && (l1 || l2))
+        (l1 ? out.l1_prover++ : out.l2_prover++);
+      else if (req->type == C4_DATA_TYPE_ETH_RPC && (l1 || l2))
+        (l1 ? out.l1_rpc++ : out.l2_rpc++);
+      else if (req->type == C4_DATA_TYPE_BEACON_API && l1)
+        out.l1_beacon++;
+      else
+        out.other++;
+
+      char path[1024];
+      snprintf(path, sizeof(path), "%s/%s", LOCAL_FIXTURE, name);
+      bytes_t content = NULL_BYTES;
+      if (req->type != C4_DATA_TYPE_PROVER && !(fail_prefix && strncmp(name, fail_prefix, strlen(fail_prefix)) == 0)) content = read_testdata(path);
+      if (content.data)
+        req->response = content;
+      else
+        req->error = bprintf(NULL, "no answer for %s", name);
+      safe_free(name);
+    }
+  }
+  const char* msg = rpc_error(rpc);
+  out.error       = msg ? strdup(msg) : NULL;
+  c4_rpc_ctx_free(rpc);
+  return out;
+}
+
+// Local mode needs no prover: the proof of the L1 block is built by a local prover of the
+// L1 chain. The host only sees execution RPC requests of both chains and Beacon API
+// requests of the L1.
+void test_local_mode_builds_the_l1_proof_locally(void) {
+  set_state(ROLLUPX, LOCAL_FIXTURE);
+  host_requests_t seen = run_and_count(C4_PROVER_MODE_LOCAL, NULL);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(C4_SUCCESS, seen.status, seen.error ? seen.error : "no error");
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, seen.l1_prover, "no prover of the L1 is asked");
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, seen.l2_prover, "no prover of the L2 is asked");
+  TEST_ASSERT_EQUAL_INT_MESSAGE(1, seen.l1_rpc, "eth_getProof of the EEZ proxy on L1");
+  TEST_ASSERT_EQUAL_INT_MESSAGE(1, seen.l2_rpc, "the anchor block from the L2 node");
+  TEST_ASSERT_TRUE_MESSAGE(seen.l1_beacon >= 1, "the L1 block from the Beacon API");
+  TEST_ASSERT_EQUAL_INT(0, seen.other);
+  safe_free(seen.error);
+}
+
+// The local fallback of remote mode is a local proof as a whole: when the prover of the L2
+// does not answer, the L1 proof is built locally as well.
+void test_remote_mode_falls_back_to_a_local_proof(void) {
+  set_state(ROLLUPX, LOCAL_FIXTURE);
+  host_requests_t seen = run_and_count(C4_PROVER_MODE_REMOTE, NULL);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(C4_SUCCESS, seen.status, seen.error ? seen.error : "no error");
+  TEST_ASSERT_EQUAL_INT_MESSAGE(1, seen.l2_prover, "the prover of the L2 is asked first");
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, seen.l1_prover, "no prover of the L1 is asked");
+  TEST_ASSERT_EQUAL_INT(1, seen.l1_rpc);
+  TEST_ASSERT_EQUAL_INT(1, seen.l2_rpc);
+  TEST_ASSERT_EQUAL_INT(0, seen.other);
+  safe_free(seen.error);
+}
+
+// A failure of the local L1 prover ends the request with the error of the L1 request.
+void test_local_mode_reports_the_error_of_the_l1_proof(void) {
+  set_state(ROLLUPX, LOCAL_FIXTURE);
+  host_requests_t seen = run_and_count(C4_PROVER_MODE_LOCAL, "eth_getProof_");
+  TEST_ASSERT_EQUAL_INT(C4_ERROR, seen.status);
+  TEST_ASSERT_NOT_NULL(seen.error);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(seen.error, "L1 prover request for the EEZ anchor failed"), seen.error);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(seen.error, "no answer for eth_getProof_"), seen.error);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(0, seen.l2_rpc, "the L2 node is not asked without an anchor");
+  safe_free(seen.error);
+}
+
+// The prover of the L2 on its own (a prover server, or the CLI prover) asks the prover of
+// the L1 and passes the client state of the L1 chain on.
+void test_prover_sends_l1_client_state_to_l1_prover(void) {
+  static const uint8_t client_state[] = {0x01, 0x73, 0x07, 0x00, 0x00};
+  prover_ctx_t*        ctx            = c4_prover_create("eth_blockNumber", "[]", ROLLUPX, 0);
+  ctx->client_state                   = bytes_dup(bytes((uint8_t*) client_state, sizeof(client_state)));
+  TEST_ASSERT_EQUAL_INT(C4_PENDING, c4_prover_execute(ctx));
+  data_request_t* req = c4_state_get_pending_request(&ctx->state);
   TEST_ASSERT_NOT_NULL(req);
   TEST_ASSERT_EQUAL_INT(C4_DATA_TYPE_PROVER, req->type);
   TEST_ASSERT_TRUE(req->chain_id == C4_CHAIN_MAINNET);
@@ -1653,11 +1858,11 @@ void test_rpc_sends_l1_client_state_to_l1_prover(void) {
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(payload, expected), payload);
   safe_free(expected);
   safe_free(payload);
-  c4_rpc_ctx_free(rpc);
+  c4_prover_free(ctx);
 
   // the version is the one of this build, not the one of the client
-  prover_ctx_t* ctx = c4_prover_create("eth_blockNumber", "[]", ROLLUPX, 0);
-  ctx->version      = c4_version_number(1, 0, 0);
+  ctx          = c4_prover_create("eth_blockNumber", "[]", ROLLUPX, 0);
+  ctx->version = c4_version_number(1, 0, 0);
   TEST_ASSERT_EQUAL_INT(C4_PENDING, c4_prover_execute(ctx));
   payload  = bprintf(NULL, "%r", ctx->state.requests->payload);
   expected = bprintf(NULL, "\"version\":%d}", c4_current_version_number());
@@ -1958,9 +2163,10 @@ void test_logs_proof_for_a_chain_without_chain_spec(void) {
 
 // The JSON-RPC answer of `eth_getProof` for the EIP-2935 history contract with `value`
 // in the slot of block `number`. The tries are synthetic, so the proof is consistent in
-// itself but does not belong to the state of the recorded anchor. `value_json` replaces the
-// `value` field of the answer when set (a node reports it as a quantity).
-static bytes_t history_proof_answer(uint64_t number, bytes_t value, const char* value_json) {
+// itself but does not belong to the state of the recorded anchor. `key_json` and
+// `value_json` replace the `key` and the `value` field of the answer when set (a node
+// may report both as quantities without leading zeros).
+static bytes_t history_proof_answer_with(uint64_t number, bytes_t value, const char* key_json, const char* value_json) {
   bytes32_t slot = {0};
   buffer_t  json = {0};
   eth_eip2935_slot(number, slot);
@@ -1973,7 +2179,12 @@ static bytes_t history_proof_answer(uint64_t number, bytes_t value, const char* 
   bprintf(&json, "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"address\":\"0x%x\",\"accountProof\":[", bytes((uint8_t*) ETH_EIP2935_HISTORY_ADDRESS, 20));
   for (uint32_t i = 0; i < ssz_len(account_proof); i++) bprintf(&json, "%s\"0x%x\"", i ? "," : "", ssz_at(account_proof, i).bytes);
   // code hash and storage hash only have to be 32-byte words: the prover does not read them
-  bprintf(&json, "],\"balance\":\"0x0\",\"codeHash\":\"0x%x\",\"nonce\":\"0x1\",\"storageHash\":\"0x%x\",\"storageProof\":[{\"key\":\"0x%x\",\"value\":", bytes(slot, 32), bytes(slot, 32), bytes(slot, 32));
+  bprintf(&json, "],\"balance\":\"0x0\",\"codeHash\":\"0x%x\",\"nonce\":\"0x1\",\"storageHash\":\"0x%x\",\"storageProof\":[{\"key\":", bytes(slot, 32), bytes(slot, 32));
+  if (key_json)
+    bprintf(&json, "\"%s\"", key_json);
+  else
+    bprintf(&json, "\"0x%x\"", bytes(slot, 32));
+  bprintf(&json, ",\"value\":");
   if (value_json)
     bprintf(&json, "\"%s\"", value_json);
   else
@@ -1983,6 +2194,11 @@ static bytes_t history_proof_answer(uint64_t number, bytes_t value, const char* 
   bprintf(&json, "]}]}}");
   safe_free(synth.account.bytes.data);
   return json.data;
+}
+
+// `history_proof_answer_with` with the full 32-byte key, the way it was requested.
+static bytes_t history_proof_answer(uint64_t number, bytes_t value, const char* value_json) {
+  return history_proof_answer_with(number, value, NULL, value_json);
 }
 
 // 32 bytes from a hex string without prefix.
@@ -2162,6 +2378,263 @@ void test_history_proof_answer_is_checked(void) {
   assert_prover_error_with("eth_getBlockByNumber", "[\"" PARENT_NUMBER_HEX "\",false]", "eth_getProof_", str_bytes("{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32000,\"message\":\"distance to target block exceeds maximum proof window\"}}"), "distance to target block exceeds maximum proof window");
 }
 
+// A node may echo the storage key as a quantity. The proof always carries the 32-byte word.
+void test_history_proof_with_a_short_key(void) {
+  static const char* keys[] = {"0xa1d", "0x0a1d", "0x0000000000000000000000000000000000000000000000000000000000000a1d"};
+  bytes32_t          parent = {0};
+  bytes32_t          slot   = {0};
+  char*              error  = NULL;
+  set_state(ROLLUPX, FIXTURE);
+  eth_eip2935_slot(PARENT_NUMBER, slot);
+
+  for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++) {
+    bytes_t    answer      = history_proof_answer_with(PARENT_NUMBER, hash_of(PARENT_HASH_HEX, parent), keys[i], NULL);
+    override_t overrides[] = {{HISTORY_PROOF_REQUEST, answer}, {NULL, NULL_BYTES}};
+    bytes_t    request     = prove_with("eth_getBlockHeader", "[\"" PARENT_NUMBER_HEX "\"]", 0, NULL, overrides, &error);
+    TEST_ASSERT_NOT_NULL_MESSAGE(request.data, error ? error : keys[i]);
+
+    ssz_ob_t   req       = {.def = eth_ssz_verification_type(ETH_SSZ_VERIFY_REQUEST), .bytes = request};
+    c4_state_t ssz_state = {0};
+    TEST_ASSERT_TRUE_MESSAGE(ssz_is_valid(req, true, &ssz_state), ssz_state.error ? ssz_state.error : keys[i]);
+    ssz_ob_t proof   = ssz_get(&req, "proof");
+    ssz_ob_t el      = ssz_get(&proof, "elProof");
+    ssz_ob_t account = ssz_get(&el, "account");
+    ssz_ob_t entry   = ssz_at(ssz_get(&account, "storageProof"), 0);
+    TEST_ASSERT_EQUAL_STRING_MESSAGE("eip2935", el.def->name, keys[i]);
+    TEST_ASSERT_EQUAL_UINT32_MESSAGE(32, ssz_get(&entry, "key").bytes.len, keys[i]);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY_MESSAGE(slot, ssz_get(&entry, "key").bytes.data, 32, keys[i]);
+
+    safe_free(request.data);
+    safe_free(answer.data);
+    safe_free(error);
+    error = NULL;
+  }
+
+  // a short key of another slot, and a key that is no 32-byte word
+  static const char* rejected[][2] = {
+      {"0xa1e", "returned the proof of another slot"},
+      {"0x010000000000000000000000000000000000000000000000000000000000000a1d", "eth_getProof"},
+  };
+  for (size_t i = 0; i < sizeof(rejected) / sizeof(rejected[0]); i++) {
+    bytes_t    answer      = history_proof_answer_with(PARENT_NUMBER, hash_of(PARENT_HASH_HEX, parent), rejected[i][0], NULL);
+    override_t overrides[] = {{HISTORY_PROOF_REQUEST, answer}, {NULL, NULL_BYTES}};
+    TEST_ASSERT_NULL_MESSAGE(prove_with("eth_getBlockHeader", "[\"" PARENT_NUMBER_HEX "\"]", 0, NULL, overrides, &error).data, rejected[i][0]);
+    TEST_ASSERT_NOT_NULL_MESSAGE(error, rejected[i][0]);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(error, rejected[i][1]), error);
+    safe_free(answer.data);
+    safe_free(error);
+    error = NULL;
+  }
+}
+
+// Runs `c4_eth_get_eip2935_proof` for the parent of the anchor against a node that answers
+// with `answer`. Returns the status; `hash` receives the stored hash, `error` an owned copy
+// of the error.
+static c4_status_t read_history_slot(bytes_t answer, bytes32_t hash, char** error) {
+  override_t    overrides[] = {{HISTORY_PROOF_REQUEST, answer}, {NULL, NULL_BYTES}};
+  prover_ctx_t* ctx         = c4_prover_create("eth_getBlockHeader", "[\"" PARENT_NUMBER_HEX "\"]", ROLLUPX, 0);
+  json_t        proof       = {0};
+  c4_status_t   status      = C4_PENDING;
+  for (int i = 0; i < 5 && status == C4_PENDING; i++) {
+    status = c4_eth_get_eip2935_proof(ctx, PARENT_NUMBER, ANCHOR_NUMBER, &proof, hash);
+    if (status == C4_PENDING) answer_with_overrides(&ctx->state, overrides);
+  }
+  if (error) *error = ctx->state.error ? strdup(ctx->state.error) : NULL;
+  c4_prover_free(ctx);
+  return status;
+}
+
+// The storage value is a quantity: a hash with leading zero nibbles comes back shorter.
+void test_history_proof_value_shapes(void) {
+  bytes32_t parent   = {0};
+  bytes32_t hash     = {0};
+  bytes32_t expected = {0};
+  char*     error    = NULL;
+  hash_of(PARENT_HASH_HEX, parent);
+
+  // 63 nibbles: the first nibble of the hash is zero
+  memcpy(expected, parent, 32);
+  expected[0] &= 0x0f;
+  bytes_t answer = history_proof_answer(PARENT_NUMBER, bytes(parent, 32), "0x"
+                                                                          "6523831d64a5c58c1cb5fdaaa47975c96930b036257a4d4c35e48ce5dadeac2");
+  TEST_ASSERT_EQUAL_INT_MESSAGE(C4_SUCCESS, read_history_slot(answer, hash, &error), error ? error : "63 nibbles");
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, hash, 32);
+  safe_free(answer.data);
+  safe_free(error);
+
+  // a single byte
+  memset(expected, 0, 32);
+  expected[31] = 0xab;
+  answer       = history_proof_answer(PARENT_NUMBER, bytes(parent, 32), "0xab");
+  TEST_ASSERT_EQUAL_INT_MESSAGE(C4_SUCCESS, read_history_slot(answer, hash, &error), error ? error : "one byte");
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, hash, 32);
+  safe_free(answer.data);
+  safe_free(error);
+
+  // an empty slot
+  memset(expected, 0, 32);
+  memset(hash, 0xff, 32);
+  answer = history_proof_answer(PARENT_NUMBER, bytes(parent, 32), "0x0");
+  TEST_ASSERT_EQUAL_INT_MESSAGE(C4_SUCCESS, read_history_slot(answer, hash, &error), error ? error : "zero");
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, hash, 32);
+  safe_free(answer.data);
+  safe_free(error);
+
+  // not a quantity of at most 32 bytes: an error, and never a hash
+  static const char* invalid[] = {
+      "0x0036523831d64a5c58c1cb5fdaaa47975c96930b036257a4d4c35e48ce5dadeac2",  // leading zeros
+      "0x136523831d64a5c58c1cb5fdaaa47975c96930b036257a4d4c35e48ce5dadeac2",   // 65 nibbles
+      "0x01136523831d64a5c58c1cb5fdaaa47975c96930b036257a4d4c35e48ce5dadeac2", // 33 bytes
+  };
+  for (size_t i = 0; i < sizeof(invalid) / sizeof(invalid[0]); i++) {
+    memset(hash, 0xff, 32);
+    answer = history_proof_answer(PARENT_NUMBER, bytes(parent, 32), invalid[i]);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(C4_ERROR, read_history_slot(answer, hash, &error), invalid[i]);
+    TEST_ASSERT_NOT_NULL_MESSAGE(error, invalid[i]);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY_MESSAGE(expected, hash, 32, invalid[i]);
+    safe_free(answer.data);
+    safe_free(error);
+    error = NULL;
+  }
+}
+
+// The node must answer with exactly the one storage proof that was asked for.
+void test_history_proof_needs_exactly_one_storage_proof(void) {
+  bytes32_t parent = {0};
+  bytes32_t hash   = {0};
+  char*     error  = NULL;
+  bytes_t   answer = history_proof_answer(PARENT_NUMBER, hash_of(PARENT_HASH_HEX, parent), NULL);
+  char*     list   = strstr((char*) answer.data, "\"storageProof\":[");
+  TEST_ASSERT_NOT_NULL(list);
+  char* entry = list + strlen("\"storageProof\":[");
+  char* end   = strstr(entry, "}]}}");
+  TEST_ASSERT_NOT_NULL(end);
+
+  // no entry
+  buffer_t none = {0};
+  buffer_append(&none, bytes(answer.data, (uint32_t) (entry - (char*) answer.data)));
+  buffer_add_chars(&none, "]}}");
+  TEST_ASSERT_EQUAL_INT(C4_ERROR, read_history_slot(none.data, hash, &error));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(error, "must return exactly one storage proof"), error);
+  safe_free(error);
+  buffer_free(&none);
+
+  // the same entry twice
+  buffer_t twice = {0};
+  buffer_append(&twice, bytes(answer.data, (uint32_t) (end + 1 - (char*) answer.data)));
+  buffer_add_chars(&twice, ",");
+  buffer_append(&twice, bytes((uint8_t*) entry, (uint32_t) (end + 1 - entry)));
+  buffer_add_chars(&twice, "]}}");
+  TEST_ASSERT_EQUAL_INT(C4_ERROR, read_history_slot(twice.data, hash, &error));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(error, "must return exactly one storage proof"), error);
+  safe_free(error);
+  buffer_free(&twice);
+  safe_free(answer.data);
+}
+
+// The anchor requested by its number or by its hash is the anchor: the same `eezL1Proof`
+// as for `latest`, without a history proof, and it verifies.
+void test_anchor_by_number_and_hash_without_body(void) {
+  static const char* args[] = {"[\"" ANCHOR_NUMBER_HEX "\"]", "[\"" ANCHOR_HASH "\"]"};
+  char*              error  = NULL;
+  set_state(ROLLUPX, FIXTURE);
+  bytes_t latest = prove("eth_getBlockHeader", "[\"latest\"]", &error);
+  TEST_ASSERT_NOT_NULL_MESSAGE(latest.data, error ? error : "prover failed");
+  safe_free(error);
+  error = NULL;
+
+  for (size_t i = 0; i < sizeof(args) / sizeof(args[0]); i++) {
+    bytes_t request = prove("eth_getBlockHeader", args[i], &error);
+    TEST_ASSERT_NOT_NULL_MESSAGE(request.data, error ? error : args[i]);
+    safe_free(error);
+    error = NULL;
+    TEST_ASSERT_EQUAL_UINT32_MESSAGE(latest.len, request.len, args[i]);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY_MESSAGE(latest.data, request.data, latest.len, args[i]);
+
+    reset_local_filecache();
+    c4_header_cache_clear();
+    set_state(ROLLUPX, FIXTURE);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(C4_SUCCESS, verify_request(request, "eth_getBlockHeader", args[i], ROLLUPX, &error, NULL), error ? error : args[i]);
+    safe_free(error);
+    error = NULL;
+    safe_free(request.data);
+  }
+  safe_free(latest.data);
+}
+
+// A client that already verified the block before the anchor gets the `blockHash` variant.
+void test_block_before_the_anchor_known_to_the_client(void) {
+  bytes32_t  parent      = {0};
+  char*      error       = NULL;
+  bytes_t    answer      = history_proof_answer(PARENT_NUMBER, hash_of(PARENT_HASH_HEX, parent), NULL);
+  override_t overrides[] = {{HISTORY_PROOF_REQUEST, answer}, {NULL, NULL_BYTES}};
+  set_state(ROLLUPX, FIXTURE);
+  bytes_t request = prove_with("eth_getBlockByNumber", "[\"" PARENT_NUMBER_HEX "\",false]", 0, parent, overrides, &error);
+  TEST_ASSERT_NOT_NULL_MESSAGE(request.data, error ? error : "prover failed");
+  ssz_ob_t req   = {.def = eth_ssz_verification_type(ETH_SSZ_VERIFY_REQUEST), .bytes = request};
+  ssz_ob_t proof = ssz_get(&req, "proof");
+  ssz_ob_t el    = ssz_get(&proof, "elProof");
+  TEST_ASSERT_EQUAL_STRING("blockHash", el.def->name);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(parent, el.bytes.data, 32);
+  safe_free(request.data);
+  safe_free(answer.data);
+  safe_free(error);
+}
+
+#ifdef EL_HEADER_CACHE
+// A complete request with an `eip2935` proof verifies for RollupX. The proof is synthetic:
+// the newer block is referenced by hash, so it must be a header the verifier holds for the
+// rollup. A header cached for the L1 does not count.
+void test_eip2935_request_verifies_for_rollupx(void) {
+  synth_eip2935_opts_t opts  = {.older = SYNTH_EIP2935_NEWER - 100, .account = SYNTH_VALID, .unknown_newer = true};
+  synth_eip2935_case_t c     = synth_eip2935_case(opts, ROLLUPX);
+  char*                error = NULL;
+  char                 args[40];
+  uint8_t              none = 0;
+  snprintf(args, sizeof(args), "[\"0x%llx\"]", (unsigned long long) opts.older);
+
+  // a header-only block proof around the synthetic `eip2935` member
+  ssz_builder_t block = ssz_builder_for_type(ETH_SSZ_VERIFY_BLOCK_PROOF);
+  ssz_add_bytes(&block, "body", bytes(&none, 1));
+  ssz_add_ob(&block, "elProof", c.proof);
+  ssz_ob_t proof = ssz_builder_to_bytes(&block);
+
+  set_state(ROLLUPX, FIXTURE);
+  bytes_t template = prove("eth_getBlockHeader", "[\"latest\"]", &error);
+  TEST_ASSERT_NOT_NULL_MESSAGE(template.data, error ? error : "prover failed");
+  safe_free(error);
+  error           = NULL;
+  bytes_t request = rebuild_request(template, &proof, false);
+
+  // the newer block is unknown
+  c4_header_cache_clear();
+  assert_rejected(request, "eth_getBlockHeader", args, "referenced block header not found in the verifier cache!");
+  // known as a block of the L1 only
+  c4_header_cache_put(C4_CHAIN_MAINNET, SYNTH_EIP2935_NEWER, c.newer_hash, c.newer_header, NULL);
+  assert_rejected(request, "eth_getBlockHeader", args, "referenced block header not found in the verifier cache!");
+  TEST_ASSERT_NULL(c4_header_cache_get_by_hash(ROLLUPX, c.older_hash));
+
+  // known as a block of the rollup: accepted, and the older block is cached for the rollup
+  c4_header_cache_put(ROLLUPX, SYNTH_EIP2935_NEWER, c.newer_hash, c.newer_header, NULL);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(C4_SUCCESS, verify_request(request, "eth_getBlockHeader", args, ROLLUPX, &error, NULL), error ? error : "no error");
+  safe_free(error);
+  TEST_ASSERT_NOT_NULL(c4_header_cache_get_by_hash(ROLLUPX, c.older_hash));
+  TEST_ASSERT_NULL(c4_header_cache_get_by_hash(C4_CHAIN_MAINNET, c.older_hash));
+
+  // the proof does not answer a request for another block
+  error = NULL;
+  TEST_ASSERT_EQUAL_INT(C4_ERROR, verify_request(request, "eth_getBlockHeader", "[\"0x1\"]", ROLLUPX, &error, NULL));
+  TEST_ASSERT_NOT_NULL(error);
+  safe_free(error);
+
+  c4_header_cache_clear();
+  safe_free(request.data);
+  safe_free(template.data);
+  safe_free(proof.bytes.data);
+  synth_eip2935_free(&c);
+}
+#endif
+
 // The resolved block is kept per request: the second lookup of the same block sends nothing.
 void test_block_before_the_anchor_is_resolved_once(void) {
   bytes32_t     parent      = {0};
@@ -2180,9 +2653,9 @@ void test_block_before_the_anchor_is_resolved_once(void) {
   TEST_ASSERT_EQUAL_INT(C4_BLOCK_PROOF_TYPE_EEZ, block.proof_type);
   TEST_ASSERT_EQUAL_UINT64(PARENT_NUMBER, block.slot);
   TEST_ASSERT_EQUAL_UINT8_ARRAY(parent, block.el_block_hash, 32);
-  TEST_ASSERT_NOT_NULL(block.eez.anchor_header.data);
-  TEST_ASSERT_EQUAL_UINT64(ANCHOR_NUMBER, eth_el_header_get_uint64(block.eez.anchor_header, EL_BLOCK_NUMBER));
-  TEST_ASSERT_NOT_NULL(block.eez.history_proof.start);
+  TEST_ASSERT_NOT_NULL(block.eez.history.newer_header.data);
+  TEST_ASSERT_EQUAL_UINT64(ANCHOR_NUMBER, eth_el_header_get_uint64(block.eez.history.newer_header, EL_BLOCK_NUMBER));
+  TEST_ASSERT_NOT_NULL(block.eez.history.history_proof.start);
 
   int requests = 0;
   for (data_request_t* req = ctx->state.requests; req; req = req->next) requests++;
@@ -2191,7 +2664,7 @@ void test_block_before_the_anchor_is_resolved_once(void) {
   for (data_request_t* req = ctx->state.requests; req; req = req->next) after++;
   TEST_ASSERT_EQUAL_INT(requests, after);
   TEST_ASSERT_EQUAL_PTR(block.el_header.data, again.el_header.data);
-  TEST_ASSERT_EQUAL_PTR(block.eez.anchor_header.data, again.eez.anchor_header.data);
+  TEST_ASSERT_EQUAL_PTR(block.eez.history.newer_header.data, again.eez.history.newer_header.data);
 
   // the anchor of the same context has no history proof
   eth_block_t anchor = {0};
@@ -2202,8 +2675,8 @@ void test_block_before_the_anchor_is_resolved_once(void) {
   }
   TEST_ASSERT_EQUAL_INT(C4_SUCCESS, status);
   TEST_ASSERT_EQUAL_UINT64(ANCHOR_NUMBER, anchor.slot);
-  TEST_ASSERT_NULL(anchor.eez.anchor_header.data);
-  TEST_ASSERT_NULL(anchor.eez.history_proof.start);
+  TEST_ASSERT_NULL(anchor.eez.history.newer_header.data);
+  TEST_ASSERT_NULL(anchor.eez.history.history_proof.start);
 
   c4_prover_free(ctx);
   safe_free(answer.data);
@@ -2212,10 +2685,10 @@ void test_block_before_the_anchor_is_resolved_once(void) {
 // The verifier hook of an EEZ chain accepts `eip2935` proofs. The proof is synthetic: the
 // newer block is a header the context already verified for RollupX.
 void test_block_hook_accepts_eip2935(void) {
-  eip2935_opts_t opts   = {.older = SYNTH_EIP2935_NEWER - 100, .account = SYNTH_VALID};
-  eip2935_case_t c      = synth_eip2935_case(opts, ROLLUPX);
-  bytes_t        header = NULL_BYTES;
-  bytes32_t      hash   = {0};
+  synth_eip2935_opts_t opts   = {.older = SYNTH_EIP2935_NEWER - 100, .account = SYNTH_VALID};
+  synth_eip2935_case_t c      = synth_eip2935_case(opts, ROLLUPX);
+  bytes_t              header = NULL_BYTES;
+  bytes32_t            hash   = {0};
 
   // through the dispatcher of the Ethereum module, as every proof verifier calls it
   TEST_ASSERT_EQUAL_INT_MESSAGE(C4_SUCCESS, c4_verify_block(&c.ctx, c.proof, &header, hash), c.ctx.state.error ? c.ctx.state.error : "eip2935 must be accepted for RollupX");
@@ -2270,6 +2743,9 @@ int main(void) {
   RUN_TEST(test_storage_value_truncated_proofs);
 
   RUN_TEST(test_fixture_block_by_number);
+  RUN_TEST(test_local_fixture_serves_the_standalone_prover);
+  RUN_TEST(test_fixture_block_by_number_remote);
+  RUN_TEST(test_local_mode_from_a_checkpoint);
   RUN_TEST(test_fixture_sync_data_is_forwarded_and_stored_for_l1);
   RUN_TEST(test_fixture_proof_contains_sync_data);
   RUN_TEST(test_fixture_methods_and_block_identifiers);
@@ -2293,7 +2769,10 @@ int main(void) {
   RUN_TEST(test_l1_prover_answer_must_be_an_account_proof_with_a_cl_proof);
   RUN_TEST(test_l1_answer_without_sync_data);
   RUN_TEST(test_hybrid_and_light_client_mode);
-  RUN_TEST(test_rpc_sends_l1_client_state_to_l1_prover);
+  RUN_TEST(test_prover_sends_l1_client_state_to_l1_prover);
+  RUN_TEST(test_local_mode_builds_the_l1_proof_locally);
+  RUN_TEST(test_remote_mode_falls_back_to_a_local_proof);
+  RUN_TEST(test_local_mode_reports_the_error_of_the_l1_proof);
   RUN_TEST(test_local_methods_and_unknown_eez_chain);
   RUN_TEST(test_storage_value_malformed_leaf);
   RUN_TEST(test_storage_value_malformed_storage_hash_and_leaf);
@@ -2306,6 +2785,14 @@ int main(void) {
   RUN_TEST(test_history_proof_of_another_state_is_rejected);
   RUN_TEST(test_history_proof_request);
   RUN_TEST(test_history_proof_answer_is_checked);
+  RUN_TEST(test_history_proof_with_a_short_key);
+  RUN_TEST(test_history_proof_value_shapes);
+  RUN_TEST(test_history_proof_needs_exactly_one_storage_proof);
+  RUN_TEST(test_anchor_by_number_and_hash_without_body);
+  RUN_TEST(test_block_before_the_anchor_known_to_the_client);
+#ifdef EL_HEADER_CACHE
+  RUN_TEST(test_eip2935_request_verifies_for_rollupx);
+#endif
   RUN_TEST(test_block_before_the_anchor_is_resolved_once);
   RUN_TEST(test_block_hook_accepts_eip2935);
 #endif

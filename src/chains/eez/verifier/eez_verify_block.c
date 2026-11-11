@@ -51,7 +51,8 @@ c4_status_t eez_verify_l1_proof(verify_ctx_t* ctx, ssz_ob_t block, bytes_t* el_h
 
   bytes_t  l2_header = ssz_get(&block, "elHeader").bytes;
   ssz_ob_t account   = ssz_get(&block, "account");
-  ssz_ob_t l1_proof  = ssz_get(&account, "elProof");
+  if (!account.def) THROW_ERROR("missing account proof in the EEZ proof!");
+  ssz_ob_t l1_proof = ssz_get(&account, "elProof");
   if (!l2_header.data || !l2_header.len) THROW_ERROR("missing L2 header in the EEZ proof!");
 
   // Only a full consensus proof is accepted for the L1 block. In particular `blockHash`

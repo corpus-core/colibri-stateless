@@ -39,10 +39,10 @@ c4_status_t c4_verify_eip2935_block(verify_ctx_t* ctx, ssz_ob_t block, bytes_t* 
   if (!block.def || !block.def->name || strcmp(block.def->name, "eip2935") != 0)
     THROW_ERROR("invalid block proof, expected eip2935!");
 
-  bytes_t  header       = ssz_get(&block, "elHeader").bytes;
-  ssz_ob_t account      = ssz_get(&block, "account");
-  ssz_ob_t newer_proof  = ssz_get(&account, "elProof");
-  ssz_ob_t storage_list = ssz_get(&account, "storageProof");
+  bytes_t  header  = ssz_get(&block, "elHeader").bytes;
+  ssz_ob_t account = ssz_get(&block, "account");
+  if (!account.def) THROW_ERROR("missing account proof in the eip2935 proof!");
+  ssz_ob_t newer_proof = ssz_get(&account, "elProof");
   if (!header.data || !header.len) THROW_ERROR("missing header in the eip2935 proof!");
   if (!newer_proof.def || !newer_proof.def->name) THROW_ERROR("missing proof of the newer block in the eip2935 proof!");
 
@@ -56,25 +56,20 @@ c4_status_t c4_verify_eip2935_block(verify_ctx_t* ctx, ssz_ob_t block, bytes_t* 
   bytes32_t newer_hash   = {0};
   TRY_ASYNC(c4_verify_block(ctx, newer_proof, &newer_header, newer_hash));
 
-  // 2. the value of the proven history slot in the state of the newer block. The slot is
-  //    taken from the proof here and bound to the block number in step 4: the header is
-  //    not parsed before its hash is authenticated.
+  // 2. + 3. the history contract (exactly one storage proof) in the state of the newer
+  //    block. The slot is taken from the proof here and bound to the block number in
+  //    step 5: the header is not parsed before its hash is authenticated.
   bytes32_t slot     = {0};
   bytes32_t expected = {0};
   bytes32_t value    = {0};
-  if (!storage_list.def || ssz_len(storage_list) != 1) THROW_ERROR("eip2935 proof must contain exactly one storage proof!");
-  ssz_ob_t storage = ssz_at(storage_list, 0);
-  ssz_ob_t key     = ssz_get(&storage, "key");
-  if (!key.def || key.bytes.len != 32) THROW_ERROR("invalid storage key in the eip2935 proof!");
-  memcpy(slot, key.bytes.data, 32);
-  TRY_ASYNC(eth_verify_storage_slot(&ctx->state, account, ETH_EIP2935_HISTORY_ADDRESS, slot, eth_el_header_get(newer_header, EL_STATE_ROOT), value));
+  TRY_ASYNC(eth_verify_storage_proof(&ctx->state, account, ETH_EIP2935_HISTORY_ADDRESS, eth_el_header_get(newer_header, EL_STATE_ROOT), slot, value));
 
-  // 3. the header is the one whose hash the history contract stores
+  // 4. the header is the one whose hash the history contract stores
   keccak(header, block_hash);
   if (memcmp(value, block_hash, 32) != 0) THROW_ERROR("header does not match the block hash stored in the EIP-2935 history contract!");
   if (!eth_el_header_is_valid(header)) THROW_ERROR("the block stored in the EIP-2935 history contract is not a valid execution header!");
 
-  // 4. the slot is the one of this block number, and the newer block still serves it.
+  // 5. + 6. the slot is the one of this block number, and the newer block still serves it.
   //    A slot is overwritten every 8191 blocks, so outside the window it holds another block.
   uint64_t number       = eth_el_header_get_uint64(header, EL_BLOCK_NUMBER);
   uint64_t newer_number = eth_el_header_get_uint64(newer_header, EL_BLOCK_NUMBER);
