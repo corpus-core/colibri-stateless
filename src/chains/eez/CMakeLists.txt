@@ -81,3 +81,13 @@ add_prover(
   DEPENDS util eth_prover eez_verifier
   PROOF eez_prover_execute
 )
+
+# A prover server for an EEZ chain serves the block proof of hybrid mode. The handler
+# itself is part of the Ethereum server module.
+add_server_handler(
+  NAME eez_server_handler
+  SOURCES
+    server/eez_server.c
+  DEPENDS eez_prover eth_server_handler
+  INIT_FUNC eez_server_init
+)
