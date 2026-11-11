@@ -270,7 +270,7 @@ void c4_ps_schedule_fetch_lcu(uint64_t period) {
   if (graceful_shutdown_in_progress) return;
 
   // Skip if no Beacon API servers configured
-  server_list_t* sl = c4_get_server_list(C4_DATA_TYPE_BEACON_API);
+  server_list_t* sl = c4_get_server_list(C4_DATA_TYPE_BEACON_API, 0);
   if (!sl || sl->count == 0) return;
   static client_t lcu_client = {0};
   lcu_client.being_closed    = false;
@@ -319,7 +319,7 @@ static void lcu_fetch_next(lcu_assemble_ctx_t* ctx) {
     lcu_assemble_finish(ctx);
     return;
   }
-  server_list_t* sl = c4_get_server_list(C4_DATA_TYPE_BEACON_API);
+  server_list_t* sl = c4_get_server_list(C4_DATA_TYPE_BEACON_API, 0);
   if (!sl || sl->count == 0) {
     lcu_assemble_fail(ctx, strdup("no beacon API configured for light client updates"));
     return;
@@ -531,7 +531,7 @@ void c4_ps_build_lcu(uint64_t period) {
 
   // Beacon API servers are required for the state proofs behind the
   // self-build path. Without them the whole exercise is pointless.
-  server_list_t* sl = c4_get_server_list(C4_DATA_TYPE_BEACON_API);
+  server_list_t* sl = c4_get_server_list(C4_DATA_TYPE_BEACON_API, 0);
   if (!sl || sl->count == 0) return;
 
   // Fork-gate up front. The chain-spec fork lookup is a cheap array probe;

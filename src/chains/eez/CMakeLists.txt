@@ -88,6 +88,10 @@ add_server_handler(
   NAME eez_server_handler
   SOURCES
     server/eez_server.c
+    server/eez_conf.c
+    server/blockhash_store.c
   DEPENDS eez_prover eth_server_handler
   INIT_FUNC eez_server_init
+  SHUTDOWN_FUNC eez_server_shutdown
+  CONFIG_FUNC eez_configure
 )

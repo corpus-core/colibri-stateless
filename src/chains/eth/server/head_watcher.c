@@ -489,7 +489,7 @@ static char* join_paths(const char* path1, const char* path2) {
 void c4_watch_beacon_events() {
   if (!eth_config.stream_beacon_events) return;
   if (BEACON_WATCHER_URL == NULL) {
-    server_list_t* list = c4_get_server_list(C4_DATA_TYPE_BEACON_API);
+    server_list_t* list = c4_get_server_list(C4_DATA_TYPE_BEACON_API, 0);
     if (list->count == 0) {
       log_error("No beacon nodes configured!");
       return;

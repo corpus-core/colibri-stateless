@@ -382,7 +382,7 @@ void c4_ps_schedule_verify_period(uint64_t hist_period, uint64_t target_period) 
 
 void c4_ps_schedule_fetch_historical_root(uint64_t period) {
   if (graceful_shutdown_in_progress) return;
-  server_list_t* sl = c4_get_server_list(C4_DATA_TYPE_BEACON_API);
+  server_list_t* sl = c4_get_server_list(C4_DATA_TYPE_BEACON_API, 0);
   if (!sl || sl->count == 0) return;
   static client_t historical_client = {0};
   data_request_t* req               = (data_request_t*) safe_calloc(1, sizeof(data_request_t));

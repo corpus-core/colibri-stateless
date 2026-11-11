@@ -24,6 +24,7 @@
 #include "beacon.h"
 #include "beacon_types.h"
 #include "bytes.h"
+#include "cl_req.h"
 #include "crypto.h"
 #include "eez_chains_conf.h"
 #include "eez_prover.h"
@@ -449,8 +450,40 @@ static c4_status_t resolve_block(prover_ctx_t* ctx, const eez_chain_config_t* co
   if (anchor_number - requested > ETH_EIP2935_HISTORY_WINDOW)
     THROW_ERROR_WITH("block %l is more than %d blocks older than the last block of %s proven on L1 (%l); it needs a historic proof, which is not supported yet", requested, (uint32_t) ETH_EIP2935_HISTORY_WINDOW, conf->name, anchor_number);
 
-  // within the history window of the anchor: the anchor state holds the hash of the block
-  TRY_ASYNC(c4_eth_get_eip2935_proof(ctx, requested, anchor_number, &history, stored_hash));
+  // within the history window of the anchor: the anchor state holds the hash of the block.
+  // When running inside the HTTP server we first try the local blockhash store. The L2
+  // RPC only keeps the last ~100 states, so for any block older than that window the
+  // live `eth_getProof` call fails even though the state was valid at commit time. The
+  // internal handler synthesizes the same JSON shape as the live RPC, so the parser
+  // below does not care which path answered.
+  bool used_snapshot = false;
+#ifdef HTTP_SERVER
+  if (ctx->flags & C4_PROVER_FLAG_UV_SERVER_CTX) {
+    char            path[96]   = {0};
+    buffer_t        path_buf   = stack_buffer(path);
+    bprintf(&path_buf, "eez_blockhash/%l/%d", anchor_number, (uint32_t) (requested % ETH_EIP2935_HISTORY_WINDOW));
+    data_request_t* internal = NULL;
+    c4_status_t     st       = c4_send_internal_request_no_throw(ctx, path, NULL, 0, &internal);
+    if (st == C4_PENDING) return C4_PENDING;
+    if (st == C4_SUCCESS && internal && internal->response.data && internal->response.len > 0) {
+      history = json_parse((char*) internal->response.data);
+      if (history.type == JSON_TYPE_OBJECT) {
+        json_t storage = json_get(history, "storageProof");
+        if (storage.type == JSON_TYPE_ARRAY && json_len(storage) == 1 &&
+            json_as_bytes32(json_get(json_at(storage, 0), "value"), stored_hash)) {
+          used_snapshot = true;
+        }
+      }
+    }
+    // Any error path (no snapshot, anchor mismatch, malformed response) falls back to
+    // the live RPC. The internal request id is derived from the path so a subsequent
+    // `eth_getProof` request uses a different id and is not shadowed by the error.
+  }
+#endif
+  if (!used_snapshot) {
+    memset(stored_hash, 0, 32);
+    TRY_ASYNC(c4_eth_get_eip2935_proof(ctx, requested, anchor_number, &history, stored_hash));
+  }
   if (bytes_all_zero(bytes(stored_hash, 32)))
     THROW_ERROR_WITH("the EIP-2935 history contract of %s holds no hash for block %l in the state of block %l", conf->name, requested, anchor_number);
   if (by_hash && memcmp(stored_hash, requested_hash, 32) != 0)

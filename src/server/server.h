@@ -573,19 +573,42 @@ void           c4_handle_internal_request(single_request_t* r);
 /**
  * Returns the global backend list for RPC, Beacon, Checkpointz, or prover nodes.
  *
+ * For `C4_DATA_TYPE_ETH_RPC`, a chain other than `0` and other than the server's own
+ * chain selects a list registered with `c4_register_eth_rpc_list` (used by L2 modules
+ * to add the L1 RPC of their anchor chain). All other combinations fall back to the
+ * built-in list configured with `-r` / `rpc_nodes` / `prover_nodes` / `beacon_nodes`
+ * / `checkpointz_nodes`.
+ *
  * @param type request type determining which configured URL list is used
- * @return static list owned by the server (do not free)
+ * @param chain_id chain of the request, or `0` when the caller has no request handy
+ * @return static list owned by the server (do not free), or `NULL` for unknown types
  */
-server_list_t* c4_get_server_list(data_request_type_t type);
+server_list_t* c4_get_server_list(data_request_type_t type, chain_id_t chain_id);
+
+/**
+ * Registers an eth RPC server list for `chain_id`.
+ *
+ * Called by L2 server handlers (for example EEZ) to add the RPC of their L1 chain, so
+ * `c4_get_server_list(C4_DATA_TYPE_ETH_RPC, l1_chain_id)` returns it instead of the
+ * list of the server itself. The list is parsed from `csv` (same format as
+ * `rpc_nodes`) and owned by the server; it is freed in `c4_cleanup_curl`.
+ *
+ * Passing the chain of the server, chain `0` or an empty `csv` is a no-op.
+ *
+ * @param chain_id chain of the RPC endpoints (typically the L1 of an L2 server)
+ * @param csv comma-separated list of URLs
+ */
+void c4_register_eth_rpc_list(chain_id_t chain_id, char* csv);
 
 /**
  * Returns proxy override lists from the current `request_t` when present, else the global list.
  *
  * @param type request type (RPC or Beacon for proxy mode)
  * @param req optional request carrying per-client proxy lists
+ * @param chain_id chain of the current request (for the chain-aware RPC lookup)
  * @return list to use for server selection (do not free unless it is a proxy list owned by `req`)
  */
-server_list_t* c4_get_effective_server_list(data_request_type_t type, request_t* req);
+server_list_t* c4_get_effective_server_list(data_request_type_t type, request_t* req, chain_id_t chain_id);
 
 /**
  * Frees URLs, health stats, and client-type arrays allocated by `c4_parse_server_config`.

@@ -380,7 +380,7 @@ bool c4_handle_verify_request(client_t* client) {
       // Get client_state for proof generation/verification
       bytes_t client_state = get_client_state(http_server.chain_id);
 
-      if (c4_get_server_list(C4_DATA_TYPE_PROVER)->count) {
+      if (c4_get_server_list(C4_DATA_TYPE_PROVER, 0)->count) {
         // REMOTE PROVER PATH
         // We have a remote prover configured, use it to get the proof
         buffer_t buffer = {0};
