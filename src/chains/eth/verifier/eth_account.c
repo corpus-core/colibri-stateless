@@ -153,6 +153,63 @@ bool eth_get_storage_value(ssz_ob_t storage, const bytes32_t key, bytes32_t valu
   return true;
 }
 
+// Number of fields of an RLP-encoded account: [nonce, balance, storageHash, codeHash].
+#define ACCOUNT_RLP_FIELDS       4
+#define ACCOUNT_RLP_STORAGE_HASH 2
+
+c4_status_t eth_verify_storage_slot(c4_state_t* state, ssz_ob_t account, const address_t address, const bytes32_t slot, bytes_t state_root, bytes32_t value) {
+  bytes32_t path           = {0};
+  bytes32_t root           = {0};
+  bytes_t   rlp_account    = NULL_BYTES;
+  bytes_t   storage_hash   = NULL_BYTES;
+  bytes_t   leaf           = NULL_BYTES;
+  ssz_ob_t  proven_address = ssz_get(&account, "address");
+  ssz_ob_t  account_proof  = ssz_get(&account, "accountProof");
+  ssz_ob_t  storage_list   = ssz_get(&account, "storageProof");
+
+  memset(value, 0, 32);
+  if (!state_root.data || state_root.len != 32) return c4_state_add_error(state, "missing state root for the storage proof!");
+  if (!proven_address.def || !account_proof.def || !storage_list.def) return c4_state_add_error(state, "invalid account proof!");
+
+  // 1. the proof must be about the expected contract, and about nothing but the expected slot
+  if (proven_address.bytes.len != ADDRESS_SIZE || memcmp(proven_address.bytes.data, address, ADDRESS_SIZE) != 0)
+    return c4_state_add_error(state, "account proof is not about the expected contract!");
+  if (ssz_len(storage_list) != 1)
+    return c4_state_add_error(state, "account proof must contain exactly one storage proof!");
+
+  ssz_ob_t storage = ssz_at(storage_list, 0);
+  ssz_ob_t key     = ssz_get(&storage, "key");
+  ssz_ob_t proof   = ssz_get(&storage, "proof");
+  if (!key.def || !proof.def || key.bytes.len != 32 || memcmp(key.bytes.data, slot, 32) != 0)
+    return c4_state_add_error(state, "storage proof is not about the expected slot!");
+
+  // 2. account proof against the state root. An exclusion proof is not acceptable:
+  //    without the account there is no value.
+  keccak(proven_address.bytes, path);
+  if (patricia_verify(root, bytes(path, 32), account_proof, &rlp_account) != PATRICIA_FOUND || !rlp_account.data || !rlp_account.len)
+    return c4_state_add_error(state, "invalid account proof of the contract!");
+  if (memcmp(root, state_root.data, 32) != 0)
+    return c4_state_add_error(state, "account proof of the contract does not match the state root!");
+  if (rlp_decode(&rlp_account, 0, &rlp_account) != RLP_LIST || (int) rlp_decode(&rlp_account, -1, NULL) != ACCOUNT_RLP_FIELDS)
+    return c4_state_add_error(state, "invalid account of the contract!");
+  if (rlp_decode(&rlp_account, ACCOUNT_RLP_STORAGE_HASH, &storage_hash) != RLP_ITEM || storage_hash.len != 32)
+    return c4_state_add_error(state, "invalid storage hash of the contract!");
+
+  // 3. storage proof against the storage hash of the proven account. The value must exist.
+  memset(root, 0, 32);
+  keccak(bytes((uint8_t*) slot, 32), path);
+  if (patricia_verify(root, bytes(path, 32), proof, &leaf) != PATRICIA_FOUND || !leaf.data || !leaf.len)
+    return c4_state_add_error(state, "invalid storage proof of the slot!");
+  if (memcmp(root, storage_hash.data, 32) != 0)
+    return c4_state_add_error(state, "storage proof of the slot does not match the storage hash of the contract!");
+  if (rlp_decode(&leaf, 0, &leaf) != RLP_ITEM || !leaf.len || leaf.len > 32)
+    return c4_state_add_error(state, "invalid storage value of the slot!");
+
+  // storage values are stored without leading zeros
+  memcpy(value + 32 - leaf.len, leaf.data, leaf.len);
+  return C4_SUCCESS;
+}
+
 INTERNAL c4_status_t eth_fetch_account_code(verify_ctx_t* ctx, call_account_t* ac) {
   char             tmp[200];
   storage_plugin_t cache  = {0};

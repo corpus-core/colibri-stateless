@@ -25,89 +25,21 @@
 #include "crypto.h"
 #include "eez_chains_conf.h"
 #include "eez_verify.h"
+#include "eip2935.h"
 #include "el_header.h"
+#include "eth_account.h"
 #include "eth_verify.h"
 #include "header_cache.h"
-#include "patricia.h"
-#include "rlp.h"
 #include "ssz.h"
 #include "state.h"
 #include <string.h>
 
-// Number of fields of an RLP-encoded account: [nonce, balance, storageHash, codeHash].
-#define ACCOUNT_RLP_FIELDS       4
-#define ACCOUNT_RLP_STORAGE_HASH 2
-
-// Number of fields of the oldest execution header layout (before London).
-#define EL_HEADER_MIN_FIELDS 15
-// Length of the logs bloom of an execution header.
-#define EL_HEADER_BLOOM_LEN 256
-
-bool eez_is_el_header(bytes_t header) {
-  bytes_t list = header;
-  if (rlp_decode(&list, 0, &list) != RLP_LIST) return false;
-  if ((int) rlp_decode(&list, -1, NULL) < EL_HEADER_MIN_FIELDS) return false;
-  return eth_el_header_get(header, EL_PARENT_HASH).len == 32 &&
-         eth_el_header_get(header, EL_STATE_ROOT).len == 32 &&
-         eth_el_header_get(header, EL_TRANSACTIONS_ROOT).len == 32 &&
-         eth_el_header_get(header, EL_RECEIPTS_ROOT).len == 32 &&
-         eth_el_header_get(header, EL_LOGS_BLOOM).len == EL_HEADER_BLOOM_LEN;
-}
-
 c4_status_t eez_get_l1_storage_value(c4_state_t* state, const eez_chain_config_t* conf, ssz_ob_t account, bytes_t l1_state_root, bytes32_t value) {
-  bytes32_t slot          = {0};
-  bytes32_t path          = {0};
-  bytes32_t root          = {0};
-  bytes_t   rlp_account   = NULL_BYTES;
-  bytes_t   storage_hash  = NULL_BYTES;
-  bytes_t   leaf          = NULL_BYTES;
-  ssz_ob_t  address       = ssz_get(&account, "address");
-  ssz_ob_t  account_proof = ssz_get(&account, "accountProof");
-  ssz_ob_t  storage_list  = ssz_get(&account, "storageProof");
-
+  bytes32_t slot = {0};
   memset(value, 0, 32);
   if (!conf) return c4_state_add_error(state, "unsupported EEZ chain!");
-  if (!l1_state_root.data || l1_state_root.len != 32) return c4_state_add_error(state, "missing L1 state root for the EEZ proof!");
-  if (!address.def || !account_proof.def || !storage_list.def) return c4_state_add_error(state, "invalid account proof in the EEZ proof!");
-
-  // 1. the proof must be about the proxy of this rollup, and about nothing but its root slot
-  if (address.bytes.len != ADDRESS_SIZE || memcmp(address.bytes.data, conf->proxy, ADDRESS_SIZE) != 0)
-    return c4_state_add_error(state, "EEZ proof is not about the configured proxy contract!");
-  if (ssz_len(storage_list) != 1)
-    return c4_state_add_error(state, "EEZ proof must contain exactly one storage proof!");
-
-  ssz_ob_t storage = ssz_at(storage_list, 0);
-  ssz_ob_t key     = ssz_get(&storage, "key");
-  ssz_ob_t proof   = ssz_get(&storage, "proof");
   eez_root_slot(conf->rollup_id, slot);
-  if (!key.def || !proof.def || key.bytes.len != 32 || memcmp(key.bytes.data, slot, 32) != 0)
-    return c4_state_add_error(state, "EEZ proof is not about the root slot of the rollup!");
-
-  // 2. account proof against the L1 state root. An exclusion proof is not acceptable:
-  //    without the proxy account there is no block hash.
-  keccak(address.bytes, path);
-  if (patricia_verify(root, bytes(path, 32), account_proof, &rlp_account) != PATRICIA_FOUND || !rlp_account.data || !rlp_account.len)
-    return c4_state_add_error(state, "invalid account proof of the EEZ proxy!");
-  if (memcmp(root, l1_state_root.data, 32) != 0)
-    return c4_state_add_error(state, "account proof of the EEZ proxy does not match the L1 state root!");
-  if (rlp_decode(&rlp_account, 0, &rlp_account) != RLP_LIST || (int) rlp_decode(&rlp_account, -1, NULL) != ACCOUNT_RLP_FIELDS)
-    return c4_state_add_error(state, "invalid account of the EEZ proxy!");
-  if (rlp_decode(&rlp_account, ACCOUNT_RLP_STORAGE_HASH, &storage_hash) != RLP_ITEM || storage_hash.len != 32)
-    return c4_state_add_error(state, "invalid storage hash of the EEZ proxy!");
-
-  // 3. storage proof against the storage hash of the proven account. The value must exist.
-  memset(root, 0, 32);
-  keccak(bytes(slot, 32), path);
-  if (patricia_verify(root, bytes(path, 32), proof, &leaf) != PATRICIA_FOUND || !leaf.data || !leaf.len)
-    return c4_state_add_error(state, "invalid storage proof of the EEZ root slot!");
-  if (memcmp(root, storage_hash.data, 32) != 0)
-    return c4_state_add_error(state, "storage proof of the EEZ root slot does not match the storage hash of the proxy!");
-  if (rlp_decode(&leaf, 0, &leaf) != RLP_ITEM || !leaf.len || leaf.len > 32)
-    return c4_state_add_error(state, "invalid storage value of the EEZ root slot!");
-
-  // storage values are stored without leading zeros
-  memcpy(value + 32 - leaf.len, leaf.data, leaf.len);
-  return C4_SUCCESS;
+  return eth_verify_storage_slot(state, account, conf->proxy, slot, l1_state_root, value);
 }
 
 c4_status_t eez_verify_l1_proof(verify_ctx_t* ctx, ssz_ob_t block, bytes_t* el_header, bytes32_t block_hash) {
@@ -144,7 +76,7 @@ c4_status_t eez_verify_l1_proof(verify_ctx_t* ctx, ssz_ob_t block, bytes_t* el_h
 
   keccak(l2_header, block_hash);
   if (memcmp(anchor, block_hash, 32) != 0) THROW_ERROR("L2 header does not match the block hash stored on L1!");
-  if (!eez_is_el_header(l2_header)) THROW_ERROR("the block anchored on L1 is not a valid execution header!");
+  if (!eth_el_header_is_valid(l2_header)) THROW_ERROR("the block anchored on L1 is not a valid execution header!");
 
   // The header is now verified: cache it under the L2 chain id so follow-up proofs can
   // reference this block by hash only (blockHash variant of ETH_EL_PROOF_UNION).
@@ -159,8 +91,11 @@ c4_status_t eez_verify_l1_proof(verify_ctx_t* ctx, ssz_ob_t block, bytes_t* el_h
 c4_status_t eez_verify_block_proof(verify_ctx_t* ctx, ssz_ob_t block, bytes_t* el_header, bytes32_t block_hash) {
   if (!block.def || !block.def->name) THROW_ERROR("invalid block type!");
   if (strcmp(block.def->name, "eezL1Proof") == 0) return eez_verify_l1_proof(ctx, block, el_header, block_hash);
-  if (strcmp(block.def->name, "eip2935") == 0) THROW_ERROR("eip2935 block proofs are not supported yet!");
-  THROW_ERROR("invalid block proof for an EEZ chain, expected eezL1Proof!");
+  // A block older than the anchor: its hash is read from the EIP-2935 history contract in
+  // the state of a newer block of this chain. That newer block is verified through
+  // `c4_verify_block`, which comes back here for the `eezL1Proof` of the anchor.
+  if (strcmp(block.def->name, "eip2935") == 0) return c4_verify_eip2935_block(ctx, block, el_header, block_hash);
+  THROW_ERROR("invalid block proof for an EEZ chain, expected eezL1Proof or eip2935!");
 }
 
 void eez_register_block_proof_verify(void) {

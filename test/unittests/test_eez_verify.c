@@ -30,12 +30,18 @@
 //      rejection path can be reached with a consistent proof
 //   3. the recorded RollupX fixture `test/data/eez_eth_getBlockByNumber`: prover and
 //      verifier end to end, the L1 prover request, and tampered `eezL1Proof`s
+//   4. blocks before the anchor (`eip2935` around the `eezL1Proof`): the decision of the
+//      prover and the dispatch of the verifier. The checks of the `eip2935` proof itself
+//      are not EEZ-specific and are tested in `test_eip2935.c`.
 //
 // The fixture holds one answer of the Ethereum mainnet prover (`eth_getStorageAt` on the
 // EEZ proxy) and the anchored L2 block 0x889da of RollupX. The `eth_getBlockByHash_0x1111..`,
 // `0x2222..`, `0x3333..` and `0x4444..` files are hand-made: copies of the anchor block with a
 // different `hash` / `number` (or a `null` result), used to reach the error messages for
-// blocks that are not the anchor.
+// blocks that are not the anchor. The files of block 0x889d9 (`0x3652..`, the parent of the
+// anchor) are recorded from RollupX; the `eth_getProof` of the history contract for it is
+// not (the node only serves proofs for its newest blocks), so the tests of group 4 answer
+// that request with a synthetic proof.
 
 #include "c4_assert.h"
 #include "unity.h"
@@ -45,11 +51,13 @@
 #include "eez_chains_conf.h"
 #include "eez_prover.h"
 #include "eez_verify.h"
+#include "eip2935.h"
 #include "el_header.h"
 #include "eth_verify.h"
 #include "header_cache.h"
 #include "patricia.h"
 #include "rlp.h"
+#include "synth_proofs.h"
 #include "version.h"
 
 #define ROLLUPX     C4_CHAIN_EEZ_ROLLUPX
@@ -65,6 +73,11 @@
 // keccak256(pad32(rollupId = 2) ++ pad32(mapping slot = 2)) + 1
 #define ROLLUPX_ROOT_SLOT "679795a0195a1b76cdebb7c51d74e058aee92919b8c3389af86ef24535e8a28d"
 // finalized beacon block root the fixture was recorded with (the L1 answer bootstraps from it)
+// parent of the anchor, recorded from RollupX
+#define PARENT_NUMBER      0x889d9
+#define PARENT_NUMBER_HEX  "0x889d9"
+#define PARENT_HASH_HEX    "36523831d64a5c58c1cb5fdaaa47975c96930b036257a4d4c35e48ce5dadeac2"
+#define PARENT_HASH        "0x" PARENT_HASH_HEX
 #define FIXTURE_CHECKPOINT "0x4c9531434eb47654e6d047040b161dc4a66c7af301caf9968f3bad03534db85c"
 
 void setUp(void) {
@@ -372,132 +385,13 @@ void test_freshness_gate_is_suspended_for_eez_only(void) {
 // 2. storage value of the root slot (synthetic tries)
 // ---------------------------------------------------------------------------
 
-typedef struct {
-  const uint8_t* address;            // account in the trie and `address` field; NULL = proxy of RollupX
-  const uint8_t* key;                // `key` field of the storage proof; NULL = root slot of RollupX
-  int            storage_proofs;     // entries in `storageProof`; -1 = one
-  int            account_fields;     // RLP fields of the account; 0 = four
-  bool           slot_missing;       // the root slot is not part of the storage trie
-  bool           truncate_storage;   // drop the leaf node of the storage proof
-  bool           truncate_account;   // drop the leaf node of the account proof
-  bool           wrong_storage_hash; // the account commits to another storage trie
-  bool           empty_storage_proof;
-  int            storage_hash_len; // length of the storage hash inside the account; 0 = 32
-  bool           leaf_is_list;     // the storage leaf holds an RLP list instead of a byte string
-} synth_opts_t;
-
-static const synth_opts_t SYNTH_VALID = {.storage_proofs = -1};
-
-typedef struct {
-  ssz_ob_t  account;    // `EthAccountProof`, bytes owned
-  bytes32_t state_root; // root of the account trie
-} synth_t;
-
-// Fills a trie with unrelated entries so the proven key sits below branch nodes.
-static void add_filler(node_t** root, const char* domain) {
-  for (uint32_t i = 0; i < 24; i++) {
-    bytes32_t path  = {0};
-    buffer_t  seed  = {0};
-    buffer_t  value = {0};
-    bprintf(&seed, "%s:%d", domain, i);
-    keccak(seed.data, path);
-    rlp_add_uint64(&value, (uint64_t) i + 1000);
-    patricia_set_value(root, bytes(path, 32), value.data);
-    buffer_free(&seed);
-    buffer_free(&value);
-  }
-}
-
-// Copy of a list of byte strings without its last element.
-static ssz_ob_t without_last(ssz_ob_t list) {
-  uint32_t      len     = ssz_len(list);
-  ssz_builder_t builder = {.def = list.def};
-  TEST_ASSERT_TRUE(len >= 2);
-  for (uint32_t i = 0; i + 1 < len; i++)
-    ssz_add_dynamic_list_bytes(&builder, (int) (len - 1), ssz_at(list, i).bytes);
-  return ssz_builder_to_bytes(&builder);
-}
-
 // Builds an account proof for the root slot of RollupX holding `value`, with the
 // deviations selected in `opts`.
 static synth_t synth_account(bytes_t value, synth_opts_t opts) {
-  const eez_chain_config_t* conf           = eez_get_chain_config(ROLLUPX);
-  synth_t                   out            = {0};
-  bytes32_t                 slot           = {0};
-  bytes32_t                 path           = {0};
-  bytes32_t                 other          = {0};
-  buffer_t                  buf            = {0};
-  node_t*                   storage        = NULL;
-  node_t*                   accounts       = NULL;
-  const uint8_t*            address        = opts.address ? opts.address : conf->proxy;
-  int                       storage_proofs = opts.storage_proofs < 0 ? 1 : opts.storage_proofs;
-  int                       fields         = opts.account_fields ? opts.account_fields : 4;
-
-  // storage trie
+  const eez_chain_config_t* conf = eez_get_chain_config(ROLLUPX);
+  bytes32_t                 slot = {0};
   eez_root_slot(conf->rollup_id, slot);
-  add_filler(&storage, "storage");
-  if (!opts.slot_missing) {
-    keccak(bytes(slot, 32), path);
-    rlp_add_item(&buf, value);
-    if (opts.leaf_is_list) rlp_to_list(&buf);
-    patricia_set_value(&storage, bytes(path, 32), buf.data);
-    buffer_reset(&buf);
-  }
-  keccak(bytes(slot, 32), path);
-  ssz_ob_t storage_proof = patricia_create_merkle_proof(storage, bytes(path, 32));
-  if (opts.truncate_storage || opts.empty_storage_proof) {
-    ssz_ob_t full = storage_proof;
-    if (opts.empty_storage_proof)
-      storage_proof = (ssz_ob_t) {.def = full.def, .bytes = bytes(safe_calloc(1, 1), 0)};
-    else
-      storage_proof = without_last(full);
-    safe_free(full.bytes.data);
-  }
-
-  // account: [nonce, balance, storageHash, codeHash]
-  memset(other, 0x5a, 32);
-  rlp_add_uint64(&buf, 1);
-  rlp_add_uint64(&buf, 0);
-  rlp_add_item(&buf, opts.wrong_storage_hash ? bytes(other, 32) : bytes(patricia_get_root(storage).data, opts.storage_hash_len ? (uint32_t) opts.storage_hash_len : 32));
-  rlp_add_item(&buf, bytes(other, 32));
-  for (int i = 4; i < fields; i++) rlp_add_uint64(&buf, 7);
-  rlp_to_list(&buf);
-
-  // account trie
-  add_filler(&accounts, "accounts");
-  keccak(bytes((uint8_t*) address, 20), path);
-  patricia_set_value(&accounts, bytes(path, 32), buf.data);
-  memcpy(out.state_root, patricia_get_root(accounts).data, 32);
-  ssz_ob_t account_proof = patricia_create_merkle_proof(accounts, bytes(path, 32));
-  if (opts.truncate_account) {
-    ssz_ob_t full = account_proof;
-    account_proof = without_last(full);
-    safe_free(full.bytes.data);
-  }
-
-  // EthAccountProof
-  ssz_builder_t    account      = ssz_builder_for_type(ETH_SSZ_VERIFY_ACCOUNT_PROOF);
-  const ssz_def_t* storage_def  = ssz_get_def(account.def, "storageProof");
-  ssz_builder_t    storage_list = {.def = storage_def};
-  uint8_t          el_proof[33] = {0}; // selector 0 (`blockHash`) + 32 bytes, not read by the function under test
-  for (int i = 0; i < storage_proofs; i++) {
-    ssz_builder_t entry = {.def = storage_def->def.vector.type};
-    ssz_add_bytes(&entry, "key", bytes((uint8_t*) (opts.key ? opts.key : slot), 32));
-    ssz_add_bytes(&entry, "proof", storage_proof.bytes);
-    ssz_add_dynamic_list_builders(&storage_list, storage_proofs, entry);
-  }
-  ssz_add_bytes(&account, "accountProof", account_proof.bytes);
-  ssz_add_bytes(&account, "address", bytes((uint8_t*) address, 20));
-  ssz_add_builders(&account, "storageProof", storage_list);
-  ssz_add_bytes(&account, "elProof", bytes(el_proof, 33));
-  out.account = ssz_builder_to_bytes(&account);
-
-  safe_free(storage_proof.bytes.data);
-  safe_free(account_proof.bytes.data);
-  patricia_node_free(storage);
-  patricia_node_free(accounts);
-  buffer_free(&buf);
-  return out;
+  return synth_account_proof(conf->proxy, slot, value, opts);
 }
 
 // Expects `eez_get_l1_storage_value` to fail with an error containing `expected`
@@ -553,11 +447,11 @@ void test_storage_value_short_is_left_padded(void) {
 void test_storage_value_longer_than_32_bytes(void) {
   uint8_t long_value[33];
   memset(long_value, 0x77, sizeof(long_value));
-  assert_storage_error(bytes(long_value, 33), SYNTH_VALID, "invalid storage value of the EEZ root slot!");
+  assert_storage_error(bytes(long_value, 33), SYNTH_VALID, "invalid storage value of the slot!");
 
   uint8_t huge_value[200];
   memset(huge_value, 0x77, sizeof(huge_value));
-  assert_storage_error(bytes(huge_value, 200), SYNTH_VALID, "invalid storage value of the EEZ root slot!");
+  assert_storage_error(bytes(huge_value, 200), SYNTH_VALID, "invalid storage value of the slot!");
 }
 
 void test_storage_value_wrong_contract(void) {
@@ -567,7 +461,7 @@ void test_storage_value_wrong_contract(void) {
   memset(other, 0x42, 20);
   opts.address = other;
   // a perfectly valid proof of the same slot in another contract
-  assert_storage_error(hash_value(buf), opts, "EEZ proof is not about the configured proxy contract!");
+  assert_storage_error(hash_value(buf), opts, "account proof is not about the expected contract!");
 }
 
 void test_storage_value_wrong_slot(void) {
@@ -578,21 +472,21 @@ void test_storage_value_wrong_slot(void) {
   // the slot of another rollup
   eez_root_slot(3, other);
   opts.key = other;
-  assert_storage_error(hash_value(buf), opts, "EEZ proof is not about the root slot of the rollup!");
+  assert_storage_error(hash_value(buf), opts, "storage proof is not about the expected slot!");
 
   // the mapping slot itself, without the offset of the root field
   eez_root_slot(2, other);
   other[31]--;
-  assert_storage_error(hash_value(buf), opts, "EEZ proof is not about the root slot of the rollup!");
+  assert_storage_error(hash_value(buf), opts, "storage proof is not about the expected slot!");
 }
 
 void test_storage_value_needs_exactly_one_storage_proof(void) {
   bytes32_t    buf    = {0};
   synth_opts_t opts   = SYNTH_VALID;
   opts.storage_proofs = 2;
-  assert_storage_error(hash_value(buf), opts, "EEZ proof must contain exactly one storage proof!");
+  assert_storage_error(hash_value(buf), opts, "account proof must contain exactly one storage proof!");
   opts.storage_proofs = 0;
-  assert_storage_error(hash_value(buf), opts, "EEZ proof must contain exactly one storage proof!");
+  assert_storage_error(hash_value(buf), opts, "account proof must contain exactly one storage proof!");
 }
 
 void test_storage_value_wrong_state_root(void) {
@@ -603,14 +497,14 @@ void test_storage_value_wrong_state_root(void) {
 
   synth.state_root[7] ^= 0x01;
   TEST_ASSERT_EQUAL_INT(C4_ERROR, eez_get_l1_storage_value(&state, eez_get_chain_config(ROLLUPX), synth.account, bytes(synth.state_root, 32), value));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(state.error, "does not match the L1 state root!"), state.error);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(state.error, "does not match the state root!"), state.error);
   c4_state_free(&state);
 
   // missing state root (e.g. an L1 header without that field); a root of the wrong
   // length is covered by `test_storage_value_malformed_leaf`
   state = (c4_state_t) {0};
   TEST_ASSERT_EQUAL_INT(C4_ERROR, eez_get_l1_storage_value(&state, eez_get_chain_config(ROLLUPX), synth.account, NULL_BYTES, value));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(state.error, "missing L1 state root"), state.error);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(state.error, "missing state root for the storage proof!"), state.error);
   c4_state_free(&state);
 
   // unknown chain
@@ -625,14 +519,14 @@ void test_storage_value_wrong_storage_hash(void) {
   bytes32_t    buf        = {0};
   synth_opts_t opts       = SYNTH_VALID;
   opts.wrong_storage_hash = true;
-  assert_storage_error(hash_value(buf), opts, "does not match the storage hash of the proxy!");
+  assert_storage_error(hash_value(buf), opts, "does not match the storage hash of the contract!");
 }
 
 void test_storage_value_malformed_account(void) {
   bytes32_t    buf    = {0};
   synth_opts_t opts   = SYNTH_VALID;
   opts.account_fields = 5;
-  assert_storage_error(hash_value(buf), opts, "invalid account of the EEZ proxy!");
+  assert_storage_error(hash_value(buf), opts, "invalid account of the contract!");
 }
 
 // A proof that the slot does not exist would read as the value zero. It must be an error:
@@ -641,7 +535,7 @@ void test_storage_value_exclusion_proof(void) {
   bytes32_t    buf  = {0};
   synth_opts_t opts = SYNTH_VALID;
   opts.slot_missing = true;
-  assert_storage_error(hash_value(buf), opts, "invalid storage proof of the EEZ root slot!");
+  assert_storage_error(hash_value(buf), opts, "invalid storage proof of the slot!");
 }
 
 // Regression guard for a quirk of `patricia_verify`: a proof that stops at a branch node
@@ -652,15 +546,15 @@ void test_storage_value_truncated_proofs(void) {
   synth_opts_t opts = SYNTH_VALID;
 
   opts.truncate_storage = true;
-  assert_storage_error(hash_value(buf), opts, "invalid storage proof of the EEZ root slot!");
+  assert_storage_error(hash_value(buf), opts, "invalid storage proof of the slot!");
 
   opts                     = SYNTH_VALID;
   opts.empty_storage_proof = true;
-  assert_storage_error(hash_value(buf), opts, "invalid storage proof of the EEZ root slot!");
+  assert_storage_error(hash_value(buf), opts, "invalid storage proof of the slot!");
 
   opts                  = SYNTH_VALID;
   opts.truncate_account = true;
-  assert_storage_error(hash_value(buf), opts, "invalid account proof of the EEZ proxy!");
+  assert_storage_error(hash_value(buf), opts, "invalid account proof of the contract!");
 }
 
 // ---------------------------------------------------------------------------
@@ -776,12 +670,11 @@ void test_fixture_latest_passes_freshness_bound(void) {
   safe_free(error);
 }
 
-// Milestone 1 proves the anchor only. Every other block is an error that says why.
+// Blocks the anchor does not reach are errors that say why. Blocks of the 8191 blocks
+// before the anchor are proven with an `eip2935` proof, see group 4.
 void test_fixture_blocks_other_than_the_anchor(void) {
   assert_prover_error("eth_getBlockByNumber", "[\"0x889db\",false]", "block 559579 is newer than the last block of RollupX proven on L1 (559578)");
-  assert_prover_error("eth_getBlockByNumber", "[\"0x889d9\",false]", "block 559577 is older than the last block of RollupX proven on L1 (559578); it needs an EIP-2935 proof");
   // 559578 - 8191 = 551387 is the oldest block in the EIP-2935 window, 551386 the first outside
-  assert_prover_error("eth_getBlockByNumber", "[\"0x869db\",false]", "block 551387 is older than the last block of RollupX proven on L1 (559578); it needs an EIP-2935 proof");
   assert_prover_error("eth_getBlockByNumber", "[\"0x869da\",false]", "block 551386 is more than 8191 blocks older than the last block of RollupX proven on L1 (559578); it needs a historic proof");
   assert_prover_error("eth_getBlockByNumber", "[\"0x0\",false]", "it needs a historic proof");
 
@@ -932,7 +825,7 @@ void test_l1_prover_answer_is_checked(void) {
   TEST_ASSERT_EQUAL_INT(C4_PENDING, c4_prover_execute(ctx));
   ctx->state.requests->response = tampered;
   TEST_ASSERT_EQUAL_INT(C4_ERROR, c4_prover_execute(ctx));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(ctx->state.error, "EEZ proof is not about the configured proxy contract!"), ctx->state.error);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(ctx->state.error, "account proof is not about the expected contract!"), ctx->state.error);
   c4_prover_free(ctx);
   safe_free(l1.data);
 }
@@ -970,23 +863,23 @@ void test_tampered_proofs_are_rejected(void) {
 
   // another contract
   tampered = flip_byte(request, ssz_get(&account, "address").bytes.data + 19);
-  assert_rejected(tampered, method, args, "EEZ proof is not about the configured proxy contract!");
+  assert_rejected(tampered, method, args, "account proof is not about the expected contract!");
   safe_free(tampered.data);
 
   // another slot
   tampered = flip_byte(request, ssz_get(&storage, "key").bytes.data + 31);
-  assert_rejected(tampered, method, args, "EEZ proof is not about the root slot of the rollup!");
+  assert_rejected(tampered, method, args, "storage proof is not about the expected slot!");
   safe_free(tampered.data);
 
   // another stored value: the last byte of the storage leaf is the last byte of the hash.
   // The leaf no longer hashes to what its parent node commits to.
   tampered = flip_byte(request, storage_leaf.data + storage_leaf.len - 1);
-  assert_rejected(tampered, method, args, "invalid storage proof of the EEZ root slot!");
+  assert_rejected(tampered, method, args, "invalid storage proof of the slot!");
   safe_free(tampered.data);
 
   // another account (the last byte of the account leaf is part of the code hash)
   tampered = flip_byte(request, account_leaf.data + account_leaf.len - 1);
-  assert_rejected(tampered, method, args, "invalid account proof of the EEZ proxy!");
+  assert_rejected(tampered, method, args, "invalid account proof of the contract!");
   safe_free(tampered.data);
 
   // Another state trie: a sibling hash in the root node of the account proof is changed.
@@ -1001,7 +894,7 @@ void test_tampered_proofs_are_rejected(void) {
   uint32_t sibling = ((uint32_t) (account_path[0] >> 4) + 1) % 16; // any child that is not on the path
   TEST_ASSERT_EQUAL_UINT8(0xa0, account_root.data[3 + sibling * 33]);
   tampered = flip_byte(request, account_root.data + 3 + sibling * 33 + 1);
-  assert_rejected(tampered, method, args, "account proof of the EEZ proxy does not match the L1 state root!");
+  assert_rejected(tampered, method, args, "account proof of the contract does not match the state root!");
   safe_free(tampered.data);
 
   // another L1 block: a byte of the L1 header inside the consensus proof
@@ -1033,7 +926,7 @@ void test_block_hook_accepts_the_anchor(void) {
   TEST_ASSERT_TRUE(ctx.chain_id == ROLLUPX);
   ASSERT_HEX_STRING_EQUAL(ANCHOR_HASH_HEX, hash, 32, "block hash");
   TEST_ASSERT_EQUAL_UINT64(ANCHOR_NUMBER, eth_el_header_get_uint64(header, EL_BLOCK_NUMBER));
-  TEST_ASSERT_TRUE(eez_is_el_header(header));
+  TEST_ASSERT_TRUE(eth_el_header_is_valid(header));
 #ifdef EL_HEADER_CACHE
   // the verified L2 header is cached under the L2 chain id, never under the L1 chain id
   TEST_ASSERT_NOT_NULL(c4_header_cache_get_by_hash(ROLLUPX, hash));
@@ -1052,8 +945,10 @@ void test_block_hook_accepts_the_anchor(void) {
   safe_free(error);
 }
 
-// Every variant of the union but `eezL1Proof` is rejected by name, by the hook and by the
-// function that verifies the `eezL1Proof` itself.
+// Every variant of the union but `eezL1Proof` and `eip2935` is rejected by name by the
+// hook, and every variant but `eezL1Proof` by the function that verifies the `eezL1Proof`.
+// An `eip2935` proof is passed on, and what it wraps is checked as a block of the rollup:
+// the `clProof` of an L1 block is not one.
 void test_block_hook_rejects_other_variants(void) {
   set_state(ROLLUPX, FIXTURE);
   char*   error   = NULL;
@@ -1073,11 +968,11 @@ void test_block_hook_rejects_other_variants(void) {
   for (uint32_t i = 0; i < el_union->def.container.len; i++) {
     const ssz_def_t* variant = el_union->def.container.elements + i;
     if (strcmp(variant->name, "eezL1Proof") == 0) continue;
-    bool         reserved = strcmp(variant->name, "eip2935") == 0;
-    ssz_ob_t     foreign  = {.def = variant, .bytes = el.bytes};
-    verify_ctx_t ctx      = {.chain_id = ROLLUPX};
+    bool         history = strcmp(variant->name, "eip2935") == 0;
+    ssz_ob_t     foreign = {.def = variant, .bytes = el.bytes};
+    verify_ctx_t ctx     = {.chain_id = ROLLUPX};
     TEST_ASSERT_EQUAL_INT_MESSAGE(C4_ERROR, eez_verify_block_proof(&ctx, foreign, &header, hash), variant->name);
-    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(ctx.state.error, reserved ? "eip2935 block proofs are not supported yet!" : "expected eezL1Proof"), ctx.state.error);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(ctx.state.error, history ? "clProof is not valid for a chain without its own consensus layer!" : "expected eezL1Proof or eip2935"), ctx.state.error);
     TEST_ASSERT_TRUE(ctx.chain_id == ROLLUPX);
     c4_verify_free_data(&ctx);
 
@@ -1157,16 +1052,16 @@ void test_el_header_shape(void) {
   bytes_t    header = NULL_BYTES;
   json_t     block  = json_get(json_parse((char*) file.data), "result");
   TEST_ASSERT_EQUAL_INT_MESSAGE(C4_SUCCESS, eth_el_header_build_from_json(&state, &header, C4_FORK_ELECTRA, block), state.error ? state.error : "no error");
-  TEST_ASSERT_TRUE(eez_is_el_header(header));
+  TEST_ASSERT_TRUE(eth_el_header_is_valid(header));
 
   // not a list, an empty list, nothing at all
   uint8_t string_item[] = {0x83, 0x01, 0x02, 0x03};
   uint8_t empty_list[]  = {0xc0};
-  TEST_ASSERT_FALSE(eez_is_el_header(bytes(string_item, sizeof(string_item))));
-  TEST_ASSERT_FALSE(eez_is_el_header(bytes(empty_list, sizeof(empty_list))));
-  TEST_ASSERT_FALSE(eez_is_el_header(NULL_BYTES));
+  TEST_ASSERT_FALSE(eth_el_header_is_valid(bytes(string_item, sizeof(string_item))));
+  TEST_ASSERT_FALSE(eth_el_header_is_valid(bytes(empty_list, sizeof(empty_list))));
+  TEST_ASSERT_FALSE(eth_el_header_is_valid(NULL_BYTES));
   // a truncated header
-  TEST_ASSERT_FALSE(eez_is_el_header(bytes(header.data, header.len - 1)));
+  TEST_ASSERT_FALSE(eth_el_header_is_valid(bytes(header.data, header.len - 1)));
 
   // lists of 14 and 15 fields that only differ in their number of fields
   for (int fields = 14; fields <= 15; fields++) {
@@ -1182,7 +1077,7 @@ void test_el_header_shape(void) {
         rlp_add_uint64(&buf, (uint64_t) i + 1);
     }
     rlp_to_list(&buf);
-    TEST_ASSERT_EQUAL_INT_MESSAGE(fields == 15, eez_is_el_header(buf.data), fields == 15 ? "15 fields" : "14 fields");
+    TEST_ASSERT_EQUAL_INT_MESSAGE(fields == 15, eth_el_header_is_valid(buf.data), fields == 15 ? "15 fields" : "14 fields");
     buffer_free(&buf);
   }
 
@@ -1202,7 +1097,7 @@ void test_el_header_shape(void) {
         rlp_add_uint64(&buf, (uint64_t) i + 1);
     }
     rlp_to_list(&buf);
-    TEST_ASSERT_FALSE_MESSAGE(eez_is_el_header(buf.data), "a fixed-length field of the wrong length");
+    TEST_ASSERT_FALSE_MESSAGE(eth_el_header_is_valid(buf.data), "a fixed-length field of the wrong length");
     buffer_free(&buf);
   }
 
@@ -1582,8 +1477,8 @@ void test_l2_node_answer_is_checked(void) {
   TEST_ASSERT_NOT_NULL(raw.data);
 
   // header only (eth_getBlockByHash): another block, an unknown block, a transport error
-  assert_prover_error_with("eth_blockNumber", "[]", by_hash, other, "the L2 header does not hash to the block " ANCHOR_HASH " anchored on L1");
-  assert_prover_error_with("eth_blockNumber", "[]", by_hash, str_bytes("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":null}"), "the L2 node does not know the block " ANCHOR_HASH " anchored on L1");
+  assert_prover_error_with("eth_blockNumber", "[]", by_hash, other, "the L2 header does not hash to the block " ANCHOR_HASH);
+  assert_prover_error_with("eth_blockNumber", "[]", by_hash, str_bytes("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":null}"), "the L2 node does not know the block " ANCHOR_HASH);
   assert_prover_error_with("eth_blockNumber", "[]", by_hash, NULL_BYTES, "overridden");
 
   // with body (debug_getRawBlock): one nibble of the header changed
@@ -1593,7 +1488,7 @@ void test_l2_node_answer_is_checked(void) {
   TEST_ASSERT_TRUE(strlen(marker) > 200);
   char* nibble = marker + 12 + 100; // inside the RLP header
   *nibble      = *nibble == '0' ? '1' : '0';
-  assert_prover_error_with("eth_getBlockByNumber", "[\"latest\",false]", raw_block, str_bytes(text), "the L2 header does not hash to the block " ANCHOR_HASH " anchored on L1");
+  assert_prover_error_with("eth_getBlockByNumber", "[\"latest\",false]", raw_block, str_bytes(text), "the L2 header does not hash to the block " ANCHOR_HASH);
   safe_free(text);
 
   // with body: not a block at all (`0xc0` is an empty RLP list)
@@ -1820,7 +1715,7 @@ void test_local_methods_and_unknown_eez_chain(void) {
 // Leaves of the storage trie that are no storage word.
 void test_storage_value_malformed_leaf(void) {
   // an empty string (0x80): a deleted slot is absent from the trie, never stored as empty
-  assert_storage_error(NULL_BYTES, SYNTH_VALID, "invalid storage value of the EEZ root slot!");
+  assert_storage_error(NULL_BYTES, SYNTH_VALID, "invalid storage value of the slot!");
 
   // a state root of the right bytes but the wrong length is "missing", not "mismatching"
   bytes32_t  buf   = {0};
@@ -1828,11 +1723,11 @@ void test_storage_value_malformed_leaf(void) {
   c4_state_t state = {0};
   synth_t    synth = synth_account(hash_value(buf), SYNTH_VALID);
   TEST_ASSERT_EQUAL_INT(C4_ERROR, eez_get_l1_storage_value(&state, eez_get_chain_config(ROLLUPX), synth.account, bytes(synth.state_root, 31), value));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(state.error, "missing L1 state root"), state.error);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(state.error, "missing state root for the storage proof!"), state.error);
   c4_state_free(&state);
   state = (c4_state_t) {0};
   TEST_ASSERT_EQUAL_INT(C4_ERROR, eez_get_l1_storage_value(&state, eez_get_chain_config(ROLLUPX), synth.account, bytes(NULL, 32), value));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(state.error, "missing L1 state root"), state.error);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(state.error, "missing state root for the storage proof!"), state.error);
   c4_state_free(&state);
   safe_free(synth.account.bytes.data);
 }
@@ -1844,16 +1739,16 @@ void test_storage_value_malformed_storage_hash_and_leaf(void) {
 
   // a storage hash shorter than a hash must not be compared as 32 bytes
   opts.storage_hash_len = 31;
-  assert_storage_error(hash_value(buf), opts, "invalid storage hash of the EEZ proxy!");
+  assert_storage_error(hash_value(buf), opts, "invalid storage hash of the contract!");
   opts.storage_hash_len = 1;
-  assert_storage_error(hash_value(buf), opts, "invalid storage hash of the EEZ proxy!");
+  assert_storage_error(hash_value(buf), opts, "invalid storage hash of the contract!");
 
   // a list where the storage word is expected
   uint8_t short_value[] = {0x01, 0x02, 0x03};
   opts                  = SYNTH_VALID;
   opts.leaf_is_list     = true;
-  assert_storage_error(bytes(short_value, 3), opts, "invalid storage value of the EEZ root slot!");
-  assert_storage_error(hash_value(buf), opts, "invalid storage value of the EEZ root slot!");
+  assert_storage_error(bytes(short_value, 3), opts, "invalid storage value of the slot!");
+  assert_storage_error(hash_value(buf), opts, "invalid storage value of the slot!");
 }
 
 // --- synthetic L1 answers ---------------------------------------------------
@@ -2055,6 +1950,295 @@ void test_logs_proof_for_a_chain_without_chain_spec(void) {
   safe_free(proof.data);
 }
 
+// ---------------------------------------------------------------------------
+// 4. blocks before the anchor (eip2935)
+// ---------------------------------------------------------------------------
+
+#define HISTORY_PROOF_REQUEST "eth_getProof_0x0000f90827f1c53a10cb7a02335b175320002935"
+
+// The JSON-RPC answer of `eth_getProof` for the EIP-2935 history contract with `value`
+// in the slot of block `number`. The tries are synthetic, so the proof is consistent in
+// itself but does not belong to the state of the recorded anchor. `value_json` replaces the
+// `value` field of the answer when set (a node reports it as a quantity).
+static bytes_t history_proof_answer(uint64_t number, bytes_t value, const char* value_json) {
+  bytes32_t slot = {0};
+  buffer_t  json = {0};
+  eth_eip2935_slot(number, slot);
+  synth_t  synth         = synth_account_proof(ETH_EIP2935_HISTORY_ADDRESS, slot, value, SYNTH_VALID);
+  ssz_ob_t account_proof = ssz_get(&synth.account, "accountProof");
+  ssz_ob_t storage_list  = ssz_get(&synth.account, "storageProof");
+  ssz_ob_t storage       = ssz_at(storage_list, 0);
+  ssz_ob_t storage_proof = ssz_get(&storage, "proof");
+
+  bprintf(&json, "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"address\":\"0x%x\",\"accountProof\":[", bytes((uint8_t*) ETH_EIP2935_HISTORY_ADDRESS, 20));
+  for (uint32_t i = 0; i < ssz_len(account_proof); i++) bprintf(&json, "%s\"0x%x\"", i ? "," : "", ssz_at(account_proof, i).bytes);
+  // code hash and storage hash only have to be 32-byte words: the prover does not read them
+  bprintf(&json, "],\"balance\":\"0x0\",\"codeHash\":\"0x%x\",\"nonce\":\"0x1\",\"storageHash\":\"0x%x\",\"storageProof\":[{\"key\":\"0x%x\",\"value\":", bytes(slot, 32), bytes(slot, 32), bytes(slot, 32));
+  if (value_json)
+    bprintf(&json, "\"%s\"", value_json);
+  else
+    bprintf(&json, "\"0x%x\"", value);
+  bprintf(&json, ",\"proof\":[");
+  for (uint32_t i = 0; i < ssz_len(storage_proof); i++) bprintf(&json, "%s\"0x%x\"", i ? "," : "", ssz_at(storage_proof, i).bytes);
+  bprintf(&json, "]}]}}");
+  safe_free(synth.account.bytes.data);
+  return json.data;
+}
+
+// 32 bytes from a hex string without prefix.
+static bytes_t hash_of(const char* hex, bytes32_t out) {
+  TEST_ASSERT_EQUAL_INT(32, hex_to_bytes(hex, -1, bytes(out, 32)));
+  return bytes(out, 32);
+}
+
+// Runs the prover for a block before the anchor; the history contract answers with `stored`
+// for the slot of the parent of the anchor.
+static bytes_t prove_before_anchor(const char* method, const char* args, bytes_t stored, char** error) {
+  bytes_t    answer      = history_proof_answer(PARENT_NUMBER, stored, NULL);
+  override_t overrides[] = {{HISTORY_PROOF_REQUEST, answer}, {NULL, NULL_BYTES}};
+  bytes_t    proof       = prove_with(method, args, 0, NULL, overrides, error);
+  safe_free(answer.data);
+  return proof;
+}
+
+// The prover decides: the parent of the anchor is proven by an `eip2935` proof that wraps
+// the `eezL1Proof` of the anchor.
+void test_block_before_the_anchor_gets_an_eip2935_proof(void) {
+  bytes32_t   parent        = {0};
+  bytes32_t   hash          = {0};
+  bytes32_t   slot          = {0};
+  char*       error         = NULL;
+  const char* requests[][2] = {
+      {"eth_getBlockHeader", "[\"" PARENT_NUMBER_HEX "\"]"},         // header rebuilt from eth_getBlockByHash
+      {"eth_getBlockByNumber", "[\"" PARENT_NUMBER_HEX "\",false]"}, // with body: raw block
+      {"eth_getBlockHeader", "[\"" PARENT_HASH "\"]"},               // by hash: the number is looked up first
+      {"eth_getBlockByHash", "[\"" PARENT_HASH "\",true]"},
+  };
+  set_state(ROLLUPX, FIXTURE);
+
+  // what the anchor itself is proven with
+  bytes_t anchor_request = prove("eth_getBlockByNumber", "[\"latest\",false]", &error);
+  TEST_ASSERT_NOT_NULL_MESSAGE(anchor_request.data, error ? error : "prover failed");
+  ssz_ob_t anchor_proof = eez_proof_of(anchor_request);
+  safe_free(error);
+  error = NULL;
+
+  for (size_t i = 0; i < sizeof(requests) / sizeof(requests[0]); i++) {
+    const char* what    = requests[i][1];
+    bytes_t     request = prove_before_anchor(requests[i][0], requests[i][1], hash_of(PARENT_HASH_HEX, parent), &error);
+    TEST_ASSERT_NOT_NULL_MESSAGE(request.data, error ? error : what);
+
+    ssz_ob_t   req       = {.def = eth_ssz_verification_type(ETH_SSZ_VERIFY_REQUEST), .bytes = request};
+    c4_state_t ssz_state = {0};
+    TEST_ASSERT_TRUE_MESSAGE(ssz_is_valid(req, true, &ssz_state), ssz_state.error ? ssz_state.error : what);
+    ssz_ob_t proof = ssz_get(&req, "proof");
+    ssz_ob_t el    = ssz_get(&proof, "elProof");
+    TEST_ASSERT_EQUAL_STRING_MESSAGE("eip2935", el.def->name, what);
+
+    // outer header: the requested block
+    bytes_t header = ssz_get(&el, "elHeader").bytes;
+    keccak(header, hash);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY_MESSAGE(parent, hash, 32, what);
+    TEST_ASSERT_EQUAL_UINT64_MESSAGE(PARENT_NUMBER, eth_el_header_get_uint64(header, EL_BLOCK_NUMBER), what);
+
+    // history contract, slot of the requested block
+    ssz_ob_t account = ssz_get(&el, "account");
+    ssz_ob_t storage = ssz_get(&account, "storageProof");
+    TEST_ASSERT_EQUAL_UINT8_ARRAY_MESSAGE(ETH_EIP2935_HISTORY_ADDRESS, ssz_get(&account, "address").bytes.data, 20, what);
+    TEST_ASSERT_EQUAL_UINT32_MESSAGE(1, ssz_len(storage), what);
+    ssz_ob_t entry = ssz_at(storage, 0);
+    eth_eip2935_slot(PARENT_NUMBER, slot);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY_MESSAGE(slot, ssz_get(&entry, "key").bytes.data, 32, what);
+    TEST_ASSERT_EQUAL_UINT8(0x0a, slot[30]); // 559577 % 8191 = 2589 = 0x0a1d
+    TEST_ASSERT_EQUAL_UINT8(0x1d, slot[31]);
+
+    // inner proof: the anchor, exactly as it is proven on its own
+    ssz_ob_t inner = ssz_get(&account, "elProof");
+    TEST_ASSERT_EQUAL_STRING_MESSAGE("eezL1Proof", inner.def->name, what);
+    TEST_ASSERT_EQUAL_UINT32_MESSAGE(anchor_proof.bytes.len, inner.bytes.len, what);
+    TEST_ASSERT_EQUAL_UINT8_ARRAY_MESSAGE(anchor_proof.bytes.data, inner.bytes.data, inner.bytes.len, what);
+
+    // sync data of the L1 prover is still forwarded
+    ssz_ob_t anchor_req = {.def = req.def, .bytes = anchor_request};
+    TEST_ASSERT_EQUAL_UINT32_MESSAGE(ssz_get(&anchor_req, "sync_data").bytes.len, ssz_get(&req, "sync_data").bytes.len, what);
+
+    safe_free(request.data);
+    safe_free(error);
+    error = NULL;
+  }
+  safe_free(anchor_request.data);
+}
+
+// The prover does not check the proof of the L2 node. The verifier does: a history proof
+// that does not belong to the state of the anchor is rejected, and so is everything the
+// request would have returned.
+void test_history_proof_of_another_state_is_rejected(void) {
+  bytes32_t parent = {0};
+  char*     error  = NULL;
+  set_state(ROLLUPX, FIXTURE);
+  bytes_t request = prove_before_anchor("eth_getBlockByNumber", "[\"" PARENT_NUMBER_HEX "\",false]", hash_of(PARENT_HASH_HEX, parent), &error);
+  TEST_ASSERT_NOT_NULL_MESSAGE(request.data, error ? error : "prover failed");
+  safe_free(error);
+
+  assert_rejected(request, "eth_getBlockByNumber", "[\"" PARENT_NUMBER_HEX "\",false]", "account proof of the contract does not match the state root!");
+#ifdef EL_HEADER_CACHE
+  // the anchor inside the proof is verified and cached, the block before it is not
+  TEST_ASSERT_NOT_NULL(c4_header_cache_get_by_number(ROLLUPX, ANCHOR_NUMBER));
+  TEST_ASSERT_NULL(c4_header_cache_get_by_number(ROLLUPX, PARENT_NUMBER));
+  TEST_ASSERT_NULL(c4_header_cache_get_by_hash(ROLLUPX, parent));
+#endif
+  safe_free(request.data);
+}
+
+// What the prover asks the L2 node for: the slot of the block in the state of the anchor.
+void test_history_proof_request(void) {
+  // 551387 = 559578 - 8191 is the oldest block of the window; its slot is the one of the anchor (0x0a1e)
+  const char* blocks[][2] = {{PARENT_NUMBER_HEX, "0000000000000000000000000000000000000000000000000000000000000a1d"}, {"0x869db", "0000000000000000000000000000000000000000000000000000000000000a1e"}};
+  for (size_t b = 0; b < 2; b++) {
+    char        args[64];
+    c4_status_t status = C4_PENDING;
+    const char* found  = NULL;
+    snprintf(args, sizeof(args), "[\"%s\",false]", blocks[b][0]);
+    prover_ctx_t* ctx = c4_prover_create("eth_getBlockByNumber", args, ROLLUPX, 0);
+    for (int i = 0; i < 20 && status == C4_PENDING && !found; i++) {
+      status = c4_prover_execute(ctx);
+      for (data_request_t* req = ctx->state.requests; req && !found; req = req->next)
+        if (req->payload.data && strstr((char*) req->payload.data, "eth_getProof")) found = (char*) req->payload.data;
+      if (status == C4_PENDING && !found) answer_from_fixture(&ctx->state);
+    }
+    TEST_ASSERT_NOT_NULL_MESSAGE(found, blocks[b][0]);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(found, "0x0000f90827f1c53a10cb7a02335b175320002935"), found);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(found, blocks[b][1]), found);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(found, "\"" ANCHOR_NUMBER_HEX "\""), found);
+    // the proof is asked from the L2 node; the only prover request is the one for the anchor on L1
+    TEST_ASSERT_EQUAL_INT(1, count_requests(&ctx->state, C4_DATA_TYPE_PROVER));
+    c4_prover_free(ctx);
+  }
+}
+
+// The answer of the L2 node for the history slot is checked as far as the prover can.
+void test_history_proof_answer_is_checked(void) {
+  bytes32_t buf   = {0};
+  char*     error = NULL;
+  set_state(ROLLUPX, FIXTURE);
+
+  // a slot that holds nothing
+  bytes_t    empty       = history_proof_answer(PARENT_NUMBER, hash_of(PARENT_HASH_HEX, buf), "0x0");
+  override_t overrides[] = {{HISTORY_PROOF_REQUEST, empty}, {NULL, NULL_BYTES}};
+  TEST_ASSERT_NULL(prove_with("eth_getBlockByNumber", "[\"" PARENT_NUMBER_HEX "\",false]", 0, NULL, overrides, &error).data);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(error, "the EIP-2935 history contract of RollupX holds no hash for block 559577 in the state of block 559578"), error);
+  safe_free(error);
+  safe_free(empty.data);
+
+  // a block the L2 node does not know
+  memset(buf, 0x33, 32);
+  TEST_ASSERT_NULL(prove_before_anchor("eth_getBlockHeader", "[\"" PARENT_NUMBER_HEX "\"]", bytes(buf, 32), &error).data);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(error, "the L2 node does not know the block 0x3333"), error);
+  safe_free(error);
+
+  // a block of another height in the slot (header only, and with the body)
+  TEST_ASSERT_NULL(prove_before_anchor("eth_getBlockHeader", "[\"" PARENT_NUMBER_HEX "\"]", hash_of(ANCHOR_HASH_HEX, buf), &error).data);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(error, "the EIP-2935 history contract of RollupX does not hold block 559577 in its slot"), error);
+  safe_free(error);
+  TEST_ASSERT_NULL(prove_before_anchor("eth_getBlockByNumber", "[\"" PARENT_NUMBER_HEX "\",true]", hash_of(ANCHOR_HASH_HEX, buf), &error).data);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(error, "does not hold block 559577 in its slot"), error);
+  safe_free(error);
+
+  // requested by hash, but the chain anchored on L1 has another block at that height
+  TEST_ASSERT_NULL(prove_before_anchor("eth_getBlockByHash", "[\"" PARENT_HASH "\",false]", hash_of(ANCHOR_HASH_HEX, buf), &error).data);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(error, "is not part of the chain anchored on L1 (block 559577 has hash " ANCHOR_HASH ")"), error);
+  safe_free(error);
+
+  // the proof of another slot
+  bytes_t    other_slot = history_proof_answer(PARENT_NUMBER + 1, hash_of(PARENT_HASH_HEX, buf), NULL);
+  override_t other[]    = {{HISTORY_PROOF_REQUEST, other_slot}, {NULL, NULL_BYTES}};
+  TEST_ASSERT_NULL(prove_with("eth_getBlockByNumber", "[\"" PARENT_NUMBER_HEX "\",false]", 0, NULL, other, &error).data);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(error, "returned the proof of another slot"), error);
+  safe_free(error);
+  safe_free(other_slot.data);
+
+  // the node fails (RollupX: "distance to target block exceeds maximum proof window")
+  assert_prover_error_with("eth_getBlockByNumber", "[\"" PARENT_NUMBER_HEX "\",false]", "eth_getProof_", NULL_BYTES, "overridden");
+  assert_prover_error_with("eth_getBlockByNumber", "[\"" PARENT_NUMBER_HEX "\",false]", "eth_getProof_", str_bytes("{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32000,\"message\":\"distance to target block exceeds maximum proof window\"}}"), "distance to target block exceeds maximum proof window");
+}
+
+// The resolved block is kept per request: the second lookup of the same block sends nothing.
+void test_block_before_the_anchor_is_resolved_once(void) {
+  bytes32_t     parent      = {0};
+  bytes_t       answer      = history_proof_answer(PARENT_NUMBER, hash_of(PARENT_HASH_HEX, parent), NULL);
+  override_t    overrides[] = {{HISTORY_PROOF_REQUEST, answer}, {NULL, NULL_BYTES}};
+  prover_ctx_t* ctx         = c4_prover_create("eth_getBlockByNumber", "[\"" PARENT_NUMBER_HEX "\",false]", ROLLUPX, 0);
+  eth_block_t   block       = {0};
+  eth_block_t   again       = {0};
+  c4_status_t   status      = C4_PENDING;
+  json_t        id          = json_parse("\"" PARENT_NUMBER_HEX "\"");
+  for (int i = 0; i < 20 && status == C4_PENDING; i++) {
+    status = eez_get_el_block(ctx, id, &block, false);
+    if (status == C4_PENDING) answer_with_overrides(&ctx->state, overrides);
+  }
+  TEST_ASSERT_EQUAL_INT_MESSAGE(C4_SUCCESS, status, ctx->state.error ? ctx->state.error : "block not resolved");
+  TEST_ASSERT_EQUAL_INT(C4_BLOCK_PROOF_TYPE_EEZ, block.proof_type);
+  TEST_ASSERT_EQUAL_UINT64(PARENT_NUMBER, block.slot);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(parent, block.el_block_hash, 32);
+  TEST_ASSERT_NOT_NULL(block.eez.anchor_header.data);
+  TEST_ASSERT_EQUAL_UINT64(ANCHOR_NUMBER, eth_el_header_get_uint64(block.eez.anchor_header, EL_BLOCK_NUMBER));
+  TEST_ASSERT_NOT_NULL(block.eez.history_proof.start);
+
+  int requests = 0;
+  for (data_request_t* req = ctx->state.requests; req; req = req->next) requests++;
+  TEST_ASSERT_EQUAL_INT(C4_SUCCESS, eez_get_el_block(ctx, id, &again, false));
+  int after = 0;
+  for (data_request_t* req = ctx->state.requests; req; req = req->next) after++;
+  TEST_ASSERT_EQUAL_INT(requests, after);
+  TEST_ASSERT_EQUAL_PTR(block.el_header.data, again.el_header.data);
+  TEST_ASSERT_EQUAL_PTR(block.eez.anchor_header.data, again.eez.anchor_header.data);
+
+  // the anchor of the same context has no history proof
+  eth_block_t anchor = {0};
+  status             = C4_PENDING;
+  for (int i = 0; i < 20 && status == C4_PENDING; i++) {
+    status = eez_get_el_block(ctx, json_parse("\"latest\""), &anchor, false);
+    if (status == C4_PENDING) answer_with_overrides(&ctx->state, overrides);
+  }
+  TEST_ASSERT_EQUAL_INT(C4_SUCCESS, status);
+  TEST_ASSERT_EQUAL_UINT64(ANCHOR_NUMBER, anchor.slot);
+  TEST_ASSERT_NULL(anchor.eez.anchor_header.data);
+  TEST_ASSERT_NULL(anchor.eez.history_proof.start);
+
+  c4_prover_free(ctx);
+  safe_free(answer.data);
+}
+
+// The verifier hook of an EEZ chain accepts `eip2935` proofs. The proof is synthetic: the
+// newer block is a header the context already verified for RollupX.
+void test_block_hook_accepts_eip2935(void) {
+  eip2935_opts_t opts   = {.older = SYNTH_EIP2935_NEWER - 100, .account = SYNTH_VALID};
+  eip2935_case_t c      = synth_eip2935_case(opts, ROLLUPX);
+  bytes_t        header = NULL_BYTES;
+  bytes32_t      hash   = {0};
+
+  // through the dispatcher of the Ethereum module, as every proof verifier calls it
+  TEST_ASSERT_EQUAL_INT_MESSAGE(C4_SUCCESS, c4_verify_block(&c.ctx, c.proof, &header, hash), c.ctx.state.error ? c.ctx.state.error : "eip2935 must be accepted for RollupX");
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(c.older_hash, hash, 32);
+  TEST_ASSERT_EQUAL_UINT64(opts.older, eth_el_header_get_uint64(header, EL_BLOCK_NUMBER));
+  TEST_ASSERT_TRUE(c.ctx.chain_id == ROLLUPX);
+#ifdef EL_HEADER_CACHE
+  // cached as a block of the rollup, not of its L1
+  TEST_ASSERT_NOT_NULL(c4_header_cache_get_by_hash(ROLLUPX, c.older_hash));
+  TEST_ASSERT_NULL(c4_header_cache_get_by_hash(C4_CHAIN_MAINNET, c.older_hash));
+#endif
+  synth_eip2935_free(&c);
+
+  // the window is enforced for the rollup as well
+  opts.older = SYNTH_EIP2935_NEWER - 8192;
+  c          = synth_eip2935_case(opts, ROLLUPX);
+  header     = NULL_BYTES;
+  TEST_ASSERT_EQUAL_INT(C4_ERROR, eez_verify_block_proof(&c.ctx, c.proof, &header, hash));
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(c.ctx.state.error, "block is outside the EIP-2935 history window of the newer block!"), c.ctx.state.error);
+  TEST_ASSERT_NULL(header.data);
+  synth_eip2935_free(&c);
+}
+
 #endif // NO_CHAIN_EEZ
 
 #ifdef NO_CHAIN_EEZ
@@ -2117,6 +2301,13 @@ int main(void) {
   RUN_TEST(test_header_fork_of_the_l2_block);
   RUN_TEST(test_unprovable_block_identifiers_fail_without_a_request);
   RUN_TEST(test_logs_proof_for_a_chain_without_chain_spec);
+
+  RUN_TEST(test_block_before_the_anchor_gets_an_eip2935_proof);
+  RUN_TEST(test_history_proof_of_another_state_is_rejected);
+  RUN_TEST(test_history_proof_request);
+  RUN_TEST(test_history_proof_answer_is_checked);
+  RUN_TEST(test_block_before_the_anchor_is_resolved_once);
+  RUN_TEST(test_block_hook_accepts_eip2935);
 #endif
   return UNITY_END();
 }

@@ -28,6 +28,7 @@
 #include "eez_chains_conf.h"
 #include "eez_prover.h"
 #include "eez_verify.h"
+#include "eip2935.h"
 #include "el_header.h"
 #include "eth_req.h"
 #include "eth_tools.h"
@@ -46,15 +47,17 @@
 // Longest quoted hex block number: `"0x` + 16 nibbles (uint64) + `"`.
 #define JSON_MAX_NUMBER_LEN 20
 
-// Per-request snapshot of a resolved anchor block. `el_header` and `el_body.bytes` live in
-// the tail of the same allocation; `account` and `sync_data` point into the response of
-// the L1 prover request, which the prover state owns for the lifetime of the context.
+// Per-request snapshot of a resolved block. `el_header`, `el_body.bytes` and `anchor_header`
+// live in the tail of the same allocation; `account`, `sync_data` and `history_proof` point
+// into responses of data requests, which the prover state owns for the lifetime of the context.
 typedef struct {
-  bytes_t   el_header;     // RLP header of the anchor block
+  bytes_t   el_header;     // RLP header of the resolved block (the anchor, or a block before it)
   ssz_ob_t  el_body;       // transactions + withdrawals, `def == NULL` when not requested
-  bytes32_t el_block_hash; // hash of the anchor block as stored on L1
+  bytes32_t el_block_hash; // hash of the resolved block
   ssz_ob_t  account;       // `EthAccountProof` of the L1 prover response
   ssz_ob_t  sync_data;     // `sync_data` of the L1 prover response
+  bytes_t   anchor_header; // RLP header of the anchor, only set for a block before the anchor
+  json_t    history_proof; // `eth_getProof` of the EIP-2935 history contract at the anchor, only set with `anchor_header`
 } eez_el_snap_t;
 
 /**
@@ -143,39 +146,49 @@ static void snap_id(json_t block, bool with_body, bytes32_t id) {
  */
 static void fill_from_snap(eth_block_t* out, const eez_el_snap_t* snap) {
   memset(out, 0, sizeof(*out));
-  out->proof_type    = C4_BLOCK_PROOF_TYPE_EEZ;
-  out->el_header     = snap->el_header;
-  out->el_body       = snap->el_body;
-  out->slot          = eth_el_header_get_uint64(snap->el_header, EL_BLOCK_NUMBER);
-  out->eez.account   = snap->account;
-  out->eez.sync_data = snap->sync_data;
+  out->proof_type        = C4_BLOCK_PROOF_TYPE_EEZ;
+  out->el_header         = snap->el_header;
+  out->el_body           = snap->el_body;
+  out->slot              = eth_el_header_get_uint64(snap->el_header, EL_BLOCK_NUMBER);
+  out->eez.account       = snap->account;
+  out->eez.sync_data     = snap->sync_data;
+  out->eez.anchor_header = snap->anchor_header;
+  out->eez.history_proof = snap->history_proof;
   memcpy(out->el_block_hash, snap->el_block_hash, 32);
 }
 
 /**
  * Stores a resolved block as a snapshot in the prover state and fills the output block.
- * Takes ownership of `src.el_header.data` and `src.el_body.bytes.data`.
+ * Takes ownership of `src.el_header.data`, `src.el_body.bytes.data` and `src.anchor_header.data`.
  *
  * @param ctx prover context
  * @param id snapshot key
- * @param src resolved block with heap-owned header and body
+ * @param src resolved block with heap-owned header, body and anchor header
  * @param out output block
  */
 static void attach_snap(prover_ctx_t* ctx, bytes32_t id, eez_el_snap_t src, eth_block_t* out) {
-  uint32_t       body_len = src.el_body.bytes.data ? src.el_body.bytes.len : 0;
-  uint32_t       size     = (uint32_t) sizeof(eez_el_snap_t) + src.el_header.len + body_len;
-  eez_el_snap_t* snap     = safe_calloc(1, size);
-  uint8_t*       tail     = (uint8_t*) (snap + 1);
+  uint32_t       body_len   = src.el_body.bytes.data ? src.el_body.bytes.len : 0;
+  uint32_t       anchor_len = src.anchor_header.data ? src.anchor_header.len : 0;
+  uint32_t       size       = (uint32_t) sizeof(eez_el_snap_t) + src.el_header.len + body_len + anchor_len;
+  eez_el_snap_t* snap       = safe_calloc(1, size);
+  uint8_t*       tail       = (uint8_t*) (snap + 1);
 
   *snap = src;
   memcpy(tail, src.el_header.data, src.el_header.len);
   snap->el_header = bytes(tail, src.el_header.len);
+  tail += src.el_header.len;
   if (body_len) {
-    memcpy(tail + src.el_header.len, src.el_body.bytes.data, body_len);
-    snap->el_body.bytes = bytes(tail + src.el_header.len, body_len);
+    memcpy(tail, src.el_body.bytes.data, body_len);
+    snap->el_body.bytes = bytes(tail, body_len);
+    tail += body_len;
+  }
+  if (anchor_len) {
+    memcpy(tail, src.anchor_header.data, anchor_len);
+    snap->anchor_header = bytes(tail, anchor_len);
   }
   safe_free(src.el_header.data);
   safe_free(src.el_body.bytes.data);
+  safe_free(src.anchor_header.data);
 
   c4_state_cache_set(&ctx->state, id, bytes((uint8_t*) snap, size));
   fill_from_snap(out, snap);
@@ -296,14 +309,15 @@ static fork_id_t header_fork(json_t block) {
 }
 
 /**
- * Fetches the header (and body) of the anchor block from the L2 execution node and
- * checks that the header hashes to the anchor.
+ * Fetches the header (and body) of a block from the L2 execution node and checks that
+ * the header hashes to the expected block hash. The hash is one the prover already
+ * trusts: the anchor stored on L1, or a hash read from the EIP-2935 history contract.
  *
  * With a body the raw block is used (`debug_getRawBlock`), which yields the exact header
  * bytes. Without a body the header is rebuilt from `eth_getBlockByHash`.
  *
  * @param ctx prover context
- * @param anchor 32-byte hash of the anchor block
+ * @param anchor 32-byte hash of the block (the anchor or a block before it)
  * @param with_body whether transactions and withdrawals are needed
  * @param el_header receives the heap-owned RLP header
  * @param el_body receives the heap-owned body when `with_body` is set
@@ -331,7 +345,7 @@ static c4_status_t fetch_l2_block(prover_ctx_t* ctx, bytes32_t anchor, bool with
     json_t block                        = {0};
     sbprintf(hash_json, "\"0x%x\"", bytes(anchor, 32));
     TRY_ASYNC(eth_get_block(ctx, (json_t) {.start = hash_json, .len = JSON_HASH_LEN, .type = JSON_TYPE_STRING}, false, &block));
-    if (block.type != JSON_TYPE_OBJECT) THROW_ERROR_WITH("the L2 node does not know the block 0x%x anchored on L1", bytes(anchor, 32));
+    if (block.type != JSON_TYPE_OBJECT) THROW_ERROR_WITH("the L2 node does not know the block 0x%x", bytes(anchor, 32));
     TRY_ASYNC(eth_el_header_build_from_json(&ctx->state, el_header, header_fork(block), block));
   }
 
@@ -341,51 +355,100 @@ static c4_status_t fetch_l2_block(prover_ctx_t* ctx, bytes32_t anchor, bool with
     safe_free(el_body->bytes.data);
     *el_header = NULL_BYTES;
     *el_body   = (ssz_ob_t) {0};
-    THROW_ERROR_WITH("the L2 header does not hash to the block 0x%x anchored on L1", bytes(anchor, 32));
+    THROW_ERROR_WITH("the L2 header does not hash to the block 0x%x", bytes(anchor, 32));
   }
   return C4_SUCCESS;
 }
 
 /**
- * Checks that the requested block is the anchor.
+ * Checks whether a block identifier is the hash of the anchor.
  *
- * Tags always resolve to the anchor. A block hash or number must be the anchor itself;
- * for any other block the error states why it cannot be proven yet.
+ * @param block JSON block identifier
+ * @param anchor 32-byte hash of the anchor block
+ * @return `true` if `block` is a 32-byte hash equal to `anchor`
+ */
+static bool block_is_anchor_hash(json_t block, const bytes32_t anchor) {
+  bytes32_t hash     = {0};
+  buffer_t  hash_buf = stack_buffer(hash);
+  return block.len == JSON_HASH_LEN && json_as_bytes(block, &hash_buf).len == 32 && memcmp(hash, anchor, 32) == 0;
+}
+
+/**
+ * Resolves a block that was requested by number, or by a hash other than the anchor.
+ *
+ * This is where an EEZ chain decides how a block is proven:
+ *
+ * | requested block                     | proof                                              |
+ * |-------------------------------------|----------------------------------------------------|
+ * | the anchor                          | `eezL1Proof`                                       |
+ * | up to 8191 blocks before the anchor | `eip2935` around the `eezL1Proof` of the anchor    |
+ * | newer than the anchor               | error, not supported yet                           |
+ * | older than that                     | error, needs a historic proof, not supported yet   |
+ *
+ * For a block before the anchor the hash is read from the EIP-2935 history contract in
+ * the state of the anchor, so the block is on the chain L1 committed to. The storage
+ * proof is not verified here: a lying L2 node yields a proof the verifier rejects.
+ *
+ * On success `snap->el_header` and `snap->el_body` are heap-owned, and `snap->history_proof`
+ * is set if and only if the block is older than the anchor.
  *
  * @param ctx prover context
  * @param conf configuration of the rollup
- * @param block JSON block identifier of the request
- * @param anchor 32-byte hash of the anchor block
- * @param anchor_number block number of the anchor block
- * @return `C4_SUCCESS`, `C4_PENDING` (number of a requested hash is being fetched), or `C4_ERROR`
+ * @param block JSON block identifier of the request (hash or number)
+ * @param with_body whether transactions and withdrawals are needed
+ * @param anchor_number block number of the anchor
+ * @param snap anchor hash in `el_block_hash`; receives header, body, hash and history proof of the resolved block
+ * @return `C4_SUCCESS`, `C4_PENDING`, or `C4_ERROR`
  */
-static c4_status_t check_requested_block(prover_ctx_t* ctx, const eez_chain_config_t* conf, json_t block, bytes32_t anchor, uint64_t anchor_number) {
-  uint64_t requested = 0;
+static c4_status_t resolve_block(prover_ctx_t* ctx, const eez_chain_config_t* conf, json_t block, bool with_body, uint64_t anchor_number, eez_el_snap_t* snap) {
+  bool      by_hash        = block.len == JSON_HASH_LEN;
+  uint64_t  requested      = 0;
+  bytes32_t requested_hash = {0};
+  bytes32_t stored_hash    = {0};
+  json_t    history        = {0};
 
   // anything else than a tag is a hash or a number: `eez_get_el_block` rejected the rest
-  if (block_is_anchor_tag(block)) return C4_SUCCESS;
-
-  if (block.len == JSON_HASH_LEN) {
-    bytes32_t hash     = {0};
-    buffer_t  hash_buf = stack_buffer(hash);
-    json_t    header   = {0};
-    if (json_as_bytes(block, &hash_buf).len == 32 && memcmp(hash, anchor, 32) == 0) return C4_SUCCESS;
-    // the number of the requested block is only needed to explain the error
+  if (by_hash) {
+    buffer_t hash_buf = stack_buffer(requested_hash);
+    json_t   header   = {0};
+    if (json_as_bytes(block, &hash_buf).len != 32) THROW_ERROR_WITH("block %J cannot be proven on %s", block, conf->name);
+    // the hash alone does not say where the block is: the number selects the history slot
     TRY_ASYNC(eth_get_block(ctx, block, false, &header));
     if (header.type != JSON_TYPE_OBJECT) THROW_ERROR_WITH("block %J not found on %s", block, conf->name);
     requested = json_get_uint64(header, "number");
-    if (requested == anchor_number) THROW_ERROR_WITH("block %J is not part of the chain anchored on L1 (block %l has hash 0x%x)", block, anchor_number, bytes(anchor, 32));
+    // the anchor hash never gets here, so a block of the same height is on another fork
+    if (requested == anchor_number) THROW_ERROR_WITH("block %J is not part of the chain anchored on L1 (block %l has hash 0x%x)", block, anchor_number, bytes(snap->el_block_hash, 32));
   }
   else {
     requested = json_as_uint64(block);
-    if (requested == anchor_number) return C4_SUCCESS;
+    if (requested == anchor_number) return fetch_l2_block(ctx, snap->el_block_hash, with_body, &snap->el_header, &snap->el_body);
   }
 
   if (requested > anchor_number)
     THROW_ERROR_WITH("block %l is newer than the last block of %s proven on L1 (%l); blocks after the L1 anchor are not supported yet", requested, conf->name, anchor_number);
-  if (anchor_number - requested <= EEZ_EIP2935_HISTORY_WINDOW)
-    THROW_ERROR_WITH("block %l is older than the last block of %s proven on L1 (%l); it needs an EIP-2935 proof, which is not supported yet", requested, conf->name, anchor_number);
-  THROW_ERROR_WITH("block %l is more than %d blocks older than the last block of %s proven on L1 (%l); it needs a historic proof, which is not supported yet", requested, (uint32_t) EEZ_EIP2935_HISTORY_WINDOW, conf->name, anchor_number);
+  if (anchor_number - requested > ETH_EIP2935_HISTORY_WINDOW)
+    THROW_ERROR_WITH("block %l is more than %d blocks older than the last block of %s proven on L1 (%l); it needs a historic proof, which is not supported yet", requested, (uint32_t) ETH_EIP2935_HISTORY_WINDOW, conf->name, anchor_number);
+
+  // within the history window of the anchor: the anchor state holds the hash of the block
+  TRY_ASYNC(c4_eth_get_eip2935_proof(ctx, requested, anchor_number, &history, stored_hash));
+  if (bytes_all_zero(bytes(stored_hash, 32)))
+    THROW_ERROR_WITH("the EIP-2935 history contract of %s holds no hash for block %l in the state of block %l", conf->name, requested, anchor_number);
+  if (by_hash && memcmp(stored_hash, requested_hash, 32) != 0)
+    THROW_ERROR_WITH("block %J is not part of the chain anchored on L1 (block %l has hash 0x%x)", block, requested, bytes(stored_hash, 32));
+
+  TRY_ASYNC(fetch_l2_block(ctx, stored_hash, with_body, &snap->el_header, &snap->el_body));
+  // the slot is `number % 8191`: a header of another height would mean the contract (or the node) is off
+  if (eth_el_header_get_uint64(snap->el_header, EL_BLOCK_NUMBER) != requested) {
+    safe_free(snap->el_header.data);
+    safe_free(snap->el_body.bytes.data);
+    snap->el_header = NULL_BYTES;
+    snap->el_body   = (ssz_ob_t) {0};
+    THROW_ERROR_WITH("the EIP-2935 history contract of %s does not hold block %l in its slot", conf->name, requested);
+  }
+
+  memcpy(snap->el_block_hash, stored_hash, 32);
+  snap->history_proof = history;
+  return C4_SUCCESS;
 }
 
 c4_status_t eez_get_el_block(prover_ctx_t* ctx, json_t block, eth_block_t* out, bool with_body) {
@@ -404,16 +467,27 @@ c4_status_t eez_get_el_block(prover_ctx_t* ctx, json_t block, eth_block_t* out, 
     return C4_SUCCESS;
   }
 
+  // The L1 proof always comes first: it tells which block is the anchor, and only then
+  // can be decided whether the requested block needs an EIP-2935 proof on top of it.
   TRY_ASYNC(fetch_l1_anchor_proof(ctx, conf, l1_block_tag(block), &l1));
   TRY_ASYNC(read_anchor(ctx, conf, l1, &snap.account, snap.el_block_hash));
   snap.sync_data = ssz_get(&l1, "sync_data");
 
-  TRY_ASYNC(fetch_l2_block(ctx, snap.el_block_hash, with_body, &snap.el_header, &snap.el_body));
-  c4_status_t status = check_requested_block(ctx, conf, block, snap.el_block_hash, eth_el_header_get_uint64(snap.el_header, EL_BLOCK_NUMBER));
-  if (status != C4_SUCCESS) {
-    safe_free(snap.el_header.data);
-    safe_free(snap.el_body.bytes.data);
-    return status;
+  if (block_is_anchor_tag(block) || block_is_anchor_hash(block, snap.el_block_hash)) {
+    TRY_ASYNC(fetch_l2_block(ctx, snap.el_block_hash, with_body, &snap.el_header, &snap.el_body));
+  }
+  else {
+    // a number or another hash: the header of the anchor gives the height to compare with
+    bytes_t  anchor_header = NULL_BYTES;
+    ssz_ob_t no_body       = {0};
+    TRY_ASYNC(fetch_l2_block(ctx, snap.el_block_hash, false, &anchor_header, &no_body));
+    c4_status_t status = resolve_block(ctx, conf, block, with_body, eth_el_header_get_uint64(anchor_header, EL_BLOCK_NUMBER), &snap);
+    // the anchor header is only part of the proof of a block before the anchor
+    if (status == C4_SUCCESS && snap.history_proof.start)
+      snap.anchor_header = anchor_header;
+    else
+      safe_free(anchor_header.data);
+    if (status != C4_SUCCESS) return status;
   }
 
   attach_snap(ctx, id, snap, out);
@@ -426,10 +500,17 @@ bool eez_add_block_proof(prover_ctx_t* ctx, ssz_builder_t* builder, eth_block_t*
   if (block_data->proof_type != C4_BLOCK_PROOF_TYPE_EEZ || !block_data->el_header.data || !block_data->eez.account.bytes.data)
     return false;
 
+  // The anchor is always proven through L1. A block before the anchor wraps that proof:
+  // its hash is a storage value of the EIP-2935 history contract in the state of the anchor.
+  bool          older = block_data->eez.anchor_header.data && block_data->eez.history_proof.start;
   ssz_builder_t proof = ssz_builder_for_type(ETH_SSZ_EEZ_L1_PROOF);
-  ssz_add_bytes(&proof, "elHeader", block_data->el_header);
+  ssz_add_bytes(&proof, "elHeader", older ? block_data->eez.anchor_header : block_data->el_header);
   ssz_add_bytes(&proof, "account", block_data->eez.account.bytes);
-  ssz_add_builders(builder, "elProof", proof);
+
+  if (older)
+    c4_eth_add_eip2935_proof(builder, block_data->el_header, block_data->eez.history_proof, proof);
+  else
+    ssz_add_builders(builder, "elProof", proof);
   return true;
 }
 

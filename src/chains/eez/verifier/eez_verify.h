@@ -39,11 +39,15 @@ extern "C" {
  * | Variant of `ETH_EL_PROOF_UNION` | Handling                          |
  * |---------------------------------|-----------------------------------|
  * | `eezL1Proof`                    | `eez_verify_l1_proof`             |
- * | `eip2935`                       | rejected, reserved for old blocks |
+ * | `eip2935`                       | `c4_verify_eip2935_block`         |
  * | anything else                   | rejected                          |
  *
- * Further block proofs of EEZ chains (blocks newer or older than the L1 anchor) get
- * their own variant of the union and their own branch here.
+ * `eezL1Proof` proves the anchor, the block whose hash L1 knows. `eip2935` proves a block
+ * of the 8191 blocks before a newer, already proven block of this chain, which for an EEZ
+ * chain is the anchor. The check itself is not EEZ-specific and lives in the Ethereum module.
+ *
+ * Further block proofs of EEZ chains (blocks newer than the L1 anchor or older than the
+ * EIP-2935 window) get their own variant of the union and their own branch here.
  *
  * @param ctx verification context of the L2 request
  * @param block selected member of `ETH_EL_PROOF_UNION`
@@ -67,7 +71,8 @@ c4_status_t eez_verify_block_proof(verify_ctx_t* ctx, ssz_ob_t block, bytes_t* e
  *    of the L1 block.
  * 5. The proven storage value is non-zero and equals `keccak256(elHeader)`.
  * 6. `elHeader` has the shape of an execution header (RLP list of at least 15 fields
- *    with 32-byte parent hash, state, transactions and receipts root and a 256-byte bloom).
+ *    with 32-byte parent hash, state, transactions and receipts root and a 256-byte bloom,
+ *    see `eth_el_header_is_valid`).
  *
  * `ctx->chain_id` is switched to the L1 chain only while the L1 block is
  * verified and is restored before the function returns, whatever the result.
@@ -81,25 +86,13 @@ c4_status_t eez_verify_block_proof(verify_ctx_t* ctx, ssz_ob_t block, bytes_t* e
 c4_status_t eez_verify_l1_proof(verify_ctx_t* ctx, ssz_ob_t block, bytes_t* el_header, bytes32_t block_hash);
 
 /**
- * Checks that bytes have the shape of an RLP-encoded execution-layer header.
- *
- * The header of an EEZ proof is authenticated by its hash only. The proof verifiers read
- * fields from it by position afterwards, so the hash check is followed by this shape check:
- * whatever the proxy contract stores, only something that parses as a header is handed on.
- *
- * @param header RLP-serialized header
- * @return `true` for an RLP list of at least 15 fields with a 32-byte parent hash, state,
- *         transactions and receipts root and a 256-byte logs bloom
- */
-bool eez_is_el_header(bytes_t header);
-
-/**
  * Proves the value of the root slot of an EEZ rollup against an L1 state root.
  *
  * Checks the proxy address, that exactly the root slot is proven, the account
  * proof against `l1_state_root` and the storage proof against the storage hash
  * of the proven account. A storage leaf longer than 32 bytes, a missing leaf
- * and an exclusion proof are errors.
+ * and an exclusion proof are errors. The Merkle checks are those of
+ * `eth_verify_storage_slot`; this function adds the proxy and the slot of the rollup.
  *
  * The caller is responsible for `l1_state_root`: the verifier passes the root
  * of a verified L1 block, the prover the root claimed by the L1 prover response.

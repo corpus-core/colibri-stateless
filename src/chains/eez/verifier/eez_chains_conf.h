@@ -46,14 +46,6 @@ extern "C" {
 #define EEZ_ROLLUP_ROOT_OFFSET 1
 
 /**
- * Number of block hashes the EIP-2935 history contract keeps. A block that is at most
- * this many blocks older than the block anchored on L1 will be provable through an
- * `eip2935` proof; anything older needs a historic proof. Neither exists yet, the
- * constant only selects the error message.
- */
-#define EEZ_EIP2935_HISTORY_WINDOW 8191
-
-/**
  * Static description of one EEZ (Ethereum Economic Zone) rollup.
  *
  * Everything the verifier needs to locate the L2 block hash on L1 is fixed per

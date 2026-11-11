@@ -273,6 +273,8 @@ const ssz_def_t* eth_ssz_verification_type(eth_ssz_type_t type) {
       return ARRAY_TYPE(ETH_EL_PROOF_UNION, ETH_WITNESS_HEADER_PROOF);
     case ETH_SSZ_EEZ_L1_PROOF:
       return ARRAY_TYPE(ETH_EL_PROOF_UNION, EEZ_L1_PROOF);
+    case ETH_SSZ_EIP2935_PROOF:
+      return ARRAY_TYPE(ETH_EL_PROOF_UNION, ETH_EIP2935_PROOF);
     default: return NULL;
   }
 }

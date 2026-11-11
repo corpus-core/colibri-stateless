@@ -67,8 +67,10 @@ typedef struct {
 
 // Further EEZ block proofs (blocks newer or older than the L1 anchor) add their fields here.
 typedef struct {
-  ssz_ob_t account;   // L1 `EthAccountProof` of the EEZ proxy storage slot, borrowed from the L1 prover response
-  ssz_ob_t sync_data; // `sync_data` of the L1 prover response (selected union variant, may be `none`), borrowed
+  ssz_ob_t account;       // L1 `EthAccountProof` of the EEZ proxy storage slot, borrowed from the L1 prover response
+  ssz_ob_t sync_data;     // `sync_data` of the L1 prover response (selected union variant, may be `none`), borrowed
+  bytes_t  anchor_header; // RLP header of the anchor; only set for a block older than the anchor (`eip2935` proof)
+  json_t   history_proof; // `eth_getProof` of the EIP-2935 history contract at the anchor; only set with `anchor_header`
 } eth_block_eez_t;
 
 typedef struct {

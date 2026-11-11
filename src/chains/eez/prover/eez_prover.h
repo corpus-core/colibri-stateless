@@ -35,7 +35,7 @@ extern "C" {
 /**
  * Resolves an L2 block for an EEZ chain. Registered as the GET_BLOCK hook.
  *
- * The only L2 block that can be proven is the anchor: the block whose hash the L1
+ * Every proof of an L2 block starts at the anchor: the block whose hash the L1
  * knows in the storage of the EEZ proxy. The function
  *
  * 1. asks the prover of the L1 chain (`C4_DATA_TYPE_PROVER` request with the L1 chain id)
@@ -44,6 +44,10 @@ extern "C" {
  * 2. reads the anchor hash from the storage proof of that response,
  * 3. fetches the L2 header (and body) of the anchor from the L2 execution node and
  *    checks that it hashes to the anchor.
+ * 4. for a block of the 8191 blocks before the anchor: reads the hash of that block from
+ *    the EIP-2935 history contract in the state of the anchor (`eth_getProof` on the L2
+ *    node) and fetches the header (and body) of that block instead. The anchor header and
+ *    the history proof are handed out in `out->eez` for the `eip2935` proof.
  *
  * Block identifiers:
  *
@@ -51,14 +55,15 @@ extern "C" {
  * |------------------------|--------------|-----------------------------------------------------------|
  * | `latest` or missing    | `latest`     | the anchor                                                |
  * | `safe`, `finalized`    | same tag     | the anchor known by that L1 block                         |
- * | block hash or number   | `latest`     | the anchor if it is that block, otherwise an error        |
+ * | block hash or number   | `latest`     | the anchor if it is that block; a block of the 8191 blocks before the anchor; otherwise an error |
  *
- * The error for another block names the reason: newer than the anchor, within the
- * EIP-2935 window before it, or older.
+ * The error for another block names the reason: newer than the anchor, or older than
+ * the EIP-2935 window before it. A block hash that is not on the chain anchored on L1
+ * (the history contract holds another hash for its number) is an error as well.
  *
  * @param ctx prover context of the L2 request
  * @param block JSON block identifier
- * @param out output block (`proof_type` EEZ, EL fields, `eez.account` and `eez.sync_data`)
+ * @param out output block (`proof_type` EEZ, EL fields, `eez.account` and `eez.sync_data`; `eez.anchor_header` and `eez.history_proof` for a block before the anchor)
  * @param with_body if true, `el_body` contains transactions and withdrawals
  * @return `C4_SUCCESS`, `C4_PENDING`, or `C4_ERROR`
  */
@@ -68,8 +73,10 @@ c4_status_t eez_get_el_block(prover_ctx_t* ctx, json_t block, eth_block_t* out, 
  * Appends the block proof of an EEZ block to `ETH_EL_PROOF_UNION`. Registered as the
  * ADD_BLOCK_PROOF hook.
  *
- * The only variant so far is `eezL1Proof` (the block is the L1 anchor). Blocks that need
- * another variant extend `eth_block_eez_t` and get their own branch here.
+ * The anchor gets an `eezL1Proof`. A block before the anchor (`eez.anchor_header` and
+ * `eez.history_proof` are set) gets an `eip2935` proof that wraps the `eezL1Proof` of
+ * the anchor; it is built by `c4_eth_add_eip2935_proof` of the Ethereum module. Blocks
+ * that need another variant extend `eth_block_eez_t` and get their own branch here.
  *
  * @param ctx prover context
  * @param builder parent proof builder (`elProof` union field)

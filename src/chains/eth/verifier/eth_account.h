@@ -45,8 +45,35 @@ typedef enum {
 struct call_account;
 typedef struct call_account call_account_t;
 
-bool                eth_verify_account_proof_exec(verify_ctx_t* ctx, ssz_ob_t* proof, bytes32_t state_root, eth_account_field_t field, bytes_t value);
-bool                eth_get_storage_value(ssz_ob_t storage, const bytes32_t key, bytes32_t value);
+bool eth_verify_account_proof_exec(verify_ctx_t* ctx, ssz_ob_t* proof, bytes32_t state_root, eth_account_field_t field, bytes_t value);
+bool eth_get_storage_value(ssz_ob_t storage, const bytes32_t key, bytes32_t value);
+
+/**
+ * Proves the value of exactly one storage slot of one contract against a state root.
+ *
+ * Used where a proof is only acceptable for one known slot of one known contract (a block
+ * hash stored on chain). The function checks
+ *
+ * 1. that `account.address` is `address`,
+ * 2. that `account.storageProof` holds exactly one entry and its key is `slot`,
+ * 3. the account proof against `state_root`,
+ * 4. the storage proof against the storage hash of the proven account.
+ *
+ * A missing account, a missing or empty storage leaf (the value `0`), a storage leaf longer
+ * than 32 bytes and an exclusion proof are errors.
+ *
+ * The caller is responsible for `state_root`: it must be the state root of a header the
+ * caller trusts for its purpose (a verifier passes the root of a verified header).
+ *
+ * @param state error sink
+ * @param account `EthAccountProof` container (`accountProof`, `address`, `storageProof`); `elProof` is not read
+ * @param address 20-byte address of the contract the proof must be about
+ * @param slot 32-byte storage key the proof must be about
+ * @param state_root 32-byte state root of the block
+ * @param value receives the 32-byte big-endian storage value (left-padded)
+ * @return `C4_SUCCESS` or `C4_ERROR`
+ */
+c4_status_t         eth_verify_storage_slot(c4_state_t* state, ssz_ob_t account, const address_t address, const bytes32_t slot, bytes_t state_root, bytes32_t value);
 eth_account_field_t eth_account_get_field(verify_ctx_t* ctx);
 bool                eth_account_verify_data(verify_ctx_t* ctx, address_t verified_address, eth_account_field_t field, bytes_t values);
 c4_status_t         eth_fetch_account_code(verify_ctx_t* ctx, call_account_t* ac);
