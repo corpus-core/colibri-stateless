@@ -34,7 +34,7 @@
 //      prover and the dispatch of the verifier. The checks of the `eip2935` proof itself
 //      are not EEZ-specific and are tested in `test_eip2935.c`.
 //
-// Two fixtures:
+// Three fixtures:
 //
 // - `eez_eth_getBlockByNumber_local` is a recording of local mode: the raw L1 data (beacon
 //   blocks, `eth_getProof` of the EEZ proxy, light client bootstrap) and the anchored L2
@@ -49,6 +49,14 @@
 //   the files of this fixture) and for the L1 request of the L2 prover (`eth_getStorageAt` on
 //   the EEZ proxy, recorded from the Ethereum mainnet prover), plus the anchored L2 block
 //   0x889da. The tests that drive the prover of the L2 directly use it.
+// - `eez_eip2935_blockByNumber` is a recording of local mode for a block before the anchor:
+//   RollupX block 0x8fa67, five blocks before the anchor 0x8fa6c. Next to the raw L1 data it
+//   holds the `eth_getProof` of the EIP-2935 history contract of RollupX at the anchor,
+//   recorded right after the anchor changed on L1 (the node only serves proofs for its
+//   newest blocks). It is the only fixture with a history proof that belongs to the state
+//   of a real anchor. Like the local-mode fixture it also holds the answer of an L1 prover
+//   (`eth_getStorageAt_….ssz`, written by `colibri-prover` from the files of this fixture)
+//   for the stand-alone prover of the L2.
 //
 // In `eez_eth_getBlockByNumber`, the anchored L2 block is 0x889da of RollupX. The `eth_getBlockByHash_0x1111..`,
 // `0x2222..`, `0x3333..` and `0x4444..` files are hand-made: copies of the anchor block with a
@@ -100,6 +108,13 @@
 #define PARENT_NUMBER_HEX "0x889d9"
 #define PARENT_HASH_HEX   "36523831d64a5c58c1cb5fdaaa47975c96930b036257a4d4c35e48ce5dadeac2"
 #define PARENT_HASH       "0x" PARENT_HASH_HEX
+// recording of local mode for a block before the anchor (history proof recorded from RollupX)
+#define HISTORY_FIXTURE          "eez_eip2935_blockByNumber"
+#define HISTORY_ANCHOR_NUMBER    0x8fa6c
+#define HISTORY_ANCHOR_HASH_HEX  "b3bfc6c68c634ed9f7406fdacd7f6e3010a015cf683bc1035c78165c916bdbb7"
+#define HISTORY_BLOCK_NUMBER     0x8fa67
+#define HISTORY_BLOCK_NUMBER_HEX "0x8fa67"
+#define HISTORY_BLOCK_HASH_HEX   "791e9549f9cc11673378d9fb16bf008509ba0949ad3c42eba5bf3af6e5784060"
 // finalized beacon block root the fixture was recorded with (the L1 answer bootstraps from it)
 #define FIXTURE_CHECKPOINT "0x4c9531434eb47654e6d047040b161dc4a66c7af301caf9968f3bad03534db85c"
 
@@ -2585,6 +2600,95 @@ void test_block_before_the_anchor_known_to_the_client(void) {
   safe_free(error);
 }
 
+// A block before the anchor with recorded data only: local mode builds the `eip2935` proof
+// around the `eezL1Proof` of the anchor from the answers of RollupX and Ethereum mainnet,
+// and the verifier accepts it. Nothing in this proof is synthetic.
+void test_fixture_block_before_the_anchor(void) {
+  bytes32_t expected = {0};
+  bytes32_t hash     = {0};
+  bytes32_t slot     = {0};
+
+  // prover and verifier end to end; the result is the block as the node returned it
+  run_rpc_test(HISTORY_FIXTURE, 0, 0);
+  TEST_ASSERT_TRUE(stored("states_1"));
+  TEST_ASSERT_FALSE(stored("states_696991"));
+
+  // the same request once more, to look at the proof the verifier accepted
+  reset_local_filecache();
+  c4_header_cache_clear();
+  set_state(ROLLUPX, HISTORY_FIXTURE);
+  c4_rpc_ctx_t* rpc    = c4_rpc_ctx_create("eth_getBlockByNumber", "[\"" HISTORY_BLOCK_NUMBER_HEX "\",false]", ROLLUPX, 0, 0, C4_PROVER_MODE_LOCAL);
+  c4_status_t   status = C4_PENDING;
+  for (int i = 0; i < 40 && status == C4_PENDING; i++) {
+    status = c4_rpc_execute(rpc);
+    if (status == C4_PENDING) answer_from(c4_rpc_get_state(rpc), HISTORY_FIXTURE);
+  }
+  const char* msg = rpc_error(rpc);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(C4_SUCCESS, status, msg ? msg : "no error");
+
+  // outer proof: the requested block, proven through the history contract
+  ssz_ob_t el = ssz_get(&rpc->verifier.proof, "elProof");
+  TEST_ASSERT_NOT_NULL(el.def);
+  TEST_ASSERT_EQUAL_STRING("eip2935", el.def->name);
+  bytes_t header = ssz_get(&el, "elHeader").bytes;
+  keccak(header, hash);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(hash_of(HISTORY_BLOCK_HASH_HEX, expected).data, hash, 32);
+  TEST_ASSERT_EQUAL_UINT64(HISTORY_BLOCK_NUMBER, eth_el_header_get_uint64(header, EL_BLOCK_NUMBER));
+
+  // history contract of the rollup, slot of the requested block
+  ssz_ob_t account = ssz_get(&el, "account");
+  ssz_ob_t storage = ssz_get(&account, "storageProof");
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(ETH_EIP2935_HISTORY_ADDRESS, ssz_get(&account, "address").bytes.data, 20);
+  TEST_ASSERT_EQUAL_UINT32(1, ssz_len(storage));
+  ssz_ob_t entry = ssz_at(storage, 0);
+  eth_eip2935_slot(HISTORY_BLOCK_NUMBER, slot);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(slot, ssz_get(&entry, "key").bytes.data, 32);
+
+  // inner proof: the anchor, proven on L1
+  ssz_ob_t inner = ssz_get(&account, "elProof");
+  TEST_ASSERT_NOT_NULL(inner.def);
+  TEST_ASSERT_EQUAL_STRING("eezL1Proof", inner.def->name);
+  bytes_t anchor = ssz_get(&inner, "elHeader").bytes;
+  keccak(anchor, hash);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(hash_of(HISTORY_ANCHOR_HASH_HEX, expected).data, hash, 32);
+  TEST_ASSERT_EQUAL_UINT64(HISTORY_ANCHOR_NUMBER, eth_el_header_get_uint64(anchor, EL_BLOCK_NUMBER));
+
+  c4_rpc_ctx_free(rpc);
+}
+
+// The stand-alone prover of the L2 (`createProof` of the bindings) proves the same block
+// with the answer of an L1 prover, which the fixture holds as well. The bindings run every
+// fixture this way.
+void test_history_fixture_serves_the_standalone_prover(void) {
+  const char*   args   = "[\"" HISTORY_BLOCK_NUMBER_HEX "\",false]";
+  char*         error  = NULL;
+  c4_status_t   status = C4_PENDING;
+  int           l1     = 0;
+  prover_ctx_t* ctx    = c4_prover_create("eth_getBlockByNumber", (char*) args, ROLLUPX, 0);
+  for (int i = 0; i < 20 && status == C4_PENDING; i++) {
+    status = c4_prover_execute(ctx);
+    for (data_request_t* req = ctx->state.requests; req; req = req->next)
+      if (req->type == C4_DATA_TYPE_PROVER && c4_state_is_pending(req)) l1++;
+    if (status == C4_PENDING) answer_from(&ctx->state, HISTORY_FIXTURE);
+  }
+  TEST_ASSERT_EQUAL_INT_MESSAGE(C4_SUCCESS, status, ctx->state.error ? ctx->state.error : "prover failed");
+  TEST_ASSERT_EQUAL_INT_MESSAGE(1, l1, "the prover of the L1 is asked once");
+  bytes_t request = bytes_dup(ctx->proof);
+  c4_prover_free(ctx);
+
+  ssz_ob_t req   = {.def = eth_ssz_verification_type(ETH_SSZ_VERIFY_REQUEST), .bytes = request};
+  ssz_ob_t proof = ssz_get(&req, "proof");
+  ssz_ob_t el    = ssz_get(&proof, "elProof");
+  TEST_ASSERT_NOT_NULL(el.def);
+  TEST_ASSERT_EQUAL_STRING("eip2935", el.def->name);
+  TEST_ASSERT_EQUAL_UINT64(HISTORY_BLOCK_NUMBER, eth_el_header_get_uint64(ssz_get(&el, "elHeader").bytes, EL_BLOCK_NUMBER));
+
+  set_state(ROLLUPX, HISTORY_FIXTURE);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(C4_SUCCESS, verify_request(request, "eth_getBlockByNumber", (char*) args, ROLLUPX, &error, NULL), error ? error : "no error");
+  safe_free(request.data);
+  safe_free(error);
+}
+
 #ifdef EL_HEADER_CACHE
 // A complete request with an `eip2935` proof verifies for RollupX. The proof is synthetic:
 // the newer block is referenced by hash, so it must be a header the verifier holds for the
@@ -2796,6 +2900,8 @@ int main(void) {
   RUN_TEST(test_history_proof_needs_exactly_one_storage_proof);
   RUN_TEST(test_anchor_by_number_and_hash_without_body);
   RUN_TEST(test_block_before_the_anchor_known_to_the_client);
+  RUN_TEST(test_fixture_block_before_the_anchor);
+  RUN_TEST(test_history_fixture_serves_the_standalone_prover);
 #ifdef EL_HEADER_CACHE
   RUN_TEST(test_eip2935_request_verifies_for_rollupx);
 #endif
