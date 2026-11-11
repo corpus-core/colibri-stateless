@@ -198,7 +198,12 @@ static char* first_hex_after(const char* json, const char* key) {
   TEST_ASSERT_NOT_NULL_MESSAGE(pos, key);
   const char* end = strchr(pos + 1, '"');
   TEST_ASSERT_NOT_NULL_MESSAGE(end, key);
-  return strndup(pos + 1, (size_t) (end - pos - 1));
+  // no strndup: it is not part of the C runtime of MSVC
+  size_t len  = (size_t) (end - pos - 1);
+  char*  copy = safe_malloc(len + 1);
+  memcpy(copy, pos + 1, len);
+  copy[len] = '\0';
+  return copy;
 }
 
 // Copy of a call request whose `elProof` is replaced by the one of another request, so the
