@@ -1705,6 +1705,9 @@ void test_l1_answer_without_sync_data(void) {
 // --- gap 6 -----------------------------------------------------------------
 // The other prover modes run on the same pieces: hybrid and light-client delegate the
 // block to the prover of the L2 (GET url with the client state of the L1).
+// Both modes need the header cache: the delegated block is verified once and then
+// referenced by hash.
+#ifdef EL_HEADER_CACHE
 void test_hybrid_and_light_client_mode(void) {
   static const c4_prover_mode_t modes[] = {C4_PROVER_MODE_HYBRID, C4_PROVER_MODE_LIGHT_CLIENT};
   char*                         error   = NULL;
@@ -1744,6 +1747,7 @@ void test_hybrid_and_light_client_mode(void) {
   }
   safe_free(full.data);
 }
+#endif
 
 // --- small additions that close surviving mutants ---------------------------
 
@@ -2768,7 +2772,9 @@ int main(void) {
   RUN_TEST(test_l2_node_answer_is_checked);
   RUN_TEST(test_l1_prover_answer_must_be_an_account_proof_with_a_cl_proof);
   RUN_TEST(test_l1_answer_without_sync_data);
+#ifdef EL_HEADER_CACHE
   RUN_TEST(test_hybrid_and_light_client_mode);
+#endif
   RUN_TEST(test_prover_sends_l1_client_state_to_l1_prover);
   RUN_TEST(test_local_mode_builds_the_l1_proof_locally);
   RUN_TEST(test_remote_mode_falls_back_to_a_local_proof);
