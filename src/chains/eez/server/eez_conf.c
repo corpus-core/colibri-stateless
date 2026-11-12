@@ -31,8 +31,9 @@ void eez_configure() {
   if (eez_config.l1_rpc && *eez_config.l1_rpc) {
     const eez_chain_config_t* conf = eez_get_chain_config(http_server.chain_id);
     if (conf) {
-      c4_register_eth_rpc_list(conf->l1_chain_id, eez_config.l1_rpc);
-      log_info("EEZ L1 RPC registered for chain %l", (uint64_t) conf->l1_chain_id);
+      chain_id_t l1_chain_id = c4_get_l1_chain_id_for_l2(conf->chain_id);
+      c4_register_eth_rpc_list(l1_chain_id, eez_config.l1_rpc);
+      log_info("EEZ L1 RPC registered for chain %l", (uint64_t) l1_chain_id);
     }
     else {
       log_warn("EEZ_L1_RPC set but server chain %l is not a known EEZ rollup", (uint64_t) http_server.chain_id);

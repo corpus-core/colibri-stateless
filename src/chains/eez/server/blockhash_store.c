@@ -38,15 +38,15 @@ static client_t watcher_client = {0};
 
 // Snapshot file name inside `blockhash_store`. Milestone 1 only keeps the latest one,
 // older events overwrite the file atomically through a temp + rename.
-#define EEZ_BH_LATEST_NAME    "latest.snap"
+#define EEZ_BH_LATEST_NAME     "latest.snap"
 #define EEZ_BH_LATEST_NAME_TMP "latest.snap.tmp"
-#define EEZ_BH_FILE_MAGIC     "EEZB"
-#define EEZ_BH_FILE_VERSION   1u
+#define EEZ_BH_FILE_MAGIC      "EEZB"
+#define EEZ_BH_FILE_VERSION    1u
 
 // One L2ExecutionPerformed event parsed from an L1 log. All three parameters are
 // non-indexed, so `data` carries: pad32(rollup_id) | new_root | pad32(ether_balance).
 typedef struct {
-  uint64_t rollup_id;
+  uint64_t  rollup_id;
   bytes32_t new_root;
   uint64_t  l1_block_number;
 } eez_bh_event_t;
@@ -64,26 +64,27 @@ typedef enum {
 
 typedef struct {
   const eez_chain_config_t* conf;
+  chain_id_t                l1_chain_id; // cached `c4_get_l1_chain_id_for_l2(conf->chain_id)`
   uv_timer_t                timer;
   bool                      timer_initialized;
   eez_bh_phase_t            phase;
   // L1 scan window. `last_scanned_l1_block` starts at `0` and is lazily bumped to the
   // latest L1 head the first time we receive a `toBlock` -- we do not want to scan the
   // whole chain on first start.
-  uint64_t                  last_scanned_l1_block;
-  bool                      bootstrap_done;
+  uint64_t last_scanned_l1_block;
+  bool     bootstrap_done;
   // Current event being processed (there can be several per tick; we handle them one
   // after another in reverse, newest first).
-  eez_bh_event_t            pending;
+  eez_bh_event_t pending;
   // Snapshot currently being built.
-  eez_bh_snapshot_t*        building;
+  eez_bh_snapshot_t* building;
   // The active published snapshot. Readers may hold the pointer only within the same
   // event-loop tick.
-  eez_bh_snapshot_t*        active;
+  eez_bh_snapshot_t* active;
   // Pre-built Patricia trie matching `active->storage_hash`. Owned here; freed and
   // rebuilt on every publish so the internal handler can mint storage proofs without
   // touching the raw hash array.
-  node_t*                   active_trie;
+  node_t* active_trie;
 } eez_bh_state_t;
 
 static eez_bh_state_t g_state = {0};
@@ -151,7 +152,7 @@ eez_bh_snapshot_t* eez_bh_deserialize(bytes_t blob) {
   memcpy(snap->balance, blob.data + 150, 32);
   uint16_t count = (uint16_t) blob.data[182] | ((uint16_t) blob.data[183] << 8);
 
-  size_t off = 184;
+  size_t off                = 184;
   snap->account_proof_count = count;
   if (count > 0) snap->account_proof_nodes = safe_calloc(count, sizeof(bytes_t));
   for (uint16_t i = 0; i < count; i++) {
@@ -189,12 +190,12 @@ eez_bh_snapshot_t* eez_bh_deserialize(bytes_t blob) {
 // caller keeps `hashes`.
 bool eez_bh_build_and_verify_trie(const bytes32_t* hashes, const bytes32_t storage_hash, node_t** out_trie) {
   if (out_trie) *out_trie = NULL;
-  node_t*   root       = NULL;
-  bytes32_t slot_key   = {0};
-  bytes32_t path       = {0};
+  node_t*   root          = NULL;
+  bytes32_t slot_key      = {0};
+  bytes32_t path          = {0};
   uint8_t   value_rlp[64] = {0};
-  buffer_t  value_buf = stack_buffer(value_rlp);
-  bool      any       = false;
+  buffer_t  value_buf     = stack_buffer(value_rlp);
+  bool      any           = false;
 
   for (uint32_t i = 0; i < EEZ_BH_SLOT_COUNT; i++) {
     if (bytes_all_zero(bytes((uint8_t*) hashes[i], 32))) continue;
@@ -277,8 +278,8 @@ static void eez_bh_publish(eez_bh_snapshot_t* snap, node_t* trie) {
   // internal handlers never yield before calling `c4_internal_call_finish`.
   eez_bh_snapshot_t* old_snap = g_state.active;
   node_t*            old_trie = g_state.active_trie;
-  g_state.active             = snap;
-  g_state.active_trie        = trie;
+  g_state.active              = snap;
+  g_state.active_trie         = trie;
   eez_bh_snapshot_free(old_snap);
   if (old_trie) patricia_node_free(old_trie);
 
@@ -332,10 +333,10 @@ static void eez_bh_handle_proof_response(data_request_t* req) {
     c4_request_free(req);
     return;
   }
-  uint32_t account_count = (uint32_t) json_len(account_proof);
+  uint32_t account_count                = (uint32_t) json_len(account_proof);
   g_state.building->account_proof_count = account_count;
   g_state.building->account_proof_nodes = account_count ? safe_calloc(account_count, sizeof(bytes_t)) : NULL;
-  uint32_t idx = 0;
+  uint32_t idx                          = 0;
   json_for_each_value(account_proof, node) {
     buffer_t tmp = {0};
     bytes_t  b   = json_as_bytes(node, &tmp);
@@ -508,7 +509,7 @@ static bool eez_bh_parse_log(json_t entry, eez_bh_event_t* out) {
   // rollup_id lives in the last 8 bytes of the first 32-byte word (big-endian uint64).
   for (int i = 0; i < 24; i++)
     if (raw.data[i] != 0) return false;
-  out->rollup_id       = uint64_from_be(raw.data + 24);
+  out->rollup_id = uint64_from_be(raw.data + 24);
   memcpy(out->new_root, raw.data + 32, 32);
   out->l1_block_number = json_get_uint64(entry, "blockNumber");
   return true;
@@ -574,8 +575,8 @@ static void eez_bh_handle_logs_cb(client_t* client, void* data, data_request_t* 
     return;
   }
 
-  g_state.pending      = newest;
-  g_state.building     = safe_calloc(1, sizeof(eez_bh_snapshot_t));
+  g_state.pending  = newest;
+  g_state.building = safe_calloc(1, sizeof(eez_bh_snapshot_t));
   memcpy(g_state.building->anchor_hash, newest.new_root, 32);
   g_state.building->l1_block_number = newest.l1_block_number;
   eez_bh_fetch_header();
@@ -605,7 +606,7 @@ static void eez_bh_scan_logs(uint64_t head) {
           bytes((uint8_t*) L2_EXECUTION_PERFORMED_TOPIC, 32),
           from, head);
 
-  data_request_t* req = eez_bh_build_eth_rpc(g_state.conf->l1_chain_id, "eth_getLogs", (const char*) params.data.data);
+  data_request_t* req = eez_bh_build_eth_rpc(g_state.l1_chain_id, "eth_getLogs", (const char*) params.data.data);
   buffer_free(&params);
   g_state.phase          = EEZ_BH_SCAN_LOGS;
   g_state.bootstrap_done = true;
@@ -637,7 +638,7 @@ static void eez_bh_handle_head_cb(client_t* client, void* data, data_request_t* 
 }
 
 static void eez_bh_fetch_head_and_scan(void) {
-  data_request_t* req = eez_bh_build_eth_rpc(g_state.conf->l1_chain_id, "eth_blockNumber", "[]");
+  data_request_t* req = eez_bh_build_eth_rpc(g_state.l1_chain_id, "eth_blockNumber", "[]");
   g_state.phase       = EEZ_BH_GET_HEAD;
   c4_add_request(&watcher_client, req, NULL, eez_bh_handle_head_cb);
 }
@@ -657,9 +658,9 @@ static void eez_bh_timer_cb(uv_timer_t* handle) {
 
 static void eez_bh_load_persisted(void) {
   if (!eez_config.blockhash_store || !*eez_config.blockhash_store) return;
-  char*  path = bprintf(NULL, "%s/" EEZ_BH_LATEST_NAME, eez_config.blockhash_store);
-  uv_fs_t req = {0};
-  uv_file fd  = uv_fs_open(uv_default_loop(), &req, path, O_RDONLY, 0, NULL);
+  char*   path = bprintf(NULL, "%s/" EEZ_BH_LATEST_NAME, eez_config.blockhash_store);
+  uv_fs_t req  = {0};
+  uv_file fd   = uv_fs_open(uv_default_loop(), &req, path, O_RDONLY, 0, NULL);
   uv_fs_req_cleanup(&req);
   if (fd < 0) {
     safe_free(path);
@@ -674,8 +675,8 @@ static void eez_bh_load_persisted(void) {
     safe_free(path);
     return;
   }
-  uint8_t*   buf     = safe_malloc((size_t) size);
-  uv_buf_t   iov     = uv_buf_init((char*) buf, (unsigned int) size);
+  uint8_t* buf = safe_malloc((size_t) size);
+  uv_buf_t iov = uv_buf_init((char*) buf, (unsigned int) size);
   uv_fs_read(uv_default_loop(), &req, fd, &iov, 1, 0, NULL);
   uv_fs_req_cleanup(&req);
   uv_fs_close(uv_default_loop(), &req, fd, NULL);
@@ -686,8 +687,8 @@ static void eez_bh_load_persisted(void) {
   if (snap) {
     node_t* trie = NULL;
     if (eez_bh_build_and_verify_trie(snap->hashes, snap->storage_hash, &trie)) {
-      g_state.active                = snap;
-      g_state.active_trie           = trie;
+      g_state.active      = snap;
+      g_state.active_trie = trie;
       // Resume the L1 scan from where the last snapshot left off so the first tick
       // after restart does not re-scan `0..latest` (which every provider rejects).
       g_state.last_scanned_l1_block = snap->l1_block_number;
@@ -720,6 +721,7 @@ void eez_bh_init(http_server_t* server) {
   }
 
   g_state.conf                  = conf;
+  g_state.l1_chain_id           = c4_get_l1_chain_id_for_l2(conf->chain_id);
   g_state.phase                 = EEZ_BH_IDLE;
   g_state.last_scanned_l1_block = 0;
   g_state.bootstrap_done        = false;
@@ -732,7 +734,7 @@ void eez_bh_init(http_server_t* server) {
     return;
   }
   g_state.timer_initialized = true;
-  uint64_t interval_ms = (uint64_t) eez_config.watch_interval * 1000ULL;
+  uint64_t interval_ms      = (uint64_t) eez_config.watch_interval * 1000ULL;
   if (interval_ms == 0) interval_ms = 12000ULL;
   // First tick after 1s so startup has a moment to settle; then every `interval_ms`.
   rc = uv_timer_start(&g_state.timer, eez_bh_timer_cb, 1000ULL, interval_ms);
@@ -741,7 +743,7 @@ void eez_bh_init(http_server_t* server) {
     return;
   }
   log_info("eez_blockhash_store: watcher armed for rollup %l (L1 chain %l), interval %lus",
-           conf->rollup_id, (uint64_t) conf->l1_chain_id, (uint64_t) eez_config.watch_interval);
+           conf->rollup_id, (uint64_t) g_state.l1_chain_id, (uint64_t) eez_config.watch_interval);
 }
 
 // -----------------------------------------------------------------------------
@@ -782,15 +784,15 @@ bool c4_handle_eez_blockhash(single_request_t* r) {
   if (!r || !r->req || !r->req->url) return false;
   if (strncmp(r->req->url, EEZ_BH_INTERNAL_PREFIX, sizeof(EEZ_BH_INTERNAL_PREFIX) - 1) != 0) return false;
 
-  const char* rest = r->req->url + sizeof(EEZ_BH_INTERNAL_PREFIX) - 1;
-  char*       end  = NULL;
+  const char* rest          = r->req->url + sizeof(EEZ_BH_INTERNAL_PREFIX) - 1;
+  char*       end           = NULL;
   uint64_t    anchor_number = strtoull(rest, &end, 10);
   if (!end || *end != '/') {
     eez_bh_internal_fail(r, "malformed eez_blockhash path (expected 'eez_blockhash/<anchor>/<slot_index>')");
     return true;
   }
-  const char* slot_part = end + 1;
-  char*       slot_end  = NULL;
+  const char* slot_part  = end + 1;
+  char*       slot_end   = NULL;
   uint64_t    slot_idx64 = strtoull(slot_part, &slot_end, 10);
   if (!slot_end || *slot_end != '\0' || slot_idx64 >= EEZ_BH_SLOT_COUNT) {
     eez_bh_internal_fail(r, "malformed eez_blockhash slot index");
@@ -835,8 +837,10 @@ bool c4_handle_eez_blockhash(single_request_t* r) {
   buffer_add_chars(&out, "],\"balance\":\"0x");
   // hexuint: drop leading zeros, keep at least one hex digit ("0x0" for zero).
   bytes_t bal_trim = bytes_remove_leading_zeros(bytes((uint8_t*) snap->balance, 32));
-  if (bal_trim.len == 0) buffer_add_chars(&out, "0");
-  else bprintf(&out, "%x", bal_trim);
+  if (bal_trim.len == 0)
+    buffer_add_chars(&out, "0");
+  else
+    bprintf(&out, "%x", bal_trim);
   // `%x` is lower-case hex with leading zeros per byte; strip the first byte's high
   // nibble if it is zero to keep the canonical hexuint form.
   // Note: `bytes_remove_leading_zeros` already strips whole zero bytes, but the first
@@ -845,8 +849,10 @@ bool c4_handle_eez_blockhash(single_request_t* r) {
   // (Downstream verifier accepts leading zero nibbles; keep this straightforward.)
   bprintf(&out, "\",\"codeHash\":\"0x%x\",\"nonce\":\"0x", bytes((uint8_t*) snap->code_hash, 32));
   bytes_t nonce_trim = bytes_remove_leading_zeros(bytes((uint8_t*) snap->nonce, 32));
-  if (nonce_trim.len == 0) buffer_add_chars(&out, "0");
-  else bprintf(&out, "%x", nonce_trim);
+  if (nonce_trim.len == 0)
+    buffer_add_chars(&out, "0");
+  else
+    bprintf(&out, "%x", nonce_trim);
   bprintf(&out, "\",\"storageHash\":\"0x%x\",\"storageProof\":[{",
           bytes((uint8_t*) snap->storage_hash, 32));
 
@@ -855,8 +861,10 @@ bool c4_handle_eez_blockhash(single_request_t* r) {
   uint64_to_be(slot_full + 24, slot_idx);
   bprintf(&out, "\"key\":\"0x%x\",\"value\":\"0x", bytes(slot_full, 32));
   bytes_t val_trim = bytes_remove_leading_zeros(bytes((uint8_t*) snap->hashes[slot_idx], 32));
-  if (val_trim.len == 0) buffer_add_chars(&out, "0");
-  else bprintf(&out, "%x", val_trim);
+  if (val_trim.len == 0)
+    buffer_add_chars(&out, "0");
+  else
+    bprintf(&out, "%x", val_trim);
   buffer_add_chars(&out, "\",\"proof\":");
   json_append_bytes_array(&out, proof_nodes);
   buffer_add_chars(&out, "}]}");
