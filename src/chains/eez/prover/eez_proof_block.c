@@ -503,9 +503,7 @@ c4_status_t eez_get_el_block(prover_ctx_t* ctx, json_t block, eth_block_t* out, 
     bytes_t  anchor_header = NULL_BYTES;
     ssz_ob_t no_body       = {0};
     TRY_ASYNC(fetch_l2_block(ctx, anchor, false, &anchor_header, &no_body));
-    c4_status_t status = resolve_block(ctx, conf, block, with_body, anchor, anchor_header, &snap);
-    safe_free(anchor_header.data); // `resolve_block` keeps its own copy for a block before the anchor
-    TRY_ASYNC(status);
+    TRY_ASYNC_FINAL(resolve_block(ctx, conf, block, with_body, anchor, anchor_header, &snap), safe_free(anchor_header.data));
   }
 
   attach_snap(ctx, id, snap, out);
