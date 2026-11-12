@@ -761,17 +761,6 @@ void eez_bh_init(http_server_t* server) {
 
 #define EEZ_BH_INTERNAL_PREFIX "eez_blockhash/"
 
-// Appends `value` (32 big-endian bytes) as a hex integer without leading zeros, writing
-// "0" when the value is zero. `%u` alone would produce an empty string for zero (see
-// `bytes.c`), which is not a valid JSON-RPC hex uint and would confuse the prover.
-static void bh_append_hexuint(buffer_t* out, const uint8_t value[32]) {
-  bytes_t trim = bytes_remove_leading_zeros(bytes((uint8_t*) value, 32));
-  if (trim.len == 0)
-    buffer_add_chars(out, "0");
-  else
-    bprintf(out, "%u", bytes((uint8_t*) value, 32));
-}
-
 // Appends a JSON array of hex-encoded byte strings for one SSZ List<bytes>.
 static void json_append_bytes_array(buffer_t* out, ssz_ob_t list) {
   uint32_t n = ssz_len(list);
@@ -854,19 +843,18 @@ bool c4_handle_eez_blockhash(single_request_t* r) {
     if (i) buffer_add_chars(&out, ",");
     bprintf(&out, "\"0x%x\"", snap->account_proof_nodes[i]);
   }
-  buffer_add_chars(&out, "],\"balance\":\"0x");
-  bh_append_hexuint(&out, snap->balance);
-  bprintf(&out, "\",\"codeHash\":\"0x%x\",\"nonce\":\"0x", bytes((uint8_t*) snap->code_hash, 32));
-  bh_append_hexuint(&out, snap->nonce);
-  bprintf(&out, "\",\"storageHash\":\"0x%x\",\"storageProof\":[{",
+  bprintf(&out, "],\"balance\":\"0x%u\",\"codeHash\":\"0x%x\",\"nonce\":\"0x%u\",\"storageHash\":\"0x%x\",\"storageProof\":[{",
+          bytes((uint8_t*) snap->balance, 32),
+          bytes((uint8_t*) snap->code_hash, 32),
+          bytes((uint8_t*) snap->nonce, 32),
           bytes((uint8_t*) snap->storage_hash, 32));
 
   // The one storage proof entry.
   bytes32_t slot_full = {0};
   uint64_to_be(slot_full + 24, slot_idx);
-  bprintf(&out, "\"key\":\"0x%x\",\"value\":\"0x", bytes(slot_full, 32));
-  bh_append_hexuint(&out, snap->hashes[slot_idx]);
-  buffer_add_chars(&out, "\",\"proof\":");
+  bprintf(&out, "\"key\":\"0x%x\",\"value\":\"0x%u\",\"proof\":",
+          bytes(slot_full, 32),
+          bytes((uint8_t*) snap->hashes[slot_idx], 32));
   json_append_bytes_array(&out, proof_nodes);
   buffer_add_chars(&out, "}]}");
 
