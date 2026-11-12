@@ -8,8 +8,11 @@
 
 #include "bytes.h"
 #include "chains/eth/verifier/patricia.h"
+#include "json.h"
 #include "server.h"
 #include "util/chains.h"
+#include "util/common.h"
+#include <stdbool.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -158,6 +161,34 @@ bool eez_bh_build_and_verify_trie(const bytes32_t* hashes, const bytes32_t stora
  * @return `true` when the path matched and the handler took ownership of the request
  */
 bool c4_handle_eez_blockhash(single_request_t* r);
+
+/**
+ * One parsed `L2ExecutionPerformed` event. Shared with unit tests via `eez_bh_parse_log`.
+ */
+typedef struct {
+  uint64_t  rollup_id;       /** value of the indexed `rollupId` topic */
+  bytes32_t new_root;        /** `newRoot` from the data field (L2 block hash) */
+  uint64_t  l1_block_number; /** L1 block number the event was emitted in */
+} eez_bh_event_t;
+
+/**
+ * Parses one log entry of the `L2ExecutionPerformed(uint64 indexed rollupId, bytes32 newRoot, uint256 etherBalance)`
+ * event.
+ *
+ * ABI layout (what `eth_getLogs` returns):
+ * - `topics[0]` event signature
+ * - `topics[1]` 32-byte big-endian pad of the indexed `rollupId`
+ * - `data`      64 bytes = `newRoot (32) || etherBalance (32)`
+ *
+ * Returns `false` when the entry is malformed or the upper 24 bytes of the `rollupId`
+ * topic are not zero (indicating a value outside the `uint64` range). Exposed for unit
+ * tests when `TEST` is defined; otherwise `static` inside `blockhash_store.c`.
+ *
+ * @param entry JSON log entry as returned by `eth_getLogs`
+ * @param out receives the parsed event on success
+ * @return `true` when parsing succeeded
+ */
+C4_STATIC_UNLESS_TEST bool eez_bh_parse_log(json_t entry, eez_bh_event_t* out);
 
 #ifdef __cplusplus
 }

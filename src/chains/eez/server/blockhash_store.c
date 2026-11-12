@@ -16,6 +16,7 @@
 #include "server.h"
 #include "state.h"
 #include "util/chains.h"
+#include "util/common.h"
 #include "uv_util.h"
 #include <fcntl.h>
 #include <string.h>
@@ -43,13 +44,8 @@ static client_t watcher_client = {0};
 #define EEZ_BH_FILE_MAGIC      "EEZB"
 #define EEZ_BH_FILE_VERSION    1u
 
-// One L2ExecutionPerformed event parsed from an L1 log. All three parameters are
-// non-indexed, so `data` carries: pad32(rollup_id) | new_root | pad32(ether_balance).
-typedef struct {
-  uint64_t  rollup_id;
-  bytes32_t new_root;
-  uint64_t  l1_block_number;
-} eez_bh_event_t;
+// `eez_bh_event_t` is now declared in `blockhash_store.h` so unit tests can call
+// `eez_bh_parse_log` directly.
 
 // Watcher phases serialized through the event loop. Only one request is in flight at a
 // time; the pipeline is simple enough that an explicit state machine keeps the control
@@ -498,19 +494,35 @@ static void eez_bh_fetch_header(void) {
 
 // Parses one L2ExecutionPerformed log entry. Returns `true` only when the entry is for
 // our rollup id and the data field has the expected layout.
-static bool eez_bh_parse_log(json_t entry, eez_bh_event_t* out) {
+//
+// Event ABI: `L2ExecutionPerformed(uint64 indexed rollupId, bytes32 newRoot, uint256 etherBalance)`
+// - `topics[0]` = event signature hash
+// - `topics[1]` = pad32(rollupId)  (indexed, hence in topics, not in data)
+// - `data`      = newRoot (32) || etherBalance (32)   -- 64 bytes total
+C4_STATIC_UNLESS_TEST bool eez_bh_parse_log(json_t entry, eez_bh_event_t* out) {
+  // topics[1] carries the indexed rollup id.
+  json_t topics = json_get(entry, "topics");
+  if (topics.type != JSON_TYPE_ARRAY) return false;
+  json_t topic1 = json_at(topics, 1);
+  if (topic1.type != JSON_TYPE_STRING) return false;
+  uint8_t  topic1_bytes[32] = {0};
+  buffer_t topic1_buf       = stack_buffer(topic1_bytes);
+  bytes_t  topic1_raw       = json_as_bytes(topic1, &topic1_buf);
+  if (!topic1_raw.data || topic1_raw.len != 32) return false;
+  // Upper 24 bytes must be zero for a uint64-sized rollup id.
+  for (int i = 0; i < 24; i++)
+    if (topic1_raw.data[i] != 0) return false;
+  out->rollup_id = uint64_from_be(topic1_raw.data + 24);
+
+  // data = newRoot (32) || etherBalance (32).
   json_t data = json_get(entry, "data");
   if (data.type != JSON_TYPE_STRING) return false;
-  uint8_t  data_bytes[96] = {0};
+  uint8_t  data_bytes[64] = {0};
   buffer_t buf            = stack_buffer(data_bytes);
   bytes_t  raw            = json_as_bytes(data, &buf);
-  if (!raw.data || raw.len != 96) return false;
+  if (!raw.data || raw.len != 64) return false;
+  memcpy(out->new_root, raw.data, 32);
 
-  // rollup_id lives in the last 8 bytes of the first 32-byte word (big-endian uint64).
-  for (int i = 0; i < 24; i++)
-    if (raw.data[i] != 0) return false;
-  out->rollup_id = uint64_from_be(raw.data + 24);
-  memcpy(out->new_root, raw.data + 32, 32);
   out->l1_block_number = json_get_uint64(entry, "blockNumber");
   return true;
 }

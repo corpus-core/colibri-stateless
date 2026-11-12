@@ -338,6 +338,109 @@ void test_empty_trie_matches_empty_root(void) {
   TEST_ASSERT_NULL(trie);
 }
 
+// Regression test: `L2ExecutionPerformed(uint64 indexed rollupId, bytes32 newRoot,
+// uint256 etherBalance)` has `rollupId` as an *indexed* parameter, i.e. in `topics[1]`;
+// only `newRoot` and `etherBalance` live in `data`, so `data.len == 64`, not 96.
+// A previous version of the parser expected `rollupId` in `data`, silently rejected
+// every real-world event and left the blockhash store empty.
+//
+// Values below are copied from the actual event on Ethereum Mainnet block 0x192cfb5
+// (26398645), rollup id 2:
+//   topic[1]       = 0x0000...0002
+//   newRoot        = 0x44865E30E64865E08F94EEBA10D0DFF44E8C61D32638CDAE49DA8A48FD4347B1
+//   etherBalance   = 0x0000...0298e0c36e80fe4e  (189 496 617 429 060 750 wei)
+void test_parse_l2_execution_performed_event(void) {
+  const char* json =
+      "{"
+      "\"address\":\"0x4b2760f84b83d6b3829e30a7573b0172b6d6402c\","
+      "\"topics\":["
+      "\"0x8945ae7d1ab7f670bc04e5b87613a2ac6904a559769517d220308f4f22cd1b66\","
+      "\"0x0000000000000000000000000000000000000000000000000000000000000002\""
+      "],"
+      "\"data\":\"0x"
+      "44865e30e64865e08f94eeba10d0dff44e8c61d32638cdae49da8a48fd4347b1"
+      "00000000000000000000000000000000000000000000000000000000000f4240"
+      "\","
+      "\"blockNumber\":\"0x192cfb5\","
+      "\"transactionHash\":\"0x00\","
+      "\"logIndex\":\"0x0\""
+      "}";
+  json_t entry = json_parse((char*) json);
+
+  eez_bh_event_t evt = {0};
+  TEST_ASSERT_TRUE(eez_bh_parse_log(entry, &evt));
+  TEST_ASSERT_EQUAL_UINT64(2, evt.rollup_id);
+  TEST_ASSERT_EQUAL_UINT64(0x192cfb5ULL, evt.l1_block_number);
+  uint8_t expected_root[32] = {
+      0x44, 0x86, 0x5e, 0x30, 0xe6, 0x48, 0x65, 0xe0,
+      0x8f, 0x94, 0xee, 0xba, 0x10, 0xd0, 0xdf, 0xf4,
+      0x4e, 0x8c, 0x61, 0xd3, 0x26, 0x38, 0xcd, 0xae,
+      0x49, 0xda, 0x8a, 0x48, 0xfd, 0x43, 0x47, 0xb1};
+  TEST_ASSERT_EQUAL_MEMORY(expected_root, evt.new_root, 32);
+}
+
+// A rollupId value that does not fit in uint64 (upper 24 bytes non-zero) must be
+// rejected rather than silently truncated.
+void test_parse_rejects_oversized_rollup_id(void) {
+  const char* json =
+      "{"
+      "\"topics\":["
+      "\"0x8945ae7d1ab7f670bc04e5b87613a2ac6904a559769517d220308f4f22cd1b66\","
+      "\"0x0000000000000000010000000000000000000000000000000000000000000002\""
+      "],"
+      "\"data\":\"0x"
+      "44865e30e64865e08f94eeba10d0dff44e8c61d32638cdae49da8a48fd4347b1"
+      "00000000000000000000000000000000000000000000000000000000000f4240"
+      "\","
+      "\"blockNumber\":\"0x1\""
+      "}";
+  json_t entry = json_parse((char*) json);
+
+  eez_bh_event_t evt = {0};
+  TEST_ASSERT_FALSE(eez_bh_parse_log(entry, &evt));
+}
+
+// Structural rejections: missing topics array, topics[1] missing, wrong data length,
+// missing data field.
+void test_parse_rejects_structural_failures(void) {
+  eez_bh_event_t evt = {0};
+
+  // 1. No topics array at all.
+  {
+    const char* json = "{\"data\":\"0x\",\"blockNumber\":\"0x1\"}";
+    TEST_ASSERT_FALSE(eez_bh_parse_log(json_parse((char*) json), &evt));
+  }
+  // 2. Only topic[0], missing topic[1].
+  {
+    const char* json =
+        "{\"topics\":[\"0x8945ae7d1ab7f670bc04e5b87613a2ac6904a559769517d220308f4f22cd1b66\"],"
+        "\"data\":\"0x"
+        "44865e30e64865e08f94eeba10d0dff44e8c61d32638cdae49da8a48fd4347b1"
+        "00000000000000000000000000000000000000000000000000000000000f4240\","
+        "\"blockNumber\":\"0x1\"}";
+    TEST_ASSERT_FALSE(eez_bh_parse_log(json_parse((char*) json), &evt));
+  }
+  // 3. data too short (only 32 bytes instead of 64).
+  {
+    const char* json =
+        "{\"topics\":["
+        "\"0x8945ae7d1ab7f670bc04e5b87613a2ac6904a559769517d220308f4f22cd1b66\","
+        "\"0x0000000000000000000000000000000000000000000000000000000000000002\"],"
+        "\"data\":\"0x44865e30e64865e08f94eeba10d0dff44e8c61d32638cdae49da8a48fd4347b1\","
+        "\"blockNumber\":\"0x1\"}";
+    TEST_ASSERT_FALSE(eez_bh_parse_log(json_parse((char*) json), &evt));
+  }
+  // 4. missing data field.
+  {
+    const char* json =
+        "{\"topics\":["
+        "\"0x8945ae7d1ab7f670bc04e5b87613a2ac6904a559769517d220308f4f22cd1b66\","
+        "\"0x0000000000000000000000000000000000000000000000000000000000000002\"],"
+        "\"blockNumber\":\"0x1\"}";
+    TEST_ASSERT_FALSE(eez_bh_parse_log(json_parse((char*) json), &evt));
+  }
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_serialize_round_trip);
@@ -347,6 +450,9 @@ int main(void) {
   RUN_TEST(test_internal_handler_rejects_malformed_path);
   RUN_TEST(test_trie_build_and_verify_round_trip);
   RUN_TEST(test_empty_trie_matches_empty_root);
+  RUN_TEST(test_parse_l2_execution_performed_event);
+  RUN_TEST(test_parse_rejects_oversized_rollup_id);
+  RUN_TEST(test_parse_rejects_structural_failures);
   return UNITY_END();
 }
 
