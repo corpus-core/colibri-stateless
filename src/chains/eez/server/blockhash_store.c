@@ -130,7 +130,7 @@ void eez_bh_serialize(const eez_bh_snapshot_t* snap, buffer_t* out) {
     buffer_append(out, snap->account_proof_nodes[i]);
   }
 
-  buffer_append(out, bytes((uint8_t*) snap->hashes, (uint32_t) (sizeof(bytes32_t) * EEZ_BH_SLOT_COUNT)));
+  buffer_append(out, bytes((uint8_t*) snap->hashes, (uint32_t) (sizeof(bytes32_t) * ETH_EIP2935_HISTORY_WINDOW)));
 }
 
 eez_bh_snapshot_t* eez_bh_deserialize(bytes_t blob) {
@@ -169,11 +169,11 @@ eez_bh_snapshot_t* eez_bh_deserialize(bytes_t blob) {
     off += nlen;
   }
 
-  if (off + sizeof(bytes32_t) * EEZ_BH_SLOT_COUNT != blob.len) {
+  if (off + sizeof(bytes32_t) * ETH_EIP2935_HISTORY_WINDOW != blob.len) {
     eez_bh_snapshot_free(snap);
     return NULL;
   }
-  memcpy(snap->hashes, blob.data + off, sizeof(bytes32_t) * EEZ_BH_SLOT_COUNT);
+  memcpy(snap->hashes, blob.data + off, sizeof(bytes32_t) * ETH_EIP2935_HISTORY_WINDOW);
   return snap;
 }
 
@@ -194,7 +194,7 @@ bool eez_bh_build_and_verify_trie(const bytes32_t* hashes, const bytes32_t stora
   buffer_t  value_buf     = stack_buffer(value_rlp);
   bool      any           = false;
 
-  for (uint32_t i = 0; i < EEZ_BH_SLOT_COUNT; i++) {
+  for (uint32_t i = 0; i < ETH_EIP2935_HISTORY_WINDOW; i++) {
     if (bytes_all_zero(bytes((uint8_t*) hashes[i], 32))) continue;
     any = true;
     // Trie key is keccak256(pad32(slot_index)). Slot index is `i` as big-endian uint256.
@@ -366,7 +366,7 @@ static void eez_bh_handle_proof_response(data_request_t* req) {
       c4_request_free(req);
       return;
     }
-    // Slot is a uint256 < EEZ_BH_SLOT_COUNT. Reject anything unexpected.
+    // Slot is a uint256 < ETH_EIP2935_HISTORY_WINDOW. Reject anything unexpected.
     for (int b = 0; b < 29; b++)
       if (key[b] != 0) {
         eez_bh_fail("storageProof entry key is not in the EIP-2935 slot range", NULL);
@@ -374,7 +374,7 @@ static void eez_bh_handle_proof_response(data_request_t* req) {
         return;
       }
     uint32_t slot_idx = ((uint32_t) key[29] << 16) | ((uint32_t) key[30] << 8) | (uint32_t) key[31];
-    if (slot_idx >= EEZ_BH_SLOT_COUNT) {
+    if (slot_idx >= ETH_EIP2935_HISTORY_WINDOW) {
       eez_bh_fail("storageProof entry key slot is out of range", NULL);
       c4_request_free(req);
       return;
@@ -383,7 +383,7 @@ static void eez_bh_handle_proof_response(data_request_t* req) {
     (void) json_as_bytes32(json_get(entry, "value"), g_state.building->hashes[slot_idx]);
     seen++;
   }
-  if (seen != EEZ_BH_SLOT_COUNT) {
+  if (seen != ETH_EIP2935_HISTORY_WINDOW) {
     eez_bh_fail("eth_getProof storageProof is incomplete", NULL);
     c4_request_free(req);
     return;
@@ -432,7 +432,7 @@ static void eez_bh_fetch_proof(void) {
   // this when the request is a single POST. Chunking is out of scope for Milestone 1.
   buffer_t params = {0};
   bprintf(&params, "[\"0x%x\",[", bytes((uint8_t*) ETH_EIP2935_HISTORY_ADDRESS, ADDRESS_SIZE));
-  for (uint32_t i = 0; i < EEZ_BH_SLOT_COUNT; i++) {
+  for (uint32_t i = 0; i < ETH_EIP2935_HISTORY_WINDOW; i++) {
     bytes32_t slot = {0};
     uint64_to_be(slot + 24, i);
     if (i) buffer_append(&params, bytes((uint8_t*) ",", 1));
@@ -803,7 +803,7 @@ bool c4_handle_eez_blockhash(single_request_t* r) {
   const char* slot_part  = end + 1;
   char*       slot_end   = NULL;
   uint64_t    slot_idx64 = strtoull(slot_part, &slot_end, 10);
-  if (!slot_end || *slot_end != '\0' || slot_idx64 >= EEZ_BH_SLOT_COUNT) {
+  if (!slot_end || *slot_end != '\0' || slot_idx64 >= ETH_EIP2935_HISTORY_WINDOW) {
     eez_bh_internal_fail(r, "malformed eez_blockhash slot index");
     return true;
   }

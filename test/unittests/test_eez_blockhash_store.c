@@ -100,7 +100,7 @@ void test_deserialize_rejects_garbage(void) {
 // leak the partially constructed snapshot.
 void test_deserialize_structural_failures(void) {
   // Case A: valid header, 0 proof nodes, but the 8191 * 32 hashes tail is missing.
-  // Hits the `off + sizeof(bytes32_t) * EEZ_BH_SLOT_COUNT != blob.len` branch.
+  // Hits the `off + sizeof(bytes32_t) * ETH_EIP2935_HISTORY_WINDOW != blob.len` branch.
   uint8_t header_only[184] = {0};
   memcpy(header_only, "EEZB", 4);
   header_only[4] = 0x01; // version LE = 1
@@ -192,7 +192,7 @@ void test_internal_handler_rejects_malformed_path(void) {
   safe_free(req.error);
   req.error = NULL;
 
-  // Slot index exactly at `EEZ_BH_SLOT_COUNT` (8191) must be rejected as out of range.
+  // Slot index exactly at `ETH_EIP2935_HISTORY_WINDOW` (8191) must be rejected as out of range.
   // The existing "999999" case already exercises a very large value; this one checks the
   // boundary to catch an off-by-one in the `>=` comparison.
   req.url        = "eez_blockhash/100/8191";
@@ -204,7 +204,7 @@ void test_internal_handler_rejects_malformed_path(void) {
   safe_free(req.error);
   req.error = NULL;
 
-  // Highest valid slot index (`EEZ_BH_SLOT_COUNT - 1` == 8190) must pass parsing and
+  // Highest valid slot index (`ETH_EIP2935_HISTORY_WINDOW - 1` == 8190) must pass parsing and
   // then fall through to the "no snapshot" error because `g_state.active` is NULL.
   // This confirms the boundary parses correctly rather than being rejected as slot
   // out-of-range.
@@ -242,7 +242,7 @@ void test_internal_handler_rejects_malformed_path(void) {
 // builder and the storage layout of the EIP-2935 contract agree. Flipping one byte of
 // the expected root must cause the verification to fail.
 void test_trie_build_and_verify_round_trip(void) {
-  bytes32_t hashes[EEZ_BH_SLOT_COUNT];
+  bytes32_t hashes[ETH_EIP2935_HISTORY_WINDOW];
   memset(hashes, 0, sizeof(hashes));
 
   // Populate a few slots with distinct 32-byte patterns. `0`, `1`, `42`, `8190`
@@ -274,7 +274,7 @@ void test_trie_build_and_verify_round_trip(void) {
   bytes32_t path          = {0};
   uint8_t   value_rlp[64] = {0};
   buffer_t  value_buf     = stack_buffer(value_rlp);
-  for (uint32_t i = 0; i < EEZ_BH_SLOT_COUNT; i++) {
+  for (uint32_t i = 0; i < ETH_EIP2935_HISTORY_WINDOW; i++) {
     if (!hashes[i][0] && !memcmp(hashes[i], hashes[1023], 32)) continue; // all zero
     bool all_zero = true;
     for (int b = 0; b < 32; b++)
@@ -314,7 +314,7 @@ void test_trie_build_and_verify_round_trip(void) {
 // a fresh rollup never publishes. Both the positive and negative cases hit the `!any`
 // branch of `eez_bh_build_and_verify_trie`, which is unreachable in the round-trip test.
 void test_empty_trie_matches_empty_root(void) {
-  bytes32_t hashes[EEZ_BH_SLOT_COUNT];
+  bytes32_t hashes[ETH_EIP2935_HISTORY_WINDOW];
   memset(hashes, 0, sizeof(hashes));
 
   // Ethereum's canonical empty-trie root (`keccak256(rlp(""))`) is exposed by the eth

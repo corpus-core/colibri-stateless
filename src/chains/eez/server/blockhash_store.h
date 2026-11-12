@@ -7,6 +7,7 @@
 #define eez_blockhash_store_h__
 
 #include "bytes.h"
+#include "chains/eth/verifier/eip2935.h" // ETH_EIP2935_HISTORY_WINDOW
 #include "chains/eth/verifier/patricia.h"
 #include "json.h"
 #include "server.h"
@@ -20,12 +21,6 @@ extern "C" {
 #endif
 
 /**
- * Number of EIP-2935 history slots. Equal to `ETH_EIP2935_HISTORY_WINDOW` but kept
- * local to the server module so blockhash_store does not pull in the full verifier.
- */
-#define EEZ_BH_SLOT_COUNT 8191
-
-/**
  * Snapshot of the EIP-2935 history contract of an L2 at the anchor block whose hash
  * was most recently committed on L1 (`L2ExecutionPerformed`).
  *
@@ -36,16 +31,16 @@ extern "C" {
  * writes a snapshot after that check.
  */
 typedef struct {
-  bytes32_t     anchor_hash;      /** 32-byte L2 block hash emitted in the L1 event */
-  uint64_t      anchor_number;    /** L2 block number of `anchor_hash` */
-  uint64_t      l1_block_number;  /** L1 block the event was emitted in */
-  bytes32_t     storage_hash;     /** `storageHash` of the account proof, matches the trie we build */
-  bytes32_t     code_hash;        /** `codeHash` of the account proof */
-  bytes32_t     nonce;            /** `nonce` of the account proof (be, mostly single byte) */
-  bytes32_t     balance;          /** `balance` of the account proof */
-  bytes32_t     hashes[EEZ_BH_SLOT_COUNT]; /** slot value for every EIP-2935 slot (0 = never populated) */
-  bytes_t*      account_proof_nodes;       /** raw RLP nodes of the account proof */
-  uint32_t      account_proof_count;       /** number of entries in `account_proof_nodes` */
+  bytes32_t anchor_hash;               /** 32-byte L2 block hash emitted in the L1 event */
+  uint64_t  anchor_number;             /** L2 block number of `anchor_hash` */
+  uint64_t  l1_block_number;           /** L1 block the event was emitted in */
+  bytes32_t storage_hash;              /** `storageHash` of the account proof, matches the trie we build */
+  bytes32_t code_hash;                 /** `codeHash` of the account proof */
+  bytes32_t nonce;                     /** `nonce` of the account proof (be, mostly single byte) */
+  bytes32_t balance;                   /** `balance` of the account proof */
+  bytes32_t hashes[ETH_EIP2935_HISTORY_WINDOW]; /** slot value for every EIP-2935 slot (0 = never populated) */
+  bytes_t*  account_proof_nodes;       /** raw RLP nodes of the account proof */
+  uint32_t  account_proof_count;       /** number of entries in `account_proof_nodes` */
 } eez_bh_snapshot_t;
 
 /**
@@ -132,7 +127,7 @@ void eez_bh_snapshot_free(eez_bh_snapshot_t* snap);
  *
  * On a match, ownership of the trie is transferred to `*out_trie` (free it with
  * `patricia_node_free` when done). On a mismatch, the trie is freed internally and
- * `*out_trie` is set to `NULL`. `hashes` must point to `EEZ_BH_SLOT_COUNT` entries; the
+ * `*out_trie` is set to `NULL`. `hashes` must point to `ETH_EIP2935_HISTORY_WINDOW` entries; the
  * function treats all-zero entries as empty slots and skips them (consistent with how
  * the Ethereum storage trie omits zero-valued slots).
  *
