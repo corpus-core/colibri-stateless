@@ -332,7 +332,7 @@ c4_response_type_t c4_classify_response(long http_code, const char* url, bytes_t
   if (http_code >= 200 && http_code < 300) {
     // For JSON-RPC, we need to check for error field even with 200 status
     if (req && req->type == C4_DATA_TYPE_ETH_RPC && response_body.data && response_body.len > 0) {
-      server_list_t* servers = servers_opt ? servers_opt : c4_get_server_list(req->type);
+      server_list_t* servers = servers_opt ? servers_opt : c4_get_server_list(req->type, req->chain_id);
       // For methods that can legitimately return null (e.g. unknown tx, pending tx, unknown block),
       // only treat null as retryable if the responding node demonstrably lags behind other nodes.
       // This avoids penalising healthy nodes for correct null responses while still retrying

@@ -325,6 +325,15 @@ static server_list_t beacon_api_servers  = {0};
 static server_list_t prover_servers      = {0};
 static server_list_t checkpointz_servers = {0};
 
+// Extra RPC lists registered by L2 server modules for a non-server chain (e.g. the L1
+// RPC of an EEZ L2). The server owns these entries; they are freed in `c4_cleanup_curl`.
+typedef struct {
+  chain_id_t     chain_id;
+  server_list_t  list;
+} eth_rpc_entry_t;
+static eth_rpc_entry_t* extra_eth_rpc        = NULL;
+static size_t           extra_eth_rpc_count  = 0;
+
 static void cache_response(single_request_t* r);
 static void trigger_uncached_curl_request(void* data, char* value, size_t value_len);
 static void trigger_cached_curl_requests(request_t* req);
@@ -562,7 +571,7 @@ static void handle_curl_events() {
     }
 #endif
 
-    server_list_t* servers           = c4_get_effective_server_list(r->req->type, r->parent);
+    server_list_t* servers           = c4_get_effective_server_list(r->req->type, r->parent, r->req->chain_id);
     r->end_time                      = current_ms();
     uint64_t           response_time = r->end_time - r->start_time;
     c4_response_type_t response_type = c4_classify_response(http_code,
@@ -891,9 +900,17 @@ static int socket_callback(CURL* easy, curl_socket_t s, int what, void* userp, v
   return 0;
 }
 
-server_list_t* c4_get_server_list(data_request_type_t type) {
+server_list_t* c4_get_server_list(data_request_type_t type, chain_id_t chain_id) {
   switch (type) {
     case C4_DATA_TYPE_ETH_RPC:
+      // A request from a chain other than the one this server was configured for goes
+      // to a list registered by an L2 handler, if there is one. `chain_id == 0` means
+      // the caller is not tied to a request and keeps the built-in list.
+      if (chain_id && chain_id != http_server.chain_id) {
+        for (size_t i = 0; i < extra_eth_rpc_count; i++) {
+          if (extra_eth_rpc[i].chain_id == chain_id) return (server_list_t*) &extra_eth_rpc[i].list;
+        }
+      }
       return (server_list_t*) &eth_rpc_servers;
     case C4_DATA_TYPE_BEACON_API:
       return (server_list_t*) &beacon_api_servers;
@@ -906,14 +923,36 @@ server_list_t* c4_get_server_list(data_request_type_t type) {
   }
 }
 
-server_list_t* c4_get_effective_server_list(data_request_type_t type, request_t* req) {
+void c4_register_eth_rpc_list(chain_id_t chain_id, char* csv) {
+  if (!chain_id || chain_id == http_server.chain_id || !csv || !*csv) return;
+  // Replace an existing entry, otherwise append.
+  eth_rpc_entry_t* entry = NULL;
+  for (size_t i = 0; i < extra_eth_rpc_count; i++) {
+    if (extra_eth_rpc[i].chain_id == chain_id) {
+      entry = &extra_eth_rpc[i];
+      c4_free_server_list(&entry->list);
+      break;
+    }
+  }
+  if (!entry) {
+    extra_eth_rpc = safe_realloc(extra_eth_rpc, (extra_eth_rpc_count + 1) * sizeof(eth_rpc_entry_t));
+    entry         = &extra_eth_rpc[extra_eth_rpc_count++];
+    memset(entry, 0, sizeof(*entry));
+    entry->chain_id = chain_id;
+  }
+  c4_parse_server_config(&entry->list, csv);
+  c4_detect_server_client_types(&entry->list, C4_DATA_TYPE_ETH_RPC);
+  c4_detect_archive_status(&entry->list);
+}
+
+server_list_t* c4_get_effective_server_list(data_request_type_t type, request_t* req, chain_id_t chain_id) {
   if (req) {
     if (type == C4_DATA_TYPE_ETH_RPC && req->proxy_rpc_servers && req->proxy_rpc_servers->count > 0)
       return req->proxy_rpc_servers;
     if (type == C4_DATA_TYPE_BEACON_API && req->proxy_beacon_servers && req->proxy_beacon_servers->count > 0)
       return req->proxy_beacon_servers;
   }
-  return c4_get_server_list(type);
+  return c4_get_server_list(type, chain_id);
 }
 
 static size_t curl_append(void* contents, size_t size, size_t nmemb, void* buf) {
@@ -1096,7 +1135,7 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
   }
   else {
     // Cache miss - proceed with normal request handling
-    server_list_t* servers = c4_get_effective_server_list(r->req->type, r->parent);
+    server_list_t* servers = c4_get_effective_server_list(r->req->type, r->parent, r->req->chain_id);
 
     int selected_index = -1;
 
@@ -1356,7 +1395,7 @@ bool c4_check_retry_request(request_t* req) {
   for (size_t i = 0; i < req->request_count; i++) {
     single_request_t* r       = req->requests + i;
     data_request_t*   pending = r->req;
-    server_list_t*    servers = c4_get_effective_server_list(pending->type, req);
+    server_list_t*    servers = c4_get_effective_server_list(pending->type, req, pending->chain_id);
 
     if (pending->error && servers) {
       // Check if too many servers are unhealthy (might indicate user error)
@@ -1519,4 +1558,9 @@ void c4_cleanup_curl() {
   c4_free_server_list(&beacon_api_servers);
   c4_free_server_list(&prover_servers);
   c4_free_server_list(&checkpointz_servers);
+  for (size_t i = 0; i < extra_eth_rpc_count; i++)
+    c4_free_server_list(&extra_eth_rpc[i].list);
+  safe_free(extra_eth_rpc);
+  extra_eth_rpc       = NULL;
+  extra_eth_rpc_count = 0;
 }

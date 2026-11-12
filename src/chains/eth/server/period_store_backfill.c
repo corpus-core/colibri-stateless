@@ -503,7 +503,7 @@ static void reorg_recovery_cb(client_t* client, void* data, data_request_t* r) {
 
 static void fetch_header_by_slot(uint64_t slot, block_t* target) {
   if (graceful_shutdown_in_progress) return;
-  server_list_t* sl = c4_get_server_list(C4_DATA_TYPE_BEACON_API);
+  server_list_t* sl = c4_get_server_list(C4_DATA_TYPE_BEACON_API, 0);
   if (!sl || sl->count == 0) return;
   int delay_ms = eth_config.period_backfill_delay_ms;
   if (delay_ms > 0) {
@@ -572,7 +572,7 @@ static void fetch_header_cb(client_t* client, void* data, data_request_t* r) {
 static void fetch_header(uint8_t* root, block_t* target) {
   if (graceful_shutdown_in_progress) return;
   // Skip if no Beacon API servers configured
-  server_list_t* sl = c4_get_server_list(C4_DATA_TYPE_BEACON_API);
+  server_list_t* sl = c4_get_server_list(C4_DATA_TYPE_BEACON_API, 0);
   if (!sl || sl->count == 0) return;
   // Optional pacing to avoid rate-limits
   int delay_ms = eth_config.period_backfill_delay_ms;

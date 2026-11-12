@@ -26,6 +26,16 @@ extern "C" {
  */
 void eez_server_init(http_server_t* server);
 
+/**
+ * Releases runtime resources owned by the EEZ server module (blockhash store watcher,
+ * snapshots).
+ *
+ * Safe to call before `eez_server_init` and multiple times.
+ *
+ * @param server the server configuration (chain id)
+ */
+void eez_server_shutdown(http_server_t* server);
+
 #ifdef __cplusplus
 }
 #endif

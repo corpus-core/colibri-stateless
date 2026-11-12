@@ -461,7 +461,7 @@ const char* c4_extract_server_name(const char* url) {
 }
 
 static void c4_write_server_type_metrics(buffer_t* data, data_request_type_t type, const char* type_name) {
-  server_list_t* servers = c4_get_server_list(type);
+  server_list_t* servers = c4_get_server_list(type, 0);
   if (!servers || !servers->health_stats || servers->count == 0) return;
 
   for (size_t i = 0; i < servers->count; i++) {
@@ -591,7 +591,7 @@ static void c4_write_server_health_metrics(buffer_t* data) {
 
 // Aggregates and prints metrics about RPC methods marked as unsupported per server
 static void c4_write_unsupported_method_metrics(buffer_t* data) {
-  server_list_t* servers = c4_get_server_list(C4_DATA_TYPE_ETH_RPC);
+  server_list_t* servers = c4_get_server_list(C4_DATA_TYPE_ETH_RPC, 0);
   if (!servers || !servers->health_stats || servers->count == 0) return;
 
   // Describe metrics once
