@@ -85,6 +85,39 @@ typedef enum {
 
 } eth_ssz_type_t;
 
+/**
+ * Wire names of SSZ union variants that the prover and verifier recognize by comparing `ssz_def_t.name`.
+ *
+ * The variant in the union definition and every `strcmp` against that variant use the same macro.
+ * Renaming the macro value keeps the definition and the checks on the same spelling.
+ * These are variant names, distinct from the `eth_ssz_type_t` ids above.
+ *
+ * `ETH_EL_PROOF_UNION`:
+ */
+#define ETH_SSZ_NAME_BLOCK_HASH      "blockHash"
+#define ETH_SSZ_NAME_CL_PROOF        "clProof"
+#define ETH_SSZ_NAME_SEQUENCER_PROOF "sequencerProof"
+#define ETH_SSZ_NAME_WITNESS_PROOF   "witnessProof"
+#define ETH_SSZ_NAME_EEZ_L1_PROOF    "eezL1Proof"
+#define ETH_SSZ_NAME_EIP2935         "eip2935"
+/** `ETH_HEADER_PROOFS_UNION`: */
+#define ETH_SSZ_NAME_SIGNATURE    "signature"
+#define ETH_SSZ_NAME_HISTORIC     "historic"
+#define ETH_SSZ_NAME_HEADER_CHAIN "headerChain"
+#define ETH_SSZ_NAME_CHECKPOINT   "checkpoint"
+/** `C4_ETH_SYNCDATA_BOOTSTRAP_UNION` (the checkpoint variant; the header-proof variant is `ETH_SSZ_NAME_CHECKPOINT`): */
+#define ETH_SSZ_NAME_CHECKPOINT_PROOF "CheckpointProof"
+/** `C4_ETH_REQUEST_SYNCDATA_UNION`: */
+#define ETH_SSZ_NAME_LC_SYNC_DATA "LCSyncData"
+#define ETH_SSZ_NAME_ZK_SYNC_DATA "ZKSyncData"
+/** `ETH_SEQUENCER_PAYLOAD_UNION`: */
+#define ETH_SSZ_NAME_COMPRESSED_ZSTD "compressed_zstd"
+#define ETH_SSZ_NAME_UNCOMPRESSED    "uncompressed"
+/** `ETH_COMPLETENESS_BLOCK_UNION`: */
+#define ETH_SSZ_NAME_FULL_RECEIPTS "FullReceipts"
+/** `ETH_BLOCK_BODY_UNION`: */
+#define ETH_SSZ_NAME_BLOCK_CONTENT "content"
+
 const ssz_def_t* eth_ssz_type_for_fork(eth_ssz_type_t type, fork_id_t fork, chain_id_t chain_id);
 
 // forks

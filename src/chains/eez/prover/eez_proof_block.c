@@ -214,14 +214,15 @@ static void attach_snap(prover_ctx_t* ctx, bytes32_t id, eez_el_snap_t src, eth_
  * @return `C4_SUCCESS`, `C4_PENDING`, or `C4_ERROR`
  */
 static c4_status_t fetch_l1_anchor_proof(prover_ctx_t* ctx, const eez_chain_config_t* conf, const char* l1_tag, ssz_ob_t* response) {
-  bytes32_t slot    = {0};
-  bytes32_t id      = {0};
-  buffer_t  payload = {0};
+  bytes32_t  slot    = {0};
+  bytes32_t  id      = {0};
+  buffer_t   payload = {0};
+  chain_id_t l1      = c4_get_l1_chain_id_for_l2(conf->chain_id);
 
   eez_root_slot(conf->rollup_id, slot);
   bprintf(&payload, "{\"method\":\"eth_getStorageAt\",\"params\":[\"0x%x\",\"0x%x\",\"%s\"]", bytes((uint8_t*) conf->proxy, ADDRESS_SIZE), bytes(slot, 32), l1_tag);
   // The id derives from method + params only, so it is stable across re-entries.
-  c4_chain_request_id(id, conf->l1_chain_id, payload.data);
+  c4_chain_request_id(id, l1, payload.data);
 
   data_request_t* req = c4_state_get_data_request_by_id(&ctx->state, id);
   if (!req) {
@@ -246,7 +247,7 @@ static c4_status_t fetch_l1_anchor_proof(prover_ctx_t* ctx, const eez_chain_conf
 
     req           = safe_calloc(1, sizeof(data_request_t));
     req->type     = C4_DATA_TYPE_PROVER;
-    req->chain_id = conf->l1_chain_id;
+    req->chain_id = l1;
     req->method   = C4_DATA_METHOD_POST;
     req->encoding = C4_DATA_ENCODING_SSZ;
     req->payload  = payload.data;
@@ -264,7 +265,7 @@ static c4_status_t fetch_l1_anchor_proof(prover_ctx_t* ctx, const eez_chain_conf
 
   *response = (ssz_ob_t) {.def = eth_ssz_verification_type(ETH_SSZ_VERIFY_REQUEST), .bytes = req->response};
   if (!req->validated) {
-    if (!ssz_is_valid(*response, true, &ctx->state)) THROW_ERROR_WITH(" (invalid response of the L1 prover)");
+    if (!ssz_is_valid(*response, true, &ctx->state)) THROW_ERROR(" (invalid response of the L1 prover)");
     req->validated = true;
   }
   return C4_SUCCESS;
@@ -290,7 +291,7 @@ static c4_status_t read_anchor(prover_ctx_t* ctx, const eez_chain_config_t* conf
     THROW_ERROR("L1 prover did not return an account proof for the EEZ anchor");
 
   ssz_ob_t l1_block = ssz_get(account, "elProof");
-  if (!l1_block.def || !l1_block.def->name || strcmp(l1_block.def->name, "clProof") != 0)
+  if (!l1_block.def || !l1_block.def->name || strcmp(l1_block.def->name, ETH_SSZ_NAME_CL_PROOF) != 0)
     THROW_ERROR("L1 prover did not prove the L1 block of the EEZ anchor with a clProof");
 
   bytes_t l1_header = ssz_get(&l1_block, "elHeader").bytes;

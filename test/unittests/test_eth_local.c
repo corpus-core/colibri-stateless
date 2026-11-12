@@ -183,7 +183,7 @@ void test_colibri_decodeTransaction() {
   // Simple legacy transaction (EIP-155)
   const char* raw_tx = "[\"0xf86c808504a817c800825208943535353535353535353535353535353535353535880de0b6b3a76400008025a028ef61340bd939bc2195fe537567866003e1a15d3c71ff63e1590620aa636276a067cbe9d8997f761aecb703304b3800ccf555c9f3dc64214b297fb1966a3b6d83\"]";
   c4_status_t status = c4_verify_from_bytes(&ctx, NULL_BYTES, "colibri_decodeTransaction",
-                                            (json_t) {.start = raw_tx, .len = strlen(raw_tx), .type = JSON_TYPE_ARRAY}, C4_CHAIN_MAINNET);
+                                            AS_JSON(raw_tx, JSON_TYPE_ARRAY), C4_CHAIN_MAINNET);
   TEST_ASSERT_MESSAGE(status == C4_SUCCESS, "c4_verify_from_bytes failed for colibri_decodeTransaction");
   TEST_ASSERT_MESSAGE(ctx.data.bytes.len > 0, "Decoded transaction should not be empty");
   c4_verify_free_data(&ctx);
@@ -335,7 +335,7 @@ void test_colibri_decodeTransaction_invalid() {
   // Invalid transaction hex
   const char* raw_tx = "[\"0xINVALID\"]";
   c4_status_t status = c4_verify_from_bytes(&ctx, NULL_BYTES, "colibri_decodeTransaction",
-                                             (json_t) {.start = raw_tx, .len = strlen(raw_tx), .type = JSON_TYPE_ARRAY}, C4_CHAIN_MAINNET);
+                                             AS_JSON(raw_tx, JSON_TYPE_ARRAY), C4_CHAIN_MAINNET);
   TEST_ASSERT_MESSAGE(status == C4_ERROR, "Invalid transaction should return error");
   c4_verify_free_data(&ctx);
 }

@@ -63,7 +63,10 @@ void eth_eip2935_slot(uint64_t block_number, bytes32_t slot);
  * The header is accepted when all of the following hold:
  *
  * 1. `account.elProof` verifies through `c4_verify_block` as a block of `ctx->chain_id`
- *    (the newer block). It must not be an `eip2935` proof itself.
+ *    (the newer block). That proof may itself be an `eip2935` proof. Each hop still
+ *    has to lie in the history window of its own newer block, so a block further
+ *    than 8191 behind the anchor needs another hop. `ssz_is_valid` rejects an
+ *    object nested deeper than `SSZ_MAX_NESTING`, which bounds the recursion.
  * 2. `account.address` is the history contract and `account.storageProof` holds exactly
  *    one entry.
  * 3. The account proof and the storage proof verify against the `stateRoot` of the
@@ -78,9 +81,10 @@ void eth_eip2935_slot(uint64_t block_number, bytes32_t slot);
  * On success the header is stored in the header cache of `ctx->chain_id`, so follow-up
  * proofs can reference the block by hash only (`blockHash` variant).
  *
- * The function does not decide whether a chain may use this variant. `c4_verify_block`
- * does not call it; a chain module that accepts `eip2935` proofs calls it from its
- * block-proof hook (`c4_register_block_proof_verify`).
+ * `c4_verify_block` accepts this variant on every chain. The proof only needs a newer
+ * block of the same chain whose state holds the hash; it does not depend on how that
+ * newer block was proven (`clProof`, `sequencerProof`, `eezL1Proof`, or a cached
+ * `blockHash`). The EEZ prover is the one that builds the variant today.
  *
  * @param ctx verification context
  * @param block selected `eip2935` union member

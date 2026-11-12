@@ -27,13 +27,13 @@
 #include <string.h>
 
 // All known EEZ rollups. A new chain needs an entry here and a `C4_CHAIN_EEZ_*`
-// id in `util/chains.h` that is handled in `c4_chain_type()` and
-// `c4_get_l1_chain_id_for_l2()`.
+// id in `util/chains.h` that is handled in `c4_chain_type()`. The L1 this
+// rollup settles on is not stored in the entry: every chain added to this
+// table also needs its own case in `c4_get_l1_chain_id_for_l2()`.
 static const eez_chain_config_t eez_chain_configs[] = {
     {
-        .chain_id    = C4_CHAIN_EEZ_ROLLUPX,
-        .l1_chain_id = CHAIN(1), // Ethereum mainnet (`C4_CHAIN_MAINNET` is not a compile-time constant)
-        .rollup_id   = 2,
+        .chain_id  = C4_CHAIN_EEZ_ROLLUPX,
+        .rollup_id = 2,
         // 0x4b2760f84b83d6b3829e30a7573b0172b6d6402c
         .proxy = {0x4b, 0x27, 0x60, 0xf8, 0x4b, 0x83, 0xd6, 0xb3, 0x82, 0x9e, 0x30, 0xa7, 0x57, 0x3b, 0x01, 0x72, 0xb6, 0xd6, 0x40, 0x2c},
         .name  = "RollupX",
@@ -52,7 +52,7 @@ const eez_chain_config_t* eez_get_all_chain_configs(size_t* count) {
   return eez_chain_configs;
 }
 
-void eez_bytes32_add(bytes32_t value, uint8_t add) {
+C4_STATIC_UNLESS_TEST void eez_bytes32_add(bytes32_t value, uint8_t add) {
   uint16_t carry = add;
   for (int i = 31; i >= 0 && carry; i--) {
     carry += value[i];

@@ -249,7 +249,7 @@ typedef struct {
 static c4_status_t resolve_el_header_from_block(prover_ctx_t* ctx, ssz_ob_t block, bytes_t* el_header) {
   if (!block.def) THROW_ERROR("invalid block proof: missing def");
 
-  if (strcmp(block.def->name, "blockHash") == 0) {
+  if (strcmp(block.def->name, ETH_SSZ_NAME_BLOCK_HASH) == 0) {
     if (block.bytes.len != 32) THROW_ERROR("invalid block hash length in blockHash variant");
     const uint8_t* block_hash = block.bytes.data;
 

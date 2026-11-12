@@ -341,15 +341,71 @@ void test_eip2935_newer_block_must_be_verified(void) {
   assert_rejected(opts, "referenced block header not found in the verifier cache!");
 }
 
-// One level only: the newer block is not proven by another history proof.
-void test_eip2935_not_nested(void) {
-  synth_eip2935_opts_t opts = VALID;
-  opts.inner_selector       = 5;
-  synth_eip2935_case_t c    = synth_eip2935_case(opts, C4_CHAIN_MAINNET);
-  ssz_ob_t             acc  = ssz_get(&c.proof, "account");
-  TEST_ASSERT_EQUAL_STRING("eip2935", ssz_get(&acc, "elProof").def->name);
-  synth_eip2935_free(&c);
-  assert_rejected(opts, "an eip2935 proof must not be nested in another eip2935 proof!");
+// Two hops of 5000 cover a block 10000 behind the anchor. One hop cannot: the
+// history window is 8191. The leaf of the chain is still a cached `blockHash`.
+void test_eip2935_may_be_nested(void) {
+  const uint64_t       newest = NEWER;
+  const uint64_t       middle = NEWER - 5000;
+  const uint64_t       oldest = NEWER - 10000;
+  synth_eip2935_opts_t direct = VALID;
+  direct.older                = oldest;
+  assert_rejected(direct, "block is outside the EIP-2935 history window of the newer block!");
+
+  bytes32_t state = {0};
+  memset(state, 0x11, 32);
+  bytes_t   oldest_header = synth_header(oldest, state, 0x22);
+  bytes32_t oldest_hash   = {0};
+  bytes32_t oldest_slot   = {0};
+  keccak(oldest_header, oldest_hash);
+  eth_eip2935_slot(oldest, oldest_slot);
+
+  // The account trie does not contain `elProof`, so this root is the one the middle header commits to.
+  synth_opts_t probe_opts = {.storage_proofs = -1};
+  synth_t      probe      = synth_account_proof(ETH_EIP2935_HISTORY_ADDRESS, oldest_slot, bytes(oldest_hash, 32), probe_opts);
+  bytes_t      middle_hdr = synth_header(middle, probe.state_root, 0x55);
+  safe_free(probe.account.bytes.data);
+
+  synth_eip2935_opts_t inner_opts = {.older = middle, .newer = newest, .older_header = middle_hdr, .account = {.storage_proofs = -1}};
+  synth_eip2935_case_t inner      = synth_eip2935_case(inner_opts, C4_CHAIN_MAINNET);
+
+  buffer_t wrapped  = {0};
+  uint8_t  selector = 5; // frozen index of `eip2935` in ETH_EL_PROOF_UNION
+  buffer_append(&wrapped, bytes(&selector, 1));
+  buffer_append(&wrapped, inner.proof.bytes);
+
+  synth_opts_t outer_opts    = {.storage_proofs = -1, .el_proof = wrapped.data};
+  synth_t      outer_account = synth_account_proof(ETH_EIP2935_HISTORY_ADDRESS, oldest_slot, bytes(oldest_hash, 32), outer_opts);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(probe.state_root, outer_account.state_root, 32);
+  TEST_ASSERT_EQUAL_STRING("eip2935", ssz_get(&outer_account.account, "elProof").def->name);
+
+  ssz_builder_t builder = ssz_builder_for_type(ETH_SSZ_EIP2935_PROOF);
+  ssz_add_bytes(&builder, "elHeader", oldest_header);
+  ssz_add_bytes(&builder, "account", outer_account.account.bytes);
+  ssz_ob_t outer = ssz_builder_to_bytes(&builder);
+
+  c4_state_t shape = {0};
+  TEST_ASSERT_TRUE_MESSAGE(ssz_is_valid(outer, true, &shape), shape.error ? shape.error : "nested proof is valid SSZ");
+  c4_state_free(&shape);
+
+  bytes_t   header = NULL_BYTES;
+  bytes32_t hash   = {0};
+  TEST_ASSERT_EQUAL_INT_MESSAGE(C4_SUCCESS, c4_verify_block(&inner.ctx, outer, &header, hash), inner.ctx.state.error ? inner.ctx.state.error : "no error");
+  TEST_ASSERT_EQUAL_UINT32(oldest_header.len, header.len);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(oldest_header.data, header.data, header.len);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(oldest_hash, hash, 32);
+  TEST_ASSERT_EQUAL_UINT64(oldest, eth_el_header_get_uint64(header, EL_BLOCK_NUMBER));
+#ifdef EL_HEADER_CACHE
+  TEST_ASSERT_NOT_NULL(c4_header_cache_get_by_hash(C4_CHAIN_MAINNET, oldest_hash));
+  TEST_ASSERT_NOT_NULL(c4_header_cache_get_by_hash(C4_CHAIN_MAINNET, inner.older_hash));
+  TEST_ASSERT_NULL(c4_header_cache_get_by_hash(C4_CHAIN_MAINNET, inner.newer_hash));
+#endif
+
+  safe_free(outer.bytes.data);
+  safe_free(outer_account.account.bytes.data);
+  buffer_free(&wrapped);
+  safe_free(oldest_header.data);
+  safe_free(middle_hdr.data);
+  synth_eip2935_free(&inner);
 }
 
 // Other variants as the newer block go through `c4_verify_block` and its rules.
@@ -375,29 +431,33 @@ void test_eip2935_wrong_variant(void) {
   synth_eip2935_free(&c);
 }
 
-// Which chain accepts the variant is not decided here: without a hook of the chain
-// module, `c4_verify_block` does not know it.
-void test_eip2935_is_not_accepted_by_default(void) {
+// The history contract is the same on every chain, so `c4_verify_block` accepts the
+// variant itself. The newer block of this synthetic proof is a cached `blockHash`.
+void test_eip2935_is_accepted_on_mainnet(void) {
   synth_eip2935_case_t c      = synth_eip2935_case(VALID, C4_CHAIN_MAINNET);
   bytes_t              header = NULL_BYTES;
   bytes32_t            hash   = {0};
-  TEST_ASSERT_EQUAL_INT(C4_ERROR, c4_verify_block(&c.ctx, c.proof, &header, hash));
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(c.ctx.state.error, "invalid block type!"), c.ctx.state.error);
-  TEST_ASSERT_NULL(header.data);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(C4_SUCCESS, c4_verify_block(&c.ctx, c.proof, &header, hash), c.ctx.state.error ? c.ctx.state.error : "no error");
+  TEST_ASSERT_EQUAL_UINT32(c.older_header.len, header.len);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(c.older_header.data, header.data, header.len);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(c.older_hash, hash, 32);
+  TEST_ASSERT_TRUE(c.ctx.chain_id == C4_CHAIN_MAINNET);
   synth_eip2935_free(&c);
 }
 
-// An OP-Stack chain does not accept the variant either: its block-proof hook (when the
-// module is built) only knows the sequencer proof.
-void test_eip2935_is_not_accepted_by_op_chains(void) {
+// An OP-Stack chain accepts it the same way. The newer block is still a cached hash;
+// the sequencer hook is not involved. The verified header is cached for that chain.
+void test_eip2935_is_accepted_on_op_chains(void) {
   synth_eip2935_case_t c      = synth_eip2935_case(VALID, C4_CHAIN_OP_MAINNET);
   bytes_t              header = NULL_BYTES;
   bytes32_t            hash   = {0};
-  TEST_ASSERT_EQUAL_INT(C4_ERROR, c4_verify_block(&c.ctx, c.proof, &header, hash));
-  TEST_ASSERT_NOT_NULL(c.ctx.state.error);
-  TEST_ASSERT_NULL(header.data);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(C4_SUCCESS, c4_verify_block(&c.ctx, c.proof, &header, hash), c.ctx.state.error ? c.ctx.state.error : "no error");
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(c.older_header.data, header.data, header.len);
+  TEST_ASSERT_EQUAL_UINT8_ARRAY(c.older_hash, hash, 32);
+  TEST_ASSERT_TRUE(c.ctx.chain_id == C4_CHAIN_OP_MAINNET);
 #ifdef EL_HEADER_CACHE
-  TEST_ASSERT_NULL(c4_header_cache_get_by_hash(C4_CHAIN_OP_MAINNET, c.older_hash));
+  TEST_ASSERT_NOT_NULL(c4_header_cache_get_by_hash(C4_CHAIN_OP_MAINNET, c.older_hash));
+  TEST_ASSERT_NULL(c4_header_cache_get_by_hash(C4_CHAIN_MAINNET, c.older_hash));
 #endif
   synth_eip2935_free(&c);
 }
@@ -433,11 +493,11 @@ int main(void) {
   RUN_TEST(test_eip2935_stored_value_is_no_header);
   RUN_TEST(test_eip2935_account_proof);
   RUN_TEST(test_eip2935_newer_block_must_be_verified);
-  RUN_TEST(test_eip2935_not_nested);
+  RUN_TEST(test_eip2935_may_be_nested);
   RUN_TEST(test_eip2935_inner_variants);
   RUN_TEST(test_eip2935_wrong_variant);
-  RUN_TEST(test_eip2935_is_not_accepted_by_default);
-  RUN_TEST(test_eip2935_is_not_accepted_by_op_chains);
+  RUN_TEST(test_eip2935_is_accepted_on_mainnet);
+  RUN_TEST(test_eip2935_is_accepted_on_op_chains);
 #ifdef EL_HEADER_CACHE
   RUN_TEST(test_eip2935_caches_the_header);
 #endif

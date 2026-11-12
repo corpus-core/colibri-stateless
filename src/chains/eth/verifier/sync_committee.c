@@ -67,8 +67,8 @@ void c4_eth_eip191_digest_32(const bytes32_t message, bytes32_t out_digest) {
 static inline bool is_checkpoint_proof_variant(ssz_ob_t ob) {
   return ob.def &&
          ob.def->type == SSZ_TYPE_CONTAINER &&
-         (strcmp(ob.def->name, "CheckpointProof") == 0 ||
-          strcmp(ob.def->name, "checkpoint") == 0);
+         (strcmp(ob.def->name, ETH_SSZ_NAME_CHECKPOINT_PROOF) == 0 ||
+          strcmp(ob.def->name, ETH_SSZ_NAME_CHECKPOINT) == 0);
 }
 
 #ifdef USE_CHECKPOINTZ
@@ -209,7 +209,7 @@ static bool update_light_client_update(verify_ctx_t* ctx, ssz_ob_t* update) {
   return c4_set_sync_period(period, ssz_get(&sync_committee, "pubkeys").bytes, ctx->chain_id, previous_pubkeys_hash);
 }
 static bool verify_signatures(verify_ctx_t* ctx, ssz_ob_t checkpoint_ob, ssz_ob_t attested_header, ssz_ob_t signatures) {
-  if (!checkpoint_ob.def || strcmp(checkpoint_ob.def->name, "headerChain"))
+  if (!checkpoint_ob.def || strcmp(checkpoint_ob.def->name, ETH_SSZ_NAME_HEADER_CHAIN))
     RETURN_VERIFY_ERROR(ctx, "invalid checkpoint, must be a headerChain!");
   ssz_ob_t  signed_header = ssz_get(&checkpoint_ob, "header");
   bytes32_t checkpoint    = {0};
@@ -441,8 +441,8 @@ static c4_status_t update_from_zk_sync_data(verify_ctx_t* ctx) {
         // `period_store_zk_ssz.c`), NOT the attested header (typically mid-epoch);
         // checkpointz only serves epoch-boundary blocks. `historic` carries the
         // same `header` field as `headerChain`, so both share the anchor logic.
-        bool      have_header_field = checkpoint.def && (strcmp(checkpoint.def->name, "headerChain") == 0 ||
-                                                    strcmp(checkpoint.def->name, "historic") == 0);
+        bool      have_header_field = checkpoint.def && (strcmp(checkpoint.def->name, ETH_SSZ_NAME_HEADER_CHAIN) == 0 ||
+                                                    strcmp(checkpoint.def->name, ETH_SSZ_NAME_HISTORIC) == 0);
         ssz_ob_t  anchor_header     = have_header_field
                                           ? ssz_get(&checkpoint, "header")
                                           : header; // signature has no embedded anchor header; falls back to attested
@@ -491,9 +491,9 @@ static c4_status_t update_from_sync_data(verify_ctx_t* ctx) {
   if (ctx->sync_data.def->type == SSZ_TYPE_NONE) return C4_SUCCESS;
 
   log_debug("c4_update_from_sync_data: %s", (char*) ctx->sync_data.def->name);
-  if (strcmp(ctx->sync_data.def->name, "LCSyncData") == 0)
+  if (strcmp(ctx->sync_data.def->name, ETH_SSZ_NAME_LC_SYNC_DATA) == 0)
     return update_from_lc_sync_data(ctx);
-  else if (strcmp(ctx->sync_data.def->name, "ZKSyncData") == 0)
+  else if (strcmp(ctx->sync_data.def->name, ETH_SSZ_NAME_ZK_SYNC_DATA) == 0)
     return update_from_zk_sync_data(ctx);
   else
     RETURN_VERIFY_ERROR_STATUS(ctx, "unknown sync_data type!");
@@ -504,11 +504,9 @@ INTERNAL c4_status_t c4_update_from_sync_data(verify_ctx_t* ctx) {
   // blocks. For an L2 that settles on L1 (EEZ) this is the L1 chain: periods, the
   // chain state and every request issued while syncing must use the L1 chain id.
   // `c4_get_l1_chain_id_for_l2` returns the chain itself for all other chains.
-  chain_id_t chain_id = ctx->chain_id;
-  ctx->chain_id       = c4_get_l1_chain_id_for_l2(chain_id);
-  c4_status_t status  = update_from_sync_data(ctx);
-  ctx->chain_id       = chain_id;
-  return status;
+  // The caller's chain id is restored on every path, including PENDING and ERROR.
+  TRY_AS_L1(update_from_sync_data(ctx));
+  return C4_SUCCESS;
 }
 
 fork_id_t c4_eth_get_fork_for_lcb(chain_id_t chain_id, bytes_t data) {

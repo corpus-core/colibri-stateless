@@ -42,8 +42,8 @@ c4_status_t eez_get_l1_storage_value(c4_state_t* state, const eez_chain_config_t
   return eth_verify_storage_slot(state, account, conf->proxy, slot, l1_state_root, value);
 }
 
-c4_status_t eez_verify_l1_proof(verify_ctx_t* ctx, ssz_ob_t block, bytes_t* el_header, bytes32_t block_hash) {
-  if (!block.def || !block.def->name || strcmp(block.def->name, "eezL1Proof") != 0)
+C4_STATIC_UNLESS_TEST c4_status_t eez_verify_l1_proof(verify_ctx_t* ctx, ssz_ob_t block, bytes_t* el_header, bytes32_t block_hash) {
+  if (!block.def || !block.def->name || strcmp(block.def->name, ETH_SSZ_NAME_EEZ_L1_PROOF) != 0)
     THROW_ERROR("invalid block proof for an EEZ chain, expected eezL1Proof!");
 
   const eez_chain_config_t* conf = eez_get_chain_config(ctx->chain_id);
@@ -58,18 +58,14 @@ c4_status_t eez_verify_l1_proof(verify_ctx_t* ctx, ssz_ob_t block, bytes_t* el_h
   // Only a full consensus proof is accepted for the L1 block. In particular `blockHash`
   // is rejected: verified headers are looked up by hash, and a hash of the L2 chain must
   // never be resolved as an L1 header.
-  if (!l1_proof.def || !l1_proof.def->name || strcmp(l1_proof.def->name, "clProof") != 0)
+  if (!l1_proof.def || !l1_proof.def->name || strcmp(l1_proof.def->name, ETH_SSZ_NAME_CL_PROOF) != 0)
     THROW_ERROR("the L1 block of an EEZ proof must be proven by a clProof!");
 
   // The L1 block is verified as a block of the L1 chain (chain spec, sync committee,
   // header cache). The L2 chain id is restored on every path, including PENDING and ERROR.
-  bytes_t    l1_header  = NULL_BYTES;
-  bytes32_t  l1_hash    = {0};
-  chain_id_t l2_chain   = ctx->chain_id;
-  ctx->chain_id         = conf->l1_chain_id;
-  c4_status_t l1_status = c4_verify_block(ctx, l1_proof, &l1_header, l1_hash);
-  ctx->chain_id         = l2_chain;
-  if (l1_status != C4_SUCCESS) return l1_status;
+  bytes_t   l1_header = NULL_BYTES;
+  bytes32_t l1_hash   = {0};
+  TRY_AS_L1(c4_verify_block(ctx, l1_proof, &l1_header, l1_hash));
 
   bytes32_t anchor = {0};
   TRY_ASYNC(eez_get_l1_storage_value(&ctx->state, conf, account, eth_el_header_get(l1_header, EL_STATE_ROOT), anchor));
@@ -89,13 +85,13 @@ c4_status_t eez_verify_l1_proof(verify_ctx_t* ctx, ssz_ob_t block, bytes_t* el_h
   return C4_SUCCESS;
 }
 
-c4_status_t eez_verify_block_proof(verify_ctx_t* ctx, ssz_ob_t block, bytes_t* el_header, bytes32_t block_hash) {
+C4_STATIC_UNLESS_TEST c4_status_t eez_verify_block_proof(verify_ctx_t* ctx, ssz_ob_t block, bytes_t* el_header, bytes32_t block_hash) {
   if (!block.def || !block.def->name) THROW_ERROR("invalid block type!");
-  if (strcmp(block.def->name, "eezL1Proof") == 0) return eez_verify_l1_proof(ctx, block, el_header, block_hash);
+  if (strcmp(block.def->name, ETH_SSZ_NAME_EEZ_L1_PROOF) == 0) return eez_verify_l1_proof(ctx, block, el_header, block_hash);
   // A block older than the anchor: its hash is read from the EIP-2935 history contract in
   // the state of a newer block of this chain. That newer block is verified through
   // `c4_verify_block`, which comes back here for the `eezL1Proof` of the anchor.
-  if (strcmp(block.def->name, "eip2935") == 0) return c4_verify_eip2935_block(ctx, block, el_header, block_hash);
+  if (strcmp(block.def->name, ETH_SSZ_NAME_EIP2935) == 0) return c4_verify_eip2935_block(ctx, block, el_header, block_hash);
   THROW_ERROR("invalid block proof for an EEZ chain, expected eezL1Proof or eip2935!");
 }
 

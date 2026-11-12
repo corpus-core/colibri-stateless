@@ -51,7 +51,6 @@ static bool includes(const char** methods, const char* method) {
 
 bool eez_prover_execute(prover_ctx_t* ctx) {
   if (c4_chain_type(ctx->chain_id) != C4_CHAIN_TYPE_EEZ || !eez_get_chain_config(ctx->chain_id)) return false;
-  eez_register_block_proof_verify();
   eez_register_block_proof_prover();
 
   if (includes(eth_account_methods, ctx->method))

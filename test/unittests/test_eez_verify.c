@@ -264,19 +264,20 @@ static bool stored(const char* key) {
 // 1. chain table, slot, method types
 // ---------------------------------------------------------------------------
 
-// The L1 chain id lives twice: in the table of the module and in the switch of `util`
-// (which must not depend on a chain module). Both have to agree for every chain.
+// The L1 of a configured rollup comes only from `c4_get_l1_chain_id_for_l2`.
+// Its default returns the chain itself, so a chain added to the table without
+// a case in that switch fails the checks below.
 void test_chain_table_matches_util(void) {
   size_t                    count = 0;
   const eez_chain_config_t* all   = eez_get_all_chain_configs(&count);
   TEST_ASSERT_NOT_NULL(all);
   TEST_ASSERT_TRUE(count >= 1);
   for (size_t i = 0; i < count; i++) {
+    chain_id_t l1 = c4_get_l1_chain_id_for_l2(all[i].chain_id);
     TEST_ASSERT_NOT_NULL(all[i].name);
     TEST_ASSERT_EQUAL_INT_MESSAGE(C4_CHAIN_TYPE_EEZ, c4_chain_type(all[i].chain_id), all[i].name);
-    TEST_ASSERT_TRUE_MESSAGE(c4_get_l1_chain_id_for_l2(all[i].chain_id) == all[i].l1_chain_id, all[i].name);
-    TEST_ASSERT_TRUE_MESSAGE(all[i].l1_chain_id != all[i].chain_id, all[i].name);
-    TEST_ASSERT_EQUAL_INT_MESSAGE(C4_CHAIN_TYPE_ETHEREUM, c4_chain_type(all[i].l1_chain_id), all[i].name);
+    TEST_ASSERT_TRUE_MESSAGE(l1 != all[i].chain_id, all[i].name);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(C4_CHAIN_TYPE_ETHEREUM, c4_chain_type(l1), all[i].name);
     TEST_ASSERT_FALSE_MESSAGE(bytes_all_zero(bytes((uint8_t*) all[i].proxy, 20)), all[i].name);
     TEST_ASSERT_EQUAL_PTR(&all[i], eez_get_chain_config(all[i].chain_id));
   }
@@ -286,7 +287,7 @@ void test_rollupx_config(void) {
   const eez_chain_config_t* conf = eez_get_chain_config(ROLLUPX);
   TEST_ASSERT_NOT_NULL(conf);
   TEST_ASSERT_TRUE(conf->chain_id == 0xaa29f);
-  TEST_ASSERT_TRUE(conf->l1_chain_id == C4_CHAIN_MAINNET);
+  TEST_ASSERT_TRUE(c4_get_l1_chain_id_for_l2(conf->chain_id) == C4_CHAIN_MAINNET);
   TEST_ASSERT_EQUAL_UINT64(2, conf->rollup_id);
   ASSERT_HEX_STRING_EQUAL(ROLLUPX_PROXY, conf->proxy, 20, "proxy");
 

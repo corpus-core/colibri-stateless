@@ -47,8 +47,8 @@ c4_status_t c4_eth_get_eip2935_proof(prover_ctx_t* ctx, uint64_t block_number, u
   sbprintf(key, "\"0x%x\"", bytes(slot, 32));
 
   TRY_ASYNC(eth_get_proof(ctx,
-                          (json_t) {.start = address, .len = strlen(address), .type = JSON_TYPE_STRING},
-                          (json_t) {.start = key, .len = strlen(key), .type = JSON_TYPE_STRING},
+                          AS_JSON(address, JSON_TYPE_STRING),
+                          AS_JSON(key, JSON_TYPE_STRING),
                           history_proof, newer_block_number));
 
   json_t storage = json_get(*history_proof, "storageProof");

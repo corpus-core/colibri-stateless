@@ -50,14 +50,14 @@ extern "C" {
  *
  * Everything the verifier needs to locate the L2 block hash on L1 is fixed per
  * chain and compiled in, so a prover cannot point the verifier at another
- * contract or another storage slot.
+ * contract or another storage slot. The L1 the rollup settles on is
+ * `c4_get_l1_chain_id_for_l2(chain_id)`, which is the only place that names it.
  */
 typedef struct {
-  chain_id_t  chain_id;    // L2 chain id (key of the table)
-  chain_id_t  l1_chain_id; // chain the rollup settles on; must equal `c4_get_l1_chain_id_for_l2(chain_id)`
-  uint64_t    rollup_id;   // key of this rollup in the `rollups` mapping of the proxy
-  address_t   proxy;       // EEZ proxy contract on L1 whose storage holds the L2 block hash
-  const char* name;        // human-readable name, used in error messages only
+  chain_id_t  chain_id;  // L2 chain id (key of the table)
+  uint64_t    rollup_id; // key of this rollup in the `rollups` mapping of the proxy
+  address_t   proxy;     // EEZ proxy contract on L1 whose storage holds the L2 block hash
+  const char* name;      // human-readable name, used in error messages only
 } eez_chain_config_t;
 
 /**
@@ -94,11 +94,13 @@ void eez_root_slot(uint64_t rollup_id, bytes32_t slot);
  * Adds a small value to a 256-bit big-endian number in place (wraps on overflow).
  *
  * Exposed for `eez_root_slot` and its unit test, which checks the carry.
+ * Built with external linkage when `TEST` is defined and as a `static` function
+ * otherwise (`C4_STATIC_UNLESS_TEST`).
  *
  * @param value 32-byte big-endian number, modified in place
  * @param add value to add
  */
-void eez_bytes32_add(bytes32_t value, uint8_t add);
+C4_STATIC_UNLESS_TEST void eez_bytes32_add(bytes32_t value, uint8_t add);
 
 #ifdef __cplusplus
 }

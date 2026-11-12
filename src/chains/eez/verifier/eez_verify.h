@@ -24,6 +24,7 @@
 #ifndef eez_verify_h__
 #define eez_verify_h__
 
+#include "common.h"
 #include "eez_chains_conf.h"
 #include "eth_verify.h"
 #include "ssz.h"
@@ -33,8 +34,10 @@ extern "C" {
 #endif
 
 /**
- * Verifies a block proof of an EEZ chain that `c4_verify_block` does not handle itself.
- * Registered via `c4_register_block_proof_verify` for `C4_CHAIN_TYPE_EEZ`.
+ * Verifies a block proof of an EEZ chain. Registered via `c4_register_block_proof_verify`
+ * for `C4_CHAIN_TYPE_EEZ`. `c4_verify_block` handles `eip2935` itself on every chain and
+ * calls this hook for the variants it does not implement, above all `eezL1Proof`.
+ * A direct call still accepts `eip2935` as well.
  *
  * | Variant of `ETH_EL_PROOF_UNION` | Handling                          |
  * |---------------------------------|-----------------------------------|
@@ -49,13 +52,17 @@ extern "C" {
  * Further block proofs of EEZ chains (blocks newer than the L1 anchor or older than the
  * EIP-2935 window) get their own variant of the union and their own branch here.
  *
+ * Built with external linkage when `TEST` is defined and as a `static` function
+ * otherwise (`C4_STATIC_UNLESS_TEST`). The registration below takes the function's
+ * address, which stays valid either way. Unit tests call it directly.
+ *
  * @param ctx verification context of the L2 request
  * @param block selected member of `ETH_EL_PROOF_UNION`
  * @param el_header receives the verified RLP header of the L2 block (borrowed from the proof)
  * @param block_hash receives `keccak256(el_header)`
  * @return `C4_SUCCESS`, `C4_PENDING` (L1 sync committee data is missing) or `C4_ERROR`
  */
-c4_status_t eez_verify_block_proof(verify_ctx_t* ctx, ssz_ob_t block, bytes_t* el_header, bytes32_t block_hash);
+C4_STATIC_UNLESS_TEST c4_status_t eez_verify_block_proof(verify_ctx_t* ctx, ssz_ob_t block, bytes_t* el_header, bytes32_t block_hash);
 
 /**
  * Verifies the `eezL1Proof` variant of `ETH_EL_PROOF_UNION`. Any other variant is an error.
@@ -77,13 +84,17 @@ c4_status_t eez_verify_block_proof(verify_ctx_t* ctx, ssz_ob_t block, bytes_t* e
  * `ctx->chain_id` is switched to the L1 chain only while the L1 block is
  * verified and is restored before the function returns, whatever the result.
  *
+ * Built with external linkage when `TEST` is defined and as a `static` function
+ * otherwise (`C4_STATIC_UNLESS_TEST`). Unit tests call it directly; production
+ * code reaches it only through `eez_verify_block_proof` in the same file.
+ *
  * @param ctx verification context of the L2 request
  * @param block selected `eezL1Proof` union member
  * @param el_header receives the verified RLP header of the L2 block (borrowed from the proof)
  * @param block_hash receives `keccak256(el_header)`
  * @return `C4_SUCCESS`, `C4_PENDING` (L1 sync committee data is missing) or `C4_ERROR`
  */
-c4_status_t eez_verify_l1_proof(verify_ctx_t* ctx, ssz_ob_t block, bytes_t* el_header, bytes32_t block_hash);
+C4_STATIC_UNLESS_TEST c4_status_t eez_verify_l1_proof(verify_ctx_t* ctx, ssz_ob_t block, bytes_t* el_header, bytes32_t block_hash);
 
 /**
  * Proves the value of the root slot of an EEZ rollup against an L1 state root.

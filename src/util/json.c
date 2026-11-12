@@ -425,7 +425,6 @@ bool json_as_bytes32(json_t value, uint8_t out[32]) {
   buffer_t word_buf = stack_buffer(word);
   memset(out, 0, 32);
   if (value.type != JSON_TYPE_STRING) return false;
-  // a value that does not fit the 32-byte buffer comes back as NULL_BYTES
   bytes_t raw = json_as_bytes(value, &word_buf);
   if (!raw.data || !raw.len || raw.len > 32) return false;
   memcpy(out + 32 - raw.len, raw.data, raw.len);

@@ -42,9 +42,9 @@
 static const char* SHA3_UNCLUES = "\x1d\xcc\x4d\xe8\xde\xc7\x5d\x7a\xab\x85\xb5\x67\xb6\xcc\xd4\x1a\xd3\x12\x45\x1b\x94\x8a\x74\x13\xf0\xa1\x42\xfd\x40\xd4\x93\x47";
 
 static ssz_builder_t create_txs_builder(verify_ctx_t* ctx, const ssz_def_t* tx_union_def, bool include_txs, ssz_ob_t txs, bytes_t el_header, bytes32_t block_hash) {
-  ssz_builder_t txs_builder  = ssz_builder_for_def(tx_union_def->def.container.elements + ((int) include_txs));
-  node_t*       root         = NULL;
-  ssz_builder_t tx_builder   = ssz_builder_for_def(txs_builder.def->def.vector.type);
+  ssz_builder_t txs_builder     = ssz_builder_for_def(tx_union_def->def.container.elements + ((int) include_txs));
+  node_t*       root            = NULL;
+  ssz_builder_t tx_builder      = ssz_builder_for_def(txs_builder.def->def.vector.type);
   uint64_t      block_number    = eth_el_header_get_uint64(el_header, EL_BLOCK_NUMBER);
   uint64_t      base_fee        = eth_el_header_get_uint64(el_header, EL_BASE_FEE_PER_GAS);
   uint64_t      block_timestamp = eth_el_header_get_uint64(el_header, EL_TIMESTAMP);
@@ -111,7 +111,7 @@ bool eth_set_block_data(verify_ctx_t* ctx, bytes_t el_header, bool include_txs, 
     uint64_t      denom    = eth_blob_base_fee_update_fraction(ctx->chain_id, block_ts);
     uint64_t      factor   = eth_min_blob_base_fee(ctx->chain_id);
     uint64_t      fee      = eth_fake_exponential(factor, eth_el_header_get_uint64(el_header, EL_EXCESS_BLOB_GAS), denom);
-    ssz_builder_t builder = ssz_builder_for_type(ETH_SSZ_DATA_UINT256);
+    ssz_builder_t builder  = ssz_builder_for_type(ETH_SSZ_DATA_UINT256);
     ssz_add_uint64(&builder, fee);
     buffer_append(&builder.fixed, bytes(NULL, 24));
     ctx->data = ssz_builder_to_bytes(&builder);
@@ -203,7 +203,7 @@ bool verify_block_proof(verify_ctx_t* ctx) {
   if (c4_verify_block(ctx, ssz_get(&ctx->proof, "elProof"), &el_header, block_hash) != C4_SUCCESS) return false;
 
   ssz_ob_t body          = ssz_get(&ctx->proof, "body");
-  bool     has_body      = body.def && strcmp(body.def->name, "content") == 0;
+  bool     has_body      = body.def && strcmp(body.def->name, ETH_SSZ_NAME_BLOCK_CONTENT) == 0;
   bytes_t  cached_header = NULL_BYTES;
   ssz_ob_t cached_body   = {0};
   if (!has_body && is_full_block) {

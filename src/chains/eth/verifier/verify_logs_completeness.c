@@ -338,7 +338,7 @@ bool verify_logs_completeness(verify_ctx_t* ctx) {
         break;
       }
     }
-    else if (strcmp(block.def->name, "FullReceipts") == 0) {
+    else if (strcmp(block.def->name, ETH_SSZ_NAME_FULL_RECEIPTS) == 0) {
       if (!verify_full_block(ctx, block, el_headers[i], hashes[i], &data_builder, query_blooms, &log_count)) {
         success = false;
         break;

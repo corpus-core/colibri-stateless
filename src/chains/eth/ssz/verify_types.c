@@ -123,7 +123,7 @@ static const ssz_def_t C4_ETH_SYNCDATA_BOOTSTRAP_UNION[] = {
     SSZ_NONE,
     SSZ_CONTAINER("DenepLightClientBootstrap", DENEP_LIGHT_CLIENT_BOOTSTRAP),     // 1: Deneb-fork structured LightClient Bootstrap
     SSZ_CONTAINER("ElectraLightClientBootstrap", ELECTRA_LIGHT_CLIENT_BOOTSTRAP), // 2: Electra-fork structured LightClient Bootstrap
-    SSZ_CONTAINER("CheckpointProof", ETH_CHECKPOINT_PROOF),                       // 3: slim WSP anchor (header + currentSyncCommitteeBranch + aggregate)
+    SSZ_CONTAINER(ETH_SSZ_NAME_CHECKPOINT_PROOF, ETH_CHECKPOINT_PROOF),           // 3: slim WSP anchor (header + currentSyncCommitteeBranch + aggregate)
     SSZ_CONTAINER("GloasLightClientBootstrap", GLOAS_LIGHT_CLIENT_BOOTSTRAP)      // 4: Gloas-fork structured LightClient Bootstrap
 };
 
@@ -137,8 +137,8 @@ static const ssz_def_t C4_ETH_SYNCDATA_UPDATE_UNION[] = {
 // A Union of possible types of sync data used to update the sync state by verifying the transition from the last period to the required.
 const ssz_def_t C4_ETH_REQUEST_SYNCDATA_UNION[] = {
     SSZ_NONE,
-    SSZ_CONTAINER("LCSyncData", ETH_LC_SYNCDATA), // Light Client Sync Data
-    SSZ_CONTAINER("ZKSyncData", ETH_ZK_SYNCDATA), // ZK Proof Sync Data (356-byte Groth16)
+    SSZ_CONTAINER(ETH_SSZ_NAME_LC_SYNC_DATA, ETH_LC_SYNCDATA), // Light Client Sync Data
+    SSZ_CONTAINER(ETH_SSZ_NAME_ZK_SYNC_DATA, ETH_ZK_SYNCDATA), // ZK Proof Sync Data (356-byte Groth16)
 };
 
 // the main container defining the incoming data processed by the verifier

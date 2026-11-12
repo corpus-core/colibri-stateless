@@ -57,6 +57,25 @@ typedef struct json_t {
 } json_t;
 
 /**
+ * View a null-terminated JSON fragment as a `json_t`.
+ *
+ * `content` is the raw token, including its delimiters (`"0x…"`, `[…]`, `{…}`).
+ * The length is `strlen(content)`, so the fragment must be null-terminated and
+ * must not contain an interior `'\0'`. `content` is evaluated twice.
+ *
+ * ```c
+ * sbprintf(address, "\"0x%x\"", bytes(addr, 20));
+ * eth_get_proof(ctx, AS_JSON(address, JSON_TYPE_STRING), key, proof, block);
+ * ```
+ *
+ * @param content null-terminated JSON fragment
+ * @param json_type type of that fragment (`JSON_TYPE_STRING`, `JSON_TYPE_ARRAY`, ...)
+ * @return `json_t` view over `content`; does not allocate
+ */
+#define AS_JSON(content, json_type) \
+  ((json_t) {.start = (content), .len = strlen((content)), .type = (json_type)})
+
+/**
  * Iterator state for json_next_value function (internal use).
  */
 typedef enum json_next_t {

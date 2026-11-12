@@ -36,22 +36,18 @@ void eth_eip2935_slot(uint64_t block_number, bytes32_t slot) {
 }
 
 c4_status_t c4_verify_eip2935_block(verify_ctx_t* ctx, ssz_ob_t block, bytes_t* el_header, bytes32_t block_hash) {
-  if (!block.def || !block.def->name || strcmp(block.def->name, "eip2935") != 0)
+  if (!block.def || !block.def->name || strcmp(block.def->name, ETH_SSZ_NAME_EIP2935) != 0)
     THROW_ERROR("invalid block proof, expected eip2935!");
 
-  bytes_t  header  = ssz_get(&block, "elHeader").bytes;
-  ssz_ob_t account = ssz_get(&block, "account");
-  if (!account.def) THROW_ERROR("missing account proof in the eip2935 proof!");
+  bytes_t  header      = ssz_get(&block, "elHeader").bytes;
+  ssz_ob_t account     = ssz_get(&block, "account");
   ssz_ob_t newer_proof = ssz_get(&account, "elProof");
-  if (!header.data || !header.len) THROW_ERROR("missing header in the eip2935 proof!");
-  if (!newer_proof.def || !newer_proof.def->name) THROW_ERROR("missing proof of the newer block in the eip2935 proof!");
 
-  // One level only: the newer block must be proven by itself. A chain of history proofs
-  // would let the proof (and the recursion below) grow without bound.
-  if (strcmp(newer_proof.def->name, "eip2935") == 0)
-    THROW_ERROR("an eip2935 proof must not be nested in another eip2935 proof!");
-
-  // 1. the newer block, verified as a block of this chain
+  // 1. the newer block, verified as a block of this chain. It may itself be an
+  //    eip2935 proof: one history window is 8191 blocks, so a block further behind
+  //    the anchor needs another hop. The call comes back through `c4_verify_block`.
+  //    `ssz_is_valid` rejects an object nested past `SSZ_MAX_NESTING` before a
+  //    request reaches this function, which bounds the recursion.
   bytes_t   newer_header = NULL_BYTES;
   bytes32_t newer_hash   = {0};
   TRY_ASYNC(c4_verify_block(ctx, newer_proof, &newer_header, newer_hash));
