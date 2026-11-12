@@ -13,6 +13,7 @@
 #if defined(HTTP_SERVER) && !defined(NO_CHAIN_EEZ)
 
 #include "../../src/chains/eez/server/blockhash_store.h"
+#include "../../src/chains/eth/verifier/eth_account.h" // EMPTY_ROOT_HASH
 #include "../../src/chains/eth/verifier/patricia.h"
 #include "../../src/chains/eth/verifier/rlp.h"
 #include "../../src/server/server.h"
@@ -26,23 +27,23 @@ void tearDown(void) {}
 // A hand-picked snapshot with one populated slot. Serialize -> deserialize -> compare
 // byte for byte; the file format is used both on disk and over the internal handler.
 void test_serialize_round_trip(void) {
-  eez_bh_snapshot_t snap    = {0};
-  snap.anchor_number        = 123456;
-  snap.l1_block_number      = 987654321;
+  eez_bh_snapshot_t snap = {0};
+  snap.anchor_number     = 123456;
+  snap.l1_block_number   = 987654321;
   for (int i = 0; i < 32; i++) snap.anchor_hash[i] = (uint8_t) (i + 1);
   for (int i = 0; i < 32; i++) snap.storage_hash[i] = (uint8_t) (0x80 + i);
   for (int i = 0; i < 32; i++) snap.code_hash[i] = (uint8_t) (0xc0 + i);
-  snap.nonce[31]            = 0x2a;
-  snap.balance[30]          = 0x12;
-  snap.balance[31]          = 0x34;
+  snap.nonce[31]   = 0x2a;
+  snap.balance[30] = 0x12;
+  snap.balance[31] = 0x34;
   // one populated slot in the middle
   for (int i = 0; i < 32; i++) snap.hashes[42][i] = (uint8_t) (0xaa ^ i);
   // two more at the boundaries to exercise the full array round-trip
   snap.hashes[0][0]    = 0xf0;
   snap.hashes[8190][7] = 0x55;
 
-  snap.account_proof_count = 2;
-  snap.account_proof_nodes = safe_calloc(2, sizeof(bytes_t));
+  snap.account_proof_count         = 2;
+  snap.account_proof_nodes         = safe_calloc(2, sizeof(bytes_t));
   snap.account_proof_nodes[0].len  = 5;
   snap.account_proof_nodes[0].data = safe_malloc(5);
   memcpy(snap.account_proof_nodes[0].data, "\x01\x02\x03\x04\x05", 5);
@@ -140,7 +141,7 @@ void test_null_safety(void) {
 // `req->request_count` and `req->cb` -- the latter is called once the whole batch is
 // done. The stub uses a no-op callback and a `request_count` of 1 so the batch
 // completes immediately.
-static int finished_count = 0;
+static int  finished_count = 0;
 static void on_finish_stub(request_t* parent) {
   (void) parent;
   finished_count++;
@@ -246,13 +247,13 @@ void test_trie_build_and_verify_round_trip(void) {
 
   // Populate a few slots with distinct 32-byte patterns. `0`, `1`, `42`, `8190`
   // exercise the start, the middle and the end of the slot range.
-  for (int i = 0; i < 32; i++) hashes[0][i]    = (uint8_t) (i + 1);
-  for (int i = 0; i < 32; i++) hashes[1][i]    = (uint8_t) (0x30 ^ i);
-  for (int i = 0; i < 32; i++) hashes[42][i]   = (uint8_t) (0xaa ^ i);
+  for (int i = 0; i < 32; i++) hashes[0][i] = (uint8_t) (i + 1);
+  for (int i = 0; i < 32; i++) hashes[1][i] = (uint8_t) (0x30 ^ i);
+  for (int i = 0; i < 32; i++) hashes[42][i] = (uint8_t) (0xaa ^ i);
   for (int i = 0; i < 32; i++) hashes[8190][i] = (uint8_t) (0x55 ^ i);
 
   // Build the trie once to extract the root, then throw it away.
-  node_t* trie = NULL;
+  node_t*   trie      = NULL;
   bytes32_t fake_root = {0};
   // Any non-matching root first so the function frees the trie internally.
   TEST_ASSERT_FALSE(eez_bh_build_and_verify_trie(hashes, fake_root, &trie));
@@ -268,15 +269,19 @@ void test_trie_build_and_verify_round_trip(void) {
   // `patricia_get_root` through the public patricia API.
   // Instead of jumping through hoops: build the trie directly via patricia (same helper
   // the watcher uses internally) to get the expected root.
-  node_t*   expected_trie  = NULL;
-  bytes32_t slot_key = {0};
-  bytes32_t path     = {0};
+  node_t*   expected_trie = NULL;
+  bytes32_t slot_key      = {0};
+  bytes32_t path          = {0};
   uint8_t   value_rlp[64] = {0};
-  buffer_t  value_buf = stack_buffer(value_rlp);
+  buffer_t  value_buf     = stack_buffer(value_rlp);
   for (uint32_t i = 0; i < EEZ_BH_SLOT_COUNT; i++) {
     if (!hashes[i][0] && !memcmp(hashes[i], hashes[1023], 32)) continue; // all zero
     bool all_zero = true;
-    for (int b = 0; b < 32; b++) if (hashes[i][b]) { all_zero = false; break; }
+    for (int b = 0; b < 32; b++)
+      if (hashes[i][b]) {
+        all_zero = false;
+        break;
+      }
     if (all_zero) continue;
     memset(slot_key, 0, 32);
     uint64_to_be(slot_key + 24, i);
@@ -312,18 +317,13 @@ void test_empty_trie_matches_empty_root(void) {
   bytes32_t hashes[EEZ_BH_SLOT_COUNT];
   memset(hashes, 0, sizeof(hashes));
 
-  // Ethereum's canonical empty-trie root: keccak256(rlp("")). Hard-coded in the
-  // Yellow Paper and matches the constant in `blockhash_store.c`.
-  const uint8_t EMPTY_TRIE_ROOT[32] = {
-      0x56, 0xe8, 0x1f, 0x17, 0x1b, 0xcc, 0x55, 0xa6,
-      0xff, 0x83, 0x45, 0xe6, 0x92, 0xc0, 0xf8, 0x6e,
-      0x5b, 0x48, 0xe0, 0x1b, 0x99, 0x6c, 0xad, 0xc0,
-      0x01, 0x62, 0x2f, 0xb5, 0xe3, 0x63, 0xb4, 0x21};
+  // Ethereum's canonical empty-trie root (`keccak256(rlp(""))`) is exposed by the eth
+  // verifier as `EMPTY_ROOT_HASH`; there is only one source of truth for this value.
 
   // Positive: all-zero hashes with the empty-trie root is treated as a valid trie.
   node_t*   trie = (node_t*) 0xdeadbeef; // sentinel: must be reset to NULL by the API
   bytes32_t root;
-  memcpy(root, EMPTY_TRIE_ROOT, 32);
+  memcpy(root, EMPTY_ROOT_HASH, 32);
   TEST_ASSERT_TRUE(eez_bh_build_and_verify_trie(hashes, root, &trie));
   // The empty-trie branch does NOT return a trie (there is nothing to build), only
   // `true`. Callers that need a trie must check both.
@@ -331,7 +331,7 @@ void test_empty_trie_matches_empty_root(void) {
 
   // Negative: all-zero hashes with any other root must be rejected.
   bytes32_t wrong_root;
-  memcpy(wrong_root, EMPTY_TRIE_ROOT, 32);
+  memcpy(wrong_root, EMPTY_ROOT_HASH, 32);
   wrong_root[0] ^= 0x01;
   trie = (node_t*) 0xdeadbeef;
   TEST_ASSERT_FALSE(eez_bh_build_and_verify_trie(hashes, wrong_root, &trie));

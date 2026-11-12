@@ -7,6 +7,7 @@
 #include "../verifier/eez_chains_conf.h"
 #include "bytes.h"
 #include "chains/eth/verifier/eip2935.h"
+#include "chains/eth/verifier/eth_account.h" // EMPTY_ROOT_HASH
 #include "chains/eth/verifier/patricia.h"
 #include "chains/eth/verifier/rlp.h"
 #include "crypto.h"
@@ -210,13 +211,9 @@ bool eez_bh_build_and_verify_trie(const bytes32_t* hashes, const bytes32_t stora
 
   if (!any) {
     // A fresh chain with no history yet has an empty storage trie. The empty-trie root
-    // is keccak256(rlp("")) -- compare directly against the Ethereum constant.
-    static const uint8_t EMPTY_TRIE_ROOT[32] = {
-        0x56, 0xe8, 0x1f, 0x17, 0x1b, 0xcc, 0x55, 0xa6,
-        0xff, 0x83, 0x45, 0xe6, 0x92, 0xc0, 0xf8, 0x6e,
-        0x5b, 0x48, 0xe0, 0x1b, 0x99, 0x6c, 0xad, 0xc0,
-        0x01, 0x62, 0x2f, 0xb5, 0xe3, 0x63, 0xb4, 0x21};
-    return memcmp(storage_hash, EMPTY_TRIE_ROOT, 32) == 0;
+    // is keccak256(rlp("")) -- compare against the shared Ethereum constant from
+    // `eth_account.h`.
+    return memcmp(storage_hash, EMPTY_ROOT_HASH, 32) == 0;
   }
 
   bytes_t got = patricia_get_root(root);
