@@ -29,7 +29,7 @@ enum DefaultChains {
         case 7091047534:
             return ["https://plataberget.colibri-proof.tech"]
         case 696991:
-            return ["https://mainnet.colibri-proof.tech"]
+            return ["https://rollupx.colibri-proof.tech"]
         default:
             return ["https://c4.incubed.net"]
         }

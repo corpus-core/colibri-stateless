@@ -36,7 +36,7 @@ pub fn default_provers(chain_id: u64) -> Vec<String> {
         ],
         CHIADO => vec!["https://chiado.colibri-proof.tech".into()],
         PLATABERGET => vec!["https://plataberget.colibri-proof.tech".into()],
-        ROLLUPX => vec!["https://mainnet.colibri-proof.tech".into()],
+        ROLLUPX => vec!["https://rollupx.colibri-proof.tech".into()],
         _ => vec!["https://c4.incubed.net".into()],
     }
 }

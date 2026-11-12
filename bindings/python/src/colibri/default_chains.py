@@ -24,7 +24,7 @@ _PROVERS = {
     ],  # gnosis
     10200: ["https://chiado.colibri-proof.tech"],  # chiado
     7091047534: ["https://plataberget.colibri-proof.tech"],  # plataberget
-    696991: ["https://mainnet.colibri-proof.tech"],  # rollupx
+    696991: ["https://rollupx.colibri-proof.tech"],  # rollupx
 }
 
 _ETH_RPCS = {

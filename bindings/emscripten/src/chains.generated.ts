@@ -112,7 +112,7 @@ export const default_config: {
     beacon_apis: [
       "https://mainnet.colibri-proof.tech/consensus",
     ],
-    prover: ["https://mainnet.colibri-proof.tech"],
+    prover: ["https://rollupx.colibri-proof.tech"],
     checkpointz: [
       "https://mainnet.colibri-proof.tech/consensus",
     ],
