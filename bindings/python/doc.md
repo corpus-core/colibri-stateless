@@ -196,7 +196,7 @@ class Colibri:
             eth_rpcs: Ethereum RPC endpoints for execution layer
             l1_eth_rpcs: Optional execution RPCs for the L1 of the configured chain.
                 A request whose chain id is that L1, and different from `chain_id`, uses this list.
-                The L1 id comes from `c4_get_l1_chain_id_for_l2` and is currently always Ethereum mainnet (`1`).
+                The L1 id comes from `c4_get_l1_chain_id_for_l2`: an EEZ L2 such as RollupX maps to the L1 it settles on (Ethereum mainnet, `1`), every other chain maps to itself and never uses this list.
                 `None` or an empty list uses the built-in default execution RPCs for that L1.
                 Requests for the configured chain keep using `eth_rpcs`, including when `chain_id` is already `1`.
             beacon_apis: Beacon chain API endpoints

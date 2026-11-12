@@ -44,6 +44,9 @@ typedef struct {
   json_t eth_rpc_l1;
   json_t oblivious;
   json_t prover;
+  json_t prover_l1;      // provers of the L1 chain of an L2 (config key `prover_l1`)
+  json_t beacon_api_l1;  // beacon nodes of the L1 chain of an L2 (config key `beacon_api_l1`)
+  json_t checkpointz_l1; // checkpointz servers of the L1 chain of an L2 (config key `checkpointz_l1`)
   json_t chain_store;
   json_t trace_config;
 } curl_nodes_t;
@@ -51,7 +54,16 @@ typedef struct {
 void curl_fetch(data_request_t* req);
 void curl_fetch_all(c4_state_t* state);
 void curl_set_config(json_t config);
-/** Records the chain the process is proving or verifying, so ETH-RPC requests for another chain can use the L1 list. */
+/**
+ * Records the chain the process is proving or verifying, so requests for another chain can use the L1 lists.
+ *
+ * A request whose `chain_id` is `c4_get_l1_chain_id_for_l2(chain_id)` (and differs from `chain_id`)
+ * is sent to the L1 nodes: the `eth_rpc_l1`, `prover_l1`, `beacon_api_l1` and `checkpointz_l1`
+ * lists of the config. When such a list is not configured, the built-in defaults of the L1 chain
+ * are used, and for prover, beacon and checkpointz requests finally the plain list.
+ *
+ * @param chain_id chain of the process
+ */
 void curl_set_chain_id(chain_id_t chain_id);
 /** @return true if the loaded config has at least one oblivious node URL */
 bool curl_has_oblivious_nodes(void);

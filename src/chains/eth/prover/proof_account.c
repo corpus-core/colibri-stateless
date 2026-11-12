@@ -53,18 +53,34 @@ static void add_dynamic_byte_list(json_t bytes_list, ssz_builder_t* builder, cha
   buffer_free(&tmp);
 }
 
-static ssz_builder_t create_storage_proof(prover_ctx_t* ctx, const ssz_def_t* def, json_t storage_list) {
+/**
+ * Builds the `storageProof` list of an `EthAccountProof` from the `storageProof` array of
+ * an `eth_getProof` result.
+ *
+ * @param def SSZ definition of the `storageProof` list
+ * @param storage_list `storageProof` array of the `eth_getProof` result, validated by `eth_get_proof` (`key:hex32`)
+ * @return builder of the list, owned by the caller
+ */
+static ssz_builder_t create_storage_proof(const ssz_def_t* def, json_t storage_list) {
   ssz_builder_t storage_proof = {.def = def};
-  bytes32_t     tmp;
-  buffer_t      tmp_buffer = stack_buffer(tmp);
-  int           len        = json_len(storage_list);
+  int           len           = json_len(storage_list);
   json_for_each_value(storage_list, entry) {
     ssz_builder_t storage_builder = {.def = def->def.vector.type};
-    ssz_add_bytes(&storage_builder, "key", json_as_bytes(json_get(entry, "key"), &tmp_buffer));
+    // Some nodes echo the key the way it was requested, others as a quantity without
+    // leading zeros. The SSZ field is a fixed 32-byte word: left-pad a shorter key.
+    bytes32_t key = {0};
+    json_as_bytes32(json_get(entry, "key"), key);
+    ssz_add_bytes(&storage_builder, "key", bytes(key, 32));
     add_dynamic_byte_list(json_get(entry, "proof"), &storage_builder, "proof");
     ssz_add_dynamic_list_builders(&storage_proof, len, storage_builder);
   }
   return storage_proof;
+}
+
+void eth_add_account_proof_fields(ssz_builder_t* account, json_t eth_proof, bytes_t address) {
+  add_dynamic_byte_list(json_get(eth_proof, "accountProof"), account, "accountProof");
+  ssz_add_bytes(account, "address", address);
+  ssz_add_builders(account, "storageProof", create_storage_proof(ssz_get_def(account->def, "storageProof"), json_get(eth_proof, "storageProof")));
 }
 
 static c4_status_t create_eth_account_proof(prover_ctx_t* ctx, json_t eth_proof, eth_block_t* block_data, json_t address, json_t block_number, blockroot_proof_t historic_proof) {
@@ -82,9 +98,7 @@ static c4_status_t create_eth_account_proof(prover_ctx_t* ctx, json_t eth_proof,
   if (strcmp(ctx->method, "eth_getCode") == 0) TRY_ASYNC(eth_get_code(ctx, address, &json_code, 0));
 
   // build the account proof
-  add_dynamic_byte_list(json_get(eth_proof, "accountProof"), &eth_account_proof, "accountProof");
-  ssz_add_bytes(&eth_account_proof, "address", json_as_bytes(address, &tmp));
-  ssz_add_builders(&eth_account_proof, "storageProof", create_storage_proof(ctx, ssz_get_def(eth_account_proof.def, "storageProof"), json_get(eth_proof, "storageProof")));
+  eth_add_account_proof_fields(&eth_account_proof, eth_proof, json_as_bytes(address, &tmp));
   eth_add_block_proof(ctx, &eth_account_proof, block_data, &historic_proof);
 
   // build the data only if we have code

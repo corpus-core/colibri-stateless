@@ -452,7 +452,8 @@ class ColibriNative {
   /// [params] is the optional JSON params string (used e.g. in PAP mode to
   /// check cached data availability). [flags] are verify flags (0 = default,
   /// 2 = VERIFY_FLAG_PAP).
-  /// L1 chain id that settles [chainId]. Today this is always mainnet.
+  /// L1 chain id that settles [chainId]: Ethereum mainnet for an EEZ L2 such as RollupX,
+  /// [chainId] itself for every other chain.
   int l1ChainId(int chainId) => _l1ChainId(chainId);
 
   int getMethodSupport(int chainId, String method, {String? params, int flags = 0}) {

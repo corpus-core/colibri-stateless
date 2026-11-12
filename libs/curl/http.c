@@ -116,6 +116,9 @@ void curl_set_config(json_t config) {
   if ((nodes = json_get(config, "checkpointz")).type == JSON_TYPE_ARRAY) replace_config(&curl_nodes.checkpointz, nodes);
   if ((nodes = json_get(config, "oblivious")).type == JSON_TYPE_ARRAY) replace_config(&curl_nodes.oblivious, nodes);
   if ((nodes = json_get(config, "prover")).type == JSON_TYPE_ARRAY) replace_config(&curl_nodes.prover, nodes);
+  if ((nodes = json_get(config, "prover_l1")).type == JSON_TYPE_ARRAY) replace_config(&curl_nodes.prover_l1, nodes);
+  if ((nodes = json_get(config, "beacon_api_l1")).type == JSON_TYPE_ARRAY) replace_config(&curl_nodes.beacon_api_l1, nodes);
+  if ((nodes = json_get(config, "checkpointz_l1")).type == JSON_TYPE_ARRAY) replace_config(&curl_nodes.checkpointz_l1, nodes);
   if ((nodes = json_get(config, "chain_store")).type == JSON_TYPE_ARRAY) replace_config(&curl_nodes.chain_store, nodes);
   if ((nodes = json_get(config, "trace_config")).type == JSON_TYPE_OBJECT) replace_config(&curl_nodes.trace_config, nodes);
 }
@@ -143,30 +146,60 @@ static bool req_payload_is_eth_get_proof(data_request_t* req) {
   return is_proof;
 }
 
-static json_t default_eth_rpc_for(chain_id_t chain_id) {
+/**
+ * Returns a node list of the built-in default config of a chain.
+ *
+ * @param chain_id chain to look up
+ * @param key config key, e.g. `eth_rpc` or `prover`
+ * @return the JSON array, or an empty token when the chain has no defaults or no such list
+ */
+static json_t default_nodes_for(chain_id_t chain_id, const char* key) {
   const char* spec = c4_default_chain_config_json(chain_id);
   if (!spec) return (json_t) {0};
   json_t root = json_parse((char*) spec);
-  return json_get(root, "eth_rpc");
+  return json_get(root, key);
 }
 
-static bool curl_eth_rpc_uses_l1(data_request_t* req) {
+/**
+ * Checks whether a request belongs to the L1 chain the configured chain settles on.
+ *
+ * Such requests are execution RPC calls of an L2 against its L1 and, for an L2 without a
+ * consensus layer of its own (EEZ), all beacon, checkpointz and L1 prover requests.
+ *
+ * @param req request to route
+ * @return `true` if `req->chain_id` is the L1 of the configured chain and differs from it
+ */
+static bool curl_req_targets_l1(data_request_t* req) {
   if (curl_chain_id == 0 || req->chain_id == 0 || req->chain_id == curl_chain_id) return false;
   return req->chain_id == c4_get_l1_chain_id_for_l2(curl_chain_id);
+}
+
+/**
+ * Appends the nodes for a request that belongs to the L1 chain of the configured L2.
+ *
+ * @param buffer JSON array under construction
+ * @param req request with the L1 chain id
+ * @param configured the `<key>_l1` list of the config
+ * @param key config key of the plain list, used to look up the defaults of the L1 chain
+ */
+static void add_l1_nodes(buffer_t* buffer, data_request_t* req, json_t configured, const char* key) {
+  if (configured.type == JSON_TYPE_ARRAY && json_len(configured) > 0)
+    add_nodes(buffer, configured);
+  else {
+    json_t defaults = default_nodes_for(req->chain_id, key);
+    if (defaults.type == JSON_TYPE_ARRAY) add_nodes(buffer, defaults);
+  }
 }
 
 static json_t get_nodes(data_request_t* req) {
   init_config();
   buffer_t buffer = {0};
+  bool     l1     = curl_req_targets_l1(req);
 
   switch (req->type) {
     case C4_DATA_TYPE_ETH_RPC:
-      if (curl_eth_rpc_uses_l1(req)) {
-        if (curl_nodes.eth_rpc_l1.type == JSON_TYPE_ARRAY && json_len(curl_nodes.eth_rpc_l1) > 0)
-          add_nodes(&buffer, curl_nodes.eth_rpc_l1);
-        else
-          add_nodes(&buffer, default_eth_rpc_for(req->chain_id));
-      }
+      if (l1)
+        add_l1_nodes(&buffer, req, curl_nodes.eth_rpc_l1, "eth_rpc");
       else if (req_payload_is_eth_get_proof(req) && curl_nodes.oblivious.type == JSON_TYPE_ARRAY && curl_nodes.oblivious.len > 2)
         add_nodes(&buffer, curl_nodes.oblivious);
       else {
@@ -175,17 +208,38 @@ static json_t get_nodes(data_request_t* req) {
           bprintf(&buffer, "[\"%junverified_rpc\"", json_at(curl_nodes.prover, 0));
       }
       break;
+    // Beacon, checkpointz and prover requests of an L2 that settles on L1 carry the L1
+    // chain id. They go to the L1 lists (configured `<key>_l1`, else the built-in defaults
+    // of the L1 chain). The plain lists are the last resort: such an L2 has no consensus
+    // layer, so a plain `beacon_api` / `checkpointz` entry in its config can only mean the
+    // one of its L1, and the default config of such a chain names the provers of its L1 as
+    // `prover` as long as no prover of the L2 itself exists. A prover of the L2 that gets
+    // the L1 request this way answers with a proof the EEZ prover rejects (no `clProof`).
     case C4_DATA_TYPE_BEACON_API:
-      add_nodes(&buffer, curl_nodes.beacon_api);
-      add_nodes(&buffer, curl_nodes.prover);
+      if (l1) {
+        add_l1_nodes(&buffer, req, curl_nodes.beacon_api_l1, "beacon_api");
+        add_l1_nodes(&buffer, req, curl_nodes.prover_l1, "prover");
+      }
+      if (!buffer.data.len) {
+        add_nodes(&buffer, curl_nodes.beacon_api);
+        add_nodes(&buffer, curl_nodes.prover);
+      }
       break;
     case C4_DATA_TYPE_CHECKPOINTZ:
-      add_nodes(&buffer, curl_nodes.checkpointz);
-      add_nodes(&buffer, curl_nodes.beacon_api);
-      add_nodes(&buffer, curl_nodes.prover);
+      if (l1) {
+        add_l1_nodes(&buffer, req, curl_nodes.checkpointz_l1, "checkpointz");
+        add_l1_nodes(&buffer, req, curl_nodes.beacon_api_l1, "beacon_api");
+        add_l1_nodes(&buffer, req, curl_nodes.prover_l1, "prover");
+      }
+      if (!buffer.data.len) {
+        add_nodes(&buffer, curl_nodes.checkpointz);
+        add_nodes(&buffer, curl_nodes.beacon_api);
+        add_nodes(&buffer, curl_nodes.prover);
+      }
       break;
     case C4_DATA_TYPE_PROVER:
-      add_nodes(&buffer, curl_nodes.prover);
+      if (l1) add_l1_nodes(&buffer, req, curl_nodes.prover_l1, "prover");
+      if (!buffer.data.len) add_nodes(&buffer, curl_nodes.prover);
       break;
     case C4_DATA_TYPE_INTERN:
       add_nodes(&buffer, curl_nodes.chain_store);
@@ -274,7 +328,7 @@ static bool configure_request(curl_request_t* creq) {
   // curl_chain_id 0 means the caller never called curl_set_chain_id. The CLI
   // sets it. Other curl users (and the unit tests that predate this setter)
   // keep the single primary list. Once a chain is set, a foreign chain is an error.
-  if (req->type == C4_DATA_TYPE_ETH_RPC && curl_chain_id != 0 && req->chain_id != curl_chain_id && !curl_eth_rpc_uses_l1(req)) {
+  if (req->type == C4_DATA_TYPE_ETH_RPC && curl_chain_id != 0 && req->chain_id != curl_chain_id && !curl_req_targets_l1(req)) {
     char     tmp[96];
     buffer_t msg = stack_buffer(tmp);
     bprintf(&msg, "no RPC configured for chain_id %l", (uint64_t) req->chain_id);

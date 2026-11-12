@@ -325,8 +325,12 @@ c4_status_t c4_proof_logs(prover_ctx_t* ctx) {
   for (proof_logs_block_t* block = blocks; block; block = block->next) {
     if (!highest_block || block->beacon_block.slot > highest_block->beacon_block.slot) highest_block = block;
   }
-  for (proof_logs_block_t* block = blocks; block; block = block->next)
-    block->block_proof.sync.required_period = highest_block->beacon_block.slot >> (chain->slots_per_epoch_bits + chain->epochs_per_period_bits);
+  // Chains without a consensus layer of their own (OP-Stack, EEZ) have no chain spec and no
+  // sync period: their `slot` is not a beacon slot and their sync data is not built here.
+  if (chain) {
+    for (proof_logs_block_t* block = blocks; block; block = block->next)
+      block->block_proof.sync.required_period = highest_block->beacon_block.slot >> (chain->slots_per_epoch_bits + chain->epochs_per_period_bits);
+  }
 
   // create the merkle proofs for all the blocks
   for (proof_logs_block_t* block = blocks; block; block = block->next)

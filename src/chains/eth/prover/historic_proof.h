@@ -62,6 +62,7 @@ typedef struct {
   uint32_t             periods[MAX_SYNC_PERIODS];
   bool                 marker_ready; // `blocks_root.bin` present for `block_period`
   c4_state_sync_type_t status;
+  ssz_ob_t             l1_sync_data; // ready-made `sync_data` variant taken from an L1 prover response (EEZ); used as is when set. Borrowed from the prover state. A set `def` marks the sync data as delegated to that L1 prover, also for its `none` variant (nothing is built locally then).
 
 } syncdata_state_t;
 
@@ -170,6 +171,11 @@ c4_historic_plan_t c4_plan_blockroot_proof(const syncdata_state_t* sync, uint64_
 
 /**
  * Builds the `sync_data` section of a C4 request (bootstrap, LCUs, ZK) from client sync state.
+ *
+ * When `sync_data->l1_sync_data` is set (EEZ: the block is proven by an L1 prover
+ * response, which already carries the sync data matching the client state), that
+ * variant is copied into `builder` unchanged and nothing is fetched. This also holds
+ * when that variant is `none`: `builder` then stays empty, whatever flags are set.
  *
  * @param ctx prover context
  * @param sync_data populated sync state from the client checkpoint / periods

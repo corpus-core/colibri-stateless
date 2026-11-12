@@ -141,6 +141,27 @@
       "prover": [
         "https://plataberget.colibri-proof.tech"
       ]
+    },
+    {
+      "id": 696991,
+      "name": "rollupx",
+      "aliases": [
+        "rollupx",
+        "0xaa29f"
+      ],
+      "pollingInterval": 2000,
+      "eth_rpc": [
+        "https://rollupx.eez.dev/rpc/l2"
+      ],
+      "beacon_api": [
+        "https://mainnet.colibri-proof.tech/consensus"
+      ],
+      "checkpointz": [
+        "https://mainnet.colibri-proof.tech/consensus"
+      ],
+      "prover": [
+        "https://mainnet.colibri-proof.tech"
+      ]
     }
   ]
 }

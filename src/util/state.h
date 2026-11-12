@@ -496,6 +496,32 @@ void c4_state_take_requests(c4_state_t* dst, c4_state_t* src);
   } while (0)
 
 /**
+ * **TRY_AS_L1(fn)** - Runs `fn` with `ctx->chain_id` set to the L1 of the current chain.
+ *
+ * Saves `ctx->chain_id`, sets it to `c4_get_l1_chain_id_for_l2`, evaluates `fn`, and restores
+ * the saved id before doing anything else. The restore happens on every path, including
+ * `C4_PENDING` and `C4_ERROR`. A chain that is its own L1 is left unchanged.
+ *
+ * `ctx` must be in scope and point at a context with a `chain_id` field (`verify_ctx_t` or
+ * `prover_ctx_t`). A status other than `C4_SUCCESS` returns from the enclosing function,
+ * same as `TRY_ASYNC`.
+ *
+ * @param fn function call that returns `c4_status_t`
+ *
+ * ```c
+ * TRY_AS_L1(c4_verify_block(ctx, l1_proof, &header, hash));
+ * ```
+ */
+#define TRY_AS_L1(fn)                                                      \
+  do {                                                                     \
+    chain_id_t saved_chain_id = ctx->chain_id;                             \
+    ctx->chain_id             = c4_get_l1_chain_id_for_l2(saved_chain_id); \
+    c4_status_t status        = fn;                                        \
+    ctx->chain_id             = saved_chain_id;                            \
+    if (status != C4_SUCCESS) return status;                               \
+  } while (0)
+
+/**
  * **TRY_ADD_ASYNC(status, fn)** - Executes an async function but continues unless an error occurs.
  *
  * This macro is used when you want to create multiple async requests in parallel.

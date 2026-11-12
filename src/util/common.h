@@ -52,6 +52,27 @@
 #define C4_UNUSED
 #endif
 
+/**
+ * Linkage of a function that production code calls only inside its own file
+ * and that unit tests call from another file.
+ *
+ * CMake defines `TEST` for test builds (`-DTEST`). The macro is then empty, so
+ * the function has external linkage and the test can link against it. A build
+ * without `TEST` makes the function `static`: the compiler may inline it, and
+ * the symbol is not exported. Put the macro on the declaration and on the
+ * definition. A caller in a second file of a release build needs an ordinary
+ * exported function; this macro does not cover that case.
+ *
+ * ```c
+ * C4_STATIC_UNLESS_TEST c4_status_t parse_internal(bytes_t raw);
+ * ```
+ */
+#ifdef TEST
+#define C4_STATIC_UNLESS_TEST
+#else
+#define C4_STATIC_UNLESS_TEST static
+#endif
+
 #include <stdint.h>
 
 static inline uint32_t min32(uint32_t a, uint32_t b) {

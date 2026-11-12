@@ -109,6 +109,57 @@ c4_status_t c4_get_eth_proofs(prover_ctx_t* ctx, json_t trace, uint64_t block_nu
 void eth_add_block_proof(prover_ctx_t* ctx, ssz_builder_t* builder, eth_block_t* block_data, blockroot_proof_t* historic_block_proof);
 
 /**
+ * Fills the first three fields of an `EthAccountProof` builder (`accountProof`, `address`,
+ * `storageProof`) from the result of `eth_getProof`. The caller adds `elProof` afterwards.
+ *
+ * @param account builder of an `EthAccountProof` container
+ * @param eth_proof result object of `eth_getProof`
+ * @param address 20-byte address of the proven account
+ */
+void eth_add_account_proof_fields(ssz_builder_t* account, json_t eth_proof, bytes_t address);
+
+/**
+ * Fetches the proof of the EIP-2935 history slot of a block from the state of a newer block.
+ *
+ * EIP-2935 keeps the hashes of the last 8191 blocks in the storage of the history contract.
+ * The proof is an `eth_getProof` of that contract for the slot of `block_number`, taken at
+ * `newer_block_number`. Only the shape of the answer is checked here (exactly one storage
+ * proof, and it is about the requested slot); the Merkle proof is not verified: the caller
+ * decides whether the block lies in the history window, and the verifier checks the proof
+ * against the newer block.
+ *
+ * @param ctx prover context
+ * @param block_number number of the block whose hash is read
+ * @param newer_block_number number of the block whose state holds the hash
+ * @param history_proof receives the result object of `eth_getProof` (borrowed from the prover state)
+ * @param block_hash receives the stored hash, all zero if the contract holds none for the slot
+ * @return `C4_SUCCESS`, `C4_PENDING`, or `C4_ERROR`
+ */
+c4_status_t c4_eth_get_eip2935_proof(prover_ctx_t* ctx, uint64_t block_number, uint64_t newer_block_number, json_t* history_proof, bytes32_t block_hash);
+
+/**
+ * Writes the `eip2935` variant of `ETH_EL_PROOF_UNION` into the `elProof` field of `builder`.
+ *
+ * ```
+ * elProof: eip2935 {
+ *   elHeader: el_header                 // the older block
+ *   account: {                          // history contract in the state of the newer block
+ *     accountProof, address, storageProof,
+ *     elProof: newer_block_proof        // any other variant of ETH_EL_PROOF_UNION
+ *   }
+ * }
+ * ```
+ *
+ * When to use this variant is the decision of the chain module that calls the function.
+ *
+ * @param builder parent proof builder with an `elProof` union field
+ * @param el_header RLP header of the older block
+ * @param history_proof result of `c4_eth_get_eip2935_proof`
+ * @param newer_block_proof builder of the selected `ETH_EL_PROOF_UNION` variant that proves the newer block; consumed
+ */
+void c4_eth_add_eip2935_proof(ssz_builder_t* builder, bytes_t el_header, json_t history_proof, ssz_builder_t newer_block_proof);
+
+/**
  * Returns true if the verifier is expected to already hold `block_data`'s EL header
  * (`last_block_hash` match or hybrid header cache). Used to emit the `blockHash`
  * union variant and to decide whether a full-block proof still needs a body.

@@ -44,6 +44,9 @@ LIBRARIES=(
     # OP Stack support (NEW - these were missing!)
     "src/chains/op/libop_verifier.a"
     "src/chains/op/libop_prover.a"
+    # EEZ support (CHAIN_EEZ is ON by default; the generated dispatchers reference it)
+    "src/chains/eez/libeez_verifier.a"
+    "src/chains/eez/libeez_prover.a"
     # EVMOne dependencies (always included as EVMONE is enabled by default)
     "libs/intx/libintx_wrapper.a"
     "libs/evmone/libevmone_wrapper.a"

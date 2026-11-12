@@ -445,7 +445,7 @@ static c4_status_t eth_get_by_number(prover_ctx_t* ctx, uint64_t block_number, b
 
   if (c4_chain_schedules_fork(ctx->chain_id, C4_FORK_GLOAS)) {
     sbprintf(tmp, "\"0x%lx\"", block_number);
-    TRY_ASYNC(eth_get_block(ctx, (json_t) {.start = tmp, .len = strlen(tmp), .type = JSON_TYPE_STRING}, false, &eth_block));
+    TRY_ASYNC(eth_get_block(ctx, AS_JSON(tmp, JSON_TYPE_STRING), false, &eth_block));
     if (eth_block.type == JSON_TYPE_NOT_FOUND || eth_block.type == JSON_TYPE_NULL)
       THROW_ERROR_WITH("The execution block %l can not be found!", block_number);
     if (el_block_uses_gloas_path(ctx, eth_block))
@@ -455,7 +455,7 @@ static c4_status_t eth_get_by_number(prover_ctx_t* ctx, uint64_t block_number, b
 
   // Pre-Gloas: EL N+1.parentBeaconBlockRoot is the data CL root; its child is the signing block.
   sbprintf(tmp, "\"0x%lx\"", block_number + 1);
-  TRY_ASYNC(eth_get_block(ctx, (json_t) {.start = tmp, .len = strlen(tmp), .type = JSON_TYPE_STRING}, false, &eth_block));
+  TRY_ASYNC(eth_get_block(ctx, AS_JSON(tmp, JSON_TYPE_STRING), false, &eth_block));
 
   if (eth_block.type == JSON_TYPE_NOT_FOUND || eth_block.type == JSON_TYPE_NULL)
     THROW_ERROR_WITH("The Block after %l, which should contain the parentBeaconBlockRoot for the data block can not be found in the execution layer!", block_number);

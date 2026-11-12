@@ -64,7 +64,7 @@ dependencies {
 }
 ```
 
-**Configuration:** Optional `ethRpcsL1` sets the execution RPCs for the L1 of the configured chain. An empty list uses the built-in defaults. That L1 is currently Ethereum mainnet. Requests for the configured chain keep using `ethRpcs`. Local `eth_call` proofs default to `useAccesslist = true` (`eth_createAccessList`; set `false` for legacy `debug_traceCall`). For a privacy-preserving `eth_call`, use `proverMode = HYBRID`, `privacyMode = BASIC`, and `obliviousNodes` (default empty; e.g. `https://rpc.safe-node.com/`, API key for testing). Setting `obliviousNodes` also enables PAP automatically. How oblivious nodes work (TEE, ORAM): [Oblivious Labs](https://www.obliviouslabs.com/).
+**Configuration:** Optional `ethRpcsL1` sets the execution RPCs for the L1 of the configured chain. An empty list uses the built-in defaults. Only an EEZ L2 such as RollupX has an L1 that differs from the chain itself (Ethereum mainnet). Requests for the configured chain keep using `ethRpcs`. Local `eth_call` proofs default to `useAccesslist = true` (`eth_createAccessList`; set `false` for legacy `debug_traceCall`). For a privacy-preserving `eth_call`, use `proverMode = HYBRID`, `privacyMode = BASIC`, and `obliviousNodes` (default empty; e.g. `https://rpc.safe-node.com/`, API key for testing). Setting `obliviousNodes` also enables PAP automatically. How oblivious nodes work (TEE, ORAM): [Oblivious Labs](https://www.obliviouslabs.com/).
 
 Use it like this:
 ```java

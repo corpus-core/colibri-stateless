@@ -100,6 +100,7 @@ set(VERIFIER_SOURCES
   verifier/prover_cache_url.c
   verifier/rlp.c
   verifier/el_header.c
+  verifier/eip2935.c
   verifier/header_cache.c
   ssz/verify_types.c
   ssz/beacon_types.c
@@ -206,6 +207,7 @@ add_prover(
     prover/proof_block.c
     prover/historic_proof.c
     prover/historic_proof_zk.c
+    prover/eip2935_proof.c
     prover/state_proofs.c
     prover/bootstrap_gloas.c
     prover/lcu_gloas.c

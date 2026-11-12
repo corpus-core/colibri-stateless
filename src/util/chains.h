@@ -53,6 +53,8 @@ extern "C" {
  *
  * Values 0–14 are reserved; OP-Stack L2s may also map to `C4_CHAIN_TYPE_OP` via
  * `c4_chain_type()` even when the numeric id uses `C4_CHAIN_TYPE_ETHEREUM` encoding.
+ * The same applies to EEZ (Ethereum Economic Zone) L2s, which map to
+ * `C4_CHAIN_TYPE_EEZ`.
  */
 typedef enum {
   C4_CHAIN_TYPE_ETHEREUM  = 0,
@@ -63,6 +65,7 @@ typedef enum {
   C4_CHAIN_TYPE_POLYGON   = 5,
   C4_CHAIN_TYPE_OP        = 6,
   C4_CHAIN_TYPE_ARBITRUM  = 7,
+  C4_CHAIN_TYPE_EEZ       = 8, // Ethereum Economic Zone L2s; the L2 block hash is proven by an L1 storage proof
   C4_CHAIN_TYPE_CRONOS    = 9,
   C4_CHAIN_TYPE_FUSE      = 10,
   C4_CHAIN_TYPE_AVALANCHE = 11,
@@ -94,6 +97,13 @@ extern const chain_id_t C4_CHAIN_GNOSIS;
 #define C4_CHAIN_OP_FRAXTAL    CHAIN(252)
 #define C4_CHAIN_OP_MANTLE     CHAIN(5000)
 #define C4_CHAIN_OP_KLAYTN     CHAIN(8217)
+
+/**
+ * EEZ (Ethereum Economic Zone) L2s. Each id listed here must also be handled in
+ * `c4_chain_type()` and `c4_get_l1_chain_id_for_l2()` (`chains.c`); the detailed
+ * per-chain config (proxy contract, rollup id) lives in the EEZ chain module.
+ */
+#define C4_CHAIN_EEZ_ROLLUPX CHAIN(0xaa29f) // RollupX (696991), settles on Ethereum mainnet
 
 extern const chain_id_t C4_CHAIN_BTC_MAINNET;
 extern const chain_id_t C4_CHAIN_BTC_TESTNET;
@@ -145,6 +155,7 @@ static inline bool c4_chains_get_props(chain_id_t chain_id, chain_properties_t* 
  * Returns the chain family for dispatch (Ethereum, OP-Stack, Bitcoin, …).
  *
  * OP-Stack rollups listed as `C4_CHAIN_OP_*` macros map to `C4_CHAIN_TYPE_OP`;
+ * EEZ rollups listed as `C4_CHAIN_EEZ_*` macros map to `C4_CHAIN_TYPE_EEZ`;
  * other ids use the type byte embedded in `chain_id`.
  *
  * @param chain_id packed chain identifier
@@ -153,13 +164,24 @@ static inline bool c4_chains_get_props(chain_id_t chain_id, chain_properties_t* 
 chain_type_t c4_chain_type(chain_id_t chain_id);
 
 /**
- * Returns the L1 chain id that settles `chain`.
+ * Returns the chain id whose consensus secures `chain`.
  *
- * TODO: read `l1_chain_id` from the EEZ chain config. Until that mapping
- * exists this returns Ethereum mainnet (`1`) for every chain.
+ * For an EEZ L2 (`C4_CHAIN_EEZ_*`) this is the L1 the rollup settles on: the L2
+ * block hash is proven by an L1 storage proof, so sync-committee state, light
+ * client updates and the client state all belong to that L1. Every other chain
+ * (L1s and OP-Stack L2s) is returned unchanged.
+ *
+ * The mapping is a switch in `chains.c` on purpose: `util` must not depend on a
+ * chain module, and callers need the answer before any module is initialised
+ * (RPC routing, client state lookup, bindings).
+ *
+ * | `chain`                | result                   |
+ * |------------------------|--------------------------|
+ * | `C4_CHAIN_EEZ_ROLLUPX` | `C4_CHAIN_MAINNET` (`1`) |
+ * | anything else          | `chain`                  |
  *
  * @param chain client chain id
- * @return L1 chain id, currently always `1`
+ * @return L1 chain id for an EEZ L2, otherwise `chain` itself
  */
 chain_id_t c4_get_l1_chain_id_for_l2(chain_id_t chain);
 

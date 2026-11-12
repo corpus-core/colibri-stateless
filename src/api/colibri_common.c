@@ -166,7 +166,7 @@ static void enrich_pending_prover_requests(c4_rpc_ctx_t* ctx) {
     buffer_t  out = {0};
     bytes32_t lbh = {0};
     buffer_append(&out, bytes(req->payload.data, req->payload.len - 1));
-    c4_append_prover_request_props(&out, ctx->client_state, ctx->chain_id, ctx->prover_flags, ctx->witness_keys, get_last_block_hash(ctx, lbh));
+    c4_append_prover_request_props(&out, ctx->client_state, c4_get_l1_chain_id_for_l2(ctx->chain_id), ctx->prover_flags, ctx->witness_keys, get_last_block_hash(ctx, lbh));
     append_proxy_fields(&out, ctx);
     bprintf(&out, "}");
     safe_free(req->payload.data);
@@ -311,7 +311,9 @@ char* c4i_build_verifier_json_status(c4_status_t status, c4_state_t* state,
  */
 static void rpc_capture_snapshots(c4_rpc_ctx_t* ctx) {
   if (!ctx || ctx->client_state.data) return; // already captured
-  ctx->client_state  = c4_get_client_state(ctx->chain_id);
+  // The client state is the sync committee state. An L2 that settles on L1 (EEZ) uses the
+  // one of its L1; for all other chains `c4_get_l1_chain_id_for_l2` is the chain itself.
+  ctx->client_state  = c4_get_client_state(c4_get_l1_chain_id_for_l2(ctx->chain_id));
   c4_init_ctx_t init = {.chain_id = ctx->chain_id, .client_state = ctx->client_state, .snapshots = NULL};
   c4_init_rpc_ctx(&init);
   ctx->snapshots = init.snapshots;
@@ -349,8 +351,9 @@ void c4_set_checkpoint(chain_id_t chain_id, const char* checkpoint_hex) {
 #ifdef CHAIN_ETH
   if (checkpoint_hex && strlen(checkpoint_hex) == 66) {
     bytes32_t checkpoint;
+    // the checkpoint anchors a sync committee, which for an L2 settling on L1 (EEZ) is the one of its L1
     if (hex_to_bytes(checkpoint_hex + 2, 64, bytes(checkpoint, 32)) == 32)
-      c4_eth_set_trusted_checkpoint(chain_id, checkpoint);
+      c4_eth_set_trusted_checkpoint(c4_get_l1_chain_id_for_l2(chain_id), checkpoint);
   }
 #else
   (void) chain_id;
@@ -463,15 +466,29 @@ static c4_status_t rpc_start_verifier(c4_rpc_ctx_t* ctx, bytes_t proof) {
   return rpc_handle_verifying(ctx);
 }
 
+static bool        check_proving_prover_requests(c4_rpc_ctx_t* ctx);
+static c4_status_t handle_request_prover(c4_rpc_ctx_t* ctx);
+
 static c4_status_t rpc_handle_proving(c4_rpc_ctx_t* ctx) {
-  c4_status_t status = c4_prover_execute(ctx->prover);
-  if (status == C4_SUCCESS) {
-    ctx->proof       = ctx->prover->proof;
-    ctx->proof_owned = false;
-    //    bytes_write(ctx->proof, fopen("last_proof.ssz", "wb"), true);
-    return rpc_start_verifier(ctx, ctx->proof);
+  for (int i = 0; i < MAX_PROOF_DEPTH; i++) {
+    // A local prover for a PROVER request of the main prover runs first. Whether it
+    // succeeds or fails, the request is answered afterwards and the main prover goes on.
+    if (ctx->request_prover && handle_request_prover(ctx) == C4_PENDING) return C4_PENDING;
+
+    c4_status_t status = c4_prover_execute(ctx->prover);
+    if (status == C4_SUCCESS) {
+      ctx->proof       = ctx->prover->proof;
+      ctx->proof_owned = false;
+      //    bytes_write(ctx->proof, fopen("last_proof.ssz", "wb"), true);
+      return rpc_start_verifier(ctx, ctx->proof);
+    }
+    if (status == C4_ERROR) return status;
+    // pending: does the prover wait for a proof this context builds itself?
+    if (!check_proving_prover_requests(ctx)) return C4_PENDING;
   }
-  return status;
+  ctx->error = bprintf(NULL, "Max proof depth reached");
+  ctx->phase = RPC_PHASE_DONE;
+  return C4_ERROR;
 }
 
 static c4_status_t rpc_handle_remote_proof(c4_rpc_ctx_t* ctx) {
@@ -493,7 +510,7 @@ static c4_status_t rpc_handle_remote_proof(c4_rpc_ctx_t* ctx) {
     buffer_free(&method_buf);
     buffer_free(&params_buf);
     bytes32_t lbh = {0};
-    c4_append_prover_request_props(&payload, ctx->client_state, ctx->chain_id, ctx->prover_flags, ctx->witness_keys, get_last_block_hash(ctx, lbh));
+    c4_append_prover_request_props(&payload, ctx->client_state, c4_get_l1_chain_id_for_l2(ctx->chain_id), ctx->prover_flags, ctx->witness_keys, get_last_block_hash(ctx, lbh));
     append_proxy_fields(&payload, ctx);
     bprintf(&payload, "}");
     ctx->rpc_state.requests->payload = payload.data;
@@ -579,7 +596,8 @@ static c4_status_t rpc_handle_unproofable(c4_rpc_ctx_t* ctx) {
   return C4_PENDING;
 }
 
-/* ── Local prover for verifier-emitted PROVER requests (PAP) ── */
+/* ── Local prover for PROVER requests: emitted by the verifier (PAP), or by a main prover
+      that runs locally (proof of another chain, e.g. the L1 proof of an EEZ anchor) ── */
 
 static data_request_t* find_pending_prover_request(c4_state_t* state) {
   for (data_request_t* req = state->requests; req; req = req->next) {
@@ -617,7 +635,9 @@ static prover_ctx_t* create_prover_from_request(c4_rpc_ctx_t* rpc_ctx, data_requ
   char* params_str = bprintf(NULL, "%j", params);
   safe_free(tmp);
 
-  prover_ctx_t* pctx = c4_prover_create(method_str, params_str, rpc_ctx->chain_id, rpc_ctx->prover_flags);
+  // A verifier may ask for a proof of another chain than the one of the request (the
+  // request names it in `chain_id`); without one the proof is for the chain of the request.
+  prover_ctx_t* pctx = c4_prover_create(method_str, params_str, req->chain_id ? req->chain_id : rpc_ctx->chain_id, rpc_ctx->prover_flags);
   safe_free(method_str);
   safe_free(params_str);
   if (!pctx) {
@@ -668,6 +688,23 @@ static bool is_remote_delegated_method(data_request_t* req) {
   return remote;
 }
 
+/**
+ * Starts a local prover that answers a pending PROVER request.
+ *
+ * @param ctx RPC context
+ * @param prover_req pending PROVER request of the verifier or of the main prover
+ * @return `true` if the prover was created; on failure `prover_req->error` is set
+ */
+static bool start_request_prover(c4_rpc_ctx_t* ctx, data_request_t* prover_req) {
+  prover_ctx_t* pctx = create_prover_from_request(ctx, prover_req);
+  if (!pctx) return false;
+  request_prover_t* rp = safe_calloc(1, sizeof(request_prover_t));
+  rp->request          = prover_req;
+  rp->ctx              = pctx;
+  ctx->request_prover  = rp;
+  return true;
+}
+
 // returns true if there is a prover request which needs to be handled
 static bool check_prover_requests(c4_rpc_ctx_t* ctx) {
   if (ctx->request_prover) return true;
@@ -681,12 +718,35 @@ static bool check_prover_requests(c4_rpc_ctx_t* ctx) {
     enrich_pending_prover_requests(ctx);
     return false;
   }
-  prover_ctx_t* pctx = create_prover_from_request(ctx, prover_req);
-  if (!pctx) return false;
-  request_prover_t* rp = safe_calloc(1, sizeof(request_prover_t));
-  rp->request          = prover_req;
-  rp->ctx              = pctx;
-  ctx->request_prover  = rp;
+  return start_request_prover(ctx, prover_req);
+}
+
+/**
+ * Checks whether the main prover waits for a proof that is built locally.
+ *
+ * A prover may need the proof of another chain: an L2 that settles on L1 (EEZ) asks for
+ * the L1 proof of its anchor with a PROVER request that carries the L1 chain id. A proof
+ * that is built locally is built locally as a whole: the request is answered by a local
+ * prover of that chain, no remote prover is involved. Its data requests (execution RPC and
+ * Beacon API of the L1) carry the L1 chain id and are routed by the host. This covers
+ * local mode and the local fallback of remote and proxy mode.
+ *
+ * Hybrid and light-client mode are the exception: they have a remote prover and get their
+ * header proofs from it, so PROVER requests of the main prover are left to the host.
+ *
+ * @param ctx RPC context in the proving phase
+ * @return `true` if a local prover for a PROVER request of the main prover is running
+ */
+static bool check_proving_prover_requests(c4_rpc_ctx_t* ctx) {
+  if (ctx->request_prover) return true;
+  if (ctx->prover_mode == C4_PROVER_MODE_HYBRID || ctx->prover_mode == C4_PROVER_MODE_LIGHT_CLIENT || !ctx->prover) return false;
+  data_request_t* prover_req = find_pending_prover_request(&ctx->prover->state);
+  // only requests that name method and params; a GET request addresses a prover endpoint
+  if (!prover_req || prover_req->method != C4_DATA_METHOD_POST) return false;
+  // On failure the request carries the error, and the main prover reports it on its next
+  // run. Returning `true` keeps the loop of the caller going instead of handing the failed
+  // request to the host.
+  if (!start_request_prover(ctx, prover_req) && !prover_req->error) prover_req->error = strdup("Failed to create local prover");
   return true;
 }
 
@@ -701,8 +761,9 @@ static c4_status_t handle_request_prover(c4_rpc_ctx_t* ctx) {
       return C4_SUCCESS;
     case C4_ERROR:
       rp->request->error = strdup(rp->ctx->state.error ? rp->ctx->state.error : "local prover failed");
-      // make sure the error is also set on the verifier
-      if (!ctx->verifier.state.error)
+      // make sure the error is also set on the verifier. In the proving phase the request
+      // belongs to the main prover, which reports the error of the request itself.
+      if (ctx->phase == RPC_PHASE_VERIFYING && !ctx->verifier.state.error)
         ctx->verifier.state.error = bprintf(NULL, "Proof-creating for %s (%j) failed: %s", rp->ctx->method, rp->ctx->params, rp->request->error);
       free_request_prover(ctx);
       return C4_ERROR;
@@ -796,6 +857,9 @@ c4_status_t c4_rpc_execute(c4_rpc_ctx_t* ctx) {
 c4_state_t* c4_rpc_get_state(c4_rpc_ctx_t* ctx) {
   switch (ctx->phase) {
     case RPC_PHASE_PROVING:
+      // a local prover for a PROVER request of the main prover runs first
+      if (ctx->request_prover)
+        return &ctx->request_prover->ctx->state;
       return ctx->prover ? &ctx->prover->state : NULL;
     case RPC_PHASE_VERIFYING:
       if (ctx->request_prover)

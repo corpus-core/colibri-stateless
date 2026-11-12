@@ -52,6 +52,11 @@ bool eth_json_is_latest(json_t block_tag) {
 
 bool eth_check_latest_freshness(verify_ctx_t* ctx, bool is_latest, bool has_ts, uint64_t block_ts) {
   if (!ctx->min_latest_block_ts || !is_latest) return true;
+  // EEZ milestone 1: `latest` is the last L2 block whose hash was posted to L1, which
+  // is up to 4 hours old while the L2 is idle. The gate would reject every such proof,
+  // so it is suspended for EEZ until newer blocks can be proven (milestone 2).
+  // TODO(eez-milestone-2): remove this exception once L2 blocks newer than the L1 anchor are provable.
+  if (c4_chain_type(ctx->chain_id) == C4_CHAIN_TYPE_EEZ) return true;
   if (!has_ts) RETURN_VERIFY_ERROR(ctx, "cannot verify freshness of latest block without block context");
   if (block_ts < ctx->min_latest_block_ts) RETURN_VERIFY_ERROR(ctx, "proof for latest too old");
   return true;

@@ -303,6 +303,22 @@ uint64_t eth_el_header_get_uint64(bytes_t header, char* name) {
   return bytes_as_be(value);
 }
 
+// Number of fields of the oldest execution header layout (before London).
+#define EL_HEADER_MIN_FIELDS 15
+// Length of the logs bloom of an execution header.
+#define EL_HEADER_BLOOM_LEN 256
+
+bool eth_el_header_is_valid(bytes_t header) {
+  bytes_t list = header;
+  if (rlp_decode(&list, 0, &list) != RLP_LIST) return false;
+  if ((int) rlp_decode(&list, -1, NULL) < EL_HEADER_MIN_FIELDS) return false;
+  return eth_el_header_get(header, EL_PARENT_HASH).len == 32 &&
+         eth_el_header_get(header, EL_STATE_ROOT).len == 32 &&
+         eth_el_header_get(header, EL_TRANSACTIONS_ROOT).len == 32 &&
+         eth_el_header_get(header, EL_RECEIPTS_ROOT).len == 32 &&
+         eth_el_header_get(header, EL_LOGS_BLOOM).len == EL_HEADER_BLOOM_LEN;
+}
+
 uint64_t eth_fake_exponential(uint64_t factor, uint64_t numerator, uint64_t denominator) {
   // EIP-4844 blob base fee approximation: factor * e^(numerator/denominator) via Taylor series.
   // Uses (a*b)/c = (a/c)*b + (a%c)*b/c to avoid 128-bit intermediate values.

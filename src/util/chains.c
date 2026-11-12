@@ -70,6 +70,10 @@ chain_type_t c4_chain_type(chain_id_t chain_id) {
     case C4_CHAIN_OP_KLAYTN:     // Klaytn (8217)
       return C4_CHAIN_TYPE_OP;
 
+    // EEZ (Ethereum Economic Zone) chains
+    case C4_CHAIN_EEZ_ROLLUPX: // RollupX (696991)
+      return C4_CHAIN_TYPE_EEZ;
+
     default:
       return (chain_id >> 56) & 0xff;
   }
@@ -80,8 +84,14 @@ uint64_t c4_chain_specific_id(chain_id_t chain_id) {
 }
 
 chain_id_t c4_get_l1_chain_id_for_l2(chain_id_t chain) {
-  (void) chain;
-  // TODO: read l1_chain_id from the EEZ chain config. Until that mapping
-  // exists every chain settles on Ethereum mainnet.
-  return 1;
+  // Only EEZ L2s are remapped: their block hashes are proven on the L1, so the
+  // sync-committee state belongs to that L1. This switch is the only place that
+  // names that L1. Every chain in the EEZ config table needs a case here.
+  switch (chain) {
+    case C4_CHAIN_EEZ_ROLLUPX: // RollupX settles on Ethereum mainnet
+      return C4_CHAIN_MAINNET;
+
+    default:
+      return chain;
+  }
 }

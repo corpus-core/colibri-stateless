@@ -112,7 +112,8 @@ extern "C" {
     // Utilities
     // ------------------------------------------------------------------
 
-    /// L1 chain id that settles `chain_id`. Currently always Ethereum mainnet.
+    /// L1 chain id that settles `chain_id`: Ethereum mainnet for an EEZ L2 such as RollupX,
+    /// `chain_id` itself for every other chain.
     pub fn c4_get_l1_chain_id_for_l2(chain_id: u64) -> u64;
 
     /// Query whether an RPC method is proofable / unproofable / local /

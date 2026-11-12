@@ -72,8 +72,22 @@ void eth_get_transactions_root(bytes32_t out_hash, ssz_ob_t txs);
  */
 void eth_get_block_access_list_hash(bytes32_t out_hash, bytes_t rlp_encoded_bal);
 
-bytes_t     eth_el_header_get(bytes_t header, char* name);
-uint64_t    eth_el_header_get_uint64(bytes_t header, char* name);
+bytes_t  eth_el_header_get(bytes_t header, char* name);
+uint64_t eth_el_header_get_uint64(bytes_t header, char* name);
+
+/**
+ * Checks that bytes have the shape of an RLP-encoded execution-layer header.
+ *
+ * Some block proofs authenticate a header by its hash only (the hash is a storage value
+ * of a contract, e.g. `eezL1Proof` and `eip2935`). The proof verifiers read fields from
+ * the header by position afterwards, so the hash check is followed by this shape check:
+ * whatever a contract stores, only something that parses as a header is handed on.
+ *
+ * @param header RLP-serialized header
+ * @return `true` for an RLP list of at least 15 fields with a 32-byte parent hash, state,
+ *         transactions and receipts root and a 256-byte logs bloom
+ */
+bool eth_el_header_is_valid(bytes_t header);
 
 // EIP-4844 constants exposed for callers computing blob-related receipt fields.
 #define ETH_GAS_PER_BLOB                  131072u  // gas per blob (EIP-4844)
@@ -111,7 +125,7 @@ uint64_t eth_min_blob_base_fee(chain_id_t chain_id);
  * @param denominator Exponent denominator (fork-aware; see `eth_blob_base_fee_update_fraction`).
  * @return factor * e^(numerator/denominator), rounded down.
  */
-uint64_t eth_fake_exponential(uint64_t factor, uint64_t numerator, uint64_t denominator);
+uint64_t    eth_fake_exponential(uint64_t factor, uint64_t numerator, uint64_t denominator);
 c4_status_t eth_el_header_build_from_ep(bytes_t* el_header, eth_el_header_ctx_t* ctx);
 c4_status_t eth_el_header_build_from_json(c4_state_t* state, bytes_t* el_header, fork_id_t fork, json_t block);
 c4_status_t eth_el_header_get_from_raw_block(c4_state_t* state, bytes_t raw_block, bytes_t* el_header, ssz_builder_t* body_builder);

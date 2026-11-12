@@ -64,7 +64,7 @@ asyncio.run(main())
 - **Testing utilities** — mock HTTP requests and storage for deterministic tests.
 - **Multi-chain** — Ethereum Mainnet, Sepolia, Gnosis Chain, and more.
 - **Local `eth_call` proofs** — `use_accesslist=True` (default) uses `eth_createAccessList`; set `False` for legacy `debug_traceCall`.
-- **L1 execution RPCs** — optional `l1_eth_rpcs` for requests that target the L1 of the configured chain. Empty uses the built-in defaults. That L1 is currently Ethereum mainnet. Requests for the configured chain keep using `eth_rpcs`.
+- **L1 execution RPCs** — optional `l1_eth_rpcs` for requests that target the L1 of the configured chain. Empty uses the built-in defaults. Only an EEZ L2 such as RollupX has an L1 that differs from the chain itself (Ethereum mainnet). Requests for the configured chain keep using `eth_rpcs`.
 - **Privacy-preserving `eth_call`** — combine `ProverMode.HYBRID` + `PrivacyMode.BASIC` + `oblivious_nodes` (default empty; e.g. `https://rpc.safe-node.com/`, API key for testing). Setting `oblivious_nodes` auto-enables PAP. TEE/ORAM background: [Oblivious Labs](https://www.obliviouslabs.com/).
 
 ## Documentation

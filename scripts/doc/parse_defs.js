@@ -191,6 +191,53 @@ function handle_doc_comment(line, doc_comment, sections, file, line_number) {
         doc_comment.statement += '\n' + line
     return true;
 }
+// String-literal macros from beacon_types.h, loaded once. Values include the quotes
+// (`ETH_SSZ_NAME_EIP2935` -> `"eip2935"`) so the SSZ line matcher still sees a quoted name.
+let string_defines = null
+
+function load_string_defines() {
+    if (string_defines) return string_defines
+    const header = fs.readFileSync(get_full_src_path('chains/eth/ssz/beacon_types.h'), 'utf8')
+    const defines = new Map()
+    for (const raw of header.split('\n')) {
+        const code = raw.split('//')[0]
+        const match = code.match(/^\s*#define\s+([A-Za-z_][A-Za-z0-9_]*)\s+"((?:\\.|[^"\\])*)"/)
+        if (match) defines.set(match[1], '"' + match[2] + '"')
+    }
+    string_defines = defines
+    return string_defines
+}
+
+// Replace string-literal macros on a code line. Existing quoted strings are left untouched,
+// and a shorter name cannot eat a longer one because the whole identifier is matched.
+function expand_string_defines(line) {
+    const defines = load_string_defines()
+    if (!defines.size || !line) return line
+    let out = ''
+    for (let i = 0; i < line.length;) {
+        if (line[i] === '"') {
+            let j = i + 1
+            while (j < line.length && line[j] !== '"') {
+                if (line[j] === '\\' && j + 1 < line.length) j += 2
+                else j++
+            }
+            if (j < line.length) j++
+            out += line.slice(i, j)
+            i = j
+            continue
+        }
+        const id = /^[A-Za-z_][A-Za-z0-9_]*/.exec(line.slice(i))
+        if (id) {
+            out += defines.get(id[0]) || id[0]
+            i += id[0].length
+            continue
+        }
+        out += line[i]
+        i++
+    }
+    return out
+}
+
 function parse_ssz_file(file) {
     const lines = fs.readFileSync(get_full_src_path(file), 'utf8').split('\n');
     for (let i = 0; i < lines.length; i++) {
@@ -237,6 +284,10 @@ function parse_ssz_file(file) {
             comment = ''
             continue
         }
+
+        // Expand string-literal macros before matching SSZ_…("name", …).
+        // The trailing comment was split off above, so it is not rewritten.
+        line = expand_string_defines(line)
 
         // handle type definitions
         let match = line.match(/const\s+ssz_def_t\s+(\w+)\[.*/);

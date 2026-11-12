@@ -420,6 +420,17 @@ bytes_t json_as_bytes(json_t value, buffer_t* buffer) {
   return buffer->data;
 }
 
+bool json_as_bytes32(json_t value, uint8_t out[32]) {
+  uint8_t  word[32] = {0};
+  buffer_t word_buf = stack_buffer(word);
+  memset(out, 0, 32);
+  if (value.type != JSON_TYPE_STRING) return false;
+  bytes_t raw = json_as_bytes(value, &word_buf);
+  if (!raw.data || !raw.len || raw.len > 32) return false;
+  memcpy(out + 32 - raw.len, raw.data, raw.len);
+  return true;
+}
+
 bool json_as_bool(json_t value) {
   return value.type == JSON_TYPE_BOOLEAN && value.start && value.start[0] == 't';
 }

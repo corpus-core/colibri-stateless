@@ -66,7 +66,7 @@ colibri.chainId = 42161  // Arbitrum
 
 ### L1 execution RPCs
 
-`eth_rpcs` is the execution RPC list for the configured chain. `l1EthRpcs` is optional and is used when a request targets the L1 of that chain. The L1 id comes from `c4_get_l1_chain_id_for_l2` and is currently always Ethereum mainnet. `nil` or an empty list uses the built-in defaults for that L1. Requests for the configured chain keep using `eth_rpcs`.
+`eth_rpcs` is the execution RPC list for the configured chain. `l1EthRpcs` is optional and is used when a request targets the L1 of that chain. The L1 id comes from `c4_get_l1_chain_id_for_l2`: an EEZ L2 such as RollupX maps to the L1 it settles on (Ethereum mainnet, `1`), every other chain maps to itself and never uses this list. `nil` or an empty list uses the built-in defaults for that L1. Requests for the configured chain keep using `eth_rpcs`.
 
 ```swift
 colibri.chainId = 8453

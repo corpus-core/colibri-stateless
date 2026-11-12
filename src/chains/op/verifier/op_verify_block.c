@@ -233,7 +233,7 @@ static void adopt_header_snapshot(verify_ctx_t* ctx, bytes32_t block_hash, bytes
 }
 
 c4_status_t op_verify_sequencer_proof(verify_ctx_t* ctx, ssz_ob_t block, bytes_t* el_header, bytes32_t block_hash) {
-  if (!block.def || strcmp(block.def->name, "sequencerProof") != 0)
+  if (!block.def || strcmp(block.def->name, ETH_SSZ_NAME_SEQUENCER_PROOF) != 0)
     THROW_ERROR("invalid block type!");
 
   const op_chain_config_t* config = op_get_chain_config(ctx->chain_id);
@@ -243,7 +243,7 @@ c4_status_t op_verify_sequencer_proof(verify_ctx_t* ctx, ssz_ob_t block, bytes_t
   ssz_ob_t signature     = ssz_get(&block, "signature");
   if (!payload_union.def || signature.bytes.len != 65) THROW_ERROR("invalid sequencer proof!");
 
-  bool    compressed = payload_union.def->name && strcmp(payload_union.def->name, "uncompressed") != 0;
+  bool    compressed = payload_union.def->name && strcmp(payload_union.def->name, ETH_SSZ_NAME_UNCOMPRESSED) != 0;
   bytes_t raw        = payload_union.bytes;
   bool    owned      = false;
   if (compressed) {

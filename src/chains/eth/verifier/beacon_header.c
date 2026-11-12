@@ -25,6 +25,7 @@
 #include "../util/crypto.h"
 #include "../util/ssz.h"
 #include "beacon_types.h"
+#include "eip2935.h"
 #include "el_header.h"
 #include "eth_verify.h"
 #include "header_cache.h"
@@ -142,13 +143,13 @@ c4_status_t c4_verify_header(verify_ctx_t* ctx, ssz_ob_t header, ssz_ob_t block_
   ssz_ob_t sync_committee_bits      = ssz_get(&cl_header_proof, "sync_committee_bits");
   ssz_ob_t sync_committee_signature = ssz_get(&cl_header_proof, "sync_committee_signature");
 
-  if (strcmp(cl_header_proof.def->name, "signature") == 0) // direct proof - the signature matches the current header
+  if (strcmp(cl_header_proof.def->name, ETH_SSZ_NAME_SIGNATURE) == 0) // direct proof - the signature matches the current header
     return c4_verify_blockroot_signature(ctx, &header, &sync_committee_bits, &sync_committee_signature, 0, NULL);
 
-  if (strcmp(cl_header_proof.def->name, "headerChain") == 0) // header chain - the signature matches the signed header in the chain
+  if (strcmp(cl_header_proof.def->name, ETH_SSZ_NAME_HEADER_CHAIN) == 0) // header chain - the signature matches the signed header in the chain
     return c4_verify_headers_proof(ctx, header, sync_committee_bits, sync_committee_signature, cl_header_proof);
 
-  if (strcmp(cl_header_proof.def->name, "historic") == 0)
+  if (strcmp(cl_header_proof.def->name, ETH_SSZ_NAME_HISTORIC) == 0)
     return c4_verify_historic_proof(ctx, header, sync_committee_bits, sync_committee_signature, cl_header_proof);
 
   THROW_ERROR("unsupported clHeaderProof variant!");
@@ -298,14 +299,27 @@ void c4_register_block_proof_verify(chain_type_t chain_type, c4_verify_block_ext
 
 c4_status_t c4_verify_block(verify_ctx_t* ctx, ssz_ob_t block, bytes_t* el_header, bytes32_t block_hash) {
   if (!block.def) THROW_ERROR("invalid block type!");
-  if (strcmp(block.def->name, "blockHash") == 0)
+  if (strcmp(block.def->name, ETH_SSZ_NAME_BLOCK_HASH) == 0)
     return verify_block_by_blockhash(ctx, block, el_header, block_hash);
 
-  if (strcmp(block.def->name, "clProof") == 0)
+  if (strcmp(block.def->name, ETH_SSZ_NAME_CL_PROOF) == 0) {
+    // A chain that settles on another chain (EEZ) has no consensus layer of its own.
+    // A clProof would authenticate a block of that other chain, never one of this chain.
+    // The EEZ hook verifies its inner L1 proof with the L1 chain id, so it passes here.
+    if (c4_get_l1_chain_id_for_l2(ctx->chain_id) != ctx->chain_id)
+      THROW_ERROR("clProof is not valid for a chain without its own consensus layer!");
     return verify_block_by_blockproof(ctx, block, el_header, block_hash);
+  }
 
-  if (strcmp(block.def->name, "witnessProof") == 0)
+  if (strcmp(block.def->name, ETH_SSZ_NAME_WITNESS_PROOF) == 0)
     THROW_ERROR("witnessProof is not implemented yet");
+
+  // The history contract stores the hash of an older block in the state of a newer
+  // block of the same chain. That does not depend on how the newer block was proven,
+  // so every chain accepts the variant. A nested eip2935 proof comes back through
+  // this function; `ssz_is_valid` bounds that depth before a request is verified.
+  if (strcmp(block.def->name, ETH_SSZ_NAME_EIP2935) == 0)
+    return c4_verify_eip2935_block(ctx, block, el_header, block_hash);
 
   unsigned type = (unsigned) c4_chain_type(ctx->chain_id);
   if (type < C4_BLOCK_PROOF_HOOKS && verify_block_hooks[type])

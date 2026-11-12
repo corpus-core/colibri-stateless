@@ -104,4 +104,18 @@ export const default_config: {
     ],
     pollingInterval: 12000,
   },
+  '696991': { // rollupx
+    alias: ["rollupx","0xaa29f"],
+    rpcs: [
+      "https://rollupx.eez.dev/rpc/l2",
+    ],
+    beacon_apis: [
+      "https://mainnet.colibri-proof.tech/consensus",
+    ],
+    prover: ["https://mainnet.colibri-proof.tech"],
+    checkpointz: [
+      "https://mainnet.colibri-proof.tech/consensus",
+    ],
+    pollingInterval: 2000,
+  },
 };
