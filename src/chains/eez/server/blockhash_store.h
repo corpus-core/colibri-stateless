@@ -31,16 +31,16 @@ extern "C" {
  * writes a snapshot after that check.
  */
 typedef struct {
-  bytes32_t anchor_hash;               /** 32-byte L2 block hash emitted in the L1 event */
-  uint64_t  anchor_number;             /** L2 block number of `anchor_hash` */
-  uint64_t  l1_block_number;           /** L1 block the event was emitted in */
-  bytes32_t storage_hash;              /** `storageHash` of the account proof, matches the trie we build */
-  bytes32_t code_hash;                 /** `codeHash` of the account proof */
-  bytes32_t nonce;                     /** `nonce` of the account proof (be, mostly single byte) */
-  bytes32_t balance;                   /** `balance` of the account proof */
+  bytes32_t anchor_hash;                        /** 32-byte L2 block hash emitted in the L1 event */
+  uint64_t  anchor_number;                      /** L2 block number of `anchor_hash` */
+  uint64_t  l1_block_number;                    /** L1 block the event was emitted in */
+  bytes32_t storage_hash;                       /** `storageHash` of the account proof, matches the trie we build */
+  bytes32_t code_hash;                          /** `codeHash` of the account proof */
+  bytes32_t nonce;                              /** `nonce` of the account proof (be, mostly single byte) */
+  bytes32_t balance;                            /** `balance` of the account proof */
   bytes32_t hashes[ETH_EIP2935_HISTORY_WINDOW]; /** slot value for every EIP-2935 slot (0 = never populated) */
-  bytes_t*  account_proof_nodes;       /** raw RLP nodes of the account proof */
-  uint32_t  account_proof_count;       /** number of entries in `account_proof_nodes` */
+  bytes_t*  account_proof_nodes;                /** raw RLP nodes of the account proof */
+  uint32_t  account_proof_count;                /** number of entries in `account_proof_nodes` */
 } eez_bh_snapshot_t;
 
 /**
