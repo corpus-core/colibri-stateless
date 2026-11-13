@@ -30,6 +30,33 @@
 //
 // OP-Stack proofs use the same `C4Request` / proof unions as Ethereum. The only
 // OP-specific wire difference is `ETH_EL_PROOF_UNION` index 2 (`sequencerProof`).
+//
+// The supported RPC methods are the same set as on Ethereum, including which
+// methods are proofable, local, or not verifiable yet. That list is published
+// once: [Supported RPC-Methods](https://corpus-core.gitbook.io/specification-colibri-stateless/specifications/ethereum/supported-rpc-methods).
+//
+// Block proofs are the exception. Ethereum binds the execution payload to a
+// beacon block (`clProof`). An OP-Stack proof carries `sequencerProof` instead.
+// The verifier recovers the sequencer signature over the execution payload and
+// checks it against the sequencer address configured for the chain.
+//
+// ## Supported chains
+//
+// `c4_chain_type` maps these chain ids to OP-Stack:
+//
+// | Chain | Chain ID |
+// |-------|----------|
+// | OP Mainnet | 10 |
+// | Base | 8453 |
+// | Worldchain | 480 |
+// | Zora | 7777777 |
+// | Unichain | 130 |
+// | PGN | 424 |
+// | Orderly Network | 291 |
+// | Mode Network | 34443 |
+// | Fraxtal | 252 |
+// | Mantle | 5000 |
+// | Klaytn | 8217 |
 
 method_type_t c4_op_get_method_type(chain_id_t chain_id, char* method, json_t params, verify_flags_t flags) {
   if (c4_chain_type(chain_id) != C4_CHAIN_TYPE_OP) return METHOD_UNDEFINED;

@@ -55,7 +55,9 @@ const chain_id_t C4_CHAIN_BOLT_STAGING = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 1024);
 const chain_id_t C4_CHAIN_BOLT_MAINNET = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 1025);
 
 chain_type_t c4_chain_type(chain_id_t chain_id) {
-  // OP Stack chains - use switch for better performance
+  // OP Stack chains - use switch for better performance.
+  // A new case is a newly supported chain. Also add it to the published list:
+  // `// : OP-Stack` in op_verify.c, or `// : EEZ` in eez_verify.c.
   switch (chain_id) {
     case C4_CHAIN_OP_MAINNET:    // OP Mainnet (10)
     case C4_CHAIN_OP_BASE:       // Base (8453)
