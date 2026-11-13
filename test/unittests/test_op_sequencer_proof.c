@@ -780,8 +780,8 @@ void test_verify_block_proof_op_rejects_nonempty_withdrawals(void) {
   ssz_builder_t body_b = ssz_builder_for_type(ETH_SSZ_EL_BLOCK_CONTENT);
   ssz_add_bytes(&body_b, "transactions", ssz_get(&el.body, "transactions").bytes);
 
-  ssz_builder_t wds = ssz_builder_for_def(ssz_get_def(body_b.def, "withdrawals"));
-  ssz_builder_t w   = ssz_builder_for_def(&DENEP_WITHDRAWAL_CONTAINER);
+  ssz_builder_t wds      = ssz_builder_for_def(ssz_get_def(body_b.def, "withdrawals"));
+  ssz_builder_t w        = ssz_builder_for_def(&DENEP_WITHDRAWAL_CONTAINER);
   uint8_t       addr[20] = {0};
   ssz_add_uint64(&w, 0);
   ssz_add_uint64(&w, 0);
@@ -952,10 +952,10 @@ void test_op_verify_rejects_other_chains_and_applies_sync_first(void) {
   static const ssz_def_t zk_sync = {.name = "ZKSyncData", .type = SSZ_TYPE_CONTAINER};
   uint8_t                byte    = 0;
   memset(&ctx, 0, sizeof(ctx));
-  ctx.chain_id         = C4_CHAIN_OP_MAINNET;
-  ctx.method           = "eth_chainId";
-  ctx.sync_data.def    = &zk_sync;
-  ctx.sync_data.bytes  = bytes(&byte, 1);
+  ctx.chain_id        = C4_CHAIN_OP_MAINNET;
+  ctx.method          = "eth_chainId";
+  ctx.sync_data.def   = &zk_sync;
+  ctx.sync_data.bytes = bytes(&byte, 1);
   TEST_ASSERT_TRUE(c4_op_verify(&ctx));
   TEST_ASSERT_FALSE(ctx.success);
   TEST_ASSERT_NOT_NULL(ctx.state.error);
