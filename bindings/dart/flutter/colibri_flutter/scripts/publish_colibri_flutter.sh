@@ -77,10 +77,32 @@ fi
 macos_dylib="$PLUGIN_DIR/macos/colibri_flutter/Frameworks/libcolibri.dylib"
 macos_xcfw="$PLUGIN_DIR/macos/colibri_flutter/Frameworks/libcolibri.xcframework"
 if [[ -f "$macos_dylib" ]]; then
-    if nm -gU "$macos_dylib" 2>/dev/null | grep -q ' _c4_reset_caches$'; then
+    macos_exports_reset=false
+    macos_archs="$(lipo -archs "$macos_dylib" 2>/dev/null || true)"
+    if [[ -z "$macos_archs" ]]; then
+        macos_archs="unknown"
+    fi
+    for macos_arch in $macos_archs; do
+        slice_ok=false
+        if command -v dyld_info >/dev/null 2>&1 && [[ "$macos_arch" != "unknown" ]]; then
+            if dyld_info -arch "$macos_arch" -exports "$macos_dylib" 2>/dev/null | grep -q ' _c4_reset_caches$'; then
+                slice_ok=true
+            fi
+        fi
+        if ! $slice_ok && nm -arch "$macos_arch" -gU "$macos_dylib" 2>/dev/null | grep -q ' _c4_reset_caches$'; then
+            slice_ok=true
+        fi
+        if $slice_ok; then
+            macos_exports_reset=true
+        else
+            echo "  INVALID: macOS libcolibri.dylib ($macos_arch) missing c4_reset_caches export"
+            macos_exports_reset=false
+            break
+        fi
+    done
+    if $macos_exports_reset; then
         echo "  OK: macOS libcolibri.dylib ($(du -h "$macos_dylib" | cut -f1), exports c4_reset_caches)"
     else
-        echo "  INVALID: macOS libcolibri.dylib missing c4_reset_caches export"
         missing=true
     fi
 else

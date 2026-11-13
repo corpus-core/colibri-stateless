@@ -2,35 +2,44 @@
 //
 // macOS/Linux/Android link with dead stripping; symbols only referenced via
 // dlsym from Dart are removed unless this translation unit holds relocations.
+//
+// A file-scope pointer in __DATA_CONST is not a live root for every Apple
+// linker: the pointer can be dropped and the target then disappears from the
+// export trie, so dlsym("c4_reset_caches") fails. colibri_dart_force_link()
+// is exported and loads each address with a code relocation.
 
 #include <stddef.h>
 #include <stdint.h>
 
-extern void* c4_create_prover_ctx(void);
-extern int c4_prover_execute_json_status(void);
-extern void* c4_prover_get_proof(void);
-extern void c4_free_prover_ctx(void);
-extern void c4_req_set_response(void);
-extern void c4_req_set_error(void);
-extern void* c4_verify_create_ctx(void);
-extern int c4_verify_execute_json_status(void);
-extern void c4_verify_free_ctx(void);
-extern int c4_get_method_support(void);
+extern void*              c4_create_prover_ctx(void);
+extern int                c4_prover_execute_json_status(void);
+extern void*              c4_prover_get_proof(void);
+extern void               c4_free_prover_ctx(void);
+extern void               c4_req_set_response(void);
+extern void               c4_req_set_error(void);
+extern void*              c4_verify_create_ctx(void);
+extern int                c4_verify_execute_json_status(void);
+extern void               c4_verify_free_ctx(void);
+extern int                c4_get_method_support(void);
 extern unsigned long long c4_get_l1_chain_id_for_l2(unsigned long long);
-extern void c4_set_storage_config(void);
-extern void buffer_append(void);
-extern void* c4_create_rpc_ctx(void);
-extern int c4_rpc_execute_json_status(void);
-extern void c4_free_rpc_ctx(void);
-extern void c4_set_checkpoint(void);
-extern void c4_reset_caches(void);
-extern void c4_rpc_set_witness_keys(void);
-extern void c4_rpc_set_proxy_urls(void);
-extern void c4_rpc_set_min_latest_block_ts(void);
-extern void c4_verify_set_min_latest_block_ts(void);
+extern void               c4_set_storage_config(void);
+extern void               buffer_append(void);
+extern void*              c4_create_rpc_ctx(void);
+extern int                c4_rpc_execute_json_status(void);
+extern void               c4_free_rpc_ctx(void);
+extern void               c4_set_checkpoint(void);
+extern void               c4_reset_caches(void);
+extern void               c4_rpc_set_witness_keys(void);
+extern void               c4_rpc_set_proxy_urls(void);
+extern void               c4_rpc_set_min_latest_block_ts(void);
+extern void               c4_verify_set_min_latest_block_ts(void);
 
 #define COLIBRI_KEEP(sym) \
-  __attribute__((used)) static void* const _colibri_keep_##sym = (void*)(uintptr_t)&sym
+  __attribute__((used)) static void* const _colibri_keep_##sym = (void*) (uintptr_t) &sym
+
+// Code relocation. Survives -O3 and is a dead_strip root when used from an
+// exported function. A `(void)pointer` use is not: Clang deletes it.
+#define COLIBRI_USE(sym) __asm__ volatile("" : : "r"((uintptr_t) &(sym)))
 
 COLIBRI_KEEP(c4_create_prover_ctx);
 COLIBRI_KEEP(c4_prover_execute_json_status);
@@ -56,5 +65,26 @@ COLIBRI_KEEP(c4_rpc_set_min_latest_block_ts);
 COLIBRI_KEEP(c4_verify_set_min_latest_block_ts);
 
 __attribute__((used, visibility("default"))) void colibri_dart_force_link(void) {
-  (void)_colibri_keep_c4_reset_caches;
+  COLIBRI_USE(c4_create_prover_ctx);
+  COLIBRI_USE(c4_prover_execute_json_status);
+  COLIBRI_USE(c4_prover_get_proof);
+  COLIBRI_USE(c4_free_prover_ctx);
+  COLIBRI_USE(c4_req_set_response);
+  COLIBRI_USE(c4_req_set_error);
+  COLIBRI_USE(c4_verify_create_ctx);
+  COLIBRI_USE(c4_verify_execute_json_status);
+  COLIBRI_USE(c4_verify_free_ctx);
+  COLIBRI_USE(c4_get_method_support);
+  COLIBRI_USE(c4_get_l1_chain_id_for_l2);
+  COLIBRI_USE(c4_set_storage_config);
+  COLIBRI_USE(buffer_append);
+  COLIBRI_USE(c4_create_rpc_ctx);
+  COLIBRI_USE(c4_rpc_execute_json_status);
+  COLIBRI_USE(c4_free_rpc_ctx);
+  COLIBRI_USE(c4_set_checkpoint);
+  COLIBRI_USE(c4_reset_caches);
+  COLIBRI_USE(c4_rpc_set_witness_keys);
+  COLIBRI_USE(c4_rpc_set_proxy_urls);
+  COLIBRI_USE(c4_rpc_set_min_latest_block_ts);
+  COLIBRI_USE(c4_verify_set_min_latest_block_ts);
 }

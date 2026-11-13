@@ -340,7 +340,9 @@ void c4_reset_verifier_caches(void) {}
 void c4_reset_prover_caches(void) {}
 #endif
 
-void c4_reset_caches(void) {
+// Dart FFI loads this via dlsym. Default visibility keeps it in the export
+// trie even when the shared library is built with -fvisibility=hidden.
+API_PUBLIC void c4_reset_caches(void) {
   c4_reset_verifier_caches();
   c4_reset_prover_caches();
 }

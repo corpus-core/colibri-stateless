@@ -249,43 +249,57 @@ sync_colibri_flutter_macos_spm_artifacts() {
   assert_macos_colibri_dylib_exports "$spm_frameworks/libcolibri.dylib"
 }
 
-assert_macos_colibri_dylib_exports() {
+# True when Mach-O slice `arch` exports `symbol` for dlsym.
+# dyld_info reads the export trie. nm reads the symbol table, which can omit a
+# symbol the dynamic linker still exports. Either listing is sufficient.
+macos_slice_exports_symbol() {
   local dylib="$1"
-  # Prefer per-arch checks on universal binaries; fall back to default nm view.
-  # When lipo reports both arm64 and x86_64, require the symbols in every slice.
-  local arches=()
-  local info
-  info="$(lipo -info "$dylib" 2>/dev/null || true)"
-  if [[ "$info" == *"arm64"* ]]; then
-    arches+=(arm64)
-  fi
-  if [[ "$info" == *"x86_64"* ]]; then
-    arches+=(x86_64)
+  local arch="$2"
+  local symbol="$3"
+  local needle=" _${symbol}"
+  local out
+
+  if command -v dyld_info >/dev/null 2>&1; then
+    out="$(dyld_info -arch "$arch" -exports "$dylib" 2>/dev/null || true)"
+    if printf '%s\n' "$out" | grep -q "${needle}\$"; then
+      return 0
+    fi
   fi
 
-  local arch
-  if [[ ${#arches[@]} -gt 0 ]]; then
-    for arch in "${arches[@]}"; do
-      if ! nm -arch "$arch" -gU "$dylib" 2>/dev/null | grep -q 'T _c4_reset_caches$'; then
-        echo "Error: $dylib ($arch) is missing exported c4_reset_caches (Dart 3.0 FFI requires it)."
-        exit 1
-      fi
-      if ! nm -arch "$arch" -gU "$dylib" 2>/dev/null | grep -q 'T _c4_create_rpc_ctx$'; then
-        echo "Error: $dylib ($arch) is missing exported c4_create_rpc_ctx."
-        exit 1
-      fi
-    done
+  out="$(nm -arch "$arch" -gU "$dylib" 2>/dev/null || true)"
+  if printf '%s\n' "$out" | grep -q "${needle}\$"; then
     return 0
   fi
+  return 1
+}
 
-  if ! nm -gU "$dylib" 2>/dev/null | grep -q '_c4_reset_caches$'; then
-    echo "Error: $dylib is missing exported c4_reset_caches (Dart 3.0 FFI requires it)."
+assert_macos_colibri_dylib_exports() {
+  local dylib="$1"
+  # lipo -archs prints only architecture names, one per slice of a fat file.
+  local arches=()
+  local arch_line arch
+  arch_line="$(lipo -archs "$dylib" 2>/dev/null || true)"
+  # shellcheck disable=SC2206
+  arches=($arch_line)
+  if [[ ${#arches[@]} -eq 0 ]]; then
+    echo "Error: $dylib has no Mach-O architectures (lipo -archs failed)."
     exit 1
   fi
-  if ! nm -gU "$dylib" 2>/dev/null | grep -q '_c4_create_rpc_ctx$'; then
-    echo "Error: $dylib is missing exported c4_create_rpc_ctx."
-    exit 1
-  fi
+
+  for arch in "${arches[@]}"; do
+    if ! macos_slice_exports_symbol "$dylib" "$arch" c4_reset_caches; then
+      echo "Error: $dylib ($arch) is missing exported c4_reset_caches (Dart 3.0 FFI requires it)."
+      echo "dyld_info -arch $arch -exports:"
+      dyld_info -arch "$arch" -exports "$dylib" 2>&1 | grep -E 'reset_caches|create_rpc_ctx' || true
+      echo "nm -arch $arch -gU:"
+      nm -arch "$arch" -gU "$dylib" 2>&1 | grep -E 'reset_caches|create_rpc_ctx' || true
+      exit 1
+    fi
+    if ! macos_slice_exports_symbol "$dylib" "$arch" c4_create_rpc_ctx; then
+      echo "Error: $dylib ($arch) is missing exported c4_create_rpc_ctx."
+      exit 1
+    fi
+  done
 }
 
 build_linux() {
