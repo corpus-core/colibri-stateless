@@ -151,6 +151,7 @@
       ],
       "pollingInterval": 2000,
       "eth_rpc": [
+        "https://rollupx.colibri-proof.tech/execution",
         "https://rollupx.eez.dev/rpc/l2"
       ],
       "beacon_api": [
