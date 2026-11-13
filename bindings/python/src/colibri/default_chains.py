@@ -54,7 +54,10 @@ _ETH_RPCS = {
         "https://plataberget.colibri-proof.tech/execution",
         "https://rpc.glamsterdam-devnet-8.ethpandaops.io/",
     ],  # plataberget
-    696991: ["https://rollupx.eez.dev/rpc/l2"],  # rollupx
+    696991: [
+        "https://rollupx.colibri-proof.tech/execution",
+        "https://rollupx.eez.dev/rpc/l2",
+    ],  # rollupx
 }
 
 _BEACON_APIS = {

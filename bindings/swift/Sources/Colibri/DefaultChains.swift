@@ -70,7 +70,10 @@ enum DefaultChains {
                 "https://rpc.glamsterdam-devnet-8.ethpandaops.io/",
             ]
         case 696991:
-            return ["https://rollupx.eez.dev/rpc/l2"]
+            return [
+                "https://rollupx.colibri-proof.tech/execution",
+                "https://rollupx.eez.dev/rpc/l2",
+            ]
         default:
             return []
         }

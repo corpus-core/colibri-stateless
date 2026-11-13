@@ -68,7 +68,10 @@ List<String> defaultEthRpcs(int chainId) {
         "https://plataberget.colibri-proof.tech/execution",
         "https://rpc.glamsterdam-devnet-8.ethpandaops.io/",
       ],
-    696991 => ["https://rollupx.eez.dev/rpc/l2"],
+    696991 => [
+        "https://rollupx.colibri-proof.tech/execution",
+        "https://rollupx.eez.dev/rpc/l2",
+      ],
     _ => <String>[],
   };
 }

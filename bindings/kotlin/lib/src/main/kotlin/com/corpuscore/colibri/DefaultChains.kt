@@ -59,7 +59,10 @@ object DefaultChains {
                 "https://plataberget.colibri-proof.tech/execution",
                 "https://rpc.glamsterdam-devnet-8.ethpandaops.io/",
             )
-        BigInteger.valueOf(696991L) -> arrayOf("https://rollupx.eez.dev/rpc/l2")
+        BigInteger.valueOf(696991L) -> arrayOf(
+                "https://rollupx.colibri-proof.tech/execution",
+                "https://rollupx.eez.dev/rpc/l2",
+            )
         else -> emptyArray()
     }
 

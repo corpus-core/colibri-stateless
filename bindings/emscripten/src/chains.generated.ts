@@ -107,6 +107,7 @@ export const default_config: {
   '696991': { // rollupx
     alias: ["rollupx","0xaa29f"],
     rpcs: [
+      "https://rollupx.colibri-proof.tech/execution",
       "https://rollupx.eez.dev/rpc/l2",
     ],
     beacon_apis: [

@@ -70,7 +70,10 @@ pub fn default_eth_rpcs(chain_id: u64) -> Vec<String> {
             "https://plataberget.colibri-proof.tech/execution".into(),
             "https://rpc.glamsterdam-devnet-8.ethpandaops.io/".into(),
         ],
-        ROLLUPX => vec!["https://rollupx.eez.dev/rpc/l2".into()],
+        ROLLUPX => vec![
+            "https://rollupx.colibri-proof.tech/execution".into(),
+            "https://rollupx.eez.dev/rpc/l2".into(),
+        ],
         _ => vec![],
     }
 }
