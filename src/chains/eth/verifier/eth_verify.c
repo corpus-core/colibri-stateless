@@ -245,9 +245,7 @@ static bool eth_has_unproofable_block_tag(char* method, json_t params) {
   return eth_json_is_unproofable_tag(json_at(params, idx));
 }
 
-method_type_t c4_eth_get_method_type(chain_id_t chain_id, char* method, json_t params, verify_flags_t flags) {
-  if (c4_chain_type(chain_id) != C4_CHAIN_TYPE_ETHEREUM) return METHOD_UNDEFINED;
-
+method_type_t c4_eth_classify_method(char* method, json_t params, verify_flags_t flags) {
   for (int i = 0; i < sizeof(proofable_methods) / sizeof(proofable_methods[0]); i++) {
     if (strcmp(method, proofable_methods[i]) == 0) {
       // Unprovable block tags (pending/earliest) fall back to a direct RPC call.
@@ -276,6 +274,11 @@ method_type_t c4_eth_get_method_type(chain_id_t chain_id, char* method, json_t p
     if (strcmp(method, not_verifieable_yet_methods[i]) == 0) return METHOD_UNPROOFABLE;
   }
   return METHOD_UNDEFINED;
+}
+
+method_type_t c4_eth_get_method_type(chain_id_t chain_id, char* method, json_t params, verify_flags_t flags) {
+  if (c4_chain_type(chain_id) != C4_CHAIN_TYPE_ETHEREUM) return METHOD_UNDEFINED;
+  return c4_eth_classify_method(method, params, flags);
 }
 
 bool c4_eth_get_prover_payload(chain_id_t chain_id, const char* method, const char* params,
@@ -389,7 +392,7 @@ bool c4_eth_dispatch_proof(verify_ctx_t* ctx) {
   else
 #endif
 #ifdef ETH_UTIL
-      if (c4_eth_get_method_type(ctx->chain_id, ctx->method, ctx->args, ctx->flags) == METHOD_LOCAL)
+      if (c4_eth_classify_method(ctx->method, ctx->args, ctx->flags) == METHOD_LOCAL)
     verify_eth_local(ctx);
   else
 #endif
@@ -404,13 +407,15 @@ bool c4_eth_dispatch_proof(verify_ctx_t* ctx) {
   return true;
 }
 
-bool c4_eth_verify(verify_ctx_t* ctx) {
-  if (c4_chain_type(ctx->chain_id) != C4_CHAIN_TYPE_ETHEREUM || c4_eth_get_chain_spec(ctx->chain_id) == NULL) return false;
-  // c4_update_from_sync_data may emit a pending request (e.g. checkpointz for the WSP check).
-  // c4_verify() resolves the resulting state by checking ctx->state for errors or pending requests
-  // before returning to the caller.
+bool c4_eth_verify_request(verify_ctx_t* ctx) {
+  // Pending requests (for example checkpointz) stay in ctx->state for c4_verify().
   if (c4_update_from_sync_data(ctx) != C4_SUCCESS) return true;
   return c4_eth_dispatch_proof(ctx);
+}
+
+bool c4_eth_verify(verify_ctx_t* ctx) {
+  if (c4_chain_type(ctx->chain_id) != C4_CHAIN_TYPE_ETHEREUM || c4_eth_get_chain_spec(ctx->chain_id) == NULL) return false;
+  return c4_eth_verify_request(ctx);
 }
 
 void c4_eth_reset_caches(void) {

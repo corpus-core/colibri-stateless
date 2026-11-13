@@ -927,6 +927,40 @@ void test_op_method_type_pending_unproofable(void) {
                         c4_get_method_type(C4_CHAIN_OP_MAINNET, "eth_getBlockByNumber", json_parse("[\"0x2a\",false]"), 0));
   TEST_ASSERT_EQUAL_INT(METHOD_LOCAL,
                         c4_get_method_type(C4_CHAIN_OP_MAINNET, "eth_chainId", json_parse("[]"), 0));
+  TEST_ASSERT_EQUAL_INT(METHOD_UNPROOFABLE,
+                        c4_get_method_type(C4_CHAIN_OP_MAINNET, "eth_getLogs", json_parse("[{\"fromBlock\":\"latest\",\"toBlock\":\"pending\"}]"), 0));
+  TEST_ASSERT_EQUAL_INT(METHOD_UNPROOFABLE,
+                        c4_get_method_type(C4_CHAIN_OP_MAINNET, "eth_estimateGas", json_parse("[{},\"latest\"]"), 0));
+  TEST_ASSERT_EQUAL_INT(METHOD_PROOFABLE,
+                        c4_get_method_type(C4_CHAIN_OP_MAINNET, "eth_getBlockReceipts", json_parse("[\"latest\"]"), 0));
+  TEST_ASSERT_EQUAL_INT(METHOD_PROOFABLE,
+                        c4_get_method_type(C4_CHAIN_OP_MAINNET, "eth_blobBaseFee", json_parse("[]"), 0));
+  TEST_ASSERT_EQUAL_INT(METHOD_PROOFABLE,
+                        c4_get_method_type(C4_CHAIN_OP_MAINNET, "eth_maxPriorityFeePerGas", json_parse("[]"), 0));
+  TEST_ASSERT_EQUAL_INT(METHOD_LOCAL,
+                        c4_get_method_type(C4_CHAIN_OP_MAINNET, "net_version", json_parse("[]"), 0));
+  TEST_ASSERT_EQUAL_INT(METHOD_LOCAL,
+                        c4_get_method_type(C4_CHAIN_OP_MAINNET, "eth_estimateGas", json_parse("[{},\"latest\"]"), VERIFY_FLAG_PAP));
+  TEST_ASSERT_EQUAL_INT(METHOD_UNDEFINED,
+                        c4_op_get_method_type(C4_CHAIN_MAINNET, "eth_chainId", json_parse("[]"), 0));
+}
+
+void test_op_verify_rejects_other_chains_and_applies_sync_first(void) {
+  verify_ctx_t ctx = {.chain_id = C4_CHAIN_MAINNET, .method = "eth_chainId"};
+  TEST_ASSERT_FALSE(c4_op_verify(&ctx));
+
+  static const ssz_def_t zk_sync = {.name = "ZKSyncData", .type = SSZ_TYPE_CONTAINER};
+  uint8_t                byte    = 0;
+  memset(&ctx, 0, sizeof(ctx));
+  ctx.chain_id         = C4_CHAIN_OP_MAINNET;
+  ctx.method           = "eth_chainId";
+  ctx.sync_data.def    = &zk_sync;
+  ctx.sync_data.bytes  = bytes(&byte, 1);
+  TEST_ASSERT_TRUE(c4_op_verify(&ctx));
+  TEST_ASSERT_FALSE(ctx.success);
+  TEST_ASSERT_NOT_NULL(ctx.state.error);
+  TEST_ASSERT_EQUAL_STRING("sync data requires a chain spec", ctx.state.error);
+  c4_state_free(&ctx.state);
 }
 
 int main(void) {
@@ -965,6 +999,7 @@ int main(void) {
   RUN_TEST(test_op_add_sequencer_proof_requires_payload);
   RUN_TEST(test_op_add_sequencer_proof_writes_union_index_2);
   RUN_TEST(test_op_method_type_pending_unproofable);
+  RUN_TEST(test_op_verify_rejects_other_chains_and_applies_sync_first);
   return UNITY_END();
 }
 

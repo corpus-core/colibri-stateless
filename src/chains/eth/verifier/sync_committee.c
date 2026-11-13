@@ -483,12 +483,20 @@ static c4_status_t update_from_zk_sync_data(verify_ctx_t* ctx) {
 /**
  * Applies `ctx->sync_data` to the sync committee state of `ctx->chain_id`.
  *
+ * Empty sync data succeeds immediately. Non-empty sync data on a chain without
+ * a beacon chain spec is rejected. Callers that settle on an L1 switch
+ * `ctx->chain_id` to that L1 first (`TRY_AS_L1`).
+ *
  * @param ctx verification context; `ctx->chain_id` must be the chain that owns the sync committee
  * @return `C4_SUCCESS`, `C4_PENDING`, or `C4_ERROR`
  */
 static c4_status_t update_from_sync_data(verify_ctx_t* ctx) {
   if (ssz_is_error(ctx->sync_data)) RETURN_VERIFY_ERROR_STATUS(ctx, "invalid sync_data!");
   if (ctx->sync_data.def->type == SSZ_TYPE_NONE) return C4_SUCCESS;
+  // LC and ZK updates read slots_per_epoch_bits from the spec. OP has none;
+  // failing here avoids that dereference. EEZ already runs as its L1.
+  if (c4_eth_get_chain_spec(ctx->chain_id) == NULL)
+    RETURN_VERIFY_ERROR_STATUS(ctx, "sync data requires a chain spec");
 
   log_debug("c4_update_from_sync_data: %s", (char*) ctx->sync_data.def->name);
   if (strcmp(ctx->sync_data.def->name, ETH_SSZ_NAME_LC_SYNC_DATA) == 0)

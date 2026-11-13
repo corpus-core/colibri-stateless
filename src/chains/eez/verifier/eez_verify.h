@@ -131,30 +131,38 @@ void eez_register_block_proof_verify(void);
 const ssz_def_t* c4_eez_get_request_type(chain_type_t chain_type);
 
 /**
- * Classifies an RPC method for an EEZ chain.
+ * Classifies an RPC method for an EEZ chain with the Ethereum catalog
+ * (`c4_eth_classify_method`), the same catalog the OP-Stack module uses.
  *
  * @param chain_id chain of the request
  * @param method RPC method name
  * @param params RPC params (used to detect block tags that cannot be proven)
- * @param flags verify flags (unused)
+ * @param flags verify flags, forwarded to the Ethereum classifier (`VERIFY_FLAG_PAP` included)
  * @return method type, or `METHOD_UNDEFINED` when `chain_id` is not an EEZ chain or the method is unknown
  */
 method_type_t c4_eez_get_method_type(chain_id_t chain_id, char* method, json_t params, verify_flags_t flags);
 
 /**
  * Chain-specific RPC-context init hook (registered via CMake `INIT_RPC_CTX`).
- * Registers the block-proof verify handler of EEZ chains.
+ * Registers the block-proof verify handler of EEZ chains for `C4_CHAIN_TYPE_EEZ`.
+ * The slot depends only on that chain type, so the hook is registered for every
+ * context, including chains this module does not verify.
  *
- * @param ctx initialization context
+ * @param ctx initialization context (unused; the hook does not read it)
  */
 void eez_init_rpc_ctx(c4_init_ctx_t* ctx);
 
 /**
  * Verifies a request of an EEZ chain (registered via CMake `VERIFY`).
  *
- * Sync data is applied to the sync committee state of the L1 chain, then the
- * proof is dispatched to the Ethereum proof verifiers, which reach
- * `eez_verify_block_proof` (and through it `eez_verify_l1_proof`) through `c4_verify_block`.
+ * Registers the block-proof hook first. The hook slot depends only on
+ * `C4_CHAIN_TYPE_EEZ`, so registration runs before the chain check. Sync data
+ * is then applied to the sync committee state of the L1 chain
+ * (`c4_update_from_sync_data` resolves that chain id itself and may leave a
+ * pending request, for example checkpointz, which `c4_verify()` picks up from
+ * `ctx->state`). The proof is dispatched to the Ethereum proof verifiers, which
+ * reach `eez_verify_block_proof` (and through it `eez_verify_l1_proof`) through
+ * `c4_verify_block`.
  *
  * @param ctx verification context
  * @return `false` if `ctx->chain_id` is not a configured EEZ chain, otherwise `true` (result in `ctx`)

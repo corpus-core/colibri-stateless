@@ -47,10 +47,7 @@ static const bool includes(const char** methods, const char* method) {
   return false;
 }
 
-bool eth_prover_execute(prover_ctx_t* ctx) {
-  // check if we are supporting this chain
-  if (c4_chain_type(ctx->chain_id) != C4_CHAIN_TYPE_ETHEREUM || c4_eth_get_chain_spec(ctx->chain_id) == NULL) return false;
-
+void c4_eth_prover_dispatch(prover_ctx_t* ctx) {
   if (includes(eth_account_methods, ctx->method))
     c4_proof_account(ctx);
   else if (strcmp(ctx->method, "eth_getTransactionByHash") == 0 || strcmp(ctx->method, "eth_getTransactionByBlockHashAndIndex") == 0 || strcmp(ctx->method, "eth_getTransactionByBlockNumberAndIndex") == 0)
@@ -70,7 +67,12 @@ bool eth_prover_execute(prover_ctx_t* ctx) {
     c4_proof_sync(ctx);
   else
     ctx->state.error = strdup("Unsupported method");
+}
 
+bool eth_prover_execute(prover_ctx_t* ctx) {
+  // check if we are supporting this chain
+  if (c4_chain_type(ctx->chain_id) != C4_CHAIN_TYPE_ETHEREUM || c4_eth_get_chain_spec(ctx->chain_id) == NULL) return false;
+  c4_eth_prover_dispatch(ctx);
   return true;
 }
 

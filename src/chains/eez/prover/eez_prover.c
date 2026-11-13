@@ -23,53 +23,12 @@
 
 #include "eez_prover.h"
 #include "../../eth/prover/eth_prover.h"
+#include "chains.h"
 #include "eez_chains_conf.h"
-#include "eez_verify.h"
-#include <string.h>
-
-static const char* eth_account_methods[] = {
-    "eth_getBalance",
-    "eth_getCode",
-    "eth_getTransactionCount",
-    "eth_getProof",
-    "eth_getStorageAt",
-    NULL};
-
-/**
- * Checks whether `method` is contained in a NULL-terminated method list.
- *
- * @param methods NULL-terminated list of method names
- * @param method method name to look up
- * @return `true` if `method` is in the list
- */
-static bool includes(const char** methods, const char* method) {
-  for (int i = 0; methods[i] != NULL; i++) {
-    if (strcmp(methods[i], method) == 0) return true;
-  }
-  return false;
-}
 
 bool eez_prover_execute(prover_ctx_t* ctx) {
-  if (c4_chain_type(ctx->chain_id) != C4_CHAIN_TYPE_EEZ || !eez_get_chain_config(ctx->chain_id)) return false;
   eez_register_block_proof_prover();
-
-  if (includes(eth_account_methods, ctx->method))
-    c4_proof_account(ctx);
-  else if (strcmp(ctx->method, "eth_getTransactionByHash") == 0 ||
-           strcmp(ctx->method, "eth_getTransactionByBlockHashAndIndex") == 0 ||
-           strcmp(ctx->method, "eth_getTransactionByBlockNumberAndIndex") == 0)
-    c4_proof_transaction(ctx);
-  else if (strcmp(ctx->method, "eth_getTransactionReceipt") == 0)
-    c4_proof_receipt(ctx);
-  else if (strcmp(ctx->method, "eth_getLogs") == 0 || strcmp(ctx->method, "eth_verifyLogs") == 0)
-    c4_proof_logs(ctx);
-  else if (strcmp(ctx->method, "eth_call") == 0 || strcmp(ctx->method, "colibri_simulateTransaction") == 0)
-    c4_proof_call(ctx);
-  else if (strcmp(ctx->method, "eth_getBlockByHash") == 0 || strcmp(ctx->method, "eth_getBlockByNumber") == 0 ||
-           strcmp(ctx->method, "eth_blockNumber") == 0 || strcmp(ctx->method, "eth_getBlockHeader") == 0)
-    c4_proof_block(ctx);
-  else
-    ctx->state.error = strdup("Unsupported method");
-
+  if (c4_chain_type(ctx->chain_id) != C4_CHAIN_TYPE_EEZ || !eez_get_chain_config(ctx->chain_id)) return false;
+  c4_eth_prover_dispatch(ctx);
   return true;
 }

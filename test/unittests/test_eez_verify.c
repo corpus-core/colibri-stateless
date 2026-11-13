@@ -385,13 +385,18 @@ void test_method_types(void) {
   TEST_ASSERT_EQUAL_INT(METHOD_UNPROOFABLE, method_type(ROLLUPX, "eth_verifyLogs", "[{\"toBlock\":\"pending\"}]"));
 
   TEST_ASSERT_EQUAL_INT(METHOD_LOCAL, method_type(ROLLUPX, "eth_chainId", "[]"));
+  TEST_ASSERT_EQUAL_INT(METHOD_LOCAL, method_type(ROLLUPX, "net_version", "[]"));
   TEST_ASSERT_EQUAL_INT(METHOD_UNPROOFABLE, method_type(ROLLUPX, "eth_gasPrice", "[]"));
+  TEST_ASSERT_EQUAL_INT(METHOD_UNPROOFABLE, method_type(ROLLUPX, "eth_estimateGas", "[{},\"latest\"]"));
+  TEST_ASSERT_EQUAL_INT(METHOD_LOCAL, c4_eez_get_method_type(ROLLUPX, "eth_estimateGas", json_parse("[{},\"latest\"]"), VERIFY_FLAG_PAP));
+  TEST_ASSERT_EQUAL_INT(METHOD_PROOFABLE, method_type(ROLLUPX, "eth_getBlockReceipts", "[\"latest\"]"));
+  TEST_ASSERT_EQUAL_INT(METHOD_PROOFABLE, method_type(ROLLUPX, "eth_blobBaseFee", "[]"));
+  TEST_ASSERT_EQUAL_INT(METHOD_PROOFABLE, method_type(ROLLUPX, "eth_maxPriorityFeePerGas", "[]"));
   TEST_ASSERT_EQUAL_INT(METHOD_UNDEFINED, method_type(ROLLUPX, "eth_unknownMethod", "[]"));
 
   // the module only answers for EEZ chains
   TEST_ASSERT_EQUAL_INT(METHOD_UNDEFINED, method_type(C4_CHAIN_MAINNET, "eth_getBlockByNumber", "[\"latest\",false]"));
   TEST_ASSERT_EQUAL_INT(METHOD_UNDEFINED, method_type(C4_CHAIN_OP_BASE, "eth_getBlockByNumber", "[\"latest\",false]"));
-  TEST_ASSERT_EQUAL_INT(METHOD_UNDEFINED, c4_eez_get_method_type(ROLLUPX, NULL, json_parse("[]"), 0));
 
   // dispatch through the generated verifier table
   TEST_ASSERT_EQUAL_INT(METHOD_PROOFABLE, c4_get_method_type(ROLLUPX, "eth_getBlockByNumber", json_parse("[\"latest\",false]"), 0));
@@ -414,6 +419,18 @@ void test_module_ignores_other_chains(void) {
   TEST_ASSERT_NULL(pctx->state.requests);
   TEST_ASSERT_NULL(pctx->state.error);
   c4_prover_free(pctx);
+}
+
+// A local method must not skip sync. Invalid sync data fails the request.
+void test_local_method_applies_sync_first(void) {
+  verify_ctx_t ctx  = {.chain_id = ROLLUPX, .method = "eth_chainId"};
+  ssz_def_t    none = {.name = "broken", .type = SSZ_TYPE_CONTAINER};
+  ctx.sync_data.def = &none;
+  TEST_ASSERT_TRUE(c4_eez_verify(&ctx));
+  TEST_ASSERT_FALSE(ctx.success);
+  TEST_ASSERT_NOT_NULL(ctx.state.error);
+  TEST_ASSERT_EQUAL_STRING("invalid sync_data!", ctx.state.error);
+  c4_state_free(&ctx.state);
 }
 
 // The freshness gate for `latest` is suspended for EEZ only (milestone 1).
@@ -2837,6 +2854,7 @@ int main(void) {
   RUN_TEST(test_bytes32_add_carries);
   RUN_TEST(test_method_types);
   RUN_TEST(test_module_ignores_other_chains);
+  RUN_TEST(test_local_method_applies_sync_first);
   RUN_TEST(test_freshness_gate_is_suspended_for_eez_only);
 
   RUN_TEST(test_storage_value_valid);
