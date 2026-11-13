@@ -98,6 +98,22 @@ c4_status_t c4_proof_block(prover_ctx_t* ctx);
 c4_status_t c4_proof_block_receipts(prover_ctx_t* ctx);
 
 /**
+ * Routes `ctx->method` to the shared execution-layer proof builders.
+ *
+ * Account, transaction, receipt, logs, call, and block methods use the same
+ * builders as Ethereum, including `eth_getBlockReceipts`, `eth_estimateGas`,
+ * `eth_blobBaseFee`, `eth_maxPriorityFeePerGas`, `colibri_proofCall`,
+ * `colibri_proofBlock`, and `eth_proof_sync`. An unknown method sets
+ * `ctx->state.error` to `"Unsupported method"`. The builder status is stored
+ * in `ctx`, not returned here.
+ *
+ * The caller has already accepted the chain and registered any block-proof hook.
+ *
+ * @param ctx prover context with `method` and `params` already set
+ */
+void c4_eth_prover_dispatch(prover_ctx_t* ctx);
+
+/**
  * Clears ETH in-process prover caches (header tags, tx-index cache).
  *
  * Registered via CMake `RESET_CACHES`. Persistent storage is left untouched.

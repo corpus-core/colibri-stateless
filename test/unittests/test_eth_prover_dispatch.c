@@ -63,6 +63,24 @@ void test_bogus_method_is_unsupported(void) {
                            "an unknown method must be rejected with the Unsupported method error");
 }
 
+static bool method_is_unsupported_on(chain_id_t chain, const char* method, const char* params) {
+  prover_ctx_t* ctx = c4_prover_create((char*) method, (char*) params, chain, 0);
+  TEST_ASSERT_NOT_NULL(ctx);
+  c4_prover_execute(ctx);
+  bool unsupported = ctx->state.error != NULL && strcmp(ctx->state.error, UNSUPPORTED_METHOD_MSG) == 0;
+  c4_prover_free(ctx);
+  return unsupported;
+}
+
+// OP and EEZ share the Ethereum method router. A method the old copies rejected
+// must leave that router instead of "Unsupported method".
+void test_l2_block_receipts_use_eth_router(void) {
+  TEST_ASSERT_FALSE_MESSAGE(method_is_unsupported_on(C4_CHAIN_OP_MAINNET, "eth_getBlockReceipts", "[\"latest\"]"),
+                            "OP must route eth_getBlockReceipts through the shared prover");
+  TEST_ASSERT_FALSE_MESSAGE(method_is_unsupported_on(C4_CHAIN_EEZ_ROLLUPX, "eth_getBlockReceipts", "[\"latest\"]"),
+                            "EEZ must route eth_getBlockReceipts through the shared prover");
+}
+
 // colibri_proofBlock must NOT be remote-delegated: in hybrid mode it has to be
 // routed to the local sub-prover so it reuses the prover-side header cache and
 // never leaks which transaction the caller is resolving. This is the core
@@ -87,6 +105,7 @@ int main(void) {
   RUN_TEST(test_colibri_proofBlock_is_recognized);
   RUN_TEST(test_block_aliases_recognized);
   RUN_TEST(test_bogus_method_is_unsupported);
+  RUN_TEST(test_l2_block_receipts_use_eth_router);
   RUN_TEST(test_colibri_proofBlock_is_not_remote_delegated);
   RUN_TEST(test_block_methods_are_remote_delegated);
   return UNITY_END();

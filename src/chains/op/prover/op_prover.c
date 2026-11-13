@@ -23,47 +23,11 @@
 
 #include "op_prover.h"
 #include "../../eth/prover/eth_prover.h"
-#include "op_verify.h"
-#include <stdlib.h>
-#include <string.h>
-
-static const char* eth_account_methods[] = {
-    "eth_getBalance",
-    "eth_getCode",
-    "eth_getTransactionCount",
-    "eth_getProof",
-    "eth_getStorageAt",
-    NULL};
-
-static const bool includes(const char** methods, const char* method) {
-  for (int i = 0; methods[i] != NULL; i++) {
-    if (strcmp(methods[i], method) == 0) return true;
-  }
-  return false;
-}
+#include "chains.h"
 
 bool op_prover_execute(prover_ctx_t* ctx) {
-  if (c4_chain_type(ctx->chain_id) != C4_CHAIN_TYPE_OP) return false;
-  op_register_block_proof_verify();
   op_register_block_proof_prover();
-
-  if (includes(eth_account_methods, ctx->method))
-    c4_proof_account(ctx);
-  else if (strcmp(ctx->method, "eth_getTransactionByHash") == 0 ||
-           strcmp(ctx->method, "eth_getTransactionByBlockHashAndIndex") == 0 ||
-           strcmp(ctx->method, "eth_getTransactionByBlockNumberAndIndex") == 0)
-    c4_proof_transaction(ctx);
-  else if (strcmp(ctx->method, "eth_getTransactionReceipt") == 0)
-    c4_proof_receipt(ctx);
-  else if (strcmp(ctx->method, "eth_getLogs") == 0 || strcmp(ctx->method, "eth_verifyLogs") == 0)
-    c4_proof_logs(ctx);
-  else if (strcmp(ctx->method, "eth_call") == 0 || strcmp(ctx->method, "colibri_simulateTransaction") == 0)
-    c4_proof_call(ctx);
-  else if (strcmp(ctx->method, "eth_getBlockByHash") == 0 || strcmp(ctx->method, "eth_getBlockByNumber") == 0 ||
-           strcmp(ctx->method, "eth_blockNumber") == 0 || strcmp(ctx->method, "eth_getBlockHeader") == 0)
-    c4_proof_block(ctx);
-  else
-    ctx->state.error = strdup("Unsupported method");
-
+  if (c4_chain_type(ctx->chain_id) != C4_CHAIN_TYPE_OP) return false;
+  c4_eth_prover_dispatch(ctx);
   return true;
 }

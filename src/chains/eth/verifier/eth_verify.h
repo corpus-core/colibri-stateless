@@ -82,12 +82,49 @@ void c4_register_block_proof_verify(chain_type_t chain_type, c4_verify_block_ext
 
 /**
  * Dispatches a proof to the ETH verify implementations without the ETH chain-type
- * or sync-committee gate. Used by OP after registering its block-proof handler.
+ * or sync-committee gate. Used by OP and EEZ through `c4_eth_verify_request`
+ * after they register their block-proof handler. Local methods are classified
+ * with `c4_eth_classify_method`, so the chain-type gate of `c4_eth_get_method_type`
+ * does not hide them.
  *
  * @param ctx verification context (proof type already parsed)
  * @return true if a handler ran (success or failure is in `ctx->success` / `ctx->state`)
  */
 bool c4_eth_dispatch_proof(verify_ctx_t* ctx);
+
+/**
+ * Classifies an execution-layer RPC method the same way Ethereum does.
+ *
+ * Chain modules call this after their own chain-type gate. `"pending"` and
+ * `"earliest"` block tags, including `fromBlock` / `toBlock` of log filters,
+ * are `METHOD_UNPROOFABLE`. `eth_estimateGas` is `METHOD_UNPROOFABLE` unless
+ * `VERIFY_FLAG_PAP` is set, in which case it is `METHOD_LOCAL`. Other PAP
+ * shortcuts match Ethereum.
+ *
+ * Does not check the chain type. `c4_verify_init` already rejects a NULL method.
+ *
+ * @param method RPC method name
+ * @param params RPC params
+ * @param flags verify flags (`VERIFY_FLAG_PAP` changes some methods to `METHOD_LOCAL`)
+ * @return `METHOD_PROOFABLE`, `METHOD_LOCAL`, `METHOD_UNPROOFABLE`, or `METHOD_UNDEFINED`
+ */
+method_type_t c4_eth_classify_method(char* method, json_t params, verify_flags_t flags);
+
+/**
+ * Applies sync data, then dispatches the proof.
+ *
+ * `c4_update_from_sync_data` may emit a pending request (for example checkpointz
+ * for the weak-subjectivity check). `c4_verify()` reads `ctx->state` for errors
+ * or pending requests before returning to the caller. For an L2 that settles on
+ * L1 the sync committee belongs to that L1; `c4_update_from_sync_data` switches
+ * the chain id itself and restores it. Empty sync data succeeds immediately.
+ *
+ * The caller has already accepted the chain and registered any block-proof hook.
+ *
+ * @param ctx verification context
+ * @return `true` when this module handled the request (success, error, or pending is in `ctx`)
+ */
+bool c4_eth_verify_request(verify_ctx_t* ctx);
 bool eth_set_block_data(verify_ctx_t* ctx, bytes_t el_header, bool include_txs, ssz_ob_t* body, uint32_t mask);
 bool eth_calculate_domain(chain_id_t chain_id, uint64_t slot, bytes32_t domain);
 bool c4_eth_verify_accounts(verify_ctx_t* ctx, ssz_ob_t accounts, bytes32_t state_root);

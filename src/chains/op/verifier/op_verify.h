@@ -93,8 +93,37 @@ void op_register_block_proof_verify(void);
 const ssz_def_t* c4_op_get_request_type(chain_type_t chain_type);
 
 /**
+ * Classifies an RPC method for an OP-Stack chain with the Ethereum catalog
+ * (`c4_eth_classify_method`).
+ *
+ * @param chain_id chain of the request
+ * @param method RPC method name
+ * @param params RPC params (used to detect block tags that cannot be proven)
+ * @param flags verify flags, forwarded to the Ethereum classifier (`VERIFY_FLAG_PAP` included)
+ * @return method type, or `METHOD_UNDEFINED` when `chain_id` is not an OP-Stack chain or the method is unknown
+ */
+method_type_t c4_op_get_method_type(chain_id_t chain_id, char* method, json_t params, verify_flags_t flags);
+
+/**
+ * Verifies a request of an OP-Stack chain (registered via CMake `VERIFY`).
+ *
+ * Registers the sequencer-proof hook first. The hook slot depends only on
+ * `C4_CHAIN_TYPE_OP`, so registration runs before the chain-type check.
+ * Sync data is applied next (`c4_eth_verify_request`), including when the
+ * proof carries none, then the proof is dispatched to the Ethereum verifiers.
+ *
+ * @param ctx verification context
+ * @return `false` if `ctx->chain_id` is not an OP-Stack chain, otherwise `true` (result in `ctx`)
+ */
+bool c4_op_verify(verify_ctx_t* ctx);
+
+/**
  * Chain-specific RPC-context init hook (registered via CMake `INIT_RPC_CTX`).
- * Registers the sequencer-proof verify handler.
+ * Registers the sequencer-proof verify handler for `C4_CHAIN_TYPE_OP`.
+ * The slot depends only on that chain type, so the hook is registered for every
+ * context, including chains this module does not verify.
+ *
+ * @param ctx initialization context (unused; the hook does not read it)
  */
 void op_init_rpc_ctx(c4_init_ctx_t* ctx);
 
