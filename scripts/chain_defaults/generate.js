@@ -208,6 +208,19 @@ function rustVec(urls) {
   return `vec![\n${inner}\n        ]`;
 }
 
+/**
+ * rustfmt wraps an array once `[...]` is wider than array_width (60) or the
+ * whole statement exceeds max_width (100). The vertical form matches
+ * `cargo fmt` for the known-chain test list.
+ */
+function rustIdArray(names) {
+  const flat = `[${names.join(', ')}]`;
+  const oneLine = `        for id in ${flat} {`;
+  if (flat.length <= 60 && oneLine.length <= 100) return flat;
+  const inner = names.map((name) => `            ${name},`).join('\n');
+  return `[\n${inner}\n        ]`;
+}
+
 function genRs(spec) {
   let out = banner('rs');
   out += '//!\n';
@@ -247,7 +260,7 @@ function genRs(spec) {
   out += '    use super::*;\n\n';
   out += '    #[test]\n';
   out += '    fn known_chains_have_endpoints() {\n';
-  out += `        for id in [${spec.chains.map((c) => RUST_CONST[c.id]).join(', ')}] {\n`;
+  out += `        for id in ${rustIdArray(spec.chains.map((c) => RUST_CONST[c.id]))} {\n`;
   out += '            assert!(!default_provers(id).is_empty());\n';
   out += '            assert!(!default_eth_rpcs(id).is_empty());\n';
   out += '            assert!(!default_beacon_apis(id).is_empty());\n';

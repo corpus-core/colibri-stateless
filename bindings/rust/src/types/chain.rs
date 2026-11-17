@@ -151,7 +151,15 @@ mod tests {
 
     #[test]
     fn known_chains_have_endpoints() {
-        for id in [MAINNET, SEPOLIA, GNOSIS, CHIADO, PLATABERGET, ROLLUPX, ARBITRUM] {
+        for id in [
+            MAINNET,
+            SEPOLIA,
+            GNOSIS,
+            CHIADO,
+            PLATABERGET,
+            ROLLUPX,
+            ARBITRUM,
+        ] {
             assert!(!default_provers(id).is_empty());
             assert!(!default_eth_rpcs(id).is_empty());
             assert!(!default_beacon_apis(id).is_empty());
