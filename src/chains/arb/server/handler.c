@@ -10,6 +10,7 @@
 void arb_server_init(http_server_t* server) {
   ARB_HANDLER_CHECK(server);
   log_info("Initializing Arbitrum server handlers...");
+  c4_register_internal_handler(c4_handle_arb_preconf);
   arb_feed_start();
 }
 

@@ -121,6 +121,18 @@ foreach(test_source ${TEST_SOURCES})
     endif()
 
     # EEZ tests call the module directly (chain table, storage proof, block hooks).
+    if("${test_name}" STREQUAL "test_arb_preconf")
+        if(CHAIN_ARB AND HTTP_SERVER)
+            target_compile_definitions(${test_name} PRIVATE ARB_BLOCK_FIXTURE="${CMAKE_SOURCE_DIR}/test/data/arb_feed/block.json")
+            target_include_directories(${test_name} PRIVATE
+                ${CMAKE_SOURCE_DIR}/src/chains/eth/ssz
+                ${CMAKE_SOURCE_DIR}/src/server
+            )
+        else()
+            target_compile_definitions(${test_name} PRIVATE NO_CHAIN_ARB=1)
+        endif()
+    endif()
+
     if("${test_name}" MATCHES "^test_eez_")
         if(CHAIN_EEZ AND CHAIN_ETH)
             target_link_libraries(${test_name} PRIVATE eez_verifier eez_prover)

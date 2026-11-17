@@ -329,6 +329,25 @@ static const ssz_def_t ETH_EIP2935_PROOF[] = {
     SSZ_CONTAINER("account", ETH_ACCOUNT_PROOF), // Proof of the blockhash based on EIP-2935. the blockNumber will be taken from the header
 };
 
+// Arbitrum sequencer feed proof (Nitro `signatureV2`), index 6 of `ETH_EL_PROOF_UNION`.
+//
+// digest = keccak256( "Arbitrum Nitro Feed:"
+//                   | be64(chainId)
+//                   | be64(number(elHeader) - genesis)
+//                   | keccak256(elHeader)
+//                   | signedTail )
+//
+// `signedTail` is everything after `blockHash` in Nitro's SignatureHash:
+// blockMetadata | be64(delayedMessagesRead) | kind | poster | be64(l1BlockNumber)
+// | be64(timestamp) | [requestId] | [l1BaseFee] | l2Msg
+// Verification of the signature is not registered yet. The Arbitrum server builds this
+// object for `arb_preconf/latest`.
+static const ssz_def_t ARB_FEED_PROOF[] = {
+    SSZ_PROG_BYTES("elHeader"),                           // RLP-serialized L2 execution header
+    SSZ_UNION("signedTail", ETH_SEQUENCER_PAYLOAD_UNION), // ZSTD-compressed or uncompressed tail
+    SSZ_BYTE_VECTOR("signature", 65),                     // secp256k1 (r, s, v), v in {0,1} or {27,28}
+};
+
 // Shared block proof used by account, tx, receipt, logs, call and block proofs.
 // Either a cached hash, a full consensus-layer proof, a sequencer-signed
 // execution payload (L2), or a reserved witness-signed EL header.
@@ -337,6 +356,8 @@ static const ssz_def_t ETH_EIP2935_PROOF[] = {
 // Variant 4 (`eezL1Proof`) is authenticated by the EEZ chain module and only for
 // EEZ chains. Variant 5 (`eip2935`) is authenticated by `c4_verify_eip2935_block`
 // for every chain. The EEZ prover is the one that builds it today.
+// Variant 6 (`arbFeedProof`) is the Arbitrum sequencer-feed signature. `c4_verify_block`
+// does not accept it until the Arbitrum verifier is registered.
 // New variants are appended; existing indices are frozen.
 static const ssz_def_t ETH_EL_PROOF_UNION[] = {
     SSZ_BYTES32(ETH_SSZ_NAME_BLOCK_HASH),                                // 0: cached: verifier already holds this verified EL header
@@ -344,7 +365,8 @@ static const ssz_def_t ETH_EL_PROOF_UNION[] = {
     SSZ_CONTAINER(ETH_SSZ_NAME_SEQUENCER_PROOF, ETH_SEQUENCER_PROOF),    // 2: sequencer-signed execution payload (OP-Stack)
     SSZ_CONTAINER(ETH_SSZ_NAME_WITNESS_PROOF, ETH_WITNESS_HEADER_PROOF), // 3: reserved; c4_verify_block rejects until ecrecover+allow-list exist
     SSZ_CONTAINER(ETH_SSZ_NAME_EEZ_L1_PROOF, EEZ_L1_PROOF),              // 4: Proof of the blockhash based on the EEZ Proxy contract in L1
-    SSZ_CONTAINER(ETH_SSZ_NAME_EIP2935, ETH_EIP2935_PROOF)               // 5: Proof of the blockhash based on EIP-2935; accepted by c4_verify_block on every chain
+    SSZ_CONTAINER(ETH_SSZ_NAME_EIP2935, ETH_EIP2935_PROOF),              // 5: Proof of the blockhash based on EIP-2935; accepted by c4_verify_block on every chain
+    SSZ_CONTAINER(ETH_SSZ_NAME_ARB_FEED_PROOF, ARB_FEED_PROOF)           // 6: Arbitrum sequencer feed signature
 };
 
 // ::: Logs Proof

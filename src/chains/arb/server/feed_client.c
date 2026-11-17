@@ -52,34 +52,42 @@ typedef struct feed_poll_ctx {
 } feed_poll_ctx_t;
 
 static struct {
-  feed_phase_t       phase;
-  CURLM*             multi;
-  CURL*              easy;
-  bool               easy_in_multi;
-  uv_timer_t         curl_timer;
-  uv_timer_t         reconnect_timer;
-  uv_timer_t         inactivity_timer;
-  bool               timers_ready;
-  bool               reconnect_armed;
-  uv_poll_t          ws_poll;
-  bool               ws_poll_inited;
-  feed_poll_ctx_t*   handshake;
-  bool               handshake_close_pending;
-  buffer_t           rx;
-  uint32_t           rx_off;
-  buffer_t           out;
-  uint32_t           out_off;
-  buffer_t           message;
-  uint64_t           last_seq;
-  uint32_t           reconnect_ms;
-  char               error_buffer[CURL_ERROR_SIZE];
-  char               chain_id[32];
-  char               accept_b64[32];
-  char*              url;
-  bool               tls;
-  char               host[256];
-  char               path[256];
-  int                port;
+  feed_phase_t     phase;
+  CURLM*           multi;
+  CURL*            easy;
+  bool             easy_in_multi;
+  uv_timer_t       curl_timer;
+  uv_timer_t       reconnect_timer;
+  uv_timer_t       inactivity_timer;
+  bool             timers_ready;
+  bool             reconnect_armed;
+  uv_poll_t        ws_poll;
+  bool             ws_poll_inited;
+  feed_poll_ctx_t* handshake;
+  bool             handshake_close_pending;
+  buffer_t         rx;
+  uint32_t         rx_off;
+  buffer_t         out;
+  uint32_t         out_off;
+  buffer_t         message;
+  uint64_t         last_seq;
+  uv_mutex_t       head_lock;
+  bool             head_lock_ready;
+  bool             head_valid;
+  uint64_t         head_seq;
+  uint8_t          head_hash[32];
+  uint8_t          head_sig[65];
+  uint8_t*         head_tail;
+  uint32_t         head_tail_len;
+  uint32_t         reconnect_ms;
+  char             error_buffer[CURL_ERROR_SIZE];
+  char             chain_id[32];
+  char             accept_b64[32];
+  char*            url;
+  bool             tls;
+  char             host[256];
+  char             path[256];
+  int              port;
 } feed;
 
 static void start_connect(void);
@@ -105,10 +113,10 @@ static void sha1_short(const uint8_t* msg, size_t len, uint8_t out[20]) {
   memset(block, 0, sizeof(block));
   if (len > 119) len = 119;
   memcpy(block, msg, len);
-  block[len]          = 0x80;
-  uint64_t bits       = (uint64_t) len * 8;
-  size_t   nblocks    = len < 56 ? 1 : 2;
-  size_t   length_at  = nblocks * 64 - 8;
+  block[len]         = 0x80;
+  uint64_t bits      = (uint64_t) len * 8;
+  size_t   nblocks   = len < 56 ? 1 : 2;
+  size_t   length_at = nblocks * 64 - 8;
   for (int i = 0; i < 8; i++) block[length_at + i] = (uint8_t) (bits >> (56 - 8 * i));
 
   for (size_t b = 0; b < nblocks; b++) {
@@ -191,12 +199,12 @@ static void fill_random(uint8_t* dst, size_t n) {
 
 /** RFC 6455 section 1.3 example: key `dGhlIHNhbXBsZSBub25jZQ==` accepts as `s3pPLMBiTxaQ9kYGzzhZRbK+xOo=`. */
 static bool ws_accept_selfcheck(void) {
-  const char*  key = "dGhlIHNhbXBsZSBub25jZQ==";
-  const char*  guid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
-  uint8_t      digest[20];
-  char         got[32];
-  char         material[128];
-  int          n = snprintf(material, sizeof(material), "%s%s", key, guid);
+  const char* key  = "dGhlIHNhbXBsZSBub25jZQ==";
+  const char* guid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+  uint8_t     digest[20];
+  char        got[32];
+  char        material[128];
+  int         n = snprintf(material, sizeof(material), "%s%s", key, guid);
   sha1_short((const uint8_t*) material, (size_t) n, digest);
   b64_encode(digest, 20, got);
   return strcmp(got, "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=") == 0;
@@ -478,6 +486,253 @@ static void send_ws_frame(uint8_t opcode, const uint8_t* data, size_t len) {
   queue_out(frame, 6 + len);
 }
 
+static void ensure_head_lock(void) {
+  if (feed.head_lock_ready) return;
+  uv_mutex_init(&feed.head_lock);
+  feed.head_lock_ready = true;
+}
+
+static void head_clear(void) {
+  if (!feed.head_lock_ready) return;
+  uv_mutex_lock(&feed.head_lock);
+  safe_free(feed.head_tail);
+  feed.head_tail     = NULL;
+  feed.head_tail_len = 0;
+  feed.head_valid    = false;
+  uv_mutex_unlock(&feed.head_lock);
+}
+
+static bool tail_fits(const buffer_t* out, uint32_t add) {
+  return add <= FEED_MAX_MESSAGE && out->data.len <= FEED_MAX_MESSAGE - add;
+}
+
+static int b64_digit(unsigned char c) {
+  if (c >= 'A' && c <= 'Z') return c - 'A';
+  if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+  if (c >= '0' && c <= '9') return c - '0' + 52;
+  if (c == '+') return 62;
+  if (c == '/') return 63;
+  return -1;
+}
+
+static int hex_nibble(char c) {
+  if (c >= '0' && c <= '9') return c - '0';
+  if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+  if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+  return -1;
+}
+
+/** Appends raw bytes. `0x` hex (odd length gets one leading zero nibble) or standard base64. */
+static bool append_encoded(buffer_t* out, const char* s, size_t n) {
+  if (n >= 2 && s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) {
+    s += 2;
+    n -= 2;
+    if (n == 0) return true;
+    uint32_t out_len = (uint32_t) ((n + 1) / 2);
+    if (!tail_fits(out, out_len)) return false;
+    uint32_t start = out->data.len;
+    buffer_grow(out, start + out_len);
+    size_t   i        = 0;
+    uint32_t produced = 0;
+    if (n % 2) {
+      int hi = hex_nibble(s[0]);
+      if (hi < 0) return false;
+      out->data.data[start] = (uint8_t) hi;
+      produced              = 1;
+      i                     = 1;
+    }
+    for (; i < n; i += 2) {
+      int hi = hex_nibble(s[i]);
+      int lo = hex_nibble(s[i + 1]);
+      if (hi < 0 || lo < 0) return false;
+      out->data.data[start + produced] = (uint8_t) ((hi << 4) | lo);
+      produced++;
+    }
+    out->data.len = start + produced;
+    return true;
+  }
+
+  while (n && s[n - 1] == '=') n--;
+  if (n == 0) return true;
+  if (n % 4 == 1) return false;
+  uint32_t extra   = n % 4 == 0 ? 0 : (uint32_t) (n % 4 - 1);
+  uint32_t out_len = (uint32_t) (n / 4 * 3) + extra;
+  if (!tail_fits(out, out_len)) return false;
+  uint32_t start = out->data.len;
+  buffer_grow(out, start + out_len);
+  uint32_t acc      = 0;
+  int      bits     = 0;
+  uint32_t produced = 0;
+  for (size_t i = 0; i < n; i++) {
+    int digit = b64_digit((unsigned char) s[i]);
+    if (digit < 0) return false;
+    acc = (acc << 6) | (uint32_t) digit;
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      out->data.data[start + produced] = (uint8_t) ((acc >> bits) & 0xff);
+      produced++;
+    }
+  }
+  if (produced != out_len) return false;
+  out->data.len = start + produced;
+  return true;
+}
+
+static bool json_bytes(json_t value, buffer_t* out, bool missing_ok) {
+  if (value.type == JSON_TYPE_NOT_FOUND || value.type == JSON_TYPE_NULL) return missing_ok;
+  if (value.type != JSON_TYPE_STRING || value.len < 2) return false;
+  return append_encoded(out, value.start + 1, value.len - 2);
+}
+
+/**
+ * Reads a JSON number as uint64 via `json_as_uint64`.
+ *
+ * `strtoull("-1")` is `UINT64_MAX`, so a leading minus is rejected here.
+ * A missing field stays an error instead of becoming 0.
+ */
+static bool parse_u64(json_t value, uint64_t* out) {
+  if (value.type != JSON_TYPE_NUMBER || !value.start || value.len == 0 || value.start[0] == '-') return false;
+  *out = json_as_uint64(value);
+  return true;
+}
+
+static bool append_u64_field(buffer_t* out, json_t value) {
+  uint64_t parsed = 0;
+  if (!parse_u64(value, &parsed) || !tail_fits(out, 8)) return false;
+  buffer_add_be(out, parsed, 8);
+  return true;
+}
+
+/** Minimal big-endian of a base-10 integer. Zero and null append nothing. */
+static bool append_base_fee(buffer_t* out, json_t fee) {
+  if (fee.type == JSON_TYPE_NOT_FOUND || fee.type == JSON_TYPE_NULL) return true;
+  const char* s = NULL;
+  size_t      n = 0;
+  if (fee.type == JSON_TYPE_NUMBER) {
+    s = fee.start;
+    n = fee.len;
+  }
+  else if (fee.type == JSON_TYPE_STRING && fee.len >= 2) {
+    s = fee.start + 1;
+    n = fee.len - 2;
+  }
+  else
+    return false;
+  while (n && *s == '0') {
+    s++;
+    n--;
+  }
+  if (n == 0) return true;
+  uint8_t acc[32];
+  memset(acc, 0, sizeof(acc));
+  for (size_t i = 0; i < n; i++) {
+    if (s[i] < '0' || s[i] > '9') return false;
+    unsigned carry = (unsigned) (s[i] - '0');
+    for (int j = 31; j >= 0; j--) {
+      unsigned v = (unsigned) acc[j] * 10u + carry;
+      acc[j]     = (uint8_t) v;
+      carry      = v >> 8;
+    }
+    if (carry) return false;
+  }
+  size_t start = 0;
+  while (start < sizeof(acc) && acc[start] == 0) start++;
+  uint32_t len = (uint32_t) (sizeof(acc) - start);
+  if (!tail_fits(out, len)) return false;
+  buffer_append(out, bytes(acc + start, len));
+  return true;
+}
+
+static bool build_signed_tail(json_t message, buffer_t* tail) {
+  json_t outer  = json_get(message, "message");
+  json_t inner  = outer.type == JSON_TYPE_OBJECT ? json_get(outer, "message") : (json_t) {0};
+  json_t header = inner.type == JSON_TYPE_OBJECT ? json_get(inner, "header") : (json_t) {0};
+  if (header.type != JSON_TYPE_OBJECT) return false;
+  if (!json_bytes(json_get(message, "blockMetadata"), tail, true)) return false;
+  if (!append_u64_field(tail, json_get(outer, "delayedMessagesRead"))) return false;
+  uint64_t kind = 0;
+  if (!parse_u64(json_get(header, "kind"), &kind) || kind > 255 || !tail_fits(tail, 1)) return false;
+  buffer_add_be(tail, kind, 1);
+  uint32_t sender_at = tail->data.len;
+  if (!json_bytes(json_get(header, "sender"), tail, false) || tail->data.len - sender_at != 20) return false;
+  if (!append_u64_field(tail, json_get(header, "blockNumber"))) return false;
+  if (!append_u64_field(tail, json_get(header, "timestamp"))) return false;
+  json_t request_id = json_get(header, "requestId");
+  if (request_id.type != JSON_TYPE_NOT_FOUND && request_id.type != JSON_TYPE_NULL) {
+    uint32_t at = tail->data.len;
+    if (!json_bytes(request_id, tail, false) || tail->data.len - at != 32) return false;
+  }
+  if (!append_base_fee(tail, json_get(header, "baseFeeL1"))) return false;
+  json_t l2 = json_get(inner, "l2Msg");
+  if (l2.type == JSON_TYPE_NOT_FOUND) return false;
+  if (!json_bytes(l2, tail, true)) return false;
+  return tail->data.len >= 45;
+}
+
+bool arb_feed_store_message(json_t message) {
+  if (message.type != JSON_TYPE_OBJECT) return false;
+  uint64_t seq = 0;
+  if (!parse_u64(json_get(message, "sequenceNumber"), &seq)) return false;
+  uint8_t hash[32];
+  if (!json_as_bytes32(json_get(message, "blockHash"), hash)) return false;
+
+  buffer_t sig = {0};
+  if (!json_bytes(json_get(message, "signatureV2"), &sig, false) || sig.data.len != 65) {
+    buffer_free(&sig);
+    return false;
+  }
+
+  buffer_t tail = {0};
+  if (!build_signed_tail(message, &tail)) {
+    buffer_free(&sig);
+    buffer_free(&tail);
+    static uint32_t logged_skips;
+    if (logged_skips < 4) {
+      log_info("Arbitrum feed skipped seq=%l (signed tail incomplete)", seq);
+      logged_skips++;
+    }
+    return false;
+  }
+
+  uint8_t* owned     = tail.data.data;
+  uint32_t owned_len = tail.data.len;
+  tail.data.data     = NULL;
+  tail.allocated     = 0;
+  buffer_free(&tail);
+
+  ensure_head_lock();
+  uv_mutex_lock(&feed.head_lock);
+  safe_free(feed.head_tail);
+  memcpy(feed.head_hash, hash, 32);
+  memcpy(feed.head_sig, sig.data.data, 65);
+  feed.head_tail     = owned;
+  feed.head_tail_len = owned_len;
+  feed.head_seq      = seq;
+  feed.head_valid    = true;
+  uv_mutex_unlock(&feed.head_lock);
+  buffer_free(&sig);
+  return true;
+}
+
+bool arb_feed_copy_head(uint8_t block_hash[32], uint8_t signature[65], uint8_t** tail, uint32_t* tail_len, uint64_t* sequence) {
+  if (!block_hash || !signature || !tail || !tail_len) return false;
+  if (!feed.head_lock_ready) return false;
+  uv_mutex_lock(&feed.head_lock);
+  bool ok = feed.head_valid && feed.head_tail && feed.head_tail_len > 0;
+  if (ok) {
+    uint8_t* copy = safe_malloc(feed.head_tail_len);
+    memcpy(copy, feed.head_tail, feed.head_tail_len);
+    memcpy(block_hash, feed.head_hash, 32);
+    memcpy(signature, feed.head_sig, 65);
+    *tail     = copy;
+    *tail_len = feed.head_tail_len;
+    if (sequence) *sequence = feed.head_seq;
+  }
+  uv_mutex_unlock(&feed.head_lock);
+  return ok;
+}
+
 static void log_feed_message(void) {
   size_t len = feed.message.data.len;
   if (buffer_grow(&feed.message, len + 1) < len + 1) {
@@ -485,8 +740,8 @@ static void log_feed_message(void) {
     return;
   }
   feed.message.data.data[len] = 0;
-  json_t root                  = json_parse((char*) feed.message.data.data);
-  feed.message.data.len        = 0;
+  json_t root                 = json_parse((char*) feed.message.data.data);
+  feed.message.data.len       = 0;
   if (root.type != JSON_TYPE_OBJECT) {
     log_info("Arbitrum feed ignored non-object payload (%d bytes)", (uint32_t) len);
     return;
@@ -496,17 +751,17 @@ static void log_feed_message(void) {
   if (messages.type == JSON_TYPE_ARRAY) {
     uint32_t seen = 0;
     json_for_each_value(messages, msg) {
-      if (seen >= FEED_MAX_LOGGED) {
-        log_info("Arbitrum feed batch truncated after %d messages", FEED_MAX_LOGGED);
-        break;
-      }
-      seen++;
       if (msg.type != JSON_TYPE_OBJECT) continue;
       json_t   seq_json = json_get(msg, "sequenceNumber");
-      uint64_t seq      = json_as_uint64(seq_json);
-      if (seq_json.type == JSON_TYPE_NUMBER) feed.last_seq = seq;
-      log_info("Arbitrum feed seq=%l blockHash=%j", seq, json_get(msg, "blockHash"));
+      uint64_t seq      = 0;
+      if (parse_u64(seq_json, &seq)) feed.last_seq = seq;
+      if (seen < FEED_MAX_LOGGED)
+        log_info("Arbitrum feed seq=%j blockHash=%j", seq_json, json_get(msg, "blockHash"));
+      seen++;
+      arb_feed_store_message(msg);
     }
+    if (seen > FEED_MAX_LOGGED)
+      log_info("Arbitrum feed log truncated after %d messages", FEED_MAX_LOGGED);
   }
 
   json_t confirmed = json_get(root, "confirmedSequenceNumberMessage");
@@ -518,7 +773,7 @@ static bool header_has(const char* header, size_t header_len, const char* key, c
   size_t key_len = strlen(key);
   for (size_t i = 0; i + key_len < header_len; i++) {
     if ((i == 0 || header[i - 1] == '\n') && strncasecmp(header + i, key, key_len) == 0) {
-      const char* v = header + i + key_len;
+      const char* v  = header + i + key_len;
       size_t      vn = header_len - (size_t) (v - header);
       while (vn && (*v == ' ' || *v == '\t')) {
         v++;
@@ -554,8 +809,8 @@ static void compact_rx(void) {
 
 static void parse_frames(void) {
   while (feed.phase == FEED_OPEN && feed.rx.data.len - feed.rx_off >= 2) {
-    uint8_t* p = feed.rx.data.data + feed.rx_off;
-    uint32_t n = feed.rx.data.len - feed.rx_off;
+    uint8_t* p  = feed.rx.data.data + feed.rx_off;
+    uint32_t n  = feed.rx.data.len - feed.rx_off;
     uint8_t  b0 = p[0];
     uint8_t  b1 = p[1];
     if (b0 & 0x70) {
@@ -599,7 +854,8 @@ static void parse_frames(void) {
       drop_connection("server closed the websocket");
       return;
     }
-    if (opcode == 0x9) send_ws_frame(0xA, payload, (size_t) plen);
+    if (opcode == 0x9)
+      send_ws_frame(0xA, payload, (size_t) plen);
     else if (opcode == 0xA) {
     }
     else if (opcode == 0x1 || opcode == 0x2 || opcode == 0x0)
@@ -631,7 +887,7 @@ static void finish_upgrade(void) {
     return;
   }
 
-  char chain[32] = {0};
+  char chain[32]  = {0};
   char accept[64] = {0};
   if (header_has((char*) p, end, "arbitrum-chain-id:", chain, sizeof(chain)))
     snprintf(feed.chain_id, sizeof(feed.chain_id), "%s", chain);
@@ -639,7 +895,7 @@ static void finish_upgrade(void) {
   bool accept_ok  = header_has((char*) p, end, "sec-websocket-accept:", accept, sizeof(accept)) &&
                    strcmp(accept, feed.accept_b64) == 0;
   if (!status_101 || !accept_ok) {
-    char line[80];
+    char   line[80];
     size_t line_len = 0;
     while (line_len < sizeof(line) - 1 && line_len < end && p[line_len] != '\r') line_len++;
     memcpy(line, p, line_len);
@@ -677,8 +933,10 @@ static void read_socket(void) {
     buffer_append(&feed.rx, bytes(chunk, (uint32_t) n));
     uv_timer_start(&feed.inactivity_timer, on_inactivity, FEED_INACTIVITY_MS, 0);
   }
-  if (feed.phase == FEED_UPGRADING) finish_upgrade();
-  else if (feed.phase == FEED_OPEN) parse_frames();
+  if (feed.phase == FEED_UPGRADING)
+    finish_upgrade();
+  else if (feed.phase == FEED_OPEN)
+    parse_frames();
 }
 
 static void on_ws_poll(uv_poll_t* handle, int status, int events) {
@@ -698,9 +956,9 @@ static void queue_upgrade(void) {
   fill_random(key_raw, sizeof(key_raw));
   b64_encode(key_raw, sizeof(key_raw), key_b64);
 
-  char     material[96];
-  uint8_t  digest[20];
-  int      material_len = snprintf(material, sizeof(material), "%s258EAFA5-E914-47DA-95CA-C5AB0DC85B11", key_b64);
+  char    material[96];
+  uint8_t digest[20];
+  int     material_len = snprintf(material, sizeof(material), "%s258EAFA5-E914-47DA-95CA-C5AB0DC85B11", key_b64);
   sha1_short((const uint8_t*) material, (size_t) material_len, digest);
   b64_encode(digest, 20, feed.accept_b64);
 
@@ -713,16 +971,16 @@ static void queue_upgrade(void) {
     snprintf(seq_line, sizeof(seq_line), "Arbitrum-Requested-Sequence-Number: %llu\r\n",
              (unsigned long long) feed.last_seq);
   int req_len = snprintf(req, sizeof(req),
-                     "GET %s HTTP/1.1\r\n"
-                     "Host: %s%s\r\n"
-                     "Upgrade: websocket\r\n"
-                     "Connection: Upgrade\r\n"
-                     "Sec-WebSocket-Key: %s\r\n"
-                     "Sec-WebSocket-Version: 13\r\n"
-                     "Arbitrum-Feed-Client-Version: 2\r\n"
-                     "%s"
-                     "\r\n",
-                     feed.path, feed.host, host_port, key_b64, seq_line);
+                         "GET %s HTTP/1.1\r\n"
+                         "Host: %s%s\r\n"
+                         "Upgrade: websocket\r\n"
+                         "Connection: Upgrade\r\n"
+                         "Sec-WebSocket-Key: %s\r\n"
+                         "Sec-WebSocket-Version: 13\r\n"
+                         "Arbitrum-Feed-Client-Version: 2\r\n"
+                         "%s"
+                         "\r\n",
+                         feed.path, feed.host, host_port, key_b64, seq_line);
   if (req_len < 0 || (size_t) req_len >= sizeof(req)) {
     drop_connection("upgrade request does not fit");
     return;
@@ -764,8 +1022,10 @@ static void check_multi_info(void) {
       if (feed.phase != FEED_STOPPED)
         log_info("Arbitrum feed handshake failed: %s", err);
       feed.phase = feed.phase == FEED_STOPPED ? FEED_STOPPED : FEED_CLOSING;
-      if (feed.handshake && !feed.handshake_close_pending) close_handshake_poll();
-      else if (!feed.handshake_close_pending) finish_close();
+      if (feed.handshake && !feed.handshake_close_pending)
+        close_handshake_poll();
+      else if (!feed.handshake_close_pending)
+        finish_close();
       return;
     }
     // curl_easy_send/recv require the easy handle to stay inside the multi handle.
@@ -895,6 +1155,7 @@ void arb_feed_start(void) {
 
 void arb_feed_stop(void) {
   if (feed.phase == FEED_STOPPED) return;
+  head_clear();
   // Reconnect backoff leaves the phase idle while the timer is still active.
   // Stopping that timer is what lets the server process exit.
   if (!feed.timers_ready && !feed.easy && !feed.ws_poll_inited && !feed.handshake) return;

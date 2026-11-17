@@ -82,6 +82,7 @@ typedef enum {
   ETH_SSZ_EL_BLOCK_CONTENT     = 34, // ETH_BLOCK_BODY_UNION content variant
   ETH_SSZ_EEZ_L1_PROOF         = 35, // ETH_EL_PROOF_UNION index 4
   ETH_SSZ_EIP2935_PROOF        = 36, // ETH_EL_PROOF_UNION index 5
+  ETH_SSZ_ARB_FEED_PROOF       = 37, // ETH_EL_PROOF_UNION index 6
 
 } eth_ssz_type_t;
 
@@ -100,6 +101,7 @@ typedef enum {
 #define ETH_SSZ_NAME_WITNESS_PROOF   "witnessProof"
 #define ETH_SSZ_NAME_EEZ_L1_PROOF    "eezL1Proof"
 #define ETH_SSZ_NAME_EIP2935         "eip2935"
+#define ETH_SSZ_NAME_ARB_FEED_PROOF  "arbFeedProof"
 /** `ETH_HEADER_PROOFS_UNION`: */
 #define ETH_SSZ_NAME_SIGNATURE    "signature"
 #define ETH_SSZ_NAME_HISTORIC     "historic"

@@ -46,6 +46,7 @@ add_server_handler(
     server/handler.c
     server/arb_conf.c
     server/feed_client.c
+    server/arb_preconf.c
   DEPENDS arb_prover
   INIT_FUNC arb_server_init
   SHUTDOWN_FUNC arb_server_shutdown
