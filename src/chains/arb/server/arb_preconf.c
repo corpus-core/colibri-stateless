@@ -6,133 +6,36 @@
 #include "arb_preconf.h"
 #include "beacon_types.h"
 #include "crypto.h"
+#include "el_header.h"
+#include "eth_req.h"
 #include "feed_client.h"
 #include "handler.h"
 #include "logger.h"
-#include "rlp.h"
 #include "ssz.h"
 #include <string.h>
 
 #define ARB_HEADER_MAX (16u * 1024u)
-#define ARB_FIELD_MAX  1024u
 
 static void set_err(char** err, const char* msg) {
   if (err && !*err) *err = strdup(msg);
 }
 
-static int hex_nibble(char c) {
-  if (c >= '0' && c <= '9') return c - '0';
-  if (c >= 'a' && c <= 'f') return c - 'a' + 10;
-  if (c >= 'A' && c <= 'F') return c - 'A' + 10;
-  return -1;
+static bool json_field_present(json_t block, const char* name) {
+  json_t field = json_get(block, name);
+  return field.type != JSON_TYPE_NOT_FOUND && field.type != JSON_TYPE_NULL;
 }
 
-/** Decodes a JSON hex string. An odd nibble count is padded with one leading zero. */
-static bool decode_hex_string(json_t value, buffer_t* out, uint32_t cap) {
-  if (value.type != JSON_TYPE_STRING || value.len < 2) return false;
-  const char* s = value.start + 1;
-  size_t      n = value.len - 2;
-  if (n >= 2 && s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) {
-    s += 2;
-    n -= 2;
-  }
-  if (n == 0) return true;
-  uint32_t out_len = (uint32_t) ((n + 1) / 2);
-  if (out_len > cap || out->data.len > cap - out_len) return false;
-  uint32_t start = out->data.len;
-  buffer_grow(out, start + out_len);
-  size_t   i        = 0;
-  uint32_t produced = 0;
-  if (n % 2) {
-    int hi = hex_nibble(s[0]);
-    if (hi < 0) return false;
-    out->data.data[start] = (uint8_t) hi;
-    produced              = 1;
-    i                     = 1;
-  }
-  for (; i + 1 < n; i += 2) {
-    int hi = hex_nibble(s[i]);
-    int lo = hex_nibble(s[i + 1]);
-    if (hi < 0 || lo < 0) return false;
-    out->data.data[start + produced] = (uint8_t) ((hi << 4) | lo);
-    produced++;
-  }
-  out->data.len = start + produced;
-  return produced == out_len;
-}
-
-/**
- * Adds one execution-header field.
- *
- * @return 1 when the field was written, 0 when an optional field is absent, -1 on error
- */
-static int rlp_header_field(buffer_t* rlp, json_t block, const char* name, uint32_t width, bool quantity, bool optional) {
-  json_t value = json_get(block, name);
-  if (value.type == JSON_TYPE_NOT_FOUND || value.type == JSON_TYPE_NULL) return optional ? 0 : -1;
-  buffer_t raw = {0};
-  if (!decode_hex_string(value, &raw, width ? width : ARB_FIELD_MAX)) {
-    buffer_free(&raw);
-    return -1;
-  }
-  if (quantity) {
-    if (raw.data.len > 32) {
-      buffer_free(&raw);
-      return -1;
-    }
-    rlp_add_uint(rlp, raw.data);
-  }
-  else if (width) {
-    if (raw.data.len != width) {
-      buffer_free(&raw);
-      return -1;
-    }
-    rlp_add_item(rlp, raw.data);
-  }
-  else {
-    rlp_add_item(rlp, raw.data);
-  }
-  buffer_free(&raw);
-  return rlp->data.len <= ARB_HEADER_MAX ? 1 : -1;
-}
-
-static bool rlp_from_block(json_t block, buffer_t* header) {
-  static const struct {
-    const char* name;
-    uint32_t    width;
-    bool        quantity;
-    bool        optional;
-  } fields[] = {
-      {"parentHash", 32, false, false},
-      {"sha3Uncles", 32, false, false},
-      {"miner", 20, false, false},
-      {"stateRoot", 32, false, false},
-      {"transactionsRoot", 32, false, false},
-      {"receiptsRoot", 32, false, false},
-      {"logsBloom", 256, false, false},
-      {"difficulty", 0, true, false},
-      {"number", 0, true, false},
-      {"gasLimit", 0, true, false},
-      {"gasUsed", 0, true, false},
-      {"timestamp", 0, true, false},
-      {"extraData", 0, false, false},
-      {"mixHash", 32, false, false},
-      {"nonce", 8, false, false},
-      {"baseFeePerGas", 0, true, true},
-      {"withdrawalsRoot", 32, false, true},
-      {"blobGasUsed", 0, true, true},
-      {"excessBlobGas", 0, true, true},
-      {"parentBeaconBlockRoot", 32, false, true},
-      {"requestsHash", 32, false, true},
-  };
-  bool appending = true;
-  for (size_t i = 0; i < sizeof(fields) / sizeof(fields[0]); i++) {
-    if (fields[i].optional && !appending) continue;
-    int rc = rlp_header_field(header, block, fields[i].name, fields[i].width, fields[i].quantity, fields[i].optional);
-    if (rc < 0) return false;
-    if (rc == 0) appending = false;
-  }
-  rlp_to_list(header);
-  return header->data.len > 0 && header->data.len <= ARB_HEADER_MAX;
+/** Header layout of an `eth_getBlockByHash` object, from the newest field it carries. */
+static fork_id_t arb_header_fork(json_t block) {
+  if (json_field_present(block, EL_SLOT_NUMBER) || json_field_present(block, EL_BLOCK_ACCESS_LIST_HASH))
+    return C4_FORK_GLOAS;
+  if (json_field_present(block, EL_REQUESTS_HASH))
+    return C4_FORK_ELECTRA;
+  if (json_field_present(block, EL_PARENT_BEACON_BLOCK_ROOT) || json_field_present(block, EL_BLOB_GAS_USED) || json_field_present(block, EL_EXCESS_BLOB_GAS))
+    return C4_FORK_DENEB;
+  if (json_field_present(block, EL_WITHDRAWALS_ROOT))
+    return C4_FORK_CAPELLA;
+  return C4_FORK_BELLATRIX;
 }
 
 static bool header_matches(bytes_t header, bytes_t block_hash) {
@@ -171,26 +74,33 @@ bytes_t arb_preconf_encode(json_t rpc_json, bytes_t block_hash, bytes_t signatur
   }
 
   json_t   result = json_get(rpc_json, "result");
-  buffer_t header = {0};
-  bool     ok     = false;
+  buffer_t owned  = {0};
+  bytes_t  header = NULL_BYTES;
   if (result.type == JSON_TYPE_STRING)
-    ok = decode_hex_string(result, &header, ARB_HEADER_MAX);
-  else if (result.type == JSON_TYPE_OBJECT)
-    ok = rlp_from_block(result, &header);
-  if (!ok || !header_matches(header.data, block_hash)) {
-    buffer_free(&header);
-    set_err(err, ok ? "raw header does not match the feed block hash" : "eth rpc did not return a block header");
+    header = json_as_bytes(result, &owned);
+  else if (result.type == JSON_TYPE_OBJECT) {
+    bytes_t built = NULL_BYTES;
+    if (eth_el_header_build_from_json(NULL, &built, arb_header_fork(result), result) == C4_SUCCESS)
+      header = built;
+    owned.data      = header;
+    owned.allocated = header.data ? 1 : 0;
+  }
+  bool produced = header.data && header.len > 0 && header.len <= ARB_HEADER_MAX;
+  bool matches  = produced && header_matches(header, block_hash);
+  if (!matches) {
+    buffer_free(&owned);
+    set_err(err, produced ? "raw header does not match the feed block hash" : "eth rpc did not return a block header");
     return NULL_BYTES;
   }
 
   ssz_builder_t proof = ssz_builder_for_type(ETH_SSZ_ARB_FEED_PROOF);
   if (!proof.def) {
-    buffer_free(&header);
+    buffer_free(&owned);
     set_err(err, "arbFeedProof type is not registered");
     return NULL_BYTES;
   }
-  ssz_add_bytes(&proof, "elHeader", header.data);
-  buffer_free(&header);
+  ssz_add_bytes(&proof, "elHeader", header);
+  buffer_free(&owned);
   const ssz_def_t* tail_union = ssz_get_def(proof.def, "signedTail");
   if (!tail_union || tail_union->type != SSZ_TYPE_UNION || tail_union->def.container.len < 2) {
     ssz_builder_free(&proof);
@@ -227,14 +137,6 @@ static bool debug_method_missing(json_t root) {
   return code.type == JSON_TYPE_NUMBER && code.len == 6 && code.start && memcmp(code.start, "-32601", 6) == 0;
 }
 
-static bool result_is_raw_header(json_t root) {
-  if (root.type != JSON_TYPE_OBJECT) return false;
-  if (json_get(root, "error").type != JSON_TYPE_NOT_FOUND) return false;
-  json_t result = json_get(root, "result");
-  if (result.type != JSON_TYPE_STRING || result.len < 6 || !result.start) return false;
-  return result.start[1] == '0' && (result.start[2] == 'x' || result.start[2] == 'X');
-}
-
 static bool any_server_supports_debug(chain_id_t chain_id) {
   server_list_t* list = c4_get_server_list(C4_DATA_TYPE_ETH_RPC, chain_id);
   if (!list) return false;
@@ -267,21 +169,15 @@ static data_request_t* arb_rpc_request(chain_id_t chain_id, const char* method, 
   return req;
 }
 
-static json_t parse_rpc_body(bytes_t body, char** text) {
-  *text = NULL;
-  if (!body.data || body.len == 0) return (json_t) {0};
-  // Curl responses are terminated past `len`. A memcached hit is a raw copy.
-  *text = safe_malloc(body.len + 1);
-  memcpy(*text, body.data, body.len);
-  (*text)[body.len] = 0;
-  return json_parse(*text);
-}
-
-static void arb_preconf_finish(arb_preconf_fetch_t* ctx, data_request_t* rpc, json_t root, bool parsed) {
+static void arb_preconf_finish(arb_preconf_fetch_t* ctx, data_request_t* rpc, json_t root, char* schema_err) {
   char*   err     = NULL;
-  bytes_t encoded = parsed ? arb_preconf_encode(root, bytes(ctx->hash, 32), bytes(ctx->sig, 65), ctx->tail, &err) : NULL_BYTES;
+  bytes_t encoded = NULL_BYTES;
+  if (!schema_err && root.type == JSON_TYPE_OBJECT)
+    encoded = arb_preconf_encode(root, bytes(ctx->hash, 32), bytes(ctx->sig, 65), ctx->tail, &err);
   if (encoded.data)
     ctx->intern->req->response = encoded;
+  else if (schema_err)
+    ctx->intern->req->error = schema_err;
   else if (err)
     ctx->intern->req->error = err;
   else if (rpc && rpc->error)
@@ -298,22 +194,28 @@ static void arb_preconf_fetch(arb_preconf_fetch_t* ctx, bool debug);
 
 static void arb_preconf_rpc_cb(client_t* client, void* data, data_request_t* rpc) {
   (void) client;
-  arb_preconf_fetch_t* ctx    = data;
-  char*                text   = NULL;
-  json_t               root   = parse_rpc_body(rpc ? rpc->response : NULL_BYTES, &text);
-  bool                 parsed = text != NULL;
-  if (ctx->debug && (!parsed || !result_is_raw_header(root))) {
-    if (parsed && debug_method_missing(root)) {
+  arb_preconf_fetch_t* ctx  = data;
+  json_t               root = rpc && rpc->response.data ? json_parse((const char*) rpc->response.data) : (json_t) {0};
+  // `debug_getRawHeader` yields a hex string. `eth_getBlockByHash` yields the header object.
+  const char* schema = ctx->debug ? "bytes" : JSON_BLOCK_HEADER_FIELDS;
+  const char* prefix = ctx->debug ? "debug_getRawHeader: " : "Invalid results for Block: ";
+  char*       err    = (char*) json_validate(json_get(root, "result"), schema, prefix);
+  if (err && ctx->debug) {
+    safe_free(err);
+    if (debug_method_missing(root) && rpc) {
       server_list_t* list = c4_get_server_list(C4_DATA_TYPE_ETH_RPC, ctx->chain_id);
       c4_mark_method_unsupported(list, rpc->response_node_index, "debug_getRawHeader");
     }
-    safe_free(text);
     c4_request_free(rpc);
     arb_preconf_fetch(ctx, false);
     return;
   }
-  arb_preconf_finish(ctx, rpc, root, parsed);
-  safe_free(text);
+  // A JSON-RPC error object, or a transport error, is more specific than the schema mismatch.
+  if (err && (json_get(root, "error").type == JSON_TYPE_OBJECT || (rpc && rpc->error))) {
+    safe_free(err);
+    err = NULL;
+  }
+  arb_preconf_finish(ctx, rpc, root, err);
 }
 
 static void arb_preconf_fetch(arb_preconf_fetch_t* ctx, bool debug) {
