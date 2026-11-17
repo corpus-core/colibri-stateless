@@ -122,6 +122,7 @@ void eth_add_account_proof_fields(ssz_builder_t* account, json_t eth_proof, byte
  * Fetches the proof of the EIP-2935 history slot of a block from the state of a newer block.
  *
  * EIP-2935 keeps the hashes of the last 8191 blocks in the storage of the history contract.
+ * Arbitrum keeps 393168. The slot is `block_number % eth_eip2935_history_window(ctx->chain_id)`.
  * The proof is an `eth_getProof` of that contract for the slot of `block_number`, taken at
  * `newer_block_number`. Only the shape of the answer is checked here (exactly one storage
  * proof, and it is about the requested slot); the Merkle proof is not verified: the caller

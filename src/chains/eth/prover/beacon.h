@@ -60,17 +60,20 @@ typedef struct {
   bytes32_t data_block_root;          // block root of the data block
 } eth_block_beacon_t;
 
-typedef struct {
-  bytes_t payload;   // OP preconf payload (no signature), borrowed from the request
-  bytes_t signature; // 65-byte sequencer signature, borrowed from the request
-} eth_block_sequencer_t;
-
 // Inputs of an `eip2935` block proof (see `c4_eth_add_eip2935_proof`). Both fields are unset
 // when the block is proven directly.
 typedef struct {
   bytes_t newer_header;  // RLP header of the newer block whose state holds the hash of the block
   json_t  history_proof; // `eth_getProof` of the EIP-2935 history contract at the newer block (`c4_eth_get_eip2935_proof`); only set with `newer_header`
 } eth_block_eip2935_t;
+
+typedef struct {
+  bytes_t payload;   // OP preconf payload (no signature), or the Arbitrum `arbFeedProof` container; borrowed from the request
+  bytes_t signature; // 65-byte sequencer signature, borrowed from the request
+  // Set when the requested block is older than the signed head and is nested in an `eip2935` proof.
+  // Both fields stay unset when `payload` itself is the requested block (OP, and Arbitrum `latest`).
+  eth_block_eip2935_t history;
+} eth_block_sequencer_t;
 
 // Further EEZ block proofs (blocks newer than the L1 anchor or older than the EIP-2935
 // window) add their fields here.

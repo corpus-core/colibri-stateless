@@ -38,14 +38,38 @@ extern "C" {
 /**
  * Number of block hashes the EIP-2935 history contract keeps (`HISTORY_SERVE_WINDOW`).
  * The hash of block `n` can be read from the state of every block in `n + 1 .. n + 8191`.
+ * Arbitrum One (ArbOS 40+) keeps 393168 hashes (`0x5ffd0`, about 27 h) and indexes them
+ * by the L2 block number (`ArbSys.arbBlockNumber()`). Use `eth_eip2935_history_window`.
  */
 #define ETH_EIP2935_HISTORY_WINDOW 8191
+
+/** Ring-buffer size of the Arbitrum One history contract (ArbOS 40+), `0x5ffd0`. */
+#define ARB_EIP2935_HISTORY_WINDOW 393168
 
 /**
  * Address of the EIP-2935 history contract (`HISTORY_STORAGE_ADDRESS`),
  * `0x0000F90827F1C53a10cb7A02335B175320002935` on every chain that activated EIP-2935.
  */
 extern const address_t ETH_EIP2935_HISTORY_ADDRESS;
+
+/**
+ * History window of `chain_id`. Ethereum keeps `ETH_EIP2935_HISTORY_WINDOW` (8191) hashes.
+ * Arbitrum keeps `ARB_EIP2935_HISTORY_WINDOW` (393168) and indexes them by the L2 block number.
+ *
+ * @param chain_id chain whose history contract is read
+ * @return number of hashes the contract serves
+ */
+uint64_t eth_eip2935_history_window(chain_id_t chain_id);
+
+/**
+ * Computes the storage key under which a history contract stores the hash of a block:
+ * `block_number % window` as a 32-byte big-endian word. A window of 0 uses 8191.
+ *
+ * @param block_number number of the block whose hash is stored
+ * @param window history window of the chain (`eth_eip2935_history_window`)
+ * @param slot receives the 32-byte storage key
+ */
+void eth_eip2935_slot_for(uint64_t block_number, uint64_t window, bytes32_t slot);
 
 /**
  * Computes the storage key under which the EIP-2935 history contract stores the hash
@@ -74,9 +98,11 @@ void eth_eip2935_slot(uint64_t block_number, bytes32_t slot);
  * 4. The proven value is non-zero and equals `keccak256(elHeader)`, and `elHeader` has
  *    the shape of an execution header.
  * 5. The proven storage key is the slot of the block number of `elHeader`
- *    (`eth_eip2935_slot`).
+ *    (`eth_eip2935_slot_for` with `eth_eip2935_history_window` of `ctx->chain_id`).
+ *    On Ethereum that slot is `number % 8191`.
  * 6. That number lies in the history window of the newer block:
- *    `newer - 8191 <= number < newer`.
+ *    `newer - window <= number < newer`. The window is 8191 on Ethereum and
+ *    393168 on Arbitrum.
  *
  * On success the header is stored in the header cache of `ctx->chain_id`, so follow-up
  * proofs can reference the block by hash only (`blockHash` variant).
@@ -84,7 +110,7 @@ void eth_eip2935_slot(uint64_t block_number, bytes32_t slot);
  * `c4_verify_block` accepts this variant on every chain. The proof only needs a newer
  * block of the same chain whose state holds the hash; it does not depend on how that
  * newer block was proven (`clProof`, `sequencerProof`, `eezL1Proof`, or a cached
- * `blockHash`). The EEZ prover is the one that builds the variant today.
+ * `blockHash`). The EEZ prover and the Arbitrum prover build the variant.
  *
  * @param ctx verification context
  * @param block selected `eip2935` union member

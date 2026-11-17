@@ -49,19 +49,26 @@ bool arb_prover_execute(prover_ctx_t* ctx);
 /**
  * Fills `eth_block_t` from `arb_preconf/latest`.
  *
- * Milestone 1 accepts only the JSON string `"latest"`. The feed proof carries
- * the execution header and no transaction body.
+ * `"latest"`, the block number of the signed head and its block hash are that feed
+ * proof itself. An older block number or hash inside the EIP-2935 window is the same
+ * feed proof nested in an `eip2935` proof (`sequencer.history`). The feed proof carries
+ * the execution header. When `with_body` is true, `el_body` is the transactions and
+ * withdrawals of that header, read from `debug_getRawBlock`. A block without a
+ * withdrawals list is stored with an empty one.
  *
  * @param ctx prover context
  * @param block JSON block identifier
  * @param out output block (`proof_type` SEQUENCER, EL header, feed proof in `sequencer.payload`)
- * @param with_body must be false; the feed proof has no execution payload
+ * @param with_body when true, `out->el_body` is `ETH_SSZ_EL_BLOCK_CONTENT`
  * @return `C4_SUCCESS`, `C4_PENDING`, or `C4_ERROR`
  */
 c4_status_t arb_get_el_block(prover_ctx_t* ctx, json_t block, eth_block_t* out, bool with_body);
 
 /**
  * Appends the `arbFeedProof` variant of `ETH_EL_PROOF_UNION` (index 6).
+ *
+ * When `block_data->sequencer.history` is set, that variant is nested as the newer
+ * block of an `eip2935` proof of the requested header.
  *
  * @param ctx prover context
  * @param builder parent proof builder (`elProof` union field)

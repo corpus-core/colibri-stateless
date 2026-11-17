@@ -22,6 +22,7 @@
  */
 
 #include "eip2935.h"
+#include "chains.h"
 #include "el_header.h"
 #include "eth_account.h"
 #include "eth_verify.h"
@@ -30,9 +31,19 @@
 
 const address_t ETH_EIP2935_HISTORY_ADDRESS = {0x00, 0x00, 0xF9, 0x08, 0x27, 0xF1, 0xC5, 0x3a, 0x10, 0xcb, 0x7A, 0x02, 0x33, 0x5B, 0x17, 0x53, 0x20, 0x00, 0x29, 0x35};
 
-void eth_eip2935_slot(uint64_t block_number, bytes32_t slot) {
+uint64_t eth_eip2935_history_window(chain_id_t chain_id) {
+  if (c4_chain_type(chain_id) == C4_CHAIN_TYPE_ARBITRUM) return ARB_EIP2935_HISTORY_WINDOW;
+  return ETH_EIP2935_HISTORY_WINDOW;
+}
+
+void eth_eip2935_slot_for(uint64_t block_number, uint64_t window, bytes32_t slot) {
+  if (window == 0) window = ETH_EIP2935_HISTORY_WINDOW;
   memset(slot, 0, 32);
-  uint64_to_be(slot + 24, block_number % ETH_EIP2935_HISTORY_WINDOW);
+  uint64_to_be(slot + 24, block_number % window);
+}
+
+void eth_eip2935_slot(uint64_t block_number, bytes32_t slot) {
+  eth_eip2935_slot_for(block_number, ETH_EIP2935_HISTORY_WINDOW, slot);
 }
 
 c4_status_t c4_verify_eip2935_block(verify_ctx_t* ctx, ssz_ob_t block, bytes_t* el_header, bytes32_t block_hash) {
@@ -44,10 +55,11 @@ c4_status_t c4_verify_eip2935_block(verify_ctx_t* ctx, ssz_ob_t block, bytes_t* 
   ssz_ob_t newer_proof = ssz_get(&account, "elProof");
 
   // 1. the newer block, verified as a block of this chain. It may itself be an
-  //    eip2935 proof: one history window is 8191 blocks, so a block further behind
-  //    the anchor needs another hop. The call comes back through `c4_verify_block`.
-  //    `ssz_is_valid` rejects an object nested past `SSZ_MAX_NESTING` before a
-  //    request reaches this function, which bounds the recursion.
+  //    eip2935 proof: one history window is 8191 blocks on Ethereum and 393168 on
+  //    Arbitrum, so a block further behind the anchor needs another hop. The call
+  //    comes back through `c4_verify_block`. `ssz_is_valid` rejects an object nested
+  //    past `SSZ_MAX_NESTING` before a request reaches this function, which bounds
+  //    the recursion.
   bytes_t   newer_header = NULL_BYTES;
   bytes32_t newer_hash   = {0};
   TRY_ASYNC(c4_verify_block(ctx, newer_proof, &newer_header, newer_hash));
@@ -66,12 +78,14 @@ c4_status_t c4_verify_eip2935_block(verify_ctx_t* ctx, ssz_ob_t block, bytes_t* 
   if (!eth_el_header_is_valid(header)) THROW_ERROR("the block stored in the EIP-2935 history contract is not a valid execution header!");
 
   // 5. + 6. the slot is the one of this block number, and the newer block still serves it.
-  //    A slot is overwritten every 8191 blocks, so outside the window it holds another block.
+  //    A slot is overwritten every `window` blocks (8191 on Ethereum, 393168 on Arbitrum),
+  //    so outside the window it holds another block.
   uint64_t number       = eth_el_header_get_uint64(header, EL_BLOCK_NUMBER);
   uint64_t newer_number = eth_el_header_get_uint64(newer_header, EL_BLOCK_NUMBER);
-  eth_eip2935_slot(number, expected);
+  uint64_t window       = eth_eip2935_history_window(ctx->chain_id);
+  eth_eip2935_slot_for(number, window, expected);
   if (memcmp(slot, expected, 32) != 0) THROW_ERROR("eip2935 proof is not about the history slot of the block!");
-  if (number >= newer_number || newer_number - number > ETH_EIP2935_HISTORY_WINDOW)
+  if (number >= newer_number || newer_number - number > window)
     THROW_ERROR("block is outside the EIP-2935 history window of the newer block!");
 
   // The header is now verified: cache it so follow-up proofs can reference this block by
