@@ -119,4 +119,22 @@ export const default_config: {
     ],
     pollingInterval: 2000,
   },
+  '42161': { // arbitrum
+    alias: ["arbitrum","arb1","0xa4b1"],
+    rpcs: [
+      "https://arb1.arbitrum.io/rpc",
+      "https://arbitrum-one-rpc.publicnode.com",
+    ],
+    beacon_apis: [
+      "https://mainnet.colibri-proof.tech/consensus",
+      "https://gateway.tenderly.co/public/mainnet",
+      "https://ethereum-beacon-api.publicnode.com",
+    ],
+    prover: ["https://c4.incubed.net"],
+    checkpointz: [
+      "https://sync-mainnet.beaconcha.in",
+      "https://mainnet.checkpoint.sigp.io",
+    ],
+    pollingInterval: 1000,
+  },
 };

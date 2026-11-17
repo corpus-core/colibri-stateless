@@ -58,6 +58,7 @@ chain_type_t c4_chain_type(chain_id_t chain_id) {
   // OP Stack chains - use switch for better performance.
   // A new case is a newly supported chain. Also add it to the published list:
   // `// : OP-Stack` in op_verify.c, or `// : EEZ` in eez_verify.c.
+  // Arbitrum One is mapped here; its published section lands with the feed proof.
   switch (chain_id) {
     case C4_CHAIN_OP_MAINNET:    // OP Mainnet (10)
     case C4_CHAIN_OP_BASE:       // Base (8453)
@@ -75,6 +76,9 @@ chain_type_t c4_chain_type(chain_id_t chain_id) {
     // EEZ (Ethereum Economic Zone) chains
     case C4_CHAIN_EEZ_ROLLUPX: // RollupX (696991)
       return C4_CHAIN_TYPE_EEZ;
+
+    case C4_CHAIN_ARB_ONE: // Arbitrum One (42161)
+      return C4_CHAIN_TYPE_ARBITRUM;
 
     default:
       return (chain_id >> 56) & 0xff;

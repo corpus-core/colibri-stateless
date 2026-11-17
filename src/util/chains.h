@@ -54,7 +54,8 @@ extern "C" {
  * Values 0–14 are reserved; OP-Stack L2s may also map to `C4_CHAIN_TYPE_OP` via
  * `c4_chain_type()` even when the numeric id uses `C4_CHAIN_TYPE_ETHEREUM` encoding.
  * The same applies to EEZ (Ethereum Economic Zone) L2s, which map to
- * `C4_CHAIN_TYPE_EEZ`.
+ * `C4_CHAIN_TYPE_EEZ`, and to Arbitrum One (`C4_CHAIN_ARB_ONE`), which maps to
+ * `C4_CHAIN_TYPE_ARBITRUM`.
  */
 typedef enum {
   C4_CHAIN_TYPE_ETHEREUM  = 0,
@@ -97,6 +98,9 @@ extern const chain_id_t C4_CHAIN_GNOSIS;
 #define C4_CHAIN_OP_FRAXTAL    CHAIN(252)
 #define C4_CHAIN_OP_MANTLE     CHAIN(5000)
 #define C4_CHAIN_OP_KLAYTN     CHAIN(8217)
+
+/** Arbitrum One. `c4_chain_type()` maps this id to `C4_CHAIN_TYPE_ARBITRUM`. */
+#define C4_CHAIN_ARB_ONE CHAIN(42161)
 
 /**
  * EEZ (Ethereum Economic Zone) L2s. Each id listed here must also be handled in
@@ -156,6 +160,7 @@ static inline bool c4_chains_get_props(chain_id_t chain_id, chain_properties_t* 
  *
  * OP-Stack rollups listed as `C4_CHAIN_OP_*` macros map to `C4_CHAIN_TYPE_OP`;
  * EEZ rollups listed as `C4_CHAIN_EEZ_*` macros map to `C4_CHAIN_TYPE_EEZ`;
+ * `C4_CHAIN_ARB_ONE` maps to `C4_CHAIN_TYPE_ARBITRUM`;
  * other ids use the type byte embedded in `chain_id`.
  *
  * @param chain_id packed chain identifier

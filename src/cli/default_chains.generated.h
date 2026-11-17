@@ -28,6 +28,10 @@ static bool c4_default_chain_id_from_name(const char* name, chain_id_t* out) {
     *out = 696991ULL;
     return true;
   }
+  if (strcmp(name, "arbitrum") == 0 || strcmp(name, "arb1") == 0 || strcmp(name, "0xa4b1") == 0) {
+    *out = 42161ULL;
+    return true;
+  }
   return false;
 }
 
@@ -45,6 +49,8 @@ static const char* c4_default_chain_config_json(chain_id_t chain_id) {
       return "{\"eth_rpc\":[\"https://plataberget.colibri-proof.tech/execution\",\"https://rpc.glamsterdam-devnet-8.ethpandaops.io/\"],\"beacon_api\":[\"https://plataberget.colibri-proof.tech/consensus\",\"https://beacon.glamsterdam-devnet-8.ethpandaops.io/\"],\"checkpointz\":[\"https://checkpoint-sync.glamsterdam-devnet-8.ethpandaops.io\"],\"prover\":[\"https://plataberget.colibri-proof.tech\"]}";
     case 696991ULL: // rollupx
       return "{\"eth_rpc\":[\"https://rollupx.colibri-proof.tech/execution\",\"https://rollupx.eez.dev/rpc/l2\"],\"beacon_api\":[\"https://mainnet.colibri-proof.tech/consensus\"],\"checkpointz\":[\"https://mainnet.colibri-proof.tech/consensus\"],\"prover\":[\"https://rollupx.colibri-proof.tech\"]}";
+    case 42161ULL: // arbitrum
+      return "{\"eth_rpc\":[\"https://arb1.arbitrum.io/rpc\",\"https://arbitrum-one-rpc.publicnode.com\"],\"beacon_api\":[\"https://mainnet.colibri-proof.tech/consensus\",\"https://gateway.tenderly.co/public/mainnet\",\"https://ethereum-beacon-api.publicnode.com\"],\"checkpointz\":[\"https://sync-mainnet.beaconcha.in\",\"https://mainnet.checkpoint.sigp.io\"],\"prover\":[\"https://c4.incubed.net\"]}";
     default:
       return NULL;
   }

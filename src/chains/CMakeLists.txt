@@ -29,3 +29,10 @@ endif()
 if(CHAIN_EEZ AND CHAIN_ETH)
     add_subdirectory(eez)
 endif()
+# Arbitrum reuses the Ethereum prover and verifier. Off unless the preset or
+# the caller turns CHAIN_ARB on; the feed client is not stable yet.
+if(CHAIN_ARB AND CHAIN_ETH)
+    add_subdirectory(arb)
+elseif(CHAIN_ARB)
+    message(STATUS "CHAIN_ARB requires CHAIN_ETH; Arbitrum module skipped")
+endif()

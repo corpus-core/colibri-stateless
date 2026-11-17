@@ -21,6 +21,7 @@ const RUST_CONST = {
   10200: 'CHIADO',
   7091047534: 'PLATABERGET',
   696991: 'ROLLUPX',
+  42161: 'ARBITRUM',
 };
 
 const RUST_DOC = {
@@ -30,6 +31,7 @@ const RUST_DOC = {
   10200: 'Chiado testnet (Gnosis).',
   7091047534: 'Platåberget (Glamsterdam devnet-8).',
   696991: 'RollupX (EEZ).',
+  42161: 'Arbitrum One.',
 };
 
 function loadSpec() {
