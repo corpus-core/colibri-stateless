@@ -163,6 +163,27 @@
       "prover": [
         "https://rollupx.colibri-proof.tech"
       ]
+    },
+    {
+      "id": 8453,
+      "name": "base",
+      "aliases": [
+        "base",
+        "0x2105"
+      ],
+      "pollingInterval": 200,
+      "eth_rpc": [
+        "https://mainnet.base.org"
+      ],
+      "beacon_api": [
+        "https://mainnet.colibri-proof.tech/consensus"
+      ],
+      "checkpointz": [
+        "https://mainnet.colibri-proof.tech/consensus"
+      ],
+      "prover": [
+        "https://base.colibri-proof.tech"
+      ]
     }
   ]
 }

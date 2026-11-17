@@ -25,6 +25,7 @@ _PROVERS = {
     10200: ["https://chiado.colibri-proof.tech"],  # chiado
     7091047534: ["https://plataberget.colibri-proof.tech"],  # plataberget
     696991: ["https://rollupx.colibri-proof.tech"],  # rollupx
+    8453: ["https://base.colibri-proof.tech"],  # base
 }
 
 _ETH_RPCS = {
@@ -58,6 +59,7 @@ _ETH_RPCS = {
         "https://rollupx.colibri-proof.tech/execution",
         "https://rollupx.eez.dev/rpc/l2",
     ],  # rollupx
+    8453: ["https://mainnet.base.org"],  # base
 }
 
 _BEACON_APIS = {
@@ -81,6 +83,7 @@ _BEACON_APIS = {
         "https://beacon.glamsterdam-devnet-8.ethpandaops.io/",
     ],  # plataberget
     696991: ["https://mainnet.colibri-proof.tech/consensus"],  # rollupx
+    8453: ["https://mainnet.colibri-proof.tech/consensus"],  # base
 }
 
 _CHECKPOINTZ = {
@@ -101,6 +104,7 @@ _CHECKPOINTZ = {
     10200: ["https://checkpoint.chiadochain.net"],  # chiado
     7091047534: ["https://checkpoint-sync.glamsterdam-devnet-8.ethpandaops.io"],  # plataberget
     696991: ["https://mainnet.colibri-proof.tech/consensus"],  # rollupx
+    8453: ["https://mainnet.colibri-proof.tech/consensus"],  # base
 }
 
 def default_provers(chain_id: int) -> List[str]:

@@ -124,8 +124,9 @@ static ssz_ob_t build_deneb_payload(const uint8_t block_hash[32], uint64_t block
   return build_deneb_payload_ex(block_hash, block_number, NULL_BYTES, NULL_BYTES);
 }
 
-static ssz_ob_t build_isthmus_payload(const uint8_t block_hash[32], uint64_t block_number,
-                                      const uint8_t withdrawals_root[32]) {
+static ssz_ob_t build_isthmus_payload_ex(const uint8_t block_hash[32], uint64_t block_number,
+                                         const uint8_t withdrawals_root[32], bytes_t extra_data,
+                                         uint64_t blob_gas_used) {
   uint8_t       z32[32]      = {0};
   uint8_t       z20[20]      = {0};
   uint8_t       bloom[256]   = {0};
@@ -141,15 +142,20 @@ static ssz_ob_t build_isthmus_payload(const uint8_t block_hash[32], uint64_t blo
   add_u64(&b, "gasLimit", 30000000ull);
   add_u64(&b, "gasUsed", 0);
   add_u64(&b, "timestamp", 1700000000ull);
-  ssz_add_bytes(&b, "extraData", NULL_BYTES);
+  ssz_add_bytes(&b, "extraData", extra_data);
   ssz_add_bytes(&b, "baseFeePerGas", bytes(base_fee, 32));
   ssz_add_bytes(&b, "blockHash", bytes(block_hash, 32));
   ssz_add_bytes(&b, "transactions", NULL_BYTES);
   ssz_add_bytes(&b, "withdrawals", NULL_BYTES);
-  add_u64(&b, "blobGasUsed", 0);
+  add_u64(&b, "blobGasUsed", blob_gas_used);
   add_u64(&b, "excessBlobGas", 0);
   ssz_add_bytes(&b, "withdrawalsRoot", bytes(withdrawals_root, 32));
   return ssz_builder_to_bytes(&b);
+}
+
+static ssz_ob_t build_isthmus_payload(const uint8_t block_hash[32], uint64_t block_number,
+                                      const uint8_t withdrawals_root[32]) {
+  return build_isthmus_payload_ex(block_hash, block_number, withdrawals_root, NULL_BYTES, 0);
 }
 
 static bytes_t wrap_preconf(ssz_ob_t ep) {
@@ -660,6 +666,51 @@ void test_keccak_match_isthmus_legacy_empty_requests(void) {
   matching_el_free(&el);
 }
 
+/* Denim keeps the Isthmus SSZ payload and the 32-byte prefix the bridge writes.
+ * extraData carries the EIP-1559 params (version, denominator 1000, elasticity 5,
+ * minimum base fee) and blobGasUsed is no longer zero. */
+void test_keccak_match_denim_extra_and_blob_gas(void) {
+  uint8_t empty_req[32] = {0};
+  uint8_t wd_root[32]   = {0};
+  sha256(NULL_BYTES, empty_req);
+  memset(wd_root, 0xEE, 32);
+  const uint8_t extra[] = {0x01, 0x00, 0x00, 0x03, 0xe8, 0x00, 0x00, 0x00, 0x05,
+                           0x00, 0x00, 0x00, 0x00, 0x00, 0x4c, 0x4b, 0x40};
+  const uint64_t blob_gas = 0x6ccbcull;
+
+  uint8_t dummy[32] = {0};
+  dummy[0]          = 0x11;
+  ssz_ob_t draft    = build_isthmus_payload_ex(dummy, TEST_BLOCK_NUMBER, wd_root,
+                                               bytes((uint8_t*) extra, sizeof(extra)), blob_gas);
+  eth_el_header_ctx_t ectx = {0};
+  ectx.execution_payload   = draft;
+  ectx.fork                = C4_FORK_ELECTRA;
+  memcpy(ectx.parent_root, PARENT_ROOT_AB, 32);
+  ectx.has_requests_hash = true;
+  memcpy(ectx.requests_hash, empty_req, 32);
+  bytes_t   header = NULL_BYTES;
+  bytes32_t hash   = {0};
+  TEST_ASSERT_EQUAL_INT(C4_SUCCESS, eth_el_header_build_from_ep(&header, &ectx));
+  keccak(header, hash);
+  safe_free(header.data);
+  safe_free(draft.bytes.data);
+
+  ssz_ob_t matched = build_isthmus_payload_ex(hash, TEST_BLOCK_NUMBER, wd_root,
+                                              bytes((uint8_t*) extra, sizeof(extra)), blob_gas);
+  bytes_t  preconf = wrap_preconf(matched);
+  safe_free(matched.bytes.data);
+
+  matching_el_t el = {0};
+  TEST_ASSERT_EQUAL_INT(C4_SUCCESS, op_el_from_preconf_bytes(NULL, preconf, &el.header, &el.body, el.hash));
+  TEST_ASSERT_EQUAL_MEMORY(hash, el.hash, 32);
+  bytes_t got_extra = eth_el_header_get(el.header, EL_EXTRA_DATA);
+  TEST_ASSERT_EQUAL_UINT32(sizeof(extra), got_extra.len);
+  TEST_ASSERT_EQUAL_MEMORY(extra, got_extra.data, sizeof(extra));
+  TEST_ASSERT_EQUAL_UINT64(blob_gas, eth_el_header_get_uint64(el.header, EL_BLOB_GAS_USED));
+  el.preconf = preconf;
+  matching_el_free(&el);
+}
+
 void test_el_header_electra_empty_beacon_uses_sha256(void) {
   uint8_t dummy[32]         = {0};
   dummy[0]                  = 0x11;
@@ -984,6 +1035,7 @@ int main(void) {
   RUN_TEST(test_keccak_match_electra_prefix);
   RUN_TEST(test_keccak_match_electra_legacy_empty_requests);
   RUN_TEST(test_keccak_match_isthmus_legacy_empty_requests);
+  RUN_TEST(test_keccak_match_denim_extra_and_blob_gas);
   RUN_TEST(test_el_header_electra_empty_beacon_uses_sha256);
   RUN_TEST(test_keccak_match_gloas_prefix);
 #ifdef EL_HEADER_CACHE

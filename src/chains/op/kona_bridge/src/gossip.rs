@@ -208,6 +208,32 @@ fn inbound_over_limit(inbound: usize, total: usize) -> bool {
     inbound > MAX_INBOUND || total > MAX_TOTAL
 }
 
+/// How long a peer that was closed for the inbound cap stays refused.
+const INBOUND_REJECT_TTL: Duration = Duration::from_secs(3 * 60);
+
+/// base-consensus identifies as agent "base". Other OP chains must not.
+fn identify_agent(chain_id: u64) -> &'static str {
+    if chain_id == 8453 {
+        "base"
+    } else {
+        "colibri"
+    }
+}
+
+fn remember_inbound_reject(rejected: &mut HashMap<PeerId, Instant>, peer: PeerId, now: Instant) {
+    rejected.entry(peer).or_insert(now);
+}
+
+fn inbound_reject_active(rejected: &HashMap<PeerId, Instant>, peer: &PeerId, now: Instant) -> bool {
+    rejected
+        .get(peer)
+        .is_some_and(|at| now.saturating_duration_since(*at) < INBOUND_REJECT_TTL)
+}
+
+fn prune_inbound_rejects(rejected: &mut HashMap<PeerId, Instant>, now: Instant) {
+    rejected.retain(|_, at| now.saturating_duration_since(*at) < INBOUND_REJECT_TTL);
+}
+
 /// Only the first `MESH_TARGET` block-topic subscribers become explicit peers.
 /// Explicit peers are never rotated out by gossipsub and would otherwise pin
 /// every historical subscriber in the mesh.
@@ -293,22 +319,18 @@ pub async fn run_gossip_network(
         "🔍 Looking up rollup config for chain {}",
         chain_config.chain_id
     );
+    if chain_config.unsafe_signer == alloy_primitives::Address::ZERO {
+        return Err("SEQUENCER_ADDRESS is required for a chain without a preset signer".into());
+    }
     let rollup_config = ROLLUP_CONFIGS
         .get(&chain_config.chain_id)
-        .or_else(|| {
-            warn!(
-                "⚠️  Rollup config not found for chain {}, using Base as fallback",
-                chain_config.chain_id
-            );
-            ROLLUP_CONFIGS.get(&8453) // Base fallback
-        })
+        .cloned()
         .ok_or_else(|| {
             format!(
-                "No rollup config found for chain {} or Base fallback",
+                "No rollup config for chain {}. Refusing to fall back to Base.",
                 chain_config.chain_id
             )
-        })?
-        .clone();
+        })?;
     tracing::debug!("✅ Found rollup config for chain {}", chain_config.chain_id);
 
     info!("🪪 P2P PeerId {}", local_peer_id);
@@ -370,11 +392,12 @@ pub async fn run_gossip_network(
     .build()
     .map_err(|e| format!("Failed to build gossip driver: {}", e))?;
 
-    // Match base-consensus identify (agent "base", empty protocol version).
+    // base-consensus expects agent "base". Other chains advertise "colibri" so
+    // an OP Mainnet node is not presented as a Base client.
     // Hide 0.0.0.0 listen addrs; advertise the ENR IP so peers get a usable address.
     gossip.behaviour_mut().identify = identify::Behaviour::new(
         identify::Config::new(String::new(), gossip_pubkey)
-            .with_agent_version("base".to_string())
+            .with_agent_version(identify_agent(chain_config.chain_id).to_string())
             .with_hide_listen_addrs(true),
     );
     if !advertised.is_unspecified() {
@@ -452,6 +475,8 @@ pub async fn run_gossip_network(
     let mut outbound_peers: HashSet<PeerId> = HashSet::new();
     let mut inbound_peers: HashSet<PeerId> = HashSet::new();
     let mut topic_peers: HashSet<PeerId> = HashSet::new();
+    let mut inbound_rejected: HashMap<PeerId, Instant> = HashMap::new();
+    let mut quiet_close: HashSet<PeerId> = HashSet::new();
     const DIAL_COOLDOWN: Duration = Duration::from_secs(60);
 
     loop {
@@ -464,38 +489,64 @@ pub async fn run_gossip_network(
                 };
                 let mut promote_explicit: Option<PeerId> = None;
                 let mut close_conn: Option<ConnectionId> = None;
+                let mut cap_close = false;
                 let mut saw_gossip_message = false;
                 match &event {
                     SwarmEvent::ConnectionEstablished { peer_id, endpoint, connection_id, num_established, .. } => {
                         conn_started.insert(*peer_id, Instant::now());
-                        if matches!(endpoint, ConnectedPoint::Dialer { .. }) {
+                        let inbound = !matches!(endpoint, ConnectedPoint::Dialer { .. });
+                        if !inbound {
                             outbound_peers.insert(*peer_id);
                             inbound_peers.remove(peer_id);
                         } else if outbound_peers.contains(peer_id) {
                             // Dual-connect: keep the outbound mesh session, drop the extra inbound.
                             close_conn = Some(*connection_id);
+                        } else if inbound_reject_active(&inbound_rejected, peer_id, Instant::now())
+                            && inbound_over_limit(inbound_peers.len() + 1, gossip.connected_peers())
+                        {
+                            // Still over the cap. Close quietly and keep the original deadline.
+                            cap_close = true;
+                            close_conn = Some(*connection_id);
+                            quiet_close.insert(*peer_id);
                         } else {
+                            inbound_rejected.remove(peer_id);
                             inbound_peers.insert(*peer_id);
                             if inbound_over_limit(inbound_peers.len(), gossip.connected_peers()) {
+                                inbound_peers.remove(peer_id);
+                                remember_inbound_reject(
+                                    &mut inbound_rejected,
+                                    *peer_id,
+                                    Instant::now(),
+                                );
+                                quiet_close.insert(*peer_id);
+                                cap_close = true;
                                 close_conn = Some(*connection_id);
                             }
                         }
-                        info!(
-                            "✅ Connected {} {} {} n={} (peers={} in={} out={})",
-                            peer_id,
-                            endpoint_dir(endpoint),
-                            endpoint_addr(endpoint),
-                            num_established,
-                            gossip.connected_peers(),
-                            inbound_peers.len(),
-                            outbound_peers.len()
-                        );
-                    }
-                    SwarmEvent::IncomingConnection { connection_id, send_back_addr, local_addr, .. } => {
-                        tracing::debug!("⬅️  Incoming {} -> {}", send_back_addr, local_addr);
-                        if inbound_peers.len() >= MAX_INBOUND || gossip.connected_peers() >= MAX_TOTAL {
-                            close_conn = Some(*connection_id);
+                        if cap_close {
+                            tracing::debug!(
+                                "🚫 Refused {} inbound (peers={} in={} out={})",
+                                peer_id,
+                                gossip.connected_peers(),
+                                inbound_peers.len(),
+                                outbound_peers.len()
+                            );
+                        } else {
+                            info!(
+                                "✅ Connected {} {} {} n={} (peers={} in={} out={})",
+                                peer_id,
+                                endpoint_dir(endpoint),
+                                endpoint_addr(endpoint),
+                                num_established,
+                                gossip.connected_peers(),
+                                inbound_peers.len(),
+                                outbound_peers.len()
+                            );
                         }
+                    }
+                    SwarmEvent::IncomingConnection { send_back_addr, local_addr, .. } => {
+                        // Pending, not established. close_connection() cannot drop it yet.
+                        tracing::debug!("⬅️  Incoming {} -> {}", send_back_addr, local_addr);
                     }
                     SwarmEvent::OutgoingConnectionError { peer_id, error, .. } => {
                         if let Some(id) = peer_id {
@@ -512,26 +563,42 @@ pub async fn run_gossip_network(
                         } else {
                             Duration::ZERO
                         };
+                        let refused = quiet_close.contains(peer_id);
                         if *num_established == 0 {
                             outbound_peers.remove(peer_id);
                             inbound_peers.remove(peer_id);
                             topic_peers.remove(peer_id);
-                            dial_cooldown.insert(*peer_id, Instant::now());
+                            if !refused {
+                                dial_cooldown.insert(*peer_id, Instant::now());
+                            }
                             forget_peer_state(&mut gossip, peer_id);
                         } else if matches!(endpoint, ConnectedPoint::Listener { .. }) {
                             inbound_peers.remove(peer_id);
                         }
-                        info!(
-                            "🔌 Disconnected {} {} after {:?} cause={:?} remaining={} (peers={} in={} out={})",
-                            peer_id,
-                            endpoint_dir(endpoint),
-                            held,
-                            cause,
-                            num_established,
-                            gossip.connected_peers(),
-                            inbound_peers.len(),
-                            outbound_peers.len()
-                        );
+                        let quiet = quiet_close.remove(peer_id);
+                        if quiet {
+                            tracing::debug!(
+                                "🔌 Refused disconnect {} after {:?} cause={:?} (peers={} in={} out={})",
+                                peer_id,
+                                held,
+                                cause,
+                                gossip.connected_peers(),
+                                inbound_peers.len(),
+                                outbound_peers.len()
+                            );
+                        } else {
+                            info!(
+                                "🔌 Disconnected {} {} after {:?} cause={:?} remaining={} (peers={} in={} out={})",
+                                peer_id,
+                                endpoint_dir(endpoint),
+                                held,
+                                cause,
+                                num_established,
+                                gossip.connected_peers(),
+                                inbound_peers.len(),
+                                outbound_peers.len()
+                            );
+                        }
                     }
                     SwarmEvent::Behaviour(GossipEvent::Identify(ev)) => match ev.as_ref() {
                         identify::Event::Received { peer_id, info, .. } => {
@@ -612,15 +679,31 @@ pub async fn run_gossip_network(
                 }
                 let payload_envelope = gossip.handle_event(event);
                 if let Some(connection_id) = close_conn {
-                    info!(
-                        "🚫 Closing connection {:?} (inbound {}/{} total {}/{})",
-                        connection_id,
-                        inbound_peers.len(),
-                        MAX_INBOUND,
-                        gossip.connected_peers(),
-                        MAX_TOTAL
-                    );
-                    gossip.swarm.close_connection(connection_id);
+                    if cap_close {
+                        tracing::debug!(
+                            "🚫 Closing connection {:?} (inbound {}/{} total {}/{})",
+                            connection_id,
+                            inbound_peers.len(),
+                            MAX_INBOUND,
+                            gossip.connected_peers(),
+                            MAX_TOTAL
+                        );
+                    } else {
+                        info!(
+                            "🚫 Closing connection {:?} (inbound {}/{} total {}/{})",
+                            connection_id,
+                            inbound_peers.len(),
+                            MAX_INBOUND,
+                            gossip.connected_peers(),
+                            MAX_TOTAL
+                        );
+                    }
+                    if !gossip.swarm.close_connection(connection_id) {
+                        tracing::debug!(
+                            "close_connection {:?} had no established session",
+                            connection_id
+                        );
+                    }
                 }
                 let Some(payload_envelope) = payload_envelope else {
                     if saw_gossip_message {
@@ -762,6 +845,7 @@ pub async fn run_gossip_network(
                     break;
                 }
                 dial_cooldown.retain(|_, t| t.elapsed() < DIAL_COOLDOWN);
+                prune_inbound_rejects(&mut inbound_rejected, Instant::now());
                 prune_stale_gater(&mut gossip.connection_gate, GATER_DIAL_RETENTION);
                 let connected: HashSet<PeerId> = gossip.swarm.connected_peers().cloned().collect();
                 inbound_peers.retain(|id| connected.contains(id));
@@ -843,6 +927,47 @@ mod tests {
             .mode()
             & 0o777;
         assert_eq!(mode, 0o600);
+    }
+
+    #[test]
+    fn identify_agent_is_base_only_for_base() {
+        assert_eq!(identify_agent(8453), "base");
+        assert_eq!(identify_agent(10), "colibri");
+        assert_eq!(identify_agent(7777777), "colibri");
+    }
+
+    #[test]
+    fn inbound_reject_expires_after_ttl() {
+        let peer = PeerId::random();
+        let now = Instant::now();
+        let mut rejected = HashMap::new();
+        remember_inbound_reject(&mut rejected, peer, now);
+        assert!(inbound_reject_active(
+            &rejected,
+            &peer,
+            now + INBOUND_REJECT_TTL - Duration::from_secs(1)
+        ));
+        assert!(!inbound_reject_active(
+            &rejected,
+            &peer,
+            now + INBOUND_REJECT_TTL
+        ));
+        prune_inbound_rejects(&mut rejected, now + INBOUND_REJECT_TTL);
+        assert!(rejected.is_empty());
+    }
+
+    #[test]
+    fn inbound_reject_does_not_extend_when_remembered_again() {
+        let peer = PeerId::random();
+        let now = Instant::now();
+        let mut rejected = HashMap::new();
+        remember_inbound_reject(&mut rejected, peer, now);
+        remember_inbound_reject(&mut rejected, peer, now + Duration::from_secs(120));
+        assert!(!inbound_reject_active(
+            &rejected,
+            &peer,
+            now + INBOUND_REJECT_TTL
+        ));
     }
 
     #[test]

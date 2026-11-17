@@ -55,6 +55,8 @@ void test_name_aliases_resolve_known_chains(void) {
   assert_alias("plataberget", 7091047534ULL);
   assert_alias("glamsterdam-devnet-8", 7091047534ULL);
   assert_alias("0x1a6a8cc6e", 7091047534ULL);
+  assert_alias("base", 8453ULL);
+  assert_alias("0x2105", 8453ULL);
 }
 
 void test_unknown_or_null_name_is_rejected(void) {
@@ -66,7 +68,7 @@ void test_unknown_or_null_name_is_rejected(void) {
 }
 
 void test_known_chains_have_config_lists(void) {
-  const chain_id_t ids[] = {1ULL, 11155111ULL, 100ULL, 10200ULL, 7091047534ULL};
+  const chain_id_t ids[] = {1ULL, 11155111ULL, 100ULL, 10200ULL, 7091047534ULL, 8453ULL};
   for (size_t i = 0; i < sizeof(ids) / sizeof(ids[0]); i++)
     assert_config_has_lists(ids[i]);
 }
@@ -86,6 +88,19 @@ void test_cloudflare_prover_first_and_direct_lb_second(void) {
   buffer_free(&buf);
 }
 
+void test_base_defaults(void) {
+  const char* cfg = c4_default_chain_config_json(8453ULL);
+  TEST_ASSERT_NOT_NULL(cfg);
+
+  buffer_t buf  = {0};
+  json_t   json = json_parse(cfg);
+  TEST_ASSERT_EQUAL_STRING("https://base.colibri-proof.tech",
+                           json_as_string(json_at(json_get(json, "prover"), 0), &buf));
+  TEST_ASSERT_EQUAL_STRING("https://mainnet.base.org",
+                           json_as_string(json_at(json_get(json, "eth_rpc"), 0), &buf));
+  buffer_free(&buf);
+}
+
 void test_plataberget_defaults(void) {
   const char* cfg = c4_default_chain_config_json(7091047534ULL);
   TEST_ASSERT_NOT_NULL(cfg);
@@ -102,7 +117,7 @@ void test_plataberget_defaults(void) {
 }
 
 void test_removed_dead_urls_are_absent(void) {
-  const chain_id_t ids[] = {1ULL, 11155111ULL, 100ULL, 10200ULL, 7091047534ULL};
+  const chain_id_t ids[] = {1ULL, 11155111ULL, 100ULL, 10200ULL, 7091047534ULL, 8453ULL};
   const char*      dead[] = {
       "sepolia.drpc.org",
       "sepolia-prover.incubed.net",
@@ -125,6 +140,7 @@ int main(void) {
   RUN_TEST(test_known_chains_have_config_lists);
   RUN_TEST(test_unknown_chain_has_no_config);
   RUN_TEST(test_cloudflare_prover_first_and_direct_lb_second);
+  RUN_TEST(test_base_defaults);
   RUN_TEST(test_plataberget_defaults);
   RUN_TEST(test_removed_dead_urls_are_absent);
   return UNITY_END();

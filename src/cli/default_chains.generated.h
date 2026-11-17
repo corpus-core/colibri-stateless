@@ -28,6 +28,10 @@ static bool c4_default_chain_id_from_name(const char* name, chain_id_t* out) {
     *out = 696991ULL;
     return true;
   }
+  if (strcmp(name, "base") == 0 || strcmp(name, "0x2105") == 0) {
+    *out = 8453ULL;
+    return true;
+  }
   return false;
 }
 
@@ -45,6 +49,8 @@ static const char* c4_default_chain_config_json(chain_id_t chain_id) {
       return "{\"eth_rpc\":[\"https://plataberget.colibri-proof.tech/execution\",\"https://rpc.glamsterdam-devnet-8.ethpandaops.io/\"],\"beacon_api\":[\"https://plataberget.colibri-proof.tech/consensus\",\"https://beacon.glamsterdam-devnet-8.ethpandaops.io/\"],\"checkpointz\":[\"https://checkpoint-sync.glamsterdam-devnet-8.ethpandaops.io\"],\"prover\":[\"https://plataberget.colibri-proof.tech\"]}";
     case 696991ULL: // rollupx
       return "{\"eth_rpc\":[\"https://rollupx.colibri-proof.tech/execution\",\"https://rollupx.eez.dev/rpc/l2\"],\"beacon_api\":[\"https://mainnet.colibri-proof.tech/consensus\"],\"checkpointz\":[\"https://mainnet.colibri-proof.tech/consensus\"],\"prover\":[\"https://rollupx.colibri-proof.tech\"]}";
+    case 8453ULL: // base
+      return "{\"eth_rpc\":[\"https://mainnet.base.org\"],\"beacon_api\":[\"https://mainnet.colibri-proof.tech/consensus\"],\"checkpointz\":[\"https://mainnet.colibri-proof.tech/consensus\"],\"prover\":[\"https://base.colibri-proof.tech\"]}";
     default:
       return NULL;
   }

@@ -19,7 +19,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 use tokio::sync::broadcast;
-use tracing::{info, warn};
+use tracing::info;
 #[cfg(feature = "ffi")]
 use tracing::error;
 
@@ -249,29 +249,21 @@ pub async fn run_http_first_network(
         cleanup_old_files(cleanup_output_dir, ttl_minutes, cleanup_interval, cleanup_running).await;
     });
     
-    // Determine network name from chain_id
-    let network_name = match chain_id {
-        10 => "op-mainnet",
-        8453 => "base", 
-        130 => "unichain",
-        480 => "worldchain",
-        7777777 => "zora",
-        _ => {
-            warn!("⚠️  Unknown chain ID {}, using default config", chain_id);
-            "base" // fallback
-        }
-    };
-
+    // Unknown ids keep the requested chain id. They do not inherit Base's signer
+    // or rollup config; gossip fails later unless kona has that chain and the
+    // caller passed a sequencer address.
+    let network_name = ChainConfig::preset_name(chain_id).unwrap_or("custom");
     let mut chain_config = ChainConfig::from(network_name, chain_id);
     
     // Seed the gossip BlockHandler signer. This is the ingest check; processing.rs
     // only serializes envelopes that already passed. Clients re-check in
     // op_verify_sequencer_proof.
     if let Some(expected) = expected_sequencer {
-        if let Ok(addr) = expected.parse::<Address>() {
-            chain_config.unsafe_signer = addr;
-            info!("🔐 Using sequencer from C config: {}", addr);
-        }
+        let addr = expected.parse::<Address>().map_err(|e| {
+            format!("invalid sequencer address {expected}: {e}")
+        })?;
+        chain_config.unsafe_signer = addr;
+        info!("🔐 Using sequencer from C config: {}", addr);
     }
     
     // Initialize HTTP health tracker with simplified switching

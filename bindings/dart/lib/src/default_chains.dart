@@ -12,6 +12,8 @@ const int chainChiado = 10200;
 const int chainPlataberget = 7091047534;
 /// rollupx chain ID.
 const int chainRollupx = 696991;
+/// base chain ID.
+const int chainBase = 8453;
 
 /// Default prover endpoints by chain.
 List<String> defaultProvers(int chainId) {
@@ -35,6 +37,7 @@ List<String> defaultProvers(int chainId) {
     10200 => ["https://chiado.colibri-proof.tech"],
     7091047534 => ["https://plataberget.colibri-proof.tech"],
     696991 => ["https://rollupx.colibri-proof.tech"],
+    8453 => ["https://base.colibri-proof.tech"],
     _ => ["https://c4.incubed.net"],
   };
 }
@@ -72,6 +75,7 @@ List<String> defaultEthRpcs(int chainId) {
         "https://rollupx.colibri-proof.tech/execution",
         "https://rollupx.eez.dev/rpc/l2",
       ],
+    8453 => ["https://mainnet.base.org"],
     _ => <String>[],
   };
 }
@@ -99,6 +103,7 @@ List<String> defaultBeaconApis(int chainId) {
         "https://beacon.glamsterdam-devnet-8.ethpandaops.io/",
       ],
     696991 => ["https://mainnet.colibri-proof.tech/consensus"],
+    8453 => ["https://mainnet.colibri-proof.tech/consensus"],
     _ => <String>[],
   };
 }
@@ -123,6 +128,7 @@ List<String> defaultCheckpointz(int chainId) {
     10200 => ["https://checkpoint.chiadochain.net"],
     7091047534 => ["https://checkpoint-sync.glamsterdam-devnet-8.ethpandaops.io"],
     696991 => ["https://mainnet.colibri-proof.tech/consensus"],
+    8453 => ["https://mainnet.colibri-proof.tech/consensus"],
     _ => <String>[],
   };
 }
