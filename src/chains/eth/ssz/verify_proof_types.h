@@ -340,8 +340,9 @@ static const ssz_def_t ETH_EIP2935_PROOF[] = {
 // `signedTail` is everything after `blockHash` in Nitro's SignatureHash:
 // blockMetadata | be64(delayedMessagesRead) | kind | poster | be64(l1BlockNumber)
 // | be64(timestamp) | [requestId] | [l1BaseFee] | l2Msg
-// Verification of the signature is not registered yet. The Arbitrum server builds this
-// object for `arb_preconf/latest`.
+// The Arbitrum verifier recovers the signer and accepts only the hardcoded Arbitrum One
+// batch poster (`0xC1b634853Cb333D3aD8663715b08f41A3Aec47cc`) until the L1 signer proof
+// exists. The Arbitrum server builds this object for `arb_preconf/latest`.
 static const ssz_def_t ARB_FEED_PROOF[] = {
     SSZ_PROG_BYTES("elHeader"),                           // RLP-serialized L2 execution header
     SSZ_UNION("signedTail", ETH_SEQUENCER_PAYLOAD_UNION), // ZSTD-compressed or uncompressed tail
@@ -357,7 +358,8 @@ static const ssz_def_t ARB_FEED_PROOF[] = {
 // EEZ chains. Variant 5 (`eip2935`) is authenticated by `c4_verify_eip2935_block`
 // for every chain. The EEZ prover is the one that builds it today.
 // Variant 6 (`arbFeedProof`) is the Arbitrum sequencer-feed signature. `c4_verify_block`
-// does not accept it until the Arbitrum verifier is registered.
+// accepts it through the Arbitrum verifier hook (`C4_CHAIN_TYPE_ARBITRUM`). The signer
+// is the hardcoded batch poster until the L1 signer proof exists.
 // New variants are appended; existing indices are frozen.
 static const ssz_def_t ETH_EL_PROOF_UNION[] = {
     SSZ_BYTES32(ETH_SSZ_NAME_BLOCK_HASH),                                // 0: cached: verifier already holds this verified EL header

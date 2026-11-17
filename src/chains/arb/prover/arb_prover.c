@@ -26,6 +26,7 @@
 #include "chains.h"
 
 bool arb_prover_execute(prover_ctx_t* ctx) {
+  arb_register_block_proof_prover();
   if (c4_chain_type(ctx->chain_id) != C4_CHAIN_TYPE_ARBITRUM) return false;
   c4_eth_prover_dispatch(ctx);
   return true;

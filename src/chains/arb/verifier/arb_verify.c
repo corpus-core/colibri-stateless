@@ -36,9 +36,11 @@ const ssz_def_t* c4_arb_get_request_type(chain_type_t chain_type) {
 
 void arb_init_rpc_ctx(c4_init_ctx_t* ctx) {
   (void) ctx;
+  arb_register_block_proof_verify();
 }
 
 bool c4_arb_verify(verify_ctx_t* ctx) {
+  arb_register_block_proof_verify();
   if (c4_chain_type(ctx->chain_id) != C4_CHAIN_TYPE_ARBITRUM) return false;
   return c4_eth_verify_request(ctx);
 }

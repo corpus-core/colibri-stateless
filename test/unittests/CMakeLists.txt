@@ -126,6 +126,10 @@ foreach(test_source ${TEST_SOURCES})
             target_compile_definitions(${test_name} PRIVATE ARB_BLOCK_FIXTURE="${CMAKE_SOURCE_DIR}/test/data/arb_feed/block.json")
             target_include_directories(${test_name} PRIVATE
                 ${CMAKE_SOURCE_DIR}/src/chains/eth/ssz
+                ${CMAKE_SOURCE_DIR}/src/chains/eth/prover
+                ${CMAKE_SOURCE_DIR}/src/chains/eth/verifier
+                ${CMAKE_SOURCE_DIR}/src/chains/arb/prover
+                ${CMAKE_SOURCE_DIR}/src/chains/arb/verifier
                 ${CMAKE_SOURCE_DIR}/src/server
             )
         else()

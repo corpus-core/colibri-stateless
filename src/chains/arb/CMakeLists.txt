@@ -21,12 +21,13 @@
 
 set(VERIFIER_SOURCES
   verifier/arb_verify.c
+  verifier/arb_verify_block.c
 )
 
 add_verifier(
   NAME arb_verifier
   SOURCES ${VERIFIER_SOURCES}
-  DEPENDS util eth_verifier
+  DEPENDS util eth_verifier zstd
   GET_REQ_TYPE c4_arb_get_request_type
   VERIFY c4_arb_verify
   METHOD_TYPE c4_arb_get_method_type
@@ -35,7 +36,9 @@ add_verifier(
 
 add_prover(
   NAME arb_prover
-  SOURCES prover/arb_prover.c
+  SOURCES
+    prover/arb_prover.c
+    prover/arb_proof_block.c
   DEPENDS util eth_prover arb_verifier
   PROOF arb_prover_execute
 )

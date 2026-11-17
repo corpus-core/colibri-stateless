@@ -28,13 +28,16 @@
 extern "C" {
 #endif
 
+#include "beacon.h"
+#include "eth_tools.h"
 #include "prover.h"
 
 /**
  * Builds an Arbitrum proof by delegating to the Ethereum prover.
  *
- * Until the sequencer-feed proof exists, every method uses the same builders
- * as Ethereum (`c4_eth_prover_dispatch`). The chain-type gate is here because
+ * Block proofs use the sequencer-feed hook (`arb_get_el_block` /
+ * `arb_add_feed_proof`). Every method still uses the Ethereum builders
+ * (`c4_eth_prover_dispatch`). The chain-type gate is here because
  * `eth_prover_execute` rejects anything that is not `C4_CHAIN_TYPE_ETHEREUM`.
  *
  * @param ctx prover context with `method`, `params` and `chain_id` already set
@@ -42,6 +45,36 @@ extern "C" {
  *         (the builder status is stored in `ctx`, not returned here)
  */
 bool arb_prover_execute(prover_ctx_t* ctx);
+
+/**
+ * Fills `eth_block_t` from `arb_preconf/latest`.
+ *
+ * Milestone 1 accepts only the JSON string `"latest"`. The feed proof carries
+ * the execution header and no transaction body.
+ *
+ * @param ctx prover context
+ * @param block JSON block identifier
+ * @param out output block (`proof_type` SEQUENCER, EL header, feed proof in `sequencer.payload`)
+ * @param with_body must be false; the feed proof has no execution payload
+ * @return `C4_SUCCESS`, `C4_PENDING`, or `C4_ERROR`
+ */
+c4_status_t arb_get_el_block(prover_ctx_t* ctx, json_t block, eth_block_t* out, bool with_body);
+
+/**
+ * Appends the `arbFeedProof` variant of `ETH_EL_PROOF_UNION` (index 6).
+ *
+ * @param ctx prover context
+ * @param builder parent proof builder (`elProof` union field)
+ * @param block_data block produced by `arb_get_el_block`
+ * @param historic unused (no CL proof)
+ * @return true if the variant was written
+ */
+bool arb_add_feed_proof(prover_ctx_t* ctx, ssz_builder_t* builder, eth_block_t* block_data, blockroot_proof_t* historic);
+
+/**
+ * Registers Arbitrum prover block-proof hooks. Idempotent.
+ */
+void arb_register_block_proof_prover(void);
 
 #ifdef __cplusplus
 }
