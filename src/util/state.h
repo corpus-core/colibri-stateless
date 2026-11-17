@@ -247,7 +247,7 @@ typedef struct data_request {
   struct data_request*    next;                  ///< Pointer to next request in linked list
   bytes32_t               id;                    ///< Unique identifier for this request (32-byte hash)
   uint32_t                ttl;                   ///< Cache time-to-live in seconds (0 = not cacheable). Used server-side to cache the response (e.g. memcached) and forwarded by hosts as a `Cache-Control: max-age=<n>` request header so a shared cache/CDN never returns a response older than this bound (e.g. short bound for `latest` block proofs).
-  uint32_t                delay;                 ///< Milliseconds the host must wait before (re-)executing this request (0 = no delay). Used for delayed same-node retries (e.g. oblivious node warm-up).
+  uint32_t                delay;                 ///< Milliseconds the host must wait before (re-)executing this request (0 = no delay). Used for delayed same-node retries (e.g. oblivious node warm-up, or an Arbitrum header the feed already signed but the execution node has not imported). The HTTP server waits on a libuv timer and does not block its event loop. Bindings and the CLI sleep before issuing the request.
   uint16_t                retry_count;           ///< Number of delayed *same-node* retries already performed (see `c4_state_retry_after`); managed by the chain module, not the host
   bool                    validated;             ///< Whether the response has been validated
 } data_request_t;

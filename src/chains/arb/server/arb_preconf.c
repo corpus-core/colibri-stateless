@@ -12,7 +12,13 @@
 #include "handler.h"
 #include "logger.h"
 #include "ssz.h"
+#include "state.h"
 #include <string.h>
+
+/** One pause so the execution node can import a block the feed already signed. */
+#define ARB_HEADER_NULL_DELAY_MS 250u
+/** A second `result: null` is reported. The block is still absent after the pause. */
+#define ARB_HEADER_NULL_RETRIES 1u
 
 #define ARB_HEADER_MAX (16u * 1024u)
 
@@ -153,6 +159,7 @@ static bool any_server_supports_debug(chain_id_t chain_id) {
  * `ttl` stays 0: the feed runs ahead of the execution node, and a cached
  * `result: null` would keep this hash failing until the entry expired.
  * A header that matches the hash is immutable, but the miss is the race.
+ * That miss is retried once, after `ARB_HEADER_NULL_DELAY_MS`, via `data_request_t.delay`.
  */
 static data_request_t* arb_rpc_request(chain_id_t chain_id, const char* method, bytes_t hash, bool with_object_flag) {
   data_request_t* req = safe_calloc(1, sizeof(*req));
@@ -192,10 +199,28 @@ static void arb_preconf_finish(arb_preconf_fetch_t* ctx, data_request_t* rpc, js
 
 static void arb_preconf_fetch(arb_preconf_fetch_t* ctx, bool debug);
 
+/** True when the node answered and the block is not there yet. An error object is a different failure. */
+static bool arb_header_not_ready(json_t root) {
+  if (root.type != JSON_TYPE_OBJECT) return false;
+  if (json_get(root, "error").type == JSON_TYPE_OBJECT) return false;
+  return json_get(root, "result").type == JSON_TYPE_NULL;
+}
+
 static void arb_preconf_rpc_cb(client_t* client, void* data, data_request_t* rpc) {
   (void) client;
   arb_preconf_fetch_t* ctx  = data;
   json_t               root = rpc && rpc->response.data ? json_parse((const char*) rpc->response.data) : (json_t) {0};
+  // The feed already signed this hash. One delayed repeat of the same method gives the node time to import it.
+  // A null is not "method missing": falling through to `eth_getBlockByHash` would only repeat the race.
+  if (arb_header_not_ready(root)) {
+    if (rpc && c4_state_retry_after(rpc, ARB_HEADER_NULL_DELAY_MS, ARB_HEADER_NULL_RETRIES)) {
+      log_info("arb header is not on the node yet, retrying in %u ms", (unsigned) ARB_HEADER_NULL_DELAY_MS);
+      c4_add_request(&arb_rpc_client, rpc, ctx, arb_preconf_rpc_cb);
+      return;
+    }
+    arb_preconf_finish(ctx, rpc, root, NULL);
+    return;
+  }
   // `debug_getRawHeader` yields a hex string. `eth_getBlockByHash` yields the header object.
   const char* schema = ctx->debug ? "bytes" : JSON_BLOCK_HEADER_FIELDS;
   const char* prefix = ctx->debug ? "debug_getRawHeader: " : "Invalid results for Block: ";

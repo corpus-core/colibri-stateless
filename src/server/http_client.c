@@ -64,7 +64,16 @@ static pending_request_t* pending_requests = NULL;
 static CURLM*             multi_handle;
 static CURLSH*            g_curl_share    = NULL;
 static mc_t*              memcache_client = NULL;
-const char*               CURL_METHODS[]  = {"GET", "POST", "PUT", "DELETE"};
+static bool               curl_alive      = false;
+
+typedef struct request_delay {
+  uv_timer_t            timer;
+  single_request_t*     request;
+  struct request_delay* next;
+} request_delay_t;
+
+static request_delay_t* request_delays = NULL;
+const char*             CURL_METHODS[] = {"GET", "POST", "PUT", "DELETE"};
 
 // Tracing helper: annotate selection, weights and unsupported methods for a request attempt
 static void c4_tracing_annotate_attempt(single_request_t* r, server_list_t* servers, int selected_index, const char* base_url) {
@@ -328,11 +337,11 @@ static server_list_t checkpointz_servers = {0};
 // Extra RPC lists registered by L2 server modules for a non-server chain (e.g. the L1
 // RPC of an EEZ L2). The server owns these entries; they are freed in `c4_cleanup_curl`.
 typedef struct {
-  chain_id_t     chain_id;
-  server_list_t  list;
+  chain_id_t    chain_id;
+  server_list_t list;
 } eth_rpc_entry_t;
-static eth_rpc_entry_t* extra_eth_rpc        = NULL;
-static size_t           extra_eth_rpc_count  = 0;
+static eth_rpc_entry_t* extra_eth_rpc       = NULL;
+static size_t           extra_eth_rpc_count = 0;
 
 static void cache_response(single_request_t* r);
 static void trigger_uncached_curl_request(void* data, char* value, size_t value_len);
@@ -1085,6 +1094,85 @@ void c4_curl_configure_ssl(CURL* easy) {
 #endif
 }
 
+static void trigger_uncached_curl_request(void* data, char* value, size_t value_len);
+
+static void request_delay_unlink(request_delay_t* delay) {
+  request_delay_t** link = &request_delays;
+  while (*link) {
+    if (*link == delay) {
+      *link = delay->next;
+      return;
+    }
+    link = &(*link)->next;
+  }
+}
+
+static void request_delay_close(uv_handle_t* handle) {
+  request_delay_t* delay = container_of(handle, request_delay_t, timer);
+  safe_free(delay);
+}
+
+/**
+ * Fires when `data_request_t.delay` has elapsed and continues the same request.
+ *
+ * @param handle timer created in `arm_request_delay`
+ */
+static void request_delay_cb(uv_timer_t* handle) {
+  request_delay_t*  delay   = container_of(handle, request_delay_t, timer);
+  single_request_t* request = delay->request;
+  request_delay_unlink(delay);
+  uv_close((uv_handle_t*) handle, request_delay_close);
+  if (!curl_alive || !request) return;
+  trigger_uncached_curl_request(request, NULL, 0);
+}
+
+/**
+ * Waits `req->delay` milliseconds, then runs the request.
+ *
+ * The delay is cleared before the timer starts, so the continuation does not wait again.
+ * A timer that cannot be started returns false and the caller sends the request immediately.
+ *
+ * @param request request whose `delay` is non-zero
+ * @return true when the wait is armed
+ */
+static bool arm_request_delay(single_request_t* request) {
+  uint64_t         wait_ms = request->req->delay;
+  request_delay_t* delay   = NULL;
+  request->req->delay      = 0;
+  if (!curl_alive || wait_ms == 0) return false;
+
+  delay          = safe_calloc(1, sizeof(*delay));
+  delay->request = request;
+  if (uv_timer_init(uv_default_loop(), &delay->timer) != 0) {
+    safe_free(delay);
+    log_error("delay timer init failed");
+    return false;
+  }
+  delay->next    = request_delays;
+  request_delays = delay;
+  if (uv_timer_start(&delay->timer, request_delay_cb, wait_ms, 0) != 0) {
+    request_delay_unlink(delay);
+    uv_close((uv_handle_t*) &delay->timer, request_delay_close);
+    log_error("delay timer start failed");
+    return false;
+  }
+  log_info(GRAY("   [delay]") " %u ms %s", (unsigned) wait_ms, c4_req_info(request->req->type, request->req->url, request->req->payload));
+  return true;
+}
+
+/** Drops every armed delay. Close callbacks free the timer structs. */
+static void cancel_request_delays(void) {
+  request_delay_t* delay = request_delays;
+  request_delays         = NULL;
+  while (delay) {
+    request_delay_t* next = delay->next;
+    delay->request        = NULL;
+    uv_timer_stop(&delay->timer);
+    uv_close((uv_handle_t*) &delay->timer, request_delay_close);
+    delay = next;
+  }
+}
+
 // Callback for memcache get operations
 static void trigger_uncached_curl_request(void* data, char* value, size_t value_len) {
   single_request_t*  r       = (single_request_t*) data;
@@ -1108,6 +1196,9 @@ static void trigger_uncached_curl_request(void* data, char* value, size_t value_
     tracing_finish(r->wait_span);
     r->wait_span = NULL;
   }
+
+  // An in-flight match is handled below and is not delayed. Otherwise wait out data_request_t.delay before sending.
+  if (!pending && !value && r->req && r->req->delay && arm_request_delay(r)) return;
 
   if (r->req->type == C4_DATA_TYPE_INTERN && !value) { // this is an internal request, so we need to handle it differently
     c4_handle_internal_request(r);
@@ -1485,6 +1576,7 @@ void c4_init_curl(uv_timer_t* timer) {
 
   // Initialize multi handle
   multi_handle = curl_multi_init();
+  curl_alive   = true;
   curl_multi_setopt(multi_handle, CURLMOPT_SOCKETFUNCTION, socket_callback);
   curl_multi_setopt(multi_handle, CURLMOPT_TIMERFUNCTION, timer_callback);
   curl_multi_setopt(multi_handle, CURLMOPT_TIMERDATA, timer);
@@ -1542,6 +1634,8 @@ void c4_free_server_list(server_list_t* list) {
 }
 
 void c4_cleanup_curl() {
+  curl_alive = false;
+  cancel_request_delays();
   // Close all handles and let the cleanup function free the resources
   curl_multi_setopt(multi_handle, CURLMOPT_SOCKETFUNCTION, NULL);
   curl_multi_cleanup(multi_handle);
