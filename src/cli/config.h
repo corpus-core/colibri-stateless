@@ -17,12 +17,8 @@ static char* get_default_config(char* chain_name, chain_id_t* chain_id, char* co
   else if (*chain_name >= '0' && *chain_name <= '9')
     *chain_id = (chain_id_t) atoll(chain_name);
   else if (!c4_default_chain_id_from_name(chain_name, chain_id)) {
-    if (strcmp(chain_name, "base") == 0)
-      *chain_id = C4_CHAIN_BASE;
-    else {
-      fprintf(stderr, "Invalid chain name: %s\n", chain_name);
-      exit(EXIT_FAILURE);
-    }
+    fprintf(stderr, "Invalid chain name: %s\n", chain_name);
+    exit(EXIT_FAILURE);
   }
 
   char* config = (char*) c4_default_chain_config_json(*chain_id);

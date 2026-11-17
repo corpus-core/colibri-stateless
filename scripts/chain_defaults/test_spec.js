@@ -34,6 +34,14 @@ for (const alias of ['plataberget', 'glamsterdam-devnet-8', '0x1a6a8cc6e']) {
   assert(plataberget.aliases.includes(alias), `plataberget missing alias ${alias}`);
 }
 assert.deepStrictEqual(plataberget.prover, ['https://plataberget.colibri-proof.tech']);
+
+const base = byId.get(8453);
+assert(base, 'base (8453) must be present');
+for (const alias of ['base', '0x2105']) {
+  assert(base.aliases.includes(alias), `base missing alias ${alias}`);
+}
+assert.deepStrictEqual(base.prover, ['https://base.colibri-proof.tech']);
+assert.strictEqual(base.pollingInterval, 200);
 assert(plataberget.eth_rpc[0].includes('/execution'));
 assert(plataberget.beacon_api[0].includes('/consensus'));
 

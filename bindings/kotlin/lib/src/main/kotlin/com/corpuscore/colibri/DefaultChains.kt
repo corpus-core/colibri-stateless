@@ -27,6 +27,7 @@ object DefaultChains {
         BigInteger.valueOf(10200L) -> arrayOf("https://chiado.colibri-proof.tech")
         BigInteger("7091047534") -> arrayOf("https://plataberget.colibri-proof.tech")
         BigInteger.valueOf(696991L) -> arrayOf("https://rollupx.colibri-proof.tech")
+        BigInteger.valueOf(8453L) -> arrayOf("https://base.colibri-proof.tech")
         else -> arrayOf("https://c4.incubed.net")
     }
 
@@ -63,6 +64,7 @@ object DefaultChains {
                 "https://rollupx.colibri-proof.tech/execution",
                 "https://rollupx.eez.dev/rpc/l2",
             )
+        BigInteger.valueOf(8453L) -> arrayOf("https://mainnet.base.org")
         else -> emptyArray()
     }
 
@@ -89,6 +91,7 @@ object DefaultChains {
                 "https://beacon.glamsterdam-devnet-8.ethpandaops.io/",
             )
         BigInteger.valueOf(696991L) -> arrayOf("https://mainnet.colibri-proof.tech/consensus")
+        BigInteger.valueOf(8453L) -> arrayOf("https://mainnet.colibri-proof.tech/consensus")
         else -> emptyArray()
     }
 
@@ -112,6 +115,7 @@ object DefaultChains {
         BigInteger.valueOf(10200L) -> arrayOf("https://checkpoint.chiadochain.net")
         BigInteger("7091047534") -> arrayOf("https://checkpoint-sync.glamsterdam-devnet-8.ethpandaops.io")
         BigInteger.valueOf(696991L) -> arrayOf("https://mainnet.colibri-proof.tech/consensus")
+        BigInteger.valueOf(8453L) -> arrayOf("https://mainnet.colibri-proof.tech/consensus")
         else -> emptyArray()
     }
 

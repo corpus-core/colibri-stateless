@@ -41,6 +41,19 @@ impl ChainConfig {
         }
     }
 
+    /// Preset name for a chain id this bridge knows, or `None` when the caller
+    /// must supply the sequencer and a kona rollup config itself.
+    pub fn preset_name(chain_id: u64) -> Option<&'static str> {
+        match chain_id {
+            10 => Some("op-mainnet"),
+            8453 => Some("base"),
+            130 => Some("unichain"),
+            480 => Some("worldchain"),
+            7777777 => Some("zora"),
+            _ => None,
+        }
+    }
+
     /// Chain-Konfiguration aus Netzwerk-Name erstellen
     pub fn from(network: &str, chain_id: u64) -> Self {
         match network {
@@ -65,7 +78,8 @@ impl ChainConfig {
                 bootnodes: Vec::new(),
             },
             "zora" => ChainConfig {
-                unsafe_signer: address!("3Dc8Dfd070C835cAd15a6A27e089FF4cF4C92280"),
+                // L1 SystemConfig.unsafeBlockSigner() at 0xA3cAB0126d5F504B071b81a3e8A2BBBF17930d86.
+                unsafe_signer: address!("3Dc8Dfd0709C835cAd15a6A27e089FF4cF4C9228"),
                 chain_id: 7777777,
                 bootnodes: Vec::new(),
             },

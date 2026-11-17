@@ -14,6 +14,8 @@ pub const CHIADO: u64 = 10_200;
 pub const PLATABERGET: u64 = 7_091_047_534;
 /// RollupX (EEZ).
 pub const ROLLUPX: u64 = 696_991;
+/// Base (OP-Stack).
+pub const BASE: u64 = 8_453;
 
 /// Default prover URLs per chain.
 pub fn default_provers(chain_id: u64) -> Vec<String> {
@@ -37,6 +39,7 @@ pub fn default_provers(chain_id: u64) -> Vec<String> {
         CHIADO => vec!["https://chiado.colibri-proof.tech".into()],
         PLATABERGET => vec!["https://plataberget.colibri-proof.tech".into()],
         ROLLUPX => vec!["https://rollupx.colibri-proof.tech".into()],
+        BASE => vec!["https://base.colibri-proof.tech".into()],
         _ => vec!["https://c4.incubed.net".into()],
     }
 }
@@ -74,6 +77,7 @@ pub fn default_eth_rpcs(chain_id: u64) -> Vec<String> {
             "https://rollupx.colibri-proof.tech/execution".into(),
             "https://rollupx.eez.dev/rpc/l2".into(),
         ],
+        BASE => vec!["https://mainnet.base.org".into()],
         _ => vec![],
     }
 }
@@ -101,6 +105,7 @@ pub fn default_beacon_apis(chain_id: u64) -> Vec<String> {
             "https://beacon.glamsterdam-devnet-8.ethpandaops.io/".into(),
         ],
         ROLLUPX => vec!["https://mainnet.colibri-proof.tech/consensus".into()],
+        BASE => vec!["https://mainnet.colibri-proof.tech/consensus".into()],
         _ => vec![],
     }
 }
@@ -125,6 +130,7 @@ pub fn default_checkpointz(chain_id: u64) -> Vec<String> {
         CHIADO => vec!["https://checkpoint.chiadochain.net".into()],
         PLATABERGET => vec!["https://checkpoint-sync.glamsterdam-devnet-8.ethpandaops.io".into()],
         ROLLUPX => vec!["https://mainnet.colibri-proof.tech/consensus".into()],
+        BASE => vec!["https://mainnet.colibri-proof.tech/consensus".into()],
         _ => vec![],
     }
 }
@@ -135,7 +141,7 @@ mod tests {
 
     #[test]
     fn known_chains_have_endpoints() {
-        for id in [MAINNET, SEPOLIA, GNOSIS, CHIADO, PLATABERGET, ROLLUPX] {
+        for id in [MAINNET, SEPOLIA, GNOSIS, CHIADO, PLATABERGET, ROLLUPX, BASE] {
             assert!(!default_provers(id).is_empty());
             assert!(!default_eth_rpcs(id).is_empty());
             assert!(!default_beacon_apis(id).is_empty());

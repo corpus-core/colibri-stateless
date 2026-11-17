@@ -30,6 +30,8 @@ enum DefaultChains {
             return ["https://plataberget.colibri-proof.tech"]
         case 696991:
             return ["https://rollupx.colibri-proof.tech"]
+        case 8453:
+            return ["https://base.colibri-proof.tech"]
         default:
             return ["https://c4.incubed.net"]
         }
@@ -74,6 +76,8 @@ enum DefaultChains {
                 "https://rollupx.colibri-proof.tech/execution",
                 "https://rollupx.eez.dev/rpc/l2",
             ]
+        case 8453:
+            return ["https://mainnet.base.org"]
         default:
             return []
         }
@@ -108,6 +112,8 @@ enum DefaultChains {
             ]
         case 696991:
             return ["https://mainnet.colibri-proof.tech/consensus"]
+        case 8453:
+            return ["https://mainnet.colibri-proof.tech/consensus"]
         default:
             return []
         }
@@ -138,6 +144,8 @@ enum DefaultChains {
         case 7091047534:
             return ["https://checkpoint-sync.glamsterdam-devnet-8.ethpandaops.io"]
         case 696991:
+            return ["https://mainnet.colibri-proof.tech/consensus"]
+        case 8453:
             return ["https://mainnet.colibri-proof.tech/consensus"]
         default:
             return []

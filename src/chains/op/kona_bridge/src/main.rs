@@ -110,21 +110,14 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // P2P / HTTP-first network (blocks until shutdown)
-    let network_name = match chain_id {
-        10      => "op-mainnet",
-        8453    => "base",
-        130     => "unichain",
-        480     => "worldchain",
-        7777777 => "zora",
-        _       => { tracing::warn!("Unknown chain {}, using base config", chain_id); "base" }
-    };
-
+    let network_name = ChainConfig::preset_name(chain_id).unwrap_or("custom");
     let mut chain_config = ChainConfig::from(network_name, chain_id);
     // Seeds kona's BlockHandler; processing.rs does not re-check the signer.
     if let Some(ref addr) = sequencer_address {
-        if let Ok(parsed) = addr.parse::<Address>() {
-            chain_config.unsafe_signer = parsed;
-        }
+        let parsed = addr
+            .parse::<Address>()
+            .map_err(|e| anyhow::anyhow!("invalid SEQUENCER_ADDRESS {addr}: {e}"))?;
+        chain_config.unsafe_signer = parsed;
     }
 
     // Start TTL cleanup

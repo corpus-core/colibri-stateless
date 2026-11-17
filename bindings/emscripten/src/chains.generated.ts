@@ -119,4 +119,18 @@ export const default_config: {
     ],
     pollingInterval: 2000,
   },
+  '8453': { // base
+    alias: ["base","0x2105"],
+    rpcs: [
+      "https://mainnet.base.org",
+    ],
+    beacon_apis: [
+      "https://mainnet.colibri-proof.tech/consensus",
+    ],
+    prover: ["https://base.colibri-proof.tech"],
+    checkpointz: [
+      "https://mainnet.colibri-proof.tech/consensus",
+    ],
+    pollingInterval: 200,
+  },
 };
