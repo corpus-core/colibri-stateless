@@ -474,6 +474,74 @@ The constructor of the colibri client accepts a configuration-object, which may 
     })
     ```
 
+- `chain_configs` - optional array of runtime chain registrations forwarded to the C core's `c4_configure_chain` entry point.
+
+    Lets you add L1 / L2 chains that are not baked into the Colibri core at compile time — e.g. a custom Ethereum-fork L1 reusing the same stack as mainnet, or a private OP / Arbitrum / EEZ rollup. Each entry needs a `chain_type` selector (one of the canonical strings `"ethereum"`, `"op"`, `"eez"`, `"arbitrum"`, or the numeric `C4_CHAIN_TYPE_*` constant) plus the fields required by the corresponding handler.
+
+    Registration happens **lazily on the first request** (`rpc()`, `createProof()`, `verifyProof()`, `getMethodSupport()`) and is deduplicated across every `C4Client` instance that lives in the same process — the C core rejects a re-registration of the same `chain_id`, so client-side deduplication avoids a spurious "chain_id is already registered" error when you construct multiple clients with the same config.
+
+    The per-handler payload schema is documented centrally under [Registering chain configs at runtime](); the TypeScript shape is `ChainRegistration` in [`src/types.ts`](https://github.com/corpus-core/colibri-stateless/blob/dev/bindings/emscripten/src/types.ts).
+
+    **Ethereum-fork L1 (custom chain):**
+    ```ts
+    new Colibri({
+      chainId: 42,
+      rpcs: ["https://rpc.my-chain.net"],
+      beacon_apis: ["https://beacon.my-chain.net"],
+      chain_configs: [{
+        chain_type: "ethereum",
+        chain_id:   42,
+        genesis_validators_root: "0x4b363db94e286120d76eb905340fdd4e54bfe9f06bf33ff6cf5ad27f511bfe95",
+        fork_epochs:   [0, 0, 0, 0, 0, 0, 1536],
+        fork_versions: [
+          "0x00000000", "0x01000000", "0x02000000", "0x03000000",
+          "0x04000000", "0x05000000", "0x06000000", "0x07000000"
+        ]
+      }]
+    })
+    ```
+
+    **Private OP rollup:**
+    ```ts
+    new Colibri({
+      chainId: 42069,
+      rpcs: ["https://rpc.my-op-rollup.net"],
+      chain_configs: [{
+        chain_type: "op",
+        chain_id:   42069,
+        sequencer_address: "0x1234567890abcdef1234567890abcdef12345678"
+      }]
+    })
+    ```
+
+    **Custom EEZ rollup:**
+    ```ts
+    new Colibri({
+      chainId: 7777,
+      rpcs: ["https://rpc.my-eez.net"],
+      chain_configs: [{
+        chain_type: "eez",
+        chain_id:   7777,
+        rollup_id:  1,
+        proxy:      "0x1234567890abcdef1234567890abcdef12345678"
+      }]
+    })
+    ```
+
+    **Additional Arbitrum rollup:**
+    ```ts
+    new Colibri({
+      chainId: 888001,
+      rpcs: ["https://rpc.my-arb.net"],
+      chain_configs: [{
+        chain_type: "arbitrum",
+        chain_id:   888001,
+        sequencer_inbox: "0x1234567890abcdef1234567890abcdef12345678"
+      }]
+    })
+    ```
+
+    Multiple registrations (e.g. for an L2 plus its custom L1) are supported by passing several entries in the array. Built-in chain ids (mainnet, sepolia, Base, Arbitrum One, …) always take precedence and cannot be shadowed through `chain_configs`.
 
 
 ## Building

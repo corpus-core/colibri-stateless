@@ -411,15 +411,20 @@ The constructor of the colibri client accepts a configuration-object, which may 
     })
     ```
 
-- `chain_configs` - optional array of runtime chain registrations forwarded to `c4_configure_chain`
+- `chain_configs` - optional array of runtime chain registrations forwarded to the C core's `c4_configure_chain` entry point.
 
-    Lets you register L1 / L2 chains that are not baked into the core at compile time (a custom Ethereum-fork L1, a private OP rollup, …). Each entry needs a `chain_type` selector (one of `"ethereum"`, `"op"`, `"eez"`, `"arbitrum"`, or the numeric `C4_CHAIN_TYPE_*`) plus the fields required by the corresponding handler — see [Adding a chain › Registering chain configs at runtime](../../src/chains/adding_a_chain.md#registering-chain-configs-at-runtime) for the full per-chain schema. Registration happens lazily on the first `rpc()` / `createProof()` / `verifyProof()` call and is deduplicated across every `C4Client` instance that shares the same process (the C core rejects a re-registration of the same `chain_id`).
+    Lets you add L1 / L2 chains that are not baked into the Colibri core at compile time — e.g. a custom Ethereum-fork L1 reusing the same stack as mainnet, or a private OP / Arbitrum / EEZ rollup. Each entry needs a `chain_type` selector (one of the canonical strings `"ethereum"`, `"op"`, `"eez"`, `"arbitrum"`, or the numeric `C4_CHAIN_TYPE_*` constant) plus the fields required by the corresponding handler.
 
-    ```js
+    Registration happens **lazily on the first request** (`rpc()`, `createProof()`, `verifyProof()`, `getMethodSupport()`) and is deduplicated across every `C4Client` instance that lives in the same process — the C core rejects a re-registration of the same `chain_id`, so client-side deduplication avoids a spurious "chain_id is already registered" error when you construct multiple clients with the same config.
+
+    The per-handler payload schema is documented centrally under [Adding a chain › Registering chain configs at runtime](../../src/chains/adding_a_chain.md#registering-chain-configs-at-runtime); the TypeScript shape is `ChainRegistration` in [`src/types.ts`](./src/types.ts).
+
+    **Ethereum-fork L1 (custom chain):**
+    ```ts
     new Colibri({
-      chainId: 42, // a private Ethereum-fork L1
-      rpcs: ["https://rpc.example.net"],
-      beacon_apis: ["https://beacon.example.net"],
+      chainId: 42,
+      rpcs: ["https://rpc.my-chain.net"],
+      beacon_apis: ["https://beacon.my-chain.net"],
       chain_configs: [{
         chain_type: "ethereum",
         chain_id:   42,
@@ -432,6 +437,48 @@ The constructor of the colibri client accepts a configuration-object, which may 
       }]
     })
     ```
+
+    **Private OP rollup:**
+    ```ts
+    new Colibri({
+      chainId: 42069,
+      rpcs: ["https://rpc.my-op-rollup.net"],
+      chain_configs: [{
+        chain_type: "op",
+        chain_id:   42069,
+        sequencer_address: "0x1234567890abcdef1234567890abcdef12345678"
+      }]
+    })
+    ```
+
+    **Custom EEZ rollup:**
+    ```ts
+    new Colibri({
+      chainId: 7777,
+      rpcs: ["https://rpc.my-eez.net"],
+      chain_configs: [{
+        chain_type: "eez",
+        chain_id:   7777,
+        rollup_id:  1,
+        proxy:      "0x1234567890abcdef1234567890abcdef12345678"
+      }]
+    })
+    ```
+
+    **Additional Arbitrum rollup:**
+    ```ts
+    new Colibri({
+      chainId: 888001,
+      rpcs: ["https://rpc.my-arb.net"],
+      chain_configs: [{
+        chain_type: "arbitrum",
+        chain_id:   888001,
+        sequencer_inbox: "0x1234567890abcdef1234567890abcdef12345678"
+      }]
+    })
+    ```
+
+    Multiple registrations (e.g. for an L2 plus its custom L1) are supported by passing several entries in the array. Built-in chain ids (mainnet, sepolia, Base, Arbitrum One, …) always take precedence and cannot be shadowed through `chain_configs`.
 
 
 ## Building
