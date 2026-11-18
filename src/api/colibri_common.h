@@ -39,7 +39,7 @@ extern "C" {
  *
  * Parses a hex checkpoint string and stores it globally for the chain.
  * This must be called before verification if the host has a known checkpoint.
- * For an L2 that settles on L1 (EEZ) the checkpoint is stored for the L1 chain
+ * For an L2 that settles on L1 (EEZ, Arbitrum One) the checkpoint is stored for the L1 chain
  * (`c4_get_l1_chain_id_for_l2(chain_id)`).
  *
  * @param chain_id target chain ID
@@ -61,6 +61,21 @@ void c4_set_checkpoint(chain_id_t chain_id, const char* checkpoint_hex);
  * entries of the global prover cache.
  */
 void c4_reset_caches(void);
+
+/**
+ * Registers a chain configuration at runtime from a JSON blob.
+ *
+ * The JSON must be an object with a `"chain_type"` selector plus the fields
+ * required by that chain-type's registration handler. See
+ * [`colibri.h`](colibri.h) for the full schema and examples; the shared
+ * declaration is mirrored here so Emscripten / Node.js bindings can call
+ * `c4_configure_chain` without pulling in the public ABI header.
+ *
+ * @param conf JSON object as C string
+ * @return `NULL` on success; otherwise a dynamically allocated error message
+ *         the caller must free with `free()`.
+ */
+char* c4_configure_chain(const char* conf);
 
 /**
  * RPC context phases for the unified execution flow.

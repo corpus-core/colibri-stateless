@@ -1237,19 +1237,21 @@ uint32_t c4_get_current_version_number(void);
  * is not the chain the client was configured with. The HTTP body of that
  * request is unchanged; only the chosen node list differs.
  *
- * Only EEZ (Ethereum Economic Zone) L2s have a different L1: their block hash
+ * EEZ (Ethereum Economic Zone) L2s have a different L1: their block hash
  * is proven by a storage proof on that L1, so the client also issues prover,
- * beacon and checkpoint requests with the L1 chain id. Every other chain
- * (L1s and OP-Stack L2s) is returned unchanged, which means no request of such
+ * beacon and checkpoint requests with the L1 chain id. Arbitrum One uses the
+ * same L1 for the batch-poster account proof. Every other chain (L1s and
+ * OP-Stack L2s) is returned unchanged, which means no request of such
  * a client is ever routed to an L1 list.
  *
- * | `chain`             | result                    |
- * |---------------------|---------------------------|
- * | RollupX (`0xaa29f`) | Ethereum mainnet (`1`)    |
- * | anything else       | `chain`                   |
+ * | `chain`                  | result                    |
+ * |--------------------------|---------------------------|
+ * | RollupX (`0xaa29f`)      | Ethereum mainnet (`1`)    |
+ * | Arbitrum One (`42161`)   | Ethereum mainnet (`1`)    |
+ * | anything else            | `chain`                   |
  *
  * @param chain client chain id (prover, verifier, or RPC context)
- * @return L1 chain id for an EEZ L2, otherwise `chain` itself
+ * @return L1 chain id for an EEZ L2 or Arbitrum One, otherwise `chain` itself
  */
 chain_id_t c4_get_l1_chain_id_for_l2(chain_id_t chain);
 
@@ -1310,9 +1312,9 @@ void* c4_create_rpc_ctx(char* method, char* params, uint64_t chain_id, uint32_t 
  * Call this once before any verification if the host has a known checkpoint.
  * The checkpoint persists across all prover/verifier/RPC contexts for the chain.
  *
- * A checkpoint is a beacon block root. For an L2 that settles on L1 (EEZ) it is stored
- * for the L1 chain (`c4_get_l1_chain_id_for_l2(chain_id)`), whose sync committee the L2
- * proofs are verified against.
+ * A checkpoint is a beacon block root. For an L2 that settles on L1 (EEZ, Arbitrum One)
+ * it is stored for the L1 chain (`c4_get_l1_chain_id_for_l2(chain_id)`), whose sync
+ * committee the L2 proofs are verified against.
  *
  * @param chain_id target chain ID
  * @param trusted_checkpoint hex string with "0x" prefix (66 chars total), or NULL (no-op)
@@ -1420,3 +1422,40 @@ char* c4_rpc_execute_json_status(void* ctx);
  * @param ctx The RPC context to free (may be NULL, in which case this is a no-op)
  */
 void c4_free_rpc_ctx(void* ctx);
+
+/**
+ * Registers a chain configuration at runtime from a JSON blob.
+ *
+ * The JSON must be an object with a `"chain_type"` field that selects which
+ * chain-type-specific handler receives the rest of the payload. `chain_type`
+ * accepts either a numeric `C4_CHAIN_TYPE_*` constant or one of the canonical
+ * string selectors `"ethereum"`, `"op"`, `"eez"`, `"arbitrum"`. The remaining
+ * fields are forwarded unchanged to the handler; see the per-chain schema in
+ * `src/chains/<chain>/...` or the Adding-a-chain documentation for the exact
+ * layout (e.g. for Ethereum: `chain_id`, `genesis_validators_root`,
+ * `fork_epochs`, `fork_versions`, plus optional blob-schedule fields).
+ *
+ * The handler owns heap-allocated copies of every inner table for the
+ * lifetime of the process; the caller may free its input immediately.
+ * Chains baked into the core (mainnet / sepolia / gnosis / OP mainnet /
+ * Arbitrum One / …) always take precedence over runtime entries.
+ *
+ * Example:
+ * ```json
+ * {
+ *   "chain_type": "ethereum",
+ *   "chain_id":   42,
+ *   "genesis_validators_root": "0x4b363db9...",
+ *   "fork_epochs":   [0, 0, 0, 0, 0, 0, 1536],
+ *   "fork_versions": [
+ *     "0x00000000", "0x01000000", "0x02000000", "0x03000000",
+ *     "0x04000000", "0x05000000", "0x06000000", "0x07000000"
+ *   ]
+ * }
+ * ```
+ *
+ * @param conf JSON object as C string (see schema above and per-chain docs)
+ * @return `NULL` on success; otherwise a dynamically allocated error message
+ *         the caller must free with `free()`.
+ */
+char* c4_configure_chain(const char* conf);

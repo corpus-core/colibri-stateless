@@ -55,9 +55,6 @@ static tracer_t g_tracer      = {0};
 static buffer_t g_batch       = {0};
 static int      g_batch_count = 0;
 
-// External time function providing Unix epoch milliseconds
-extern uint64_t current_unix_ms();
-
 // ---- libcurl multi transport (non-blocking) ----------------------------------------------------
 typedef struct trace_poll_ctx_t {
   uv_poll_t                poll_handle;

@@ -88,6 +88,16 @@ export interface C4Runtime {
     setCheckpoint(chainId: bigint, checkpoint: string): void;
     resetCaches(): void;
 
+    /**
+     * Registers a chain configuration at runtime from a JSON object.
+     *
+     * The JSON must include a `"chain_type"` field (number or one of
+     * "ethereum"/"op"/"eez"/"arbitrum") plus the fields required by the
+     * matching handler. Returns `null` on success or the C error string
+     * (never throws).
+     */
+    configureChain(confJson: string): string | null;
+
     reqSetResponse(req: DataRequest, data: Uint8Array, nodeIndex: number): void;
     reqSetError(req: DataRequest, error: string, nodeIndex: number): void;
 

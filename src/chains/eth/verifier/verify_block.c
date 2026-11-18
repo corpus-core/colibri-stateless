@@ -235,17 +235,21 @@ bool verify_block_proof(verify_ctx_t* ctx) {
     // withdrawalsRoot (EIP-4895). On OP Isthmus that header field is the
     // L2ToL1MessagePasser storage root, so equality is not required — but the
     // list is still consensus-empty, so the merkle must be EMPTY_ROOT_HASH.
+    // A pre-Shanghai header (Arbitrum's execution header) has no withdrawalsRoot;
+    // the list must be empty there as well.
     // proof.body and persisted cache bodies are prover-controlled; do not
-    // accept a non-empty spoofed list just because the header is Isthmus.
+    // accept a non-empty spoofed list just because the header is Isthmus
+    // or has no withdrawalsRoot.
     bytes32_t withdrawal_root = {0};
     eth_get_withdrawals_root(withdrawal_root, ssz_get(&body, "withdrawals"));
     bytes_t header_wd = eth_el_header_get(el_header, EL_WITHDRAWALS_ROOT);
-    if (header_wd.len != 32 || memcmp(withdrawal_root, header_wd.data, 32) != 0) {
-      if (c4_chain_type(ctx->chain_id) != C4_CHAIN_TYPE_OP ||
-          memcmp(withdrawal_root, EMPTY_ROOT_HASH, 32) != 0) {
-        safe_free(cached_body.bytes.data);
-        RETURN_VERIFY_ERROR(ctx, "invalid withdrawal root!");
-      }
+    bool    matches   = header_wd.len == 32 && memcmp(withdrawal_root, header_wd.data, 32) == 0;
+    bool    empty     = memcmp(withdrawal_root, EMPTY_ROOT_HASH, 32) == 0;
+    bool    no_root   = header_wd.len != 32;
+    bool    op        = c4_chain_type(ctx->chain_id) == C4_CHAIN_TYPE_OP;
+    if (!matches && !(empty && (no_root || op))) {
+      safe_free(cached_body.bytes.data);
+      RETURN_VERIFY_ERROR(ctx, "invalid withdrawal root!");
     }
   }
 

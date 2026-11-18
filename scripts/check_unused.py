@@ -167,6 +167,7 @@ GENERATED_FUNCS = {
     "c4_reset_verifier_caches",
     "c4_reset_prover_caches",
     "c4_chains_get_props",
+    "c4_register_chain",
 }
 
 # Hook argument names in add_verifier() / add_prover() / add_chain_props().

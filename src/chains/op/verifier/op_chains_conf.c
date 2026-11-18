@@ -1,6 +1,10 @@
 // op_chains_conf.c - Centralized OP Stack chain configurations implementation
 #include "op_chains_conf.h"
+#include "bytes.h"
+#include "json.h"
+#include "state.h"
 #include <stddef.h>
+#include <string.h>
 
 // Centralized OP Stack chain configurations
 // NOTE: Sequencer addresses are placeholders for new chains - update with actual values
@@ -76,6 +80,14 @@ static const op_chain_config_t op_chain_configs[] = {
         3),
 };
 
+// Additional OP Stack chains registered at runtime through `c4_op_register_chain`.
+// Built-in entries in `op_chain_configs[]` always take precedence: the lookup
+// below scans them first, so a plugin cannot override a known chain.
+#define OP_CHAIN_CONFIG_EXTRA_MAX 8
+
+static op_chain_config_t op_chain_configs_extra[OP_CHAIN_CONFIG_EXTRA_MAX];
+static uint32_t          op_chain_configs_extra_len = 0;
+
 // Get chain configuration by chain ID
 const op_chain_config_t* op_get_chain_config(uint64_t chain_id) {
   for (size_t i = 0; i < sizeof(op_chain_configs) / sizeof(op_chain_configs[0]); i++) {
@@ -83,7 +95,71 @@ const op_chain_config_t* op_get_chain_config(uint64_t chain_id) {
       return &op_chain_configs[i];
     }
   }
+  for (uint32_t i = 0; i < op_chain_configs_extra_len; i++) {
+    if (op_chain_configs_extra[i].chain_id == chain_id) {
+      return &op_chain_configs_extra[i];
+    }
+  }
   return NULL; // Chain not found
+}
+
+bool c4_op_register_chain(c4_state_t* state, json_t data) {
+  if (!state) return false;
+  // `chain_id` accepts both JSON numbers and hex-strings so wallet-style
+  // configs (`"0x5a2"`) and plain JSON numbers (`1442`) both work.
+  const char* schema_err = json_validate(
+      data,
+      "{chain_id:uint|hexuint,sequencer_address:address}",
+      "c4_op_register_chain");
+  if (schema_err) {
+    c4_state_add_error(state, schema_err);
+    safe_free((void*) schema_err);
+    return false;
+  }
+
+  uint64_t chain_id = json_get_uint64(data, "chain_id");
+  if (chain_id == 0) {
+    c4_state_add_error(state, "c4_op_register_chain: chain_id must not be 0");
+    return false;
+  }
+  if (op_get_chain_config(chain_id)) {
+    c4_state_add_error(state, "c4_op_register_chain: chain_id is already registered");
+    return false;
+  }
+  if (op_chain_configs_extra_len >= OP_CHAIN_CONFIG_EXTRA_MAX) {
+    c4_state_add_error(state, "c4_op_register_chain: extra chain config table is full");
+    return false;
+  }
+
+  buffer_t buf    = {0};
+  bytes_t  parsed = json_as_bytes(json_get(data, "sequencer_address"), &buf);
+  if (!parsed.data || parsed.len != 20) {
+    buffer_free(&buf);
+    c4_state_add_error(state, "c4_op_register_chain: sequencer_address must be 20 bytes");
+    return false;
+  }
+
+  // The 20-byte sequencer address is stored as a heap-allocated raw byte
+  // string owned by the registry. Built-in entries use string literals; both
+  // are valid 20-byte buffers for `sequencer_address`.
+  uint8_t* addr = safe_malloc(20);
+  memcpy(addr, parsed.data, 20);
+  buffer_free(&buf);
+
+  op_chain_config_t* slot = &op_chain_configs_extra[op_chain_configs_extra_len];
+  memset(slot, 0, sizeof(*slot));
+  slot->chain_id          = chain_id;
+  slot->sequencer_address = (const char*) addr;
+  op_chain_configs_extra_len++;
+  return true;
+}
+
+void c4_op_reset_chain_config_registry(void) {
+  for (uint32_t i = 0; i < op_chain_configs_extra_len; i++) {
+    safe_free((void*) op_chain_configs_extra[i].sequencer_address);
+    memset(&op_chain_configs_extra[i], 0, sizeof(op_chain_configs_extra[i]));
+  }
+  op_chain_configs_extra_len = 0;
 }
 
 // Get number of supported chains

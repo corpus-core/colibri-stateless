@@ -14,6 +14,8 @@ pub const CHIADO: u64 = 10_200;
 pub const PLATABERGET: u64 = 7_091_047_534;
 /// RollupX (EEZ).
 pub const ROLLUPX: u64 = 696_991;
+/// Arbitrum One.
+pub const ARBITRUM: u64 = 42_161;
 
 /// Default prover URLs per chain.
 pub fn default_provers(chain_id: u64) -> Vec<String> {
@@ -37,6 +39,7 @@ pub fn default_provers(chain_id: u64) -> Vec<String> {
         CHIADO => vec!["https://chiado.colibri-proof.tech".into()],
         PLATABERGET => vec!["https://plataberget.colibri-proof.tech".into()],
         ROLLUPX => vec!["https://rollupx.colibri-proof.tech".into()],
+        ARBITRUM => vec!["https://arbitrum.colibri-proof.tech".into()],
         _ => vec!["https://c4.incubed.net".into()],
     }
 }
@@ -74,6 +77,10 @@ pub fn default_eth_rpcs(chain_id: u64) -> Vec<String> {
             "https://rollupx.colibri-proof.tech/execution".into(),
             "https://rollupx.eez.dev/rpc/l2".into(),
         ],
+        ARBITRUM => vec![
+            "https://arb1.arbitrum.io/rpc".into(),
+            "https://arbitrum-one-rpc.publicnode.com".into(),
+        ],
         _ => vec![],
     }
 }
@@ -101,6 +108,11 @@ pub fn default_beacon_apis(chain_id: u64) -> Vec<String> {
             "https://beacon.glamsterdam-devnet-8.ethpandaops.io/".into(),
         ],
         ROLLUPX => vec!["https://mainnet.colibri-proof.tech/consensus".into()],
+        ARBITRUM => vec![
+            "https://mainnet.colibri-proof.tech/consensus".into(),
+            "https://gateway.tenderly.co/public/mainnet".into(),
+            "https://ethereum-beacon-api.publicnode.com".into(),
+        ],
         _ => vec![],
     }
 }
@@ -125,6 +137,10 @@ pub fn default_checkpointz(chain_id: u64) -> Vec<String> {
         CHIADO => vec!["https://checkpoint.chiadochain.net".into()],
         PLATABERGET => vec!["https://checkpoint-sync.glamsterdam-devnet-8.ethpandaops.io".into()],
         ROLLUPX => vec!["https://mainnet.colibri-proof.tech/consensus".into()],
+        ARBITRUM => vec![
+            "https://sync-mainnet.beaconcha.in".into(),
+            "https://mainnet.checkpoint.sigp.io".into(),
+        ],
         _ => vec![],
     }
 }
@@ -135,7 +151,15 @@ mod tests {
 
     #[test]
     fn known_chains_have_endpoints() {
-        for id in [MAINNET, SEPOLIA, GNOSIS, CHIADO, PLATABERGET, ROLLUPX] {
+        for id in [
+            MAINNET,
+            SEPOLIA,
+            GNOSIS,
+            CHIADO,
+            PLATABERGET,
+            ROLLUPX,
+            ARBITRUM,
+        ] {
             assert!(!default_provers(id).is_empty());
             assert!(!default_eth_rpcs(id).is_empty());
             assert!(!default_beacon_apis(id).is_empty());

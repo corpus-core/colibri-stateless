@@ -40,6 +40,8 @@ export interface C4W {
     _c4w_free_rpc_ctx: (ctx: number) => void;
     _c4w_set_checkpoint: (chainId: bigint, checkpoint: number) => void;
     _c4w_reset_caches: () => void;
+    /** Returns a heap pointer to a 0-terminated UTF-8 error string, or `0` on success. */
+    _c4w_configure_chain: (conf: number) => number;
     _c4w_rpc_ctx_set_witness_keys: (ctx: number, keys: number) => void;
     _c4w_rpc_ctx_set_proxy_urls: (ctx: number, rpc_urls: number, beacon_urls: number) => void;
     _c4w_rpc_ctx_set_min_latest_block_ts: (ctx: number, ts: bigint) => void;

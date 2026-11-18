@@ -69,7 +69,8 @@ typedef enum {
 
   // C4_ETH_REQUEST_SYNCDATA_UNION
   ETH_SSZ_VERIFY_LC_SYNCDATA = 28, // `LCSyncData`   (union index 1)
-  ETH_SSZ_VERIFY_ZK_SYNCDATA = 29, // `ZKSyncDataV6` (union index 2)
+  ETH_SSZ_VERIFY_ZK_SYNCDATA         = 29, // `ZKSyncDataV6` (union index 2)
+  ETH_SSZ_VERIFY_ARB_SIGNER_SYNC     = 38, // `arbSignerSyncData` (union index 3)
 
   // Resolves to the `checkpoint` variant of `ETH_HEADER_PROOFS_UNION`
   // (structurally identical to the bootstrap union's CheckpointProof).
@@ -82,6 +83,7 @@ typedef enum {
   ETH_SSZ_EL_BLOCK_CONTENT     = 34, // ETH_BLOCK_BODY_UNION content variant
   ETH_SSZ_EEZ_L1_PROOF         = 35, // ETH_EL_PROOF_UNION index 4
   ETH_SSZ_EIP2935_PROOF        = 36, // ETH_EL_PROOF_UNION index 5
+  ETH_SSZ_ARB_FEED_PROOF       = 37, // ETH_EL_PROOF_UNION index 6
 
 } eth_ssz_type_t;
 
@@ -100,6 +102,7 @@ typedef enum {
 #define ETH_SSZ_NAME_WITNESS_PROOF   "witnessProof"
 #define ETH_SSZ_NAME_EEZ_L1_PROOF    "eezL1Proof"
 #define ETH_SSZ_NAME_EIP2935         "eip2935"
+#define ETH_SSZ_NAME_ARB_FEED_PROOF  "arbFeedProof"
 /** `ETH_HEADER_PROOFS_UNION`: */
 #define ETH_SSZ_NAME_SIGNATURE    "signature"
 #define ETH_SSZ_NAME_HISTORIC     "historic"
@@ -108,8 +111,9 @@ typedef enum {
 /** `C4_ETH_SYNCDATA_BOOTSTRAP_UNION` (the checkpoint variant; the header-proof variant is `ETH_SSZ_NAME_CHECKPOINT`): */
 #define ETH_SSZ_NAME_CHECKPOINT_PROOF "CheckpointProof"
 /** `C4_ETH_REQUEST_SYNCDATA_UNION`: */
-#define ETH_SSZ_NAME_LC_SYNC_DATA "LCSyncData"
-#define ETH_SSZ_NAME_ZK_SYNC_DATA "ZKSyncData"
+#define ETH_SSZ_NAME_LC_SYNC_DATA         "LCSyncData"
+#define ETH_SSZ_NAME_ZK_SYNC_DATA         "ZKSyncData"
+#define ETH_SSZ_NAME_ARB_SIGNER_SYNC_DATA "arbSignerSyncData"
 /** `ETH_SEQUENCER_PAYLOAD_UNION`: */
 #define ETH_SSZ_NAME_COMPRESSED_ZSTD "compressed_zstd"
 #define ETH_SSZ_NAME_UNCOMPRESSED    "uncompressed"

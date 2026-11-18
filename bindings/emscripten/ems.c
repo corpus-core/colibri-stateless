@@ -132,6 +132,12 @@ void EMSCRIPTEN_KEEPALIVE c4w_reset_caches(void) {
   c4_reset_caches();
 }
 
+// Returns a heap-allocated error string on failure (JS side frees via
+// `_free` after reading it with `UTF8ToString`) or `NULL` on success.
+char* EMSCRIPTEN_KEEPALIVE c4w_configure_chain(char* conf) {
+  return c4_configure_chain(conf);
+}
+
 void EMSCRIPTEN_KEEPALIVE c4w_rpc_ctx_set_witness_keys(void* ctx, char* keys) {
   c4_rpc_ctx_set_witness_keys((c4_rpc_ctx_t*) ctx, keys);
 }

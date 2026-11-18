@@ -54,10 +54,79 @@ const chain_id_t C4_CHAIN_BOLT_DEVNET  = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 1023);
 const chain_id_t C4_CHAIN_BOLT_STAGING = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 1024);
 const chain_id_t C4_CHAIN_BOLT_MAINNET = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 1025);
 
+// Extra mappings populated by `c4_register_chain_family` / `c4_register_l1_for_l2`.
+// Built-in switch cases always win; the tables are only consulted on the `default`
+// branch. 32 slots are enough for every chain family that colibri is likely to
+// ship, plus room for `EXTRA_CHAIN` plugins to add their own.
+typedef struct {
+  chain_id_t   chain_id;
+  chain_type_t type;
+} c4_chain_family_entry_t;
+
+typedef struct {
+  chain_id_t l2;
+  chain_id_t l1;
+} c4_chain_l1_entry_t;
+
+static c4_chain_family_entry_t family_registry[C4_CHAIN_REGISTRY_MAX];
+static uint32_t                family_registry_len = 0;
+
+static c4_chain_l1_entry_t l1_registry[C4_CHAIN_REGISTRY_MAX];
+static uint32_t            l1_registry_len = 0;
+
+// Guard against plugins hijacking core routing: every chain id that has a
+// dedicated `C4_CHAIN_*` symbol in `chains.h` is considered built-in and must
+// not be reroutable at runtime. If a new `C4_CHAIN_*` constant is added to
+// `chains.h`, extend this list and `test_chain_registry.c` together.
+static bool is_builtin_chain_id(chain_id_t id) {
+  return id == C4_CHAIN_MAINNET
+         || id == C4_CHAIN_SEPOLIA
+         || id == C4_CHAIN_GNOSIS
+         || id == C4_CHAIN_GNOSIS_CHIADO
+         || id == C4_CHAIN_PLATABERGET
+         || id == C4_CHAIN_BTC_MAINNET
+         || id == C4_CHAIN_BTC_TESTNET
+         || id == C4_CHAIN_BTC_DEVNET
+         || id == C4_CHAIN_SOL_MAINNET
+         || id == C4_CHAIN_BSC
+         || id == C4_CHAIN_POLYGON
+         || id == C4_CHAIN_BASE
+         || id == C4_CHAIN_ARBITRUM
+         || id == C4_CHAIN_OPTIMISM
+         || id == C4_CHAIN_CRONOS
+         || id == C4_CHAIN_FUSE
+         || id == C4_CHAIN_AVALANCHE
+         || id == C4_CHAIN_MOONRIVER
+         || id == C4_CHAIN_MOONBEAM
+         || id == C4_CHAIN_TELOS
+         || id == C4_CHAIN_HAIFA
+         || id == C4_CHAIN_BOLT
+         || id == C4_CHAIN_BOLT_TESTNET
+         || id == C4_CHAIN_BOLT_DEVNET
+         || id == C4_CHAIN_BOLT_STAGING
+         || id == C4_CHAIN_BOLT_MAINNET
+         // Macros from `chains.h` already handled by the switch above; listed
+         // here so a plugin cannot override them through the registry either.
+         || id == C4_CHAIN_OP_MAINNET
+         || id == C4_CHAIN_OP_BASE
+         || id == C4_CHAIN_OP_WORLDCHAIN
+         || id == C4_CHAIN_OP_ZORA
+         || id == C4_CHAIN_OP_UNICHAIN
+         || id == C4_CHAIN_OP_PGN
+         || id == C4_CHAIN_OP_ORDERLY
+         || id == C4_CHAIN_OP_MODE
+         || id == C4_CHAIN_OP_FRAXTAL
+         || id == C4_CHAIN_OP_MANTLE
+         || id == C4_CHAIN_OP_KLAYTN
+         || id == C4_CHAIN_ARB_ONE
+         || id == C4_CHAIN_EEZ_ROLLUPX;
+}
+
 chain_type_t c4_chain_type(chain_id_t chain_id) {
   // OP Stack chains - use switch for better performance.
   // A new case is a newly supported chain. Also add it to the published list:
   // `// : OP-Stack` in op_verify.c, or `// : EEZ` in eez_verify.c.
+  // Arbitrum One is mapped here; its published section lands with the feed proof.
   switch (chain_id) {
     case C4_CHAIN_OP_MAINNET:    // OP Mainnet (10)
     case C4_CHAIN_OP_BASE:       // Base (8453)
@@ -76,7 +145,13 @@ chain_type_t c4_chain_type(chain_id_t chain_id) {
     case C4_CHAIN_EEZ_ROLLUPX: // RollupX (696991)
       return C4_CHAIN_TYPE_EEZ;
 
+    case C4_CHAIN_ARB_ONE: // Arbitrum One (42161)
+      return C4_CHAIN_TYPE_ARBITRUM;
+
     default:
+      // Extra mapping from an `EXTRA_CHAIN` plugin or `add_chain_registration`.
+      for (uint32_t i = 0; i < family_registry_len; i++)
+        if (family_registry[i].chain_id == chain_id) return family_registry[i].type;
       return (chain_id >> 56) & 0xff;
   }
 }
@@ -86,14 +161,63 @@ uint64_t c4_chain_specific_id(chain_id_t chain_id) {
 }
 
 chain_id_t c4_get_l1_chain_id_for_l2(chain_id_t chain) {
-  // Only EEZ L2s are remapped: their block hashes are proven on the L1, so the
-  // sync-committee state belongs to that L1. This switch is the only place that
-  // names that L1. Every chain in the EEZ config table needs a case here.
+  // EEZ L2s and Arbitrum One are remapped: their L1 proofs use the sync-committee
+  // state of that L1. This switch is the only place that names that L1. Every
+  // chain in the EEZ config table needs a case here.
   switch (chain) {
     case C4_CHAIN_EEZ_ROLLUPX: // RollupX settles on Ethereum mainnet
+    case C4_CHAIN_ARB_ONE:     // Arbitrum One batch-poster proof is an L1 account proof
       return C4_CHAIN_MAINNET;
 
     default:
+      for (uint32_t i = 0; i < l1_registry_len; i++)
+        if (l1_registry[i].l2 == chain) return l1_registry[i].l1;
       return chain;
   }
+}
+
+bool c4_register_chain_family(chain_id_t chain_id, chain_type_t type) {
+  // Core-routing invariant: a plugin must not reroute any chain id that
+  // `chains.h` already assigns a `C4_CHAIN_*` symbol to (see H-1 in the
+  // security review). Hook tables in `beacon_header.c` and `eth_tools.c`
+  // only index [0, C4_BLOCK_PROOF_HOOKS).
+  if (!chain_id || is_builtin_chain_id(chain_id) || (unsigned) type >= C4_BLOCK_PROOF_HOOKS) return false;
+
+  // Idempotent: update an existing entry instead of growing the table.
+  for (uint32_t i = 0; i < family_registry_len; i++) {
+    if (family_registry[i].chain_id == chain_id) {
+      family_registry[i].type = type;
+      return true;
+    }
+  }
+  if (family_registry_len >= C4_CHAIN_REGISTRY_MAX) return false;
+  family_registry[family_registry_len].chain_id = chain_id;
+  family_registry[family_registry_len].type     = type;
+  family_registry_len++;
+  return true;
+}
+
+bool c4_register_l1_for_l2(chain_id_t l2, chain_id_t l1) {
+  // Same core-routing invariant as `c4_register_chain_family`: no plugin may
+  // reroute the sync-committee lookup for any built-in `l2`. `l1 == 0` is
+  // rejected because the lookup result is used as a sentinel for "unknown
+  // L1" by callers (would silently point sync-committee state at nothing).
+  if (!l2 || !l1 || l1 == l2 || is_builtin_chain_id(l2)) return false;
+
+  for (uint32_t i = 0; i < l1_registry_len; i++) {
+    if (l1_registry[i].l2 == l2) {
+      l1_registry[i].l1 = l1;
+      return true;
+    }
+  }
+  if (l1_registry_len >= C4_CHAIN_REGISTRY_MAX) return false;
+  l1_registry[l1_registry_len].l2 = l2;
+  l1_registry[l1_registry_len].l1 = l1;
+  l1_registry_len++;
+  return true;
+}
+
+void c4_reset_chain_registry(void) {
+  family_registry_len = 0;
+  l1_registry_len     = 0;
 }

@@ -33,6 +33,16 @@ extern "C" {
 
 #include "bytes.h"
 #include "crypto.h"
+#include "json.h"
+
+// Forward declaration so chains.h can expose `c4_register_chain` without
+// including state.h (state.h already includes chains.h and would cycle).
+// The matching full definition lives in state.h and must stay tagged.
+#ifndef C4_STATE_T_FWD
+#define C4_STATE_T_FWD
+struct c4_state;
+typedef struct c4_state c4_state_t;
+#endif
 
 /**
  * Builds a legacy `chain_id_t` from an EVM numeric chain id only (type bits zero).
@@ -54,7 +64,8 @@ extern "C" {
  * Values 0–14 are reserved; OP-Stack L2s may also map to `C4_CHAIN_TYPE_OP` via
  * `c4_chain_type()` even when the numeric id uses `C4_CHAIN_TYPE_ETHEREUM` encoding.
  * The same applies to EEZ (Ethereum Economic Zone) L2s, which map to
- * `C4_CHAIN_TYPE_EEZ`.
+ * `C4_CHAIN_TYPE_EEZ`, and to Arbitrum One (`C4_CHAIN_ARB_ONE`), which maps to
+ * `C4_CHAIN_TYPE_ARBITRUM`.
  */
 typedef enum {
   C4_CHAIN_TYPE_ETHEREUM  = 0,
@@ -97,6 +108,9 @@ extern const chain_id_t C4_CHAIN_GNOSIS;
 #define C4_CHAIN_OP_FRAXTAL    CHAIN(252)
 #define C4_CHAIN_OP_MANTLE     CHAIN(5000)
 #define C4_CHAIN_OP_KLAYTN     CHAIN(8217)
+
+/** Arbitrum One. `c4_chain_type()` maps this id to `C4_CHAIN_TYPE_ARBITRUM`. */
+#define C4_CHAIN_ARB_ONE CHAIN(42161)
 
 /**
  * EEZ (Ethereum Economic Zone) L2s. Each id listed here must also be handled in
@@ -156,6 +170,7 @@ static inline bool c4_chains_get_props(chain_id_t chain_id, chain_properties_t* 
  *
  * OP-Stack rollups listed as `C4_CHAIN_OP_*` macros map to `C4_CHAIN_TYPE_OP`;
  * EEZ rollups listed as `C4_CHAIN_EEZ_*` macros map to `C4_CHAIN_TYPE_EEZ`;
+ * `C4_CHAIN_ARB_ONE` maps to `C4_CHAIN_TYPE_ARBITRUM`;
  * other ids use the type byte embedded in `chain_id`.
  *
  * @param chain_id packed chain identifier
@@ -168,8 +183,10 @@ chain_type_t c4_chain_type(chain_id_t chain_id);
  *
  * For an EEZ L2 (`C4_CHAIN_EEZ_*`) this is the L1 the rollup settles on: the L2
  * block hash is proven by an L1 storage proof, so sync-committee state, light
- * client updates and the client state all belong to that L1. Every other chain
- * (L1s and OP-Stack L2s) is returned unchanged.
+ * client updates and the client state all belong to that L1. Arbitrum One uses
+ * the same mapping: the batch-poster account proof is an L1 `clProof`, so its
+ * sync-committee state is Ethereum mainnet. Every other chain (L1s and
+ * OP-Stack L2s) is returned unchanged.
  *
  * The mapping is a switch in `chains.c` on purpose: `util` must not depend on a
  * chain module, and callers need the answer before any module is initialised
@@ -178,10 +195,11 @@ chain_type_t c4_chain_type(chain_id_t chain_id);
  * | `chain`                | result                   |
  * |------------------------|--------------------------|
  * | `C4_CHAIN_EEZ_ROLLUPX` | `C4_CHAIN_MAINNET` (`1`) |
+ * | `C4_CHAIN_ARB_ONE`     | `C4_CHAIN_MAINNET` (`1`) |
  * | anything else          | `chain`                  |
  *
  * @param chain client chain id
- * @return L1 chain id for an EEZ L2, otherwise `chain` itself
+ * @return L1 chain id for an EEZ L2 or Arbitrum One, otherwise `chain` itself
  */
 chain_id_t c4_get_l1_chain_id_for_l2(chain_id_t chain);
 
@@ -192,6 +210,117 @@ chain_id_t c4_get_l1_chain_id_for_l2(chain_id_t chain);
  * @return network-specific id (e.g. `1` for mainnet, `8453` for Base)
  */
 uint64_t c4_chain_specific_id(chain_id_t chain_id);
+
+/** Maximum number of additional chain-id to chain-type (or L1) mappings. */
+#define C4_CHAIN_REGISTRY_MAX 32
+
+/**
+ * Number of slots in every `chain_type_t`-indexed hook table
+ * (`verify_block_hooks`, `prover_hooks`, `sync_hooks`, …).
+ *
+ * Centralised so `c4_register_chain_family()` and the hook tables in
+ * `beacon_header.c` / `eth_tools.c` cannot drift out of sync.
+ */
+#define C4_BLOCK_PROOF_HOOKS 16
+
+/**
+ * Registers an extra `chain_id -> chain_type` mapping consulted by
+ * `c4_chain_type()` when the built-in switch does not match.
+ *
+ * Idempotent: a second call with the same `chain_id` overwrites the type.
+ *
+ * Built-in chain ids are **hard-rejected**: any id that `chains.h` declares
+ * as a `C4_CHAIN_*` constant (`C4_CHAIN_MAINNET`, `C4_CHAIN_OP_*`,
+ * `C4_CHAIN_EEZ_*`, `C4_CHAIN_ARB_ONE`, `C4_CHAIN_POLYGON`, `C4_CHAIN_BSC`,
+ * every Bolt/Haifa/Telos/Moon/Fuse/Cronos/Avalanche variant, …) cannot be
+ * rerouted. This preserves the core-routing invariant even when a plugin
+ * tries to claim a built-in id. See `c4_reset_chain_registry` for tests.
+ *
+ * The runtime hook tables (see `beacon_header.c` and `eth_tools.c`) are
+ * indexed by `chain_type_t` with `C4_BLOCK_PROOF_HOOKS` slots, so values
+ * `>= C4_BLOCK_PROOF_HOOKS` are rejected as well.
+ *
+ * Intended for `EXTRA_CHAIN` plugins and for `add_chain_registration`
+ * dispatcher functions; a plugin that needs to claim a brand-new id
+ * (anything that is **not** already a `C4_CHAIN_*` constant) calls this
+ * once at startup.
+ *
+ * @param chain_id packed chain identifier (must be non-zero and not a built-in id)
+ * @param type chain family the module handles (must be `< C4_BLOCK_PROOF_HOOKS`)
+ * @return true if stored or updated, false on invalid input, a built-in id, or a full table
+ */
+bool c4_register_chain_family(chain_id_t chain_id, chain_type_t type);
+
+/**
+ * Registers an extra `L2 -> L1` mapping consulted by `c4_get_l1_chain_id_for_l2`
+ * when the built-in switch does not match.
+ *
+ * Idempotent: a second call with the same `l2` overwrites the L1.
+ *
+ * Built-in `l2` ids (every `C4_CHAIN_*` constant) are hard-rejected for the
+ * same reason as `c4_register_chain_family`: a plugin must not reroute the
+ * sync-committee lookup for Ethereum mainnet, Arbitrum One, or any other
+ * chain the core already knows about. `l2 == 0`, `l1 == 0` and `l2 == l1`
+ * are rejected as well to prevent self-referential or sentinel lookups.
+ *
+ * @param l2 L2 chain id whose proofs anchor on `l1` (must be non-zero and not a built-in id)
+ * @param l1 chain id that secures `l2` via consensus (must be non-zero and `!= l2`)
+ * @return true if stored or updated, false on invalid input, a built-in `l2`, or a full table
+ */
+bool c4_register_l1_for_l2(chain_id_t l2, chain_id_t l1);
+
+/**
+ * Clears every mapping stored by `c4_register_chain_family` and
+ * `c4_register_l1_for_l2`. Built-in mappings are not affected.
+ *
+ * Intended for unit tests; production code never calls this.
+ */
+void c4_reset_chain_registry(void);
+
+/**
+ * Registers chain-type-specific runtime configuration (fork epochs, blob
+ * schedules, genesis validators root, …) from JSON.
+ *
+ * Dispatched to the module that owns `type` through the generated
+ * `c4_register_chain` in `verifiers.h`: every `add_verifier(... REGISTER_CHAIN
+ * <fn> ...)` registration contributes one branch in the switch. Modules that
+ * do not expose `REGISTER_CHAIN` have no runtime configuration path.
+ *
+ * The JSON schema is defined by each chain module. For ETH, keys match the
+ * fields of `chain_spec_t`; see `src/chains/eth/ssz/chain_spec.c` for the
+ * authoritative schema. `fork_epochs` is an array ordered by fork id (Altair,
+ * Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, …); `fork_versions` is an
+ * array of 4-byte hex strings, Phase0 first, so `len(fork_versions) ==
+ * len(fork_epochs) + 1`. Example (ETH / Luxor L1):
+ *
+ * ```json
+ * {
+ *   "chain_id": 42,
+ *   "genesis_validators_root": "0x4b363db9...",
+ *   "slots_per_epoch_bits": 5,
+ *   "epochs_per_period_bits": 8,
+ *   "weak_subjectivity_epochs": 3682,
+ *   "fork_epochs":   [0, 0, 0, 0, 0, 0, 1536],
+ *   "fork_versions": [
+ *     "0x00000000", "0x01000000", "0x02000000", "0x03000000",
+ *     "0x04000000", "0x05000000", "0x06000000", "0x07000000"
+ *   ],
+ *   "max_blobs_per_block_electra": 9
+ * }
+ * ```
+ *
+ * On failure, `state->error` carries a human-readable message and the function
+ * returns `false`. On success, subsequent calls to the chain's lookup
+ * functions (e.g. `c4_eth_get_chain_spec`) return the registered entry.
+ *
+ * @param state state object that collects the error message (must not be NULL)
+ * @param type chain family that owns the configuration
+ * @param data parsed JSON body describing one chain
+ * @return true on success, false if the chain type has no `REGISTER_CHAIN`
+ *         handler or the handler rejected the payload (see `state->error`)
+ */
+bool c4_register_chain(c4_state_t* state, chain_type_t type, json_t data);
+
 #ifdef __cplusplus
 }
 #endif

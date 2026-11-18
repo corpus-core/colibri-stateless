@@ -23,6 +23,7 @@
 
 #include "beacon.h"
 #include "beacon_types.h"
+#include "chains.h"
 #include "eth_compute_units.h"
 #include "eth_req.h"
 #include "eth_tools.h"
@@ -52,14 +53,16 @@ c4_status_t c4_proof_block(prover_ctx_t* ctx) {
   TRY_ASYNC(c4_check_blockroot_proof(ctx, &historic_proof, &block));
   TRY_ASYNC(c4_get_syncdata_proof(ctx, &historic_proof.sync, &sync_proof));
 
-  // sequencerProof already carries transactions + withdrawals, so the body is omitted.
+  // OP's sequencerProof already carries transactions + withdrawals, so the body is omitted.
   // The OP hook rebuilds ETH_SSZ_EL_BLOCK_CONTENT from the signed execution payload
   // and the verifier recovers it from the header cache. Follow-up `blockHash` proofs
   // still need the body when the verifier may not have cached it yet.
+  // Arbitrum's feed proof is only the signed header, so its transactions stay in `body`.
 #ifdef EL_HEADER_CACHE
   bool omit_body = include_body &&
                    !eth_verifier_has_block_header(ctx, &block) &&
-                   block.proof_type == C4_BLOCK_PROOF_TYPE_SEQUENCER;
+                   block.proof_type == C4_BLOCK_PROOF_TYPE_SEQUENCER &&
+                   c4_chain_type(ctx->chain_id) == C4_CHAIN_TYPE_OP;
 #else
   bool omit_body = false;
 #endif

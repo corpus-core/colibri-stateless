@@ -56,8 +56,9 @@ c4_status_t c4_verify_header(verify_ctx_t* ctx, ssz_ob_t header, ssz_ob_t block_
 // ctx->state (`blockHash` / `sequencerProof`), so it stays valid for the lifetime of the
 // verify_ctx and is freed automatically with it.
 // A `clProof` is rejected when `ctx->chain_id` settles on another chain
-// (`c4_get_l1_chain_id_for_l2(ctx->chain_id) != ctx->chain_id`, i.e. EEZ): such a chain has
-// no consensus layer, its blocks are proven by the hook of its chain type.
+// (`c4_get_l1_chain_id_for_l2(ctx->chain_id) != ctx->chain_id`, i.e. EEZ or Arbitrum One):
+// such a chain has no consensus layer, its blocks are proven by the hook of its chain type.
+// An L1 header inside a batch-poster update is verified with the chain id switched to that L1.
 // `eip2935` is verified here for every chain: the history contract proves an older block
 // from the state of a newer block of the same chain.
 c4_status_t c4_verify_block(verify_ctx_t* ctx, ssz_ob_t block, bytes_t* el_header, bytes32_t block_hash);

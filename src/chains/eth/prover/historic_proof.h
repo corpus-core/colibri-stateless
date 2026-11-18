@@ -172,6 +172,9 @@ c4_historic_plan_t c4_plan_blockroot_proof(const syncdata_state_t* sync, uint64_
 /**
  * Builds the `sync_data` section of a C4 request (bootstrap, LCUs, ZK) from client sync state.
  *
+ * A registered chain hook runs first. If it sets `builder->def` or returns
+ * pending or error, that result is the sync section. An empty success continues here.
+ *
  * When `sync_data->l1_sync_data` is set (EEZ: the block is proven by an L1 prover
  * response, which already carries the sync data matching the client state), that
  * variant is copied into `builder` unchanged and nothing is fetched. This also holds

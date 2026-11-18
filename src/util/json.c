@@ -450,8 +450,12 @@ char* json_new_string(json_t parent) {
 }
 
 bool json_equal_string(json_t value, const char* str) {
+  // JSON strings store the opening/closing quotes in `value.start` / `value.len`,
+  // so the comparable payload is `value.start + 1` with length `value.len - 2`.
+  // The caller passes the plain, unquoted C literal.
   if (!str || !value.start) return false;
-  int len = strlen(str);
-  if (len < 2) return false; // Prevent underflow
-  return value.type == JSON_TYPE_STRING && value.len == len - 2 && memcmp(value.start + 1, str, value.len - 2) == 0;
+  if (value.type != JSON_TYPE_STRING || value.len < 2) return false;
+  size_t inner = (size_t) value.len - 2;
+  size_t len   = strlen(str);
+  return inner == len && memcmp(value.start + 1, str, inner) == 0;
 }

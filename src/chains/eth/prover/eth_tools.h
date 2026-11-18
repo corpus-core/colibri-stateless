@@ -122,6 +122,7 @@ void eth_add_account_proof_fields(ssz_builder_t* account, json_t eth_proof, byte
  * Fetches the proof of the EIP-2935 history slot of a block from the state of a newer block.
  *
  * EIP-2935 keeps the hashes of the last 8191 blocks in the storage of the history contract.
+ * Arbitrum keeps 393168. The slot is `block_number % eth_eip2935_history_window(ctx->chain_id)`.
  * The proof is an `eth_getProof` of that contract for the slot of `block_number`, taken at
  * `newer_block_number`. Only the shape of the answer is checked here (exactly one storage
  * proof, and it is about the requested slot); the Merkle proof is not verified: the caller
@@ -192,6 +193,34 @@ typedef c4_status_t (*c4_get_el_block_extra_fn)(prover_ctx_t* ctx, json_t block,
  * @param get handler for `c4_beacon_get_block_for_eth`, or NULL
  */
 void c4_register_block_proof_prover(chain_type_t chain_type, c4_add_block_proof_extra_fn add, c4_get_el_block_extra_fn get);
+
+/**
+ * Builds chain-specific `sync_data` before the Ethereum light-client sync.
+ *
+ * Return `C4_SUCCESS` with `builder->def` unset to leave the Ethereum path in
+ * charge. A set `builder->def`, `C4_PENDING` or `C4_ERROR` ends sync generation.
+ *
+ * @param ctx prover context
+ * @param builder sync-data builder, empty on entry
+ * @return `C4_SUCCESS`, `C4_PENDING`, or `C4_ERROR`
+ */
+typedef c4_status_t (*c4_sync_data_fn)(prover_ctx_t* ctx, ssz_builder_t* builder);
+
+/**
+ * Registers the sync-data hook for a chain type. Idempotent.
+ *
+ * @param chain_type chain type that owns the hook
+ * @param fn hook, or NULL to clear
+ */
+void c4_register_sync_data_prover(chain_type_t chain_type, c4_sync_data_fn fn);
+
+/**
+ * Returns the registered sync-data hook, or NULL.
+ *
+ * @param chain_type chain type registered with `c4_register_sync_data_prover`
+ * @return sync-data hook, or NULL
+ */
+c4_sync_data_fn c4_sync_data_prover_fn(chain_type_t chain_type);
 
 /**
  * Returns the registered `add` hook for `chain_type`, or NULL.

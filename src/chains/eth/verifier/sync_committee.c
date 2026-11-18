@@ -494,7 +494,7 @@ static c4_status_t update_from_sync_data(verify_ctx_t* ctx) {
   if (ssz_is_error(ctx->sync_data)) RETURN_VERIFY_ERROR_STATUS(ctx, "invalid sync_data!");
   if (ctx->sync_data.def->type == SSZ_TYPE_NONE) return C4_SUCCESS;
   // LC and ZK updates read slots_per_epoch_bits from the spec. OP has none;
-  // failing here avoids that dereference. EEZ already runs as its L1.
+  // failing here avoids that dereference. EEZ and Arbitrum One already run as their L1.
   if (c4_eth_get_chain_spec(ctx->chain_id) == NULL)
     RETURN_VERIFY_ERROR_STATUS(ctx, "sync data requires a chain spec");
 
@@ -509,7 +509,7 @@ static c4_status_t update_from_sync_data(verify_ctx_t* ctx) {
 
 INTERNAL c4_status_t c4_update_from_sync_data(verify_ctx_t* ctx) {
   // Sync data always describes the sync committee of the chain that finalizes the
-  // blocks. For an L2 that settles on L1 (EEZ) this is the L1 chain: periods, the
+  // blocks. For an L2 that settles on L1 (EEZ, Arbitrum One) this is the L1 chain: periods, the
   // chain state and every request issued while syncing must use the L1 chain id.
   // `c4_get_l1_chain_id_for_l2` returns the chain itself for all other chains.
   // The caller's chain id is restored on every path, including PENDING and ERROR.

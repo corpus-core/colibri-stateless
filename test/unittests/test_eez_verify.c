@@ -1104,9 +1104,10 @@ void test_block_hook_rejects_other_variants(void) {
   bytes32_t        hash     = {0};
   const ssz_def_t* el_union = ssz_get_def(account.def, "elProof");
   TEST_ASSERT_EQUAL_INT(SSZ_TYPE_UNION, el_union->type);
-  TEST_ASSERT_EQUAL_UINT32(6, el_union->def.container.len);
+  TEST_ASSERT_EQUAL_UINT32(7, el_union->def.container.len);
   TEST_ASSERT_EQUAL_STRING("eezL1Proof", el_union->def.container.elements[4].name);
   TEST_ASSERT_EQUAL_STRING("eip2935", el_union->def.container.elements[5].name);
+  TEST_ASSERT_EQUAL_STRING("arbFeedProof", el_union->def.container.elements[6].name);
 
   for (uint32_t i = 0; i < el_union->def.container.len; i++) {
     const ssz_def_t* variant = el_union->def.container.elements + i;

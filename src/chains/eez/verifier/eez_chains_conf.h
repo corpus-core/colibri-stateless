@@ -26,6 +26,7 @@
 
 #include "chains.h"
 #include "crypto.h"
+#include "json.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -101,6 +102,41 @@ void eez_root_slot(uint64_t rollup_id, bytes32_t slot);
  * @param add value to add
  */
 C4_STATIC_UNLESS_TEST void eez_bytes32_add(bytes32_t value, uint8_t add);
+
+/**
+ * Registers an additional EEZ rollup at runtime from a JSON description.
+ *
+ * Called via the generated `c4_register_chain(state, C4_CHAIN_TYPE_EEZ, data)`
+ * dispatcher. Reference JSON layout:
+ *
+ * ```json
+ * {
+ *   "chain_id":  "0xfeedbeef",
+ *   "rollup_id": 7,
+ *   "proxy":     "0x4b2760f84b83d6b3829e30a7573b0172b6d6402c",
+ *   "name":      "RollupY"
+ * }
+ * ```
+ *
+ * `chain_id` and `rollup_id` accept both plain JSON numbers (`4276993775`,
+ * `7`) and Ethereum-style hex strings (`"0xfeedbeef"`). The `name` string
+ * and the extras slot are owned by the registry for the lifetime of the
+ * process; the caller may free its input immediately. Built-in entries in
+ * `eez_chain_configs[]` always take precedence over runtime entries.
+ *
+ * @param state state collecting the error message on failure (must not be NULL)
+ * @param data parsed JSON body with one chain description
+ * @return true on success, false with `state->error` populated on failure
+ */
+bool c4_eez_register_chain(c4_state_t* state, json_t data);
+
+/**
+ * Resets the runtime-registered EEZ chain configs.
+ *
+ * Only intended for tests: frees every heap-allocated name string and empties
+ * the extras array. Built-in rollups are unaffected.
+ */
+void c4_eez_reset_chain_config_registry(void);
 
 #ifdef __cplusplus
 }

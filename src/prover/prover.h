@@ -89,6 +89,7 @@ typedef enum {
   C4_PROVER_FLAG_INPUT_VALIDATED    = 1 << 13, // internal/transient: set once the request input params have been validated (see CHECK_JSON_INPUT). Prevents re-validation on async re-entries and nested dispatch. Not a request option and never serialized.
   C4_PROVER_FLAG_NIMBUS             = 1 << 14, // Nimbus CL compatibility: find child headers via slot scan instead of `headers?parent_root=` (status-im/nimbus-eth2#7305) and use the Nimbus historical_summaries URL.
   C4_PROVER_FLAG_LODESTAR           = 1 << 15, // Lodestar CL compatibility: enables the unofficial `/eth/v0/beacon/proof/state/{state_id}` (CompactMultiProof) endpoint used as a self-build fallback for LightClientBootstrap and Gloas LightClientUpdate when the standard endpoints do not return data. Must be OFF for non-Lodestar beacon clients so the fallback is never attempted.
+  C4_PROVER_FLAG_ARB_BATCH_POSTER   = 1 << 16, // server precheck: prove `batch_poster` on L1 and embed it in sync_data. Not a client request option.
 } prover_flag_types_t;
 
 /**
@@ -150,15 +151,15 @@ typedef struct cache_entry {
 typedef struct prover_trace_span prover_trace_span_t;
 #endif
 typedef struct {
-  char*          method;          ///< RPC method name (heap-owned)
-  json_t         params;          ///< RPC parameters as parsed JSON array (owns `start` buffer)
-  bytes_t        proof;           ///< Encoded proof bytes when generation succeeds (heap-owned)
-  chain_id_t     chain_id;        ///< Target chain for module dispatch
-  c4_state_t     state;           ///< Pending requests and error message
-  prover_flags_t flags;           ///< Bitmask of `prover_flag_types_t`
-  bytes_t        client_state;    ///< Optional synced-period / checkpoint snapshot from the client
-  bytes32_t      last_block_hash; ///< Cached EL block hash; skips redundant block proofs when it matches the request
-  bytes_t        witness_key;     ///< Witness signer key material for checkpoint signing
+  char*          method;           ///< RPC method name (heap-owned)
+  json_t         params;           ///< RPC parameters as parsed JSON array (owns `start` buffer)
+  bytes_t        proof;            ///< Encoded proof bytes when generation succeeds (heap-owned)
+  chain_id_t     chain_id;         ///< Target chain for module dispatch
+  c4_state_t     state;            ///< Pending requests and error message
+  prover_flags_t flags;            ///< Bitmask of `prover_flag_types_t`
+  bytes_t        client_state;     ///< Optional synced-period / checkpoint snapshot from the client
+  bytes32_t      last_block_hash;  ///< Cached EL block hash; skips redundant block proofs when it matches the request
+  bytes_t        witness_key;      ///< Witness signer key material for checkpoint signing
 #ifdef PROVER_CACHE
   cache_entry_t* cache; ///< Per-request cache list (server builds; promotes to global on free)
 #endif
@@ -292,13 +293,6 @@ void c4_reset_prover_caches(void);
  * @return milliseconds since an implementation-defined epoch (consistent within the process)
  */
 uint64_t current_ms();
-
-/**
- * Wall-clock time in milliseconds since the Unix epoch.
- *
- * @return Unix time in milliseconds
- */
-uint64_t current_unix_ms();
 
 #ifdef PROVER_TRACE
 #include <stdint.h>

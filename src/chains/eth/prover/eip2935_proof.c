@@ -42,7 +42,7 @@ c4_status_t c4_eth_get_eip2935_proof(prover_ctx_t* ctx, uint64_t block_number, u
   bytes32_t returned_key               = {0};
 
   memset(block_hash, 0, 32);
-  eth_eip2935_slot(block_number, slot);
+  eth_eip2935_slot_for(block_number, eth_eip2935_history_window(ctx->chain_id), slot);
   sbprintf(address, "\"0x%x\"", bytes((uint8_t*) ETH_EIP2935_HISTORY_ADDRESS, ADDRESS_SIZE));
   sbprintf(key, "\"0x%x\"", bytes(slot, 32));
 

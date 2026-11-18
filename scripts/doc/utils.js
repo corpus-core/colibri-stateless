@@ -17,9 +17,15 @@ function get_doc_path(path) {
     return dir + '/specification/' + path
 }
 
-function create_summary_entries(section, level, root_path, entries) {
+function create_summary_entries(section, level, root_path, entries, override_full_path) {
     if (entries == undefined) entries = []
-    section.full_path = root_path + section.path.substr(1)
+    if (override_full_path)
+        // Honor an explicit href already present in SUMMARY.md so the section
+        // can be nested under an arbitrary parent (e.g. a sibling list entry
+        // instead of the top-level `##` header). Children still use root_path.
+        section.full_path = override_full_path
+    else
+        section.full_path = root_path + section.path.substr(1)
     let line = ''.padStart(level + (section.level - 1) * 2, ' ') + '* [' + section.title + '](' + section.full_path + ')'
     entries.push(line)
     section.children.forEach(child => create_summary_entries(child, level, root_path, entries))
@@ -86,7 +92,8 @@ function read_summary() {
             sections.forEach(section => {
                 sections_to_write.push(section)
                 let pos_start = lines.findIndex(line => line.trim().startsWith('* [' + section.title + ']'))
-                if (pos_start == -1) {
+                let found_existing = pos_start !== -1
+                if (!found_existing) {
                     pos_start = last_pos
                     pos_end = pos_start
                 }
@@ -103,7 +110,15 @@ function read_summary() {
                 }
 
                 let level = Math.max(0, lines[pos_start].indexOf('*'))
-                let entries = create_summary_entries(section, level, get_main_path_in_summary(lines, pos_start))
+                // If the existing SUMMARY entry already has a href, honor it as
+                // the section's full_path (lets us nest a page under a sibling
+                // like `Building` without extending the `##` heading logic).
+                let override_full_path = null
+                if (found_existing) {
+                    const href_match = (lines[pos_start] || '').match(/\]\(([^)]+)\)/)
+                    if (href_match) override_full_path = href_match[1]
+                }
+                let entries = create_summary_entries(section, level, get_main_path_in_summary(lines, pos_start), undefined, override_full_path)
                 lines.splice(pos_start, pos_end - pos_start, ...entries)
                 last_pos = pos_start + (pos_end - pos_start + entries.length)
 

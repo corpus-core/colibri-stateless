@@ -163,6 +163,32 @@
       "prover": [
         "https://rollupx.colibri-proof.tech"
       ]
+    },
+    {
+      "id": 42161,
+      "name": "arbitrum",
+      "aliases": [
+        "arbitrum",
+        "arb1",
+        "0xa4b1"
+      ],
+      "pollingInterval": 1000,
+      "eth_rpc": [
+        "https://arb1.arbitrum.io/rpc",
+        "https://arbitrum-one-rpc.publicnode.com"
+      ],
+      "beacon_api": [
+        "https://mainnet.colibri-proof.tech/consensus",
+        "https://gateway.tenderly.co/public/mainnet",
+        "https://ethereum-beacon-api.publicnode.com"
+      ],
+      "checkpointz": [
+        "https://sync-mainnet.beaconcha.in",
+        "https://mainnet.checkpoint.sigp.io"
+      ],
+      "prover": [
+        "https://arbitrum.colibri-proof.tech"
+      ]
     }
   ]
 }

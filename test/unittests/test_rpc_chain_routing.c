@@ -32,7 +32,7 @@
 void setUp(void) {}
 void tearDown(void) {}
 
-// L1s and OP-Stack L2s keep their own id; only an EEZ L2 maps to the L1 it settles on.
+// L1s and OP-Stack L2s keep their own id. EEZ and Arbitrum One map to the L1 they settle on.
 void test_l1_chain_id_passes_through_except_eez(void) {
   TEST_ASSERT_TRUE(c4_get_l1_chain_id_for_l2(1) == 1);
   TEST_ASSERT_TRUE(c4_get_l1_chain_id_for_l2(10) == 10);
@@ -40,6 +40,7 @@ void test_l1_chain_id_passes_through_except_eez(void) {
   TEST_ASSERT_TRUE(c4_get_l1_chain_id_for_l2(C4_CHAIN_SEPOLIA) == C4_CHAIN_SEPOLIA);
   TEST_ASSERT_TRUE(c4_get_l1_chain_id_for_l2(C4_CHAIN_EEZ_ROLLUPX) == C4_CHAIN_MAINNET);
   TEST_ASSERT_TRUE(c4_get_l1_chain_id_for_l2(0xaa29f) == 1);
+  TEST_ASSERT_TRUE(c4_get_l1_chain_id_for_l2(C4_CHAIN_ARB_ONE) == C4_CHAIN_MAINNET);
 }
 
 void test_eez_chain_type(void) {

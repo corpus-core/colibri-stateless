@@ -120,7 +120,69 @@ foreach(test_source ${TEST_SOURCES})
         endif()
     endif()
 
+    # test_register_chain exercises the generated dispatcher from `c4_register_chain`
+    # across every available chain-type. It needs the chain-plugin headers and
+    # explicit NO_CHAIN_* defines to compile when one of them is disabled.
+    if("${test_name}" STREQUAL "test_register_chain")
+        target_include_directories(${test_name} PRIVATE
+            ${CMAKE_SOURCE_DIR}/src/chains/eth/ssz
+            ${CMAKE_SOURCE_DIR}/src/chains/eez/verifier
+            ${CMAKE_SOURCE_DIR}/src/chains/op/verifier
+            ${CMAKE_SOURCE_DIR}/src/chains/arb/verifier
+        )
+        if(NOT CHAIN_ETH)
+            target_compile_definitions(${test_name} PRIVATE NO_CHAIN_ETH=1)
+        endif()
+        if(NOT CHAIN_EEZ OR NOT CHAIN_ETH)
+            target_compile_definitions(${test_name} PRIVATE NO_CHAIN_EEZ=1)
+        else()
+            target_link_libraries(${test_name} PRIVATE eez_verifier eez_prover)
+        endif()
+        if(NOT CHAIN_OP)
+            target_compile_definitions(${test_name} PRIVATE NO_CHAIN_OP=1)
+        else()
+            target_link_libraries(${test_name} PRIVATE op_verifier op_prover)
+        endif()
+        if(NOT CHAIN_ARB)
+            target_compile_definitions(${test_name} PRIVATE NO_CHAIN_ARB=1)
+        else()
+            target_link_libraries(${test_name} PRIVATE arb_verifier arb_prover)
+        endif()
+    endif()
+
+    if("${test_name}" STREQUAL "test_arb_batch_poster")
+        if(CHAIN_ARB)
+            target_link_libraries(${test_name} PRIVATE arb_verifier arb_prover)
+            target_include_directories(${test_name} PRIVATE
+                ${CMAKE_SOURCE_DIR}/src/prover
+                ${CMAKE_SOURCE_DIR}/src/chains/eth/ssz
+                ${CMAKE_SOURCE_DIR}/src/chains/eth/verifier
+                ${CMAKE_SOURCE_DIR}/src/chains/eth/prover
+                ${CMAKE_SOURCE_DIR}/src/chains/arb/verifier
+                ${CMAKE_SOURCE_DIR}/src/chains/arb/prover
+            )
+        else()
+            target_compile_definitions(${test_name} PRIVATE NO_CHAIN_ARB=1)
+        endif()
+    endif()
+
     # EEZ tests call the module directly (chain table, storage proof, block hooks).
+    if("${test_name}" STREQUAL "test_arb_preconf")
+        if(CHAIN_ARB AND HTTP_SERVER)
+            target_compile_definitions(${test_name} PRIVATE ARB_BLOCK_FIXTURE="${CMAKE_SOURCE_DIR}/test/data/arb_feed/block.json")
+            target_include_directories(${test_name} PRIVATE
+                ${CMAKE_SOURCE_DIR}/src/chains/eth/ssz
+                ${CMAKE_SOURCE_DIR}/src/chains/eth/prover
+                ${CMAKE_SOURCE_DIR}/src/chains/eth/verifier
+                ${CMAKE_SOURCE_DIR}/src/chains/arb/prover
+                ${CMAKE_SOURCE_DIR}/src/chains/arb/verifier
+                ${CMAKE_SOURCE_DIR}/src/server
+            )
+        else()
+            target_compile_definitions(${test_name} PRIVATE NO_CHAIN_ARB=1)
+        endif()
+    endif()
+
     if("${test_name}" MATCHES "^test_eez_")
         if(CHAIN_EEZ AND CHAIN_ETH)
             target_link_libraries(${test_name} PRIVATE eez_verifier eez_prover)

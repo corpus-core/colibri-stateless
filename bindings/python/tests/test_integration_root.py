@@ -60,28 +60,54 @@ class TestIntegration:
         test_cases = discover_tests(self.test_data_root)
         if not test_cases:
             pytest.skip("No test cases found")
-            
-        # Use the first test case
-        test_case = test_cases[0]
-        test_dir = test_case['directory']
-        
+
+        # Pick a test case deterministically. `discover_tests` returns
+        # directories in filesystem order (ext4 insert-order, APFS,
+        # NTFS and CPython 3.14's refactored `pathlib.glob` each give
+        # different orders), so sort by name first and then prefer a
+        # case that actually has a byte-comparable storage file.
+        #
+        # Files to skip:
+        # - `test.json`: metadata, not a storage blob.
+        # - `tx_pending_*`: `FileBasedMockStorage.get()` intentionally
+        #   rewrites bytes 32..40 of every 40-byte entry to the current
+        #   unix timestamp so the prover's TTL check keeps passing. A
+        #   raw byte-for-byte comparison against the on-disk file would
+        #   therefore always fail for those entries.
+        def comparable_files(directory):
+            return sorted(
+                (f for f in directory.iterdir()
+                 if f.is_file()
+                 and f.name != 'test.json'
+                 and not f.name.startswith('tx_pending_')),
+                key=lambda p: p.name,
+            )
+
+        test_cases_sorted = sorted(test_cases, key=lambda c: c['name'])
+        selected = None
+        storage_files = []
+        for candidate in test_cases_sorted:
+            files = comparable_files(candidate['directory'])
+            if files:
+                selected = candidate
+                storage_files = files
+                break
+
+        if selected is None:
+            pytest.skip("No test case with byte-comparable storage files found")
+
+        test_dir = selected['directory']
         storage = FileBasedMockStorage(test_dir)
-        
-        # List files in test directory
-        storage_files = [f for f in test_dir.iterdir() 
-                        if f.is_file() and f.name not in ['test.json']]
-        
-        if storage_files:
-            # Test getting existing file
-            storage_file = storage_files[0]
-            result = storage.get(storage_file.name)
-            assert result is not None
-            assert isinstance(result, bytes)
-            assert len(result) > 0
-            
-            # Verify content matches file
-            expected_content = storage_file.read_bytes()
-            assert result == expected_content
+
+        # Byte-compare the first comparable file.
+        storage_file = storage_files[0]
+        result = storage.get(storage_file.name)
+        assert result is not None
+        assert isinstance(result, bytes)
+        assert len(result) > 0
+
+        expected_content = storage_file.read_bytes()
+        assert result == expected_content
             
         # Test getting non-existent file
         result = storage.get('non_existent_file')

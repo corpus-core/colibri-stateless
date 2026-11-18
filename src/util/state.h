@@ -247,7 +247,7 @@ typedef struct data_request {
   struct data_request*    next;                  ///< Pointer to next request in linked list
   bytes32_t               id;                    ///< Unique identifier for this request (32-byte hash)
   uint32_t                ttl;                   ///< Cache time-to-live in seconds (0 = not cacheable). Used server-side to cache the response (e.g. memcached) and forwarded by hosts as a `Cache-Control: max-age=<n>` request header so a shared cache/CDN never returns a response older than this bound (e.g. short bound for `latest` block proofs).
-  uint32_t                delay;                 ///< Milliseconds the host must wait before (re-)executing this request (0 = no delay). Used for delayed same-node retries (e.g. oblivious node warm-up).
+  uint32_t                delay;                 ///< Milliseconds the host must wait before (re-)executing this request (0 = no delay). Used for delayed same-node retries (e.g. oblivious node warm-up, or an Arbitrum header the feed already signed but the execution node has not imported). The HTTP server waits on a libuv timer and does not block its event loop. Bindings and the CLI sleep before issuing the request.
   uint16_t                retry_count;           ///< Number of delayed *same-node* retries already performed (see `c4_state_retry_after`); managed by the chain module, not the host
   bool                    validated;             ///< Whether the response has been validated
 } data_request_t;
@@ -259,7 +259,7 @@ typedef struct data_request {
  * Used by the async state machine to track operations that require
  * external data.
  */
-typedef struct {
+typedef struct c4_state {
   data_request_t* requests; ///< Linked list of data requests (NULL if no requests)
   char*           error;    ///< Accumulated error messages (NULL if no errors)
 } c4_state_t;
@@ -293,16 +293,22 @@ void c4_request_free(data_request_t* req);
 #define C4_PROVER_REQ_FLAG_ZK_PROOF          (1u << 7)
 #define C4_PROVER_REQ_FLAG_LOGS_COMPLETENESS (1u << 12)
 
+/** A cached batch poster older than this is omitted from the prover request. */
+#define C4_BATCH_POSTER_MAX_AGE_MS (24ull * 60ull * 60ull * 1000ull)
+
 /**
  * Appends common remote-prover JSON fields to an open object (after `method` / `params`).
  *
- * Writes: `,"version"`, optional `,"c4"`, optional `zk_proof`, `include_code`, `signers`
- * and optional `last_block_hash`. Caller must finish the JSON object with `}`.
+ * Writes: `,"version"`, optional `,"c4"`, optional `zk_proof`, `include_code`, `signers`,
+ * optional `last_block_hash` and, for Arbitrum, optional `batch_poster`. Caller must
+ * finish the JSON object with `}`.
  *
  * @param payload growable buffer; current content must not include the closing `}`
  * @param client_state pre-captured snapshot of the chain's client_state; pass `NULL_BYTES`
- *                    to fall back to `c4_get_client_state(chain_id)` (legacy behaviour)
- * @param chain_id chain used for fallback `c4_get_client_state` when no snapshot is given
+ *                    to fall back to `c4_get_client_state` of the L1 chain (legacy behaviour)
+ * @param chain_id client chain. The `c4` fallback uses `c4_get_l1_chain_id_for_l2`. Arbitrum
+ *                 also reads `batch_poster_<chain_id>` and appends it while
+ *                 `current_unix_ms() - timestamp <= C4_BATCH_POSTER_MAX_AGE_MS`
  * @param flags bitmask using `C4_PROVER_REQ_FLAG_*` (same bit layout as `prover_flags_t`)
  * @param witness_key witness bytes for `signers` (may be `NULL_BYTES`)
  * @param last_block_hash 32-byte hash of the newest execution block header the client has

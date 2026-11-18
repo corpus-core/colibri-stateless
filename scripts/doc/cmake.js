@@ -34,6 +34,22 @@ function get_cmake_options() {
                         description: description
                     }
                 }
+                // `set(NAME default CACHE STRING "description")` for string-valued options.
+                // Greedy match so descriptions containing `)` (e.g. "(local dir or git URL)") still parse.
+                // `cmake_tokens` drops empty strings, so a `""` default collapses `CACHE` to index 1.
+                else if (line.trim().startsWith('set(') && line.includes('CACHE')) {
+                    const inner = line.trim().match(/set\((.+)\)\s*$/)
+                    if (!inner) continue
+                    const tokens = cmake_tokens(inner[1])
+                    const cacheIdx = tokens.indexOf('CACHE')
+                    if (cacheIdx < 1) continue
+                    const name = tokens[0]
+                    options[name] = {
+                        path: dir == '../CMakeLists.txt' ? 'general' : dir.split('/').at(-2),
+                        default: cacheIdx > 1 ? tokens[1] : '',
+                        description: tokens[cacheIdx + 2] || ''
+                    }
+                }
             }
         }
         else if (fs.statSync(dir).isDirectory())

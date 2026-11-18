@@ -134,11 +134,24 @@ static const ssz_def_t C4_ETH_SYNCDATA_UPDATE_UNION[] = {
     SSZ_CONTAINER("GloasLightClientUpdate", GLOAS_LIGHT_CLIENT_UPDATE)      // 2: Gloas-fork structured LightClient Update
 };
 
+// The nested `sync_data` field points at this union. The length is fixed because
+// the union also contains the container, so `sizeof` of the union cannot be used.
+extern const ssz_def_t C4_ETH_REQUEST_SYNCDATA_UNION[];
+
+// Proves that `signer` is a batch poster. `account` is the L1 account proof.
+// `sync_data` is the L1 prover's own sync update (none, light client, or ZK).
+static const ssz_def_t ARB_SIGNER_SYNCDATA[] = {
+    SSZ_ADDRESS("signer"),
+    SSZ_CONTAINER("account", ETH_ACCOUNT_PROOF),
+    SSZ_UNION("sync_data", C4_ETH_REQUEST_SYNCDATA_UNION),
+};
+
 // A Union of possible types of sync data used to update the sync state by verifying the transition from the last period to the required.
 const ssz_def_t C4_ETH_REQUEST_SYNCDATA_UNION[] = {
     SSZ_NONE,
-    SSZ_CONTAINER(ETH_SSZ_NAME_LC_SYNC_DATA, ETH_LC_SYNCDATA), // Light Client Sync Data
-    SSZ_CONTAINER(ETH_SSZ_NAME_ZK_SYNC_DATA, ETH_ZK_SYNCDATA), // ZK Proof Sync Data (356-byte Groth16)
+    SSZ_CONTAINER(ETH_SSZ_NAME_LC_SYNC_DATA, ETH_LC_SYNCDATA),             // Light Client Sync Data
+    SSZ_CONTAINER(ETH_SSZ_NAME_ZK_SYNC_DATA, ETH_ZK_SYNCDATA),             // ZK Proof Sync Data (356-byte Groth16)
+    SSZ_CONTAINER(ETH_SSZ_NAME_ARB_SIGNER_SYNC_DATA, ARB_SIGNER_SYNCDATA), // Arbitrum batch poster, proven on L1
 };
 
 // the main container defining the incoming data processed by the verifier
@@ -263,6 +276,8 @@ const ssz_def_t* eth_ssz_verification_type(eth_ssz_type_t type) {
       return C4_ETH_REQUEST_SYNCDATA_UNION + 1;
     case ETH_SSZ_VERIFY_ZK_SYNCDATA:
       return C4_ETH_REQUEST_SYNCDATA_UNION + 2;
+    case ETH_SSZ_VERIFY_ARB_SIGNER_SYNC:
+      return C4_ETH_REQUEST_SYNCDATA_UNION + 3;
     case ETH_SSZ_CL_HEADER_PROOF:
       return ARRAY_TYPE(ETH_EL_PROOF_UNION, ETH_CL_HEADER_PROOF);
     case ETH_SSZ_EL_BLOCK_CONTENT:
@@ -275,6 +290,8 @@ const ssz_def_t* eth_ssz_verification_type(eth_ssz_type_t type) {
       return ARRAY_TYPE(ETH_EL_PROOF_UNION, EEZ_L1_PROOF);
     case ETH_SSZ_EIP2935_PROOF:
       return ARRAY_TYPE(ETH_EL_PROOF_UNION, ETH_EIP2935_PROOF);
+    case ETH_SSZ_ARB_FEED_PROOF:
+      return ARRAY_TYPE(ETH_EL_PROOF_UNION, ARB_FEED_PROOF);
     default: return NULL;
   }
 }

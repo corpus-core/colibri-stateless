@@ -24,8 +24,11 @@
 #define FORKS_END        0xfffffffffffffffeULL // must stay < NOT_ASSIGNED_YET
 
 #include "chain_spec.h"
+#include "bytes.h"
 #include "crypto.h"
+#include "json.h"
 #include "ssz.h"
+#include "state.h"
 #include <string.h>
 
 // fork_epochs[n] = activation epoch of fork (n+1) (Altair ..).
@@ -196,12 +199,40 @@ static const chain_spec_t chain_data[] = {
      .max_blobs_per_block_electra = 2ULL},
 };
 
+// Additional chain specs registered at runtime through `c4_eth_register_chain`.
+// Built-in `chain_data[]` entries always take precedence: the lookup below
+// scans them first, so a plugin cannot override mainnet / sepolia / gnosis.
+// The upper bound is intentionally small -- the real world does not need 32
+// distinct Ethereum-fork chains in a single process. Bump if ever required.
+#define ETH_CHAIN_SPEC_EXTRA_MAX 8
+
+static chain_spec_t eth_chain_data_extra[ETH_CHAIN_SPEC_EXTRA_MAX];
+static uint32_t     eth_chain_data_extra_len = 0;
+
 const chain_spec_t* c4_eth_get_chain_spec(chain_id_t id) {
   for (int i = 0; i < sizeof(chain_data) / sizeof(chain_data[0]); i++) {
     if (chain_data[i].chain_id == id)
       return chain_data + i;
   }
+  for (uint32_t i = 0; i < eth_chain_data_extra_len; i++) {
+    if (eth_chain_data_extra[i].chain_id == id)
+      return eth_chain_data_extra + i;
+  }
   return NULL;
+}
+
+// Generic `fork_version_func_t` used for chains registered through
+// `c4_eth_register_chain`. Reads the 4-byte version straight out of the
+// chain's `fork_versions` table. Built-in chains keep their dedicated
+// per-chain functions (mainnet / sepolia / gnosis / plataberget) because
+// their on-wire version schemes depend on chain-id arithmetic.
+static void generic_fork_version(chain_id_t chain_id, fork_id_t fork, uint8_t* version) {
+  const chain_spec_t* spec = c4_eth_get_chain_spec(chain_id);
+  if (!spec || !spec->fork_versions || fork < C4_FORK_PHASE0 || fork > C4_FORK_MAX) {
+    memset(version, 0, 4);
+    return;
+  }
+  memcpy(version, spec->fork_versions + ((size_t) fork) * 4, 4);
 }
 
 bool c4_chain_genesis_validators_root(chain_id_t chain_id, bytes32_t genesis_validators_root) {
@@ -486,4 +517,184 @@ gindex_t c4_historic_block_gindex(chain_id_t chain_id, uint64_t block_slot, uint
   if (!summaries_gidx || !period_gidx || !block_gidx) return 0;
 
   return ssz_add_gindex(ssz_add_gindex(summaries_gidx, period_gidx), block_gidx);
+}
+
+// JSON schema for a single chain registration. Kept near the parser so a
+// field addition updates both pieces together. `fork_epochs` holds one entry
+// per scheduled fork (Altair, Bellatrix, ...); `fork_versions` holds one
+// entry per fork id including Phase0, so its length is `fork_epochs` + 1.
+// `chain_id` accepts both JSON numbers (`42`) and hex-strings (`"0x2a"`),
+// matching the Ethereum RPC convention used by wallets and node configs.
+// `fork_versions` must each be a 4-byte hex string; `[bytes]` enforces the
+// hex / 0x-prefix at validation time, the runtime loop below enforces the
+// exact width of 4 bytes.
+static const char* ETH_REGISTER_CHAIN_SCHEMA =
+    "{chain_id:uint|hexuint,"
+    "genesis_validators_root:bytes32,"
+    "fork_epochs:[uint],"
+    "fork_versions:[bytes],"
+    "slots_per_epoch_bits?:uint,"
+    "epochs_per_period_bits?:uint,"
+    "weak_subjectivity_epochs?:uint,"
+    "zk_sync_keys_root?:bytes32,"
+    "min_blob_base_fee?:uint,"
+    "max_blobs_per_block_electra?:uint,"
+    "blob_schedule?:[[uint]],"
+    "blob_params?:[[uint]]}";
+
+// Decodes a JSON `[[uint, uint], ...]` into a newly allocated array of
+// `{uint64_t, uint64_t}` pairs with a `{0, 0}`-sentinel appended. Both
+// `eth_blob_schedule_t` and `eth_blob_params_t` happen to start with two
+// `uint64_t` fields, so this helper covers both without typing.
+//
+// Returns NULL when the input node is missing or empty; `*ok` stays `true`
+// in that case because an absent optional field is not an error. On parse
+// failure the freshly-allocated array is released and `*ok` is set to false
+// with an error pushed onto `state`.
+static void* parse_u64_pair_array(c4_state_t* state, json_t node, size_t pair_size, bool* ok) {
+  *ok = true;
+  if (node.type == JSON_TYPE_NOT_FOUND || json_len(node) == 0) return NULL;
+  size_t n     = json_len(node);
+  void*  array = safe_calloc(n + 1, pair_size);
+  size_t i     = 0;
+  json_for_each_value(node, pair) {
+    if (json_len(pair) != 2) {
+      c4_state_add_error(state, "c4_eth_register_chain: expected pair of two uints");
+      safe_free(array);
+      *ok = false;
+      return NULL;
+    }
+    uint64_t* dst = (uint64_t*) ((uint8_t*) array + i * pair_size);
+    dst[0]        = json_as_uint64(json_at(pair, 0));
+    dst[1]        = json_as_uint64(json_at(pair, 1));
+    i++;
+  }
+  return array;
+}
+
+bool c4_eth_register_chain(c4_state_t* state, json_t data) {
+  if (!state) return false;
+  const char* schema_err = json_validate(data, ETH_REGISTER_CHAIN_SCHEMA, "c4_eth_register_chain");
+  if (schema_err) {
+    c4_state_add_error(state, schema_err);
+    safe_free((void*) schema_err);
+    return false;
+  }
+
+  chain_id_t chain_id = (chain_id_t) json_get_uint64(data, "chain_id");
+  if (chain_id == 0) {
+    c4_state_add_error(state, "c4_eth_register_chain: chain_id must not be 0");
+    return false;
+  }
+  if (c4_eth_get_chain_spec(chain_id)) {
+    c4_state_add_error(state, "c4_eth_register_chain: chain_id is already registered");
+    return false;
+  }
+  if (eth_chain_data_extra_len >= ETH_CHAIN_SPEC_EXTRA_MAX) {
+    c4_state_add_error(state, "c4_eth_register_chain: extra chain spec table is full");
+    return false;
+  }
+
+  json_t   fork_epochs_json   = json_get(data, "fork_epochs");
+  json_t   fork_versions_json = json_get(data, "fork_versions");
+  size_t   epoch_count        = json_len(fork_epochs_json);
+  size_t   version_count      = json_len(fork_versions_json);
+  if (epoch_count == 0 || version_count != epoch_count + 1 || version_count > C4_FORK_MAX + 1) {
+    c4_state_add_error(state, "c4_eth_register_chain: fork_versions must have fork_epochs+1 entries, at most C4_FORK_MAX+1");
+    return false;
+  }
+
+  // Allocate side-tables (freed by `c4_eth_reset_chain_spec_registry`).
+  uint64_t* fork_epochs   = safe_calloc(epoch_count + 1, sizeof(uint64_t));
+  uint8_t*  fork_versions = safe_calloc(C4_FORK_MAX + 1, 4);
+  for (size_t i = 0; i < epoch_count; i++)
+    fork_epochs[i] = json_as_uint64(json_at(fork_epochs_json, i));
+  fork_epochs[epoch_count] = FORKS_END;
+
+  for (size_t i = 0; i < version_count; i++) {
+    buffer_t tmp    = {0};
+    bytes_t  parsed = json_as_bytes(json_at(fork_versions_json, i), &tmp);
+    if (!parsed.data || parsed.len != 4) {
+      buffer_free(&tmp);
+      safe_free(fork_epochs);
+      safe_free(fork_versions);
+      c4_state_add_error(state, "c4_eth_register_chain: each fork_versions entry must be 4 bytes");
+      return false;
+    }
+    memcpy(fork_versions + i * 4, parsed.data, 4);
+    buffer_free(&tmp);
+  }
+
+  bool                 ok            = true;
+  eth_blob_schedule_t* blob_schedule = (eth_blob_schedule_t*) parse_u64_pair_array(
+      state, json_get(data, "blob_schedule"), sizeof(eth_blob_schedule_t), &ok);
+  if (!ok) {
+    safe_free(fork_epochs);
+    safe_free(fork_versions);
+    return false;
+  }
+  eth_blob_params_t* blob_params = (eth_blob_params_t*) parse_u64_pair_array(
+      state, json_get(data, "blob_params"), sizeof(eth_blob_params_t), &ok);
+  if (!ok) {
+    safe_free(fork_epochs);
+    safe_free(fork_versions);
+    safe_free(blob_schedule);
+    return false;
+  }
+
+  chain_spec_t* slot = &eth_chain_data_extra[eth_chain_data_extra_len];
+  memset(slot, 0, sizeof(*slot));
+  slot->chain_id = chain_id;
+  json_t root    = json_get(data, "genesis_validators_root");
+  if (!json_as_bytes32(root, slot->genesis_validators_root)) {
+    safe_free(fork_epochs);
+    safe_free(fork_versions);
+    safe_free(blob_schedule);
+    safe_free(blob_params);
+    c4_state_add_error(state, "c4_eth_register_chain: genesis_validators_root must be 32 bytes");
+    return false;
+  }
+  json_t zk_root = json_get(data, "zk_sync_keys_root");
+  if (zk_root.type != JSON_TYPE_NOT_FOUND && !json_as_bytes32(zk_root, slot->zk_sync_keys_root)) {
+    safe_free(fork_epochs);
+    safe_free(fork_versions);
+    safe_free(blob_schedule);
+    safe_free(blob_params);
+    c4_state_add_error(state, "c4_eth_register_chain: zk_sync_keys_root must be 32 bytes");
+    return false;
+  }
+
+  slot->fork_epochs   = fork_epochs;
+  slot->fork_versions = fork_versions;
+  slot->blob_schedule = blob_schedule;
+  slot->blob_params   = blob_params;
+
+  json_t v                       = json_get(data, "slots_per_epoch_bits");
+  slot->slots_per_epoch_bits     = (int) (v.type == JSON_TYPE_NOT_FOUND ? 5 : json_as_uint64(v));
+  v                              = json_get(data, "epochs_per_period_bits");
+  slot->epochs_per_period_bits   = (int) (v.type == JSON_TYPE_NOT_FOUND ? 8 : json_as_uint64(v));
+  v                              = json_get(data, "weak_subjectivity_epochs");
+  slot->weak_subjectivity_epochs = v.type == JSON_TYPE_NOT_FOUND ? 3682ULL : json_as_uint64(v);
+
+  slot->min_blob_base_fee           = json_get_uint64(data, "min_blob_base_fee");
+  slot->max_blobs_per_block_electra = json_get_uint64(data, "max_blobs_per_block_electra");
+  slot->fork_version_func           = generic_fork_version;
+
+  eth_chain_data_extra_len++;
+  return true;
+}
+
+// Test-only reset hook. Frees every heap-allocated side table added by
+// `c4_eth_register_chain` and empties the extras array. Production code
+// never calls this; the extras live for the lifetime of the process.
+void c4_eth_reset_chain_spec_registry(void) {
+  for (uint32_t i = 0; i < eth_chain_data_extra_len; i++) {
+    chain_spec_t* slot = &eth_chain_data_extra[i];
+    safe_free((void*) slot->fork_epochs);
+    safe_free((void*) slot->fork_versions);
+    safe_free((void*) slot->blob_schedule);
+    safe_free((void*) slot->blob_params);
+    memset(slot, 0, sizeof(*slot));
+  }
+  eth_chain_data_extra_len = 0;
 }

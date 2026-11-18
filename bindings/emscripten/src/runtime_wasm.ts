@@ -153,6 +153,19 @@ function createRuntime(c4w: C4W): C4Runtime {
             c4w._c4w_reset_caches();
         },
 
+        configureChain(confJson: string): string | null {
+            const free_buffers: number[] = [];
+            const conf_ptr = as_char_ptr(confJson, c4w, free_buffers);
+            // c4_configure_chain returns `NULL` on success or a heap pointer
+            // to a strdup'd error string; read-then-free keeps the WASM heap clean.
+            const err_ptr = c4w._c4w_configure_chain(conf_ptr);
+            free_buffers.forEach(ptr => c4w._free(ptr));
+            if (!err_ptr) return null;
+            const msg = c4w.UTF8ToString(err_ptr);
+            c4w._free(err_ptr);
+            return msg;
+        },
+
         reqSetResponse(req: DataRequest, data: Uint8Array, nodeIndex: number) {
             // ownership of the copied bytes is transferred to the C context
             c4w._c4w_req_set_response(req.req_ptr as number, copy_to_c(data, c4w), data.length, nodeIndex);

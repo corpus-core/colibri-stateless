@@ -69,12 +69,12 @@ Colibri Stateless is a high-performance prover/verifier for Ethereum and Layer-2
 | `.github/workflows/` | CI/CD pipelines | cmake.yml, bindings, release, CodeQL |
 
 <!-- AUTO:DIRECTORY_MAP:START -->
-- `bindings/` (6 .c, 9 .h) -- Language Bindings
-  - `bindings/dart/` (2 .c, 8 .h) -- Colibri Stateless — Dart / Flutter
+- `bindings/` (7 .c, 9 .h) -- Language Bindings
+  - `bindings/dart/` (3 .c, 8 .h) -- Colibri Stateless — Dart / Flutter
     - `bindings/dart/audit/`
     - `bindings/dart/doc/`
     - `bindings/dart/example/` -- Dart Examples
-    - `bindings/dart/flutter/` (1 .c, 8 .h)
+    - `bindings/dart/flutter/` (2 .c, 8 .h)
     - `bindings/dart/lib/`
     - `bindings/dart/native/`
     - `bindings/dart/scripts/`
@@ -144,26 +144,33 @@ Colibri Stateless is a high-performance prover/verifier for Ethereum and Layer-2
   - `scripts/dev/`
     - `scripts/dev/lb/`
   - `scripts/doc/`
-- `src/` (143 .c, 75 .h) -- Core C Library
+- `src/` (165 .c, 90 .h) -- Core C Library
   - `src/api/` (2 .c, 2 .h)
-  - `src/chains/` (102 .c, 50 .h)
-    - `src/chains/eth/` (93 .c, 43 .h) -- Ethereum Chain Module
+  - `src/chains/` (123 .c, 65 .h)
+    - `src/chains/arb/` (10 .c, 7 .h)
+    - `src/chains/eez/` (8 .c, 6 .h)
+    - `src/chains/eth/` (96 .c, 45 .h) -- Ethereum Chain Module
     - `src/chains/op/` (9 .c, 7 .h) -- OP-Stack Chain Module
-  - `src/cli/` (3 .c, 2 .h)
+  - `src/cli/` (3 .c, 2 .h) -- Command-Line Tools
   - `src/prover/` (1 .c, 1 .h) -- Prover
   - `src/server/` (21 .c, 5 .h) -- HTTP Prover Server
     - `src/server/io/` (2 .c, 2 .h)
     - `src/server/web_ui/` -- Colibri Server Web Configuration UI
-  - `src/util/` (13 .c, 14 .h) -- Utility Modules
+  - `src/util/` (14 .c, 14 .h) -- Utility Modules
   - `src/verifier/` (1 .c, 1 .h)
-- `test/` (83 .c, 5 .h) -- Test Suite
+- `test/` (98 .c, 6 .h) -- Test Suite
   - `test/data/`
+    - `test/data/arb_feed/`
+    - `test/data/eez_eip2935_blockByNumber/`
+    - `test/data/eez_eth_getBlockByNumber/`
+    - `test/data/eez_eth_getBlockByNumber_local/`
     - `test/data/eth_blockNumber_electra/`
     - `test/data/eth_call1/`
     - `test/data/eth_call3/`
     - `test/data/eth_call_7702/`
     - `test/data/eth_call_authorization_list/`
     - `test/data/eth_call_electra/`
+    - `test/data/eth_call_pap_blocknumber/`
     - `test/data/eth_call_pap_cached/`
     - `test/data/eth_getBalance1/`
     - `test/data/eth_getBalance_electra/`
@@ -200,6 +207,7 @@ Colibri Stateless is a high-performance prover/verifier for Ethereum and Layer-2
     - `test/data/precompile_ripemd160/`
     - `test/data/precompile_sha256/`
     - `test/data/server/`
+    - `test/data/simulate_pap_reverted_read/`
     - `test/data/simulate_simple/`
     - `test/data/simulate_weth/`
     - `test/data/ssz/`
@@ -210,9 +218,10 @@ Colibri Stateless is a high-performance prover/verifier for Ethereum and Layer-2
   - `test/embedded/` (6 .c, 1 .h) -- Build the Docker image
   - `test/eth/`
     - `test/eth/TrieTests/`
-  - `test/unittests/` (77 .c, 4 .h)
+  - `test/unittests/` (92 .c, 5 .h)
   - `test/valgrind/` -- Valgrind Suppressions
-- `valgrind_results/`
+- `valgrind_results/` (13 .c, 14 .h)
+  - `valgrind_results/util/` (13 .c, 14 .h) -- Utility Modules
 <!-- AUTO:DIRECTORY_MAP:END -->
 
 ## Key Data Structures
@@ -279,10 +288,17 @@ ctest --test-dir build/default  # Run tests
 | `BLOCK_HASH_CACHE` | ON | Cache block hashes for faster verification within the same block | CMakeLists.txt |
 | `BLS_DESERIALIZE` | ON | Store BLS keys deserialized. It is faster but uses 25k more memory in cache per period. | CMakeLists.txt |
 | `BUILD_KONA_BRIDGE` | OFF | Build Kona-P2P bridge as static C-FFI library (legacy mode | src/chains/op/kona_bridge/CMakeLists.txt |
+| `BUILD_SHARED_LIBS` | OFF | Build shared libraries | libs/libuv/CMakeLists.txt |
+| `BUILD_STATIC_LIBS` | ON |  | libs/llhttp/CMakeLists.txt |
 | `C4_PYTHON` | OFF | Build Python bindings | CMakeLists.txt |
+| `C4W_PREBUILDS_DIR` |  | Directory containing native addon prebuilds to include in the npm package | bindings/emscripten/CMakeLists.txt |
+| `CHAIN_ARB` | OFF | includes the Arbitrum verification support | CMakeLists.txt |
+| `CHAIN_EEZ` | OFF | includes the EEZ (Ethereum Economic Zone | CMakeLists.txt |
 | `CHAIN_ETH` | ON | includes the ETH verification support | CMakeLists.txt |
 | `CHAIN_OP` | OFF | includes the OP-Stack verification support (forced ON for language bindings | CMakeLists.txt |
 | `CLI` | ON | Build command line tools | CMakeLists.txt |
+| `CMAKE_INSTALL_PREFIX` | ${BUILD_BUNDLE_DIR} | ... | bindings/dart/flutter/colibri_flutter/example/linux/CMakeLists.txt |
+| `CMAKE_OSX_DEPLOYMENT_TARGET` | 13.0 | Minimum iOS deployment target | CMakeLists.txt |
 | `COMBINED_STATIC_LIB` | OFF | Build a combined static library | CMakeLists.txt |
 | `COVERAGE` | OFF | Enable coverage tracking | CMakeLists.txt |
 | `CURL` | ON | Enable CURL support | CMakeLists.txt |
@@ -297,18 +313,30 @@ ctest --test-dir build/default  # Run tests
 | `ETH_OBLIVIOUS` | OFF | support oblivious-node delayed-retry path (TEE/ORAM warm-up | src/chains/eth/CMakeLists.txt |
 | `ETH_PRECOMPILE_EMBED` | ON | Embed KZG trusted setup G2^tau as a generated header | src/chains/eth/precompiles/CMakeLists.txt |
 | `ETH_RECEIPT` | ON | support eth receipt verification. eth_getTransactionReceipt | src/chains/eth/CMakeLists.txt |
+| `ETH_TRUSTED_SETUP_FILE` | ${CMAKE_CURRENT_SOURCE_DIR}/trusted_setup.txt | Path to trusted_setup.txt (c-kzg-4844 format) | src/chains/eth/precompiles/CMakeLists.txt |
 | `ETH_TX` | ON | support eth Transaction verification. eth_getTransactionByHash, eth_getTransactionByBlockHashAndIndex, eth_getTransactionByBlockNumberAndIndex | src/chains/eth/CMakeLists.txt |
 | `ETH_UTIL` | ON | support eth utils like eth_chainId or web3_sha3 | src/chains/eth/CMakeLists.txt |
 | `ETH_ZKPROOF` | ON | includes the ETH ZK-Proof verification support | CMakeLists.txt |
 | `ETH_ZKPROOF_BUILD_HOST` | OFF | Build eth-sync-script host binary (Rust/SP1 | CMakeLists.txt |
 | `EVMLIGHT` | OFF | uses evmlight vor eth_call verification, which is smaller and faster, but does not track gas. | src/chains/eth/CMakeLists.txt |
 | `EVMONE` | ON | uses evmone to verify eth_calls | src/chains/eth/CMakeLists.txt |
+| `EVMONE_X86_64_ARCH_LEVEL` | ${EVMONE_X86_64_ARCH_LEVEL_INIT} | The x86_64 micro-architecture level | libs/evmone/CMakeLists.txt |
+| `EXTRA_CHAIN` |  | Comma-separated list of third-party chain plugins (local dir or git URL, optionally with #ref) | src/chains/CMakeLists.txt |
 | `FILE_STORAGE` | ON | if activated the verfifier will use a simple file-implementaion to store states in the current folder or in a folder specified by the env var C4_STATES_DIR | CMakeLists.txt |
 | `GENERATE_JAVA_SOURCES` | OFF | Generate Java sources using SWIG | bindings/kotlin/CMakeLists.txt |
-| `HTTP_SERVER` | OFF | Build the HTTP server using libuv and llhttp | CMakeLists.txt |
+| `HTTP_SERVER` | OFF | Disable HTTP server for Dart bindings | CMakeLists.txt |
 | `HTTP_SERVER_GEO` | ON | support for geo-location | CMakeLists.txt |
+| `INCLUDE` |  | Additional directory to include in build | CMakeLists.txt |
 | `INSTALLER` | OFF | Build installer packages (requires HTTP_SERVER=ON | CMakeLists.txt |
 | `KOTLIN` | OFF | Build Kotlin bindings | CMakeLists.txt |
+| `LIBUV_BUILD_TESTS` | OFF | Build libuv tests | libs/libuv/CMakeLists.txt |
+| `MCL_BUILD_SAMPLE` | OFF | Build samples | libs/mcl/CMakeLists.txt |
+| `MCL_BUILD_TESTING` | OFF | Build tests | libs/mcl/CMakeLists.txt |
+| `MCL_MAX_BIT_SIZE` | 256 | Max bit size (256 for BN254) | libs/mcl/CMakeLists.txt |
+| `MCL_STATIC_LIB` | ON | Build static library | libs/mcl/CMakeLists.txt |
+| `MCL_TEST_WITH_GMP` | OFF | Use GMP for tests | libs/mcl/CMakeLists.txt |
+| `MCL_USE_GMP` | OFF | Use GMP | libs/mcl/CMakeLists.txt |
+| `MCL_USE_OPENSSL` | OFF | Use OpenSSL | libs/mcl/CMakeLists.txt |
 | `MEMORY_STORAGE` | OFF | if activated the verifier will use an in-memory storage (no filesystem | CMakeLists.txt |
 | `MESSAGES` | ON | if activated the binaries will contain error messages, but for embedded systems this is not needed and can be turned off to save memory | CMakeLists.txt |
 | `NODE_ADDON` | OFF | Build the Node.js native addon (N-API | CMakeLists.txt |
@@ -332,6 +360,10 @@ ctest --test-dir build/default  # Run tests
 | `WASM_EMBED` | OFF | Embed WASM into JS (SINGLE_FILE=1 | bindings/emscripten/CMakeLists.txt |
 | `WASM_PROFILE` | OFF | Enable profiling-friendly WASM build (function names + source maps | bindings/emscripten/CMakeLists.txt |
 | `WITNESS_SIGNER` | ON | Enable witness signing | CMakeLists.txt |
+| `ZSTD_BUILD_PROGRAMS` | OFF | Build zstd programs | libs/zstd/CMakeLists.txt |
+| `ZSTD_BUILD_SHARED` | OFF | Build shared libraries | libs/zstd/CMakeLists.txt |
+| `ZSTD_BUILD_STATIC` | ON | Build static libraries | libs/zstd/CMakeLists.txt |
+| `ZSTD_BUILD_TESTS` | OFF | Build zstd tests | libs/zstd/CMakeLists.txt |
 
 <!-- AUTO:CMAKE_OPTIONS:END -->
 

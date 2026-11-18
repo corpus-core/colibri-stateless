@@ -351,6 +351,11 @@ ssz_ob_t ssz_at(ssz_ob_t ob, uint32_t index) {
           element_size)};
 }
 
+bool ssz_is(ssz_ob_t ob, const char* name) {
+  if (!ob.def || !name) return false;
+  return strcmp(ob.def->name, name) == 0;
+}
+
 bool ssz_is_type(ssz_ob_t* ob, const ssz_def_t* def) {
   if (!ob || !ob->def || !def) return false;
   if (ob->def == def) return true;

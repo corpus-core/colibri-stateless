@@ -546,6 +546,15 @@ bool ssz_is_dynamic(const ssz_def_t* def);
 bool ssz_is_type(ssz_ob_t* ob, const ssz_def_t* def);
 
 /**
+ * Checks if an SSZ object matches a given type definition by name.
+ *
+ * @param ob the SSZ object to check
+ * @param name the name of the type
+ * @return true if the object matches the type, false otherwise
+ */
+bool ssz_is(ssz_ob_t ob, const char* name);
+
+/**
  * Validates an SSZ object according to SSZ specification rules.
  *
  * This is the first line of defense for untrusted data. It checks:

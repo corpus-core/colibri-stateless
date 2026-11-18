@@ -66,19 +66,23 @@ static c4_status_t eth_el_header_build(c4_state_t* state, bytes_t* el_header, fo
   int      count  = sizeof(el_header_field_names) / sizeof(el_header_field_names[0]);
   if (fork < C4_FORK_GLOAS) count -= 2;   // no blockAccessListHash and slotNumber before Gloas
   if (fork < C4_FORK_ELECTRA) count -= 1; // no requestsHash before Prague/Electra
+  if (fork < C4_FORK_DENEB) count -= 3;   // no blobGasUsed, excessBlobGas, parentBeaconBlockRoot before Deneb
+  if (fork < C4_FORK_CAPELLA) count -= 1; // no withdrawalsRoot before Capella
 
   for (int i = 0; i < count; i++) {
     const char  type       = el_header_field_names[i][0];
     const char* field_name = el_header_field_names[i] + 2;
-    bytes_t     value      = {0};
-    if (strcmp(field_name, EL_SHA3_UNCLES) == 0)
-      value = bytes(EMPTY_RLP_LIST, 32);
-    else if (strcmp(field_name, EL_DIFFICULTY) == 0)
-      value = bytes("\x00", 1);
-    else if (strcmp(field_name, EL_NONCE) == 0)
-      value = bytes("\x00\x00\x00\x00\x00\x00\x00\x00", 8);
-    else
-      value = get_field_func(data, &buffer, field_name);
+    // Execution payloads omit these three. A JSON block (for example Arbitrum) carries them,
+    // so the source wins and the post-merge constants are only the fallback.
+    bytes_t value = get_field_func(data, &buffer, field_name);
+    if (!value.data) {
+      if (strcmp(field_name, EL_SHA3_UNCLES) == 0)
+        value = bytes(EMPTY_RLP_LIST, 32);
+      else if (strcmp(field_name, EL_DIFFICULTY) == 0)
+        value = bytes("\x00", 1);
+      else if (strcmp(field_name, EL_NONCE) == 0)
+        value = bytes("\x00\x00\x00\x00\x00\x00\x00\x00", 8);
+    }
     switch (type) {
       case 'H':
       case 'A': {
@@ -198,6 +202,9 @@ void eth_get_transactions_root(bytes32_t out_hash, ssz_ob_t txs) {
 
 static bytes_t get_from_ep(void* data, buffer_t* buffer, char* name) {
   eth_el_header_ctx_t* ctx = (eth_el_header_ctx_t*) data;
+  // Not part of the execution payload. The builder inserts the post-merge defaults.
+  if (strcmp(name, EL_SHA3_UNCLES) == 0 || strcmp(name, EL_DIFFICULTY) == 0 || strcmp(name, EL_NONCE) == 0)
+    return NULL_BYTES;
   if (strcmp(name, EL_PARENT_BEACON_BLOCK_ROOT) == 0)
     return bytes(ctx->parent_root, 32);
   if (strcmp(name, EL_REQUESTS_HASH) == 0) {

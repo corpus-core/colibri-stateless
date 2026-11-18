@@ -77,17 +77,17 @@ typedef enum {
 #define STR_BYTES(msg) bytes(msg, strlen(msg) - 1)
 // Global cURL connection pool configuration and runtime statistics
 typedef struct {
-  int http2_enabled;         // enable HTTP/2 if available (1/0)
-  int pool_max_host;         // CURLMOPT_MAX_HOST_CONNECTIONS
-  int pool_max_total;        // CURLMOPT_MAX_TOTAL_CONNECTIONS
-  int pool_maxconnects;      // CURLMOPT_MAXCONNECTS
-  int upkeep_interval_ms;    // CURLOPT_UPKEEP_INTERVAL_MS for easy handles
-  int tcp_keepalive_enabled; // CURLOPT_TCP_KEEPALIVE (1/0)
-  int tcp_keepidle_s;        // CURLOPT_TCP_KEEPIDLE
-  int tcp_keepintvl_s;       // CURLOPT_TCP_KEEPINTVL
-  int   tls_insecure; // disable TLS cert/host verification (0/1, default 0)
-  char* ca_file;      // optional CA bundle (CURLOPT_CAINFO), empty = system default
-  char* ca_path;      // optional CA directory (CURLOPT_CAPATH), empty = system default
+  int   http2_enabled;         // enable HTTP/2 if available (1/0)
+  int   pool_max_host;         // CURLMOPT_MAX_HOST_CONNECTIONS
+  int   pool_max_total;        // CURLMOPT_MAX_TOTAL_CONNECTIONS
+  int   pool_maxconnects;      // CURLMOPT_MAXCONNECTS
+  int   upkeep_interval_ms;    // CURLOPT_UPKEEP_INTERVAL_MS for easy handles
+  int   tcp_keepalive_enabled; // CURLOPT_TCP_KEEPALIVE (1/0)
+  int   tcp_keepidle_s;        // CURLOPT_TCP_KEEPIDLE
+  int   tcp_keepintvl_s;       // CURLOPT_TCP_KEEPINTVL
+  int   tls_insecure;          // disable TLS cert/host verification (0/1, default 0)
+  char* ca_file;               // optional CA bundle (CURLOPT_CAINFO), empty = system default
+  char* ca_path;               // optional CA directory (CURLOPT_CAPATH), empty = system default
   // Counters
   uint64_t total_requests;           // all transfers via libcurl
   uint64_t total_connects;           // sum of CURLINFO_NUM_CONNECTS
@@ -285,7 +285,7 @@ typedef struct {
   buffer_t           buffer;
   buffer_t           post_body; // rewritten JSON-RPC body (Nethermind access list); empty = use req->payload
   request_t*         parent;    // pointer to parent request_t
-  struct curl_slist* headers; // Store the headers list to free it later
+  struct curl_slist* headers;   // Store the headers list to free it later
   uint64_t           start_time;
   uint64_t           end_time;
   bool               success;
@@ -506,6 +506,7 @@ bool c4_handle_proof_request(client_t* client);
  * @param last_block_hash 32-byte hash of the newest block header the client has verified
  *                     and cached (copied, pass `NULL_BYTES` if unknown); lets the prover
  *                     omit the block proof (blockHash union variant) for matching blocks
+ * @param batch_poster 20-byte batch poster the client already trusts, or empty
  * @param proxy_rpc    per-request RPC proxy list (ownership transferred, may be NULL)
  * @param proxy_beacon per-request Beacon proxy list (ownership transferred, may be NULL)
  * @param cache_control optional `Cache-Control` header value for the direct response (copied, may be NULL)
@@ -513,8 +514,32 @@ bool c4_handle_proof_request(client_t* client);
 void c4_proof_request_dispatch(client_t* client, char* method_str, char* params_str,
                                uint32_t version, prover_flags_t extra_flags,
                                bytes_t client_state, bytes_t witness_key, bytes_t last_block_hash,
+                               bytes_t        batch_poster,
                                server_list_t* proxy_rpc, server_list_t* proxy_beacon,
                                const char* cache_control);
+
+/**
+ * Decides whether this proof must carry a batch-poster update.
+ *
+ * Called once, before the prover runs. The hook may set
+ * `C4_PROVER_FLAG_ARB_BATCH_POSTER` when the server already knows that the
+ * client's cached batch poster is outdated. The actual signer address is then
+ * resolved by the prover through `arb_register_signer_lookup`, so the hook
+ * does not have to pass it along. `batch_poster` is the client value (20
+ * bytes) or empty when the client omitted it.
+ *
+ * @param ctx prover context of this request
+ * @param batch_poster client address, or NULL
+ * @param len length of `batch_poster`
+ */
+typedef void (*c4_batch_poster_precheck_fn)(prover_ctx_t* ctx, const uint8_t* batch_poster, uint32_t len);
+
+/**
+ * Registers the batch-poster precheck. The last registration wins.
+ *
+ * @param fn hook, or NULL to clear
+ */
+void c4_set_batch_poster_precheck(c4_batch_poster_precheck_fn fn);
 /**
  * Forwards a proof request to a legacy 2.x prover server when the client version is below 3.0.0.
  *
@@ -534,25 +559,25 @@ void c4_proof_request_dispatch(client_t* client, char* method_str, char* params_
  * @return `true` if the request was handled here (either forwarded or rejected with an HTTP error),
  *         `false` if `version >= 3.0.0` and the caller should continue with the local prover.
  */
-bool           c4_try_forward_legacy_proof(client_t* client, uint32_t version, const char* sub_path);
+bool c4_try_forward_legacy_proof(client_t* client, uint32_t version, const char* sub_path);
 /** `GET /health` — liveness and statistics JSON. */
-bool           c4_handle_status(client_t* client);
+bool c4_handle_status(client_t* client);
 /** `GET /metrics` — Prometheus text exposition. */
-bool           c4_handle_metrics(client_t* client);
+bool c4_handle_metrics(client_t* client);
 /** `GET /config` — read config (requires `web_ui_enabled`). */
-bool           c4_handle_get_config(client_t* client);
+bool c4_handle_get_config(client_t* client);
 /** `POST /config` — patch config keys (requires `web_ui_enabled`). */
-bool           c4_handle_post_config(client_t* client);
+bool c4_handle_post_config(client_t* client);
 /** `POST /restart` — graceful shutdown for process manager restart. */
-bool           c4_handle_restart_server(client_t* client);
+bool c4_handle_restart_server(client_t* client);
 /** `GET /` or static config UI (requires `web_ui_enabled`). */
-bool           c4_handle_config_ui(client_t* client);
+bool c4_handle_config_ui(client_t* client);
 /** `GET /openapi.yaml` — OpenAPI 3.1 specification. */
-bool           c4_handle_openapi(client_t* client);
+bool c4_handle_openapi(client_t* client);
 /** `GET /version` — build/version metadata. */
-bool           c4_handle_version(client_t* client);
+bool c4_handle_version(client_t* client);
 /** `POST /rpc` — JSON-RPC with optional verification. */
-bool           c4_handle_unverified_rpc_request(client_t* client);
+bool c4_handle_unverified_rpc_request(client_t* client);
 
 /**
  * Parses a decimal unsigned integer query parameter from a URL query string.
@@ -561,14 +586,14 @@ bool           c4_handle_unverified_rpc_request(client_t* client);
  * @param param parameter name to find
  * @return parsed value, or `0` if missing or invalid
  */
-uint64_t       c4_get_query(char* query, char* param);
+uint64_t c4_get_query(char* query, char* param);
 
 /**
  * Dispatches `C4_DATA_TYPE_INTERN` requests to registered internal call handlers.
  *
  * @param r single outbound attempt wrapping the internal request
  */
-void           c4_handle_internal_request(single_request_t* r);
+void c4_handle_internal_request(single_request_t* r);
 
 /**
  * Returns the global backend list for RPC, Beacon, Checkpointz, or prover nodes.
@@ -615,7 +640,7 @@ server_list_t* c4_get_effective_server_list(data_request_type_t type, request_t*
  *
  * @param list list constructed for proxy mode or tests (not the static global lists)
  */
-void           c4_free_server_list(server_list_t* list);
+void c4_free_server_list(server_list_t* list);
 
 /**
  * Records request latency/size metrics for Prometheus and tracing aggregates.
@@ -627,7 +652,7 @@ void           c4_free_server_list(server_list_t* list);
  * @param success whether the attempt succeeded
  * @param cached whether the response came from memcached
  */
-void           c4_metrics_add_request(data_request_type_t type, const char* method, uint64_t size, uint64_t duration, bool success, bool cached);
+void c4_metrics_add_request(data_request_type_t type, const char* method, uint64_t size, uint64_t duration, bool success, bool cached);
 
 /**
  * Extracts a short display name from a backend URL (host part, without scheme).
@@ -635,7 +660,7 @@ void           c4_metrics_add_request(data_request_type_t type, const char* meth
  * @param url full URL string
  * @return pointer into `url` or static buffer (valid until next call)
  */
-const char*    c4_extract_server_name(const char* url);
+const char* c4_extract_server_name(const char* url);
 
 /**
  * Selects a backend index using health, weights, and optional client-type preference.
@@ -707,39 +732,39 @@ void c4_signal_rate_limited(server_list_t* servers, int idx, const char* method)
  * @param list output list (must be zeroed before first use)
  * @param servers comma-separated URLs (modified in place for tokenization)
  */
-void                 c4_parse_server_config(server_list_t* list, char* servers);
+void c4_parse_server_config(server_list_t* list, char* servers);
 /** Probes backends to detect beacon/RPC client types (`web3_clientVersion`, node metadata). */
-void                 c4_detect_server_client_types(server_list_t* servers, data_request_type_t type);
+void c4_detect_server_client_types(server_list_t* servers, data_request_type_t type);
 /** Marks RPC nodes as pruned when transaction history is limited. */
-void                 c4_detect_archive_status(server_list_t* servers);
+void c4_detect_archive_status(server_list_t* servers);
 /** Parses client version JSON into a `beacon_client_type_t` or RPC client bitmask. */
 beacon_client_type_t c4_parse_client_version_response(const char* response, data_request_type_t type);
 /** Finds or creates per-method EWMA stats on a server health entry. */
-method_stats_t*      c4_find_method_stats(server_health_t* h, const char* method);
+method_stats_t* c4_find_method_stats(server_health_t* h, const char* method);
 /** Returns whether the node is treated as archive for `method` (not pruned / supports history). */
-bool                 c4_is_verified_archive(server_health_t* h, const char* method);
+bool c4_is_verified_archive(server_health_t* h, const char* method);
 /** Maps a client-type bitmask to a display name for logs/metrics. */
-const char*          c4_client_type_to_name(beacon_client_type_t client_type, http_server_t* http_server);
+const char* c4_client_type_to_name(beacon_client_type_t client_type, http_server_t* http_server);
 /** Starts periodic `eth_blockNumber` polling on RPC backends. */
-bool                 c4_start_rpc_head_poller(server_list_t* servers);
+bool c4_start_rpc_head_poller(server_list_t* servers);
 /** Stops the RPC head poller timer. */
-void                 c4_stop_rpc_head_poller(void);
+void c4_stop_rpc_head_poller(void);
 
 /** Applies beacon-client-specific URL tweaks (path suffixes, API versions). Caller frees returned string if different from input. */
-char*                   c4_request_fix_url(char* url, single_request_t* r, beacon_client_type_t client_type);
+char* c4_request_fix_url(char* url, single_request_t* r, beacon_client_type_t client_type);
 /** Adjusts SSZ/JSON encoding expectations per beacon client. */
 data_request_encoding_t c4_request_fix_encoding(data_request_encoding_t encoding, single_request_t* r, beacon_client_type_t client_type);
 /** Normalizes beacon API response bytes (e.g. client-specific wrappers). */
-bytes_t                 c4_request_fix_response(bytes_t response, single_request_t* r, beacon_client_type_t client_type);
+bytes_t c4_request_fix_response(bytes_t response, single_request_t* r, beacon_client_type_t client_type);
 /**
  * Classifies an HTTP response for retry routing and metrics.
  *
  * @param servers_opt optional list for marking method unsupported (`NULL` to skip)
  */
-c4_response_type_t      c4_classify_response(long http_code, const char* url, bytes_t response_body, data_request_t* req,
-                                             server_list_t* servers_opt);
+c4_response_type_t c4_classify_response(long http_code, const char* url, bytes_t response_body, data_request_t* req,
+                                        server_list_t* servers_opt);
 /** Heuristic: JSON-RPC / REST response indicates missing block or resource. */
-bool                    c4_error_indicates_not_found(long http_code, data_request_t* req, bytes_t response_body);
+bool c4_error_indicates_not_found(long http_code, data_request_t* req, bytes_t response_body);
 
 /** Registers a handler for `C4_DATA_TYPE_INTERN` paths (see `c4_handle_internal_request`). */
 void c4_register_internal_handler(call_handler handler);
@@ -771,7 +796,7 @@ typedef struct {
  * @param port listen port (overrides config when `> 0`)
  * @return `0` on success, negative libuv error code on failure
  */
-int  c4_server_start(server_instance_t* instance, int port);
+int c4_server_start(server_instance_t* instance, int port);
 
 /** Stops accept, drains connections, and closes handles (non-blocking; completes on loop iterations). */
 void c4_server_stop(server_instance_t* instance);

@@ -24,6 +24,9 @@ const doc_files = [
     "chains/eth/benchmark.md",
     "chains/eth/server/PERIOD_STORE.md",
 
+    // adding a new chain (CMake helpers, runtime hooks, EXTRA_CHAIN)
+    "chains/adding_a_chain.md",
+
     // cli
     "cli/prover.c",
     "cli/ssz.c",

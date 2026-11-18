@@ -1,0 +1,144 @@
+/*
+ * Copyright (c) 2025,2026 corpus.core GmbH
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+ * the Software, and to permit persons to whom the Software is furnished to do so,
+ * subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+ * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+ * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+ * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ *
+ * SPDX-License-Identifier: MIT
+ */
+
+#ifndef arb_prover_h__
+#define arb_prover_h__
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#include "beacon.h"
+#include "eth_tools.h"
+#include "prover.h"
+
+/**
+ * Builds an Arbitrum proof by delegating to the Ethereum prover.
+ *
+ * Block proofs use the sequencer-feed hook (`arb_get_el_block` /
+ * `arb_add_feed_proof`). Every method still uses the Ethereum builders
+ * (`c4_eth_prover_dispatch`). The chain-type gate is here because
+ * `eth_prover_execute` rejects anything that is not `C4_CHAIN_TYPE_ETHEREUM`.
+ *
+ * @param ctx prover context with `method`, `params` and `chain_id` already set
+ * @return `false` when `ctx->chain_id` is not Arbitrum, otherwise `true`
+ *         (the builder status is stored in `ctx`, not returned here)
+ */
+bool arb_prover_execute(prover_ctx_t* ctx);
+
+/**
+ * Fills `eth_block_t` from `arb_preconf/latest`.
+ *
+ * `"latest"`, the block number of the signed head and its block hash are that feed
+ * proof itself. An older block number or hash inside the EIP-2935 window is the same
+ * feed proof nested in an `eip2935` proof (`sequencer.history`). The feed proof carries
+ * the execution header. When `with_body` is true, `el_body` is the transactions and
+ * withdrawals of that header, read from `debug_getRawBlock`. A block without a
+ * withdrawals list is stored with an empty one.
+ *
+ * @param ctx prover context
+ * @param block JSON block identifier
+ * @param out output block (`proof_type` SEQUENCER, EL header, feed proof in `sequencer.payload`)
+ * @param with_body when true, `out->el_body` is `ETH_SSZ_EL_BLOCK_CONTENT`
+ * @return `C4_SUCCESS`, `C4_PENDING`, or `C4_ERROR`
+ */
+c4_status_t arb_get_el_block(prover_ctx_t* ctx, json_t block, eth_block_t* out, bool with_body);
+
+/**
+ * Appends the `arbFeedProof` variant of `ETH_EL_PROOF_UNION` (index 6).
+ *
+ * When `block_data->sequencer.history` is set, that variant is nested as the newer
+ * block of an `eip2935` proof of the requested header.
+ *
+ * @param ctx prover context
+ * @param builder parent proof builder (`elProof` union field)
+ * @param block_data block produced by `arb_get_el_block`
+ * @param historic unused (no CL proof)
+ * @return true if the variant was written
+ */
+bool arb_add_feed_proof(prover_ctx_t* ctx, ssz_builder_t* builder, eth_block_t* block_data, blockroot_proof_t* historic);
+
+/**
+ * Registers Arbitrum prover block-proof hooks. Idempotent.
+ */
+void arb_register_block_proof_prover(void);
+
+/**
+ * Queues the L1 `eth_getStorageAt` for the batch poster when the prover flag is set.
+ *
+ * A pending request does not stop the block fetch. The same request is consumed
+ * by `arb_batch_poster_sync`.
+ *
+ * @param ctx prover context
+ * @return `C4_SUCCESS` when no proof is required or the request is queued, or `C4_ERROR`
+ */
+c4_status_t arb_batch_poster_prepare(prover_ctx_t* ctx);
+
+/**
+ * Builds `arbSignerSyncData` from the L1 prover response.
+ *
+ * The account proof and the L1 `sync_data` (none, light client, or ZK) share one
+ * container. With the flag unset the builder stays empty.
+ *
+ * @param ctx prover context
+ * @param builder sync-data builder, empty on entry
+ * @return `C4_SUCCESS`, `C4_PENDING`, or `C4_ERROR`
+ */
+c4_status_t arb_batch_poster_sync(prover_ctx_t* ctx, ssz_builder_t* builder);
+
+/**
+ * Callback that resolves the current Arbitrum batch poster for `chain_id`.
+ *
+ * Returning `true` means `out_signer` holds the 20-byte address to prove on L1.
+ * The prover calls this at every invocation of `arb_batch_poster_prepare` and
+ * `arb_batch_poster_sync`; a fresh signer between the two phases is handled
+ * transparently because the L1 request id is derived from the resulting storage
+ * slot.
+ */
+typedef bool (*arb_signer_lookup_fn_t)(chain_id_t chain_id, uint8_t out_signer[20]);
+
+/**
+ * Registers the hook used by `arb_batch_poster_prepare` / `arb_batch_poster_sync`
+ * to look up the signer whose `isBatchPoster` slot must be proven.
+ *
+ * In the server build this is wired to the sequencer-feed cache
+ * (`arb_feed_get_head_signer`). Passing `NULL` unregisters the hook, which is
+ * what the core library sees when the feed is not linked in. Tests may provide
+ * their own stub.
+ *
+ * Thread model: the hook pointer must be installed before the first prover
+ * worker runs (typically in `arb_server_init`) and must only be cleared after
+ * all workers have drained (typically in `arb_server_shutdown`). The pointer
+ * is read without a lock from worker threads; on all supported targets an
+ * aligned pointer store is atomic, but concurrent install/clear while workers
+ * are active is not supported.
+ *
+ * @param fn new lookup hook, or `NULL` to clear
+ */
+void arb_register_signer_lookup(arb_signer_lookup_fn_t fn);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif

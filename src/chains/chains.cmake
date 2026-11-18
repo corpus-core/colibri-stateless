@@ -1,8 +1,19 @@
+# Absolute directory of this file (`src/chains/`). The `add_*` functions below
+# may be called from any location (in-tree under `src/chains/<name>/` or an
+# `EXTRA_CHAIN` plugin cloned into `${CMAKE_BINARY_DIR}/extra_chains/<name>`),
+# so include paths that point back into the core library must not use `../..`.
+set(C4_CHAINS_CMAKE_DIR "${CMAKE_CURRENT_LIST_DIR}" CACHE INTERNAL "Directory of chains.cmake")
+set(C4_SRC_DIR          "${CMAKE_CURRENT_LIST_DIR}/.." CACHE INTERNAL "Root of the src/ tree")
+
 # List to store all verifier properties
 set(VERIFIER_PROPERTIES "" CACHE INTERNAL "List of all verifier properties")
 
 # List to store all prover properties
 set(PROVER_PROPERTIES "" CACHE INTERNAL "List of all prover properties")
+
+# List of functions that register extra chain-id to chain-type (and L1) mappings.
+# Called by the generated dispatchers before the first module sees a request.
+set(CHAIN_REGISTRATION_PROPERTIES "" CACHE INTERNAL "List of chain registration functions")
 
 function(add_verifier)
     # Only process if VERIFIER is enabled
@@ -12,16 +23,34 @@ function(add_verifier)
 
     # Parse arguments
     set(options "")
-    set(oneValueArgs NAME GET_REQ_TYPE VERIFY METHOD_TYPE PROVER_PAYLOAD INIT_RPC_CTX PROVER_CACHE_URL RESET_CACHES)
+    set(oneValueArgs NAME GET_REQ_TYPE VERIFY METHOD_TYPE PROVER_PAYLOAD INIT_RPC_CTX PROVER_CACHE_URL RESET_CACHES REGISTER_CHAIN CHAIN_TYPE)
     set(multiValueArgs SOURCES DEPENDS)
     cmake_parse_arguments(VERIFIER "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
 
+    # REGISTER_CHAIN + CHAIN_TYPE must be paired: a handler without a chain_type
+    # would never be routed to (silent dead code), and a chain_type without a
+    # handler would leave a `case` arm referencing an undeclared function.
+    if(VERIFIER_REGISTER_CHAIN AND NOT VERIFIER_CHAIN_TYPE)
+        message(FATAL_ERROR "add_verifier(${VERIFIER_NAME}): REGISTER_CHAIN requires CHAIN_TYPE")
+    endif()
+    if(VERIFIER_CHAIN_TYPE AND NOT VERIFIER_REGISTER_CHAIN)
+        message(FATAL_ERROR "add_verifier(${VERIFIER_NAME}): CHAIN_TYPE requires REGISTER_CHAIN")
+    endif()
+
     # Add the library
     add_library(${VERIFIER_NAME} STATIC ${VERIFIER_SOURCES})
-    
-    # Set include directories
-    target_include_directories(${VERIFIER_NAME} PUBLIC verifier ../../verifier ssz)
-    
+
+    # Set include directories. `verifier` and `ssz` are the plugin-local subdirs
+    # (relative to the caller's CMakeLists.txt). The core `src/verifier` and
+    # `src/util` headers are reached via absolute paths so a plugin outside
+    # `src/chains/` can call `add_verifier` without any `../..` tricks.
+    target_include_directories(${VERIFIER_NAME} PUBLIC
+        verifier
+        ssz
+        ${C4_SRC_DIR}/verifier
+        ${C4_SRC_DIR}/util
+    )
+
     # Link dependencies
     target_link_libraries(${VERIFIER_NAME} PUBLIC ${VERIFIER_DEPENDS})
     target_link_libraries(verifier PUBLIC ${VERIFIER_NAME})
@@ -30,8 +59,25 @@ function(add_verifier)
     get_property(CURRENT_PROPERTIES CACHE VERIFIER_PROPERTIES PROPERTY VALUE)
     
     # Append to the global list (optional hooks may be empty)
-    list(APPEND CURRENT_PROPERTIES "${VERIFIER_NAME}:${VERIFIER_GET_REQ_TYPE}:${VERIFIER_VERIFY}:${VERIFIER_METHOD_TYPE}:${VERIFIER_PROVER_PAYLOAD}:${VERIFIER_INIT_RPC_CTX}:${VERIFIER_PROVER_CACHE_URL}:${VERIFIER_RESET_CACHES}")
+    list(APPEND CURRENT_PROPERTIES "${VERIFIER_NAME}:${VERIFIER_GET_REQ_TYPE}:${VERIFIER_VERIFY}:${VERIFIER_METHOD_TYPE}:${VERIFIER_PROVER_PAYLOAD}:${VERIFIER_INIT_RPC_CTX}:${VERIFIER_PROVER_CACHE_URL}:${VERIFIER_RESET_CACHES}:${VERIFIER_REGISTER_CHAIN}:${VERIFIER_CHAIN_TYPE}")
     set(VERIFIER_PROPERTIES "${CURRENT_PROPERTIES}" CACHE INTERNAL "List of all verifier properties" FORCE)
+endfunction()
+
+# Registers an idempotent, no-arg function that calls
+# `c4_register_chain_family` / `c4_register_l1_for_l2` for every extra chain id
+# the plugin claims. The generated dispatchers in `verifiers.h` and `provers.h`
+# invoke every registered function before the first module sees a request.
+function(add_chain_registration)
+    set(options "")
+    set(oneValueArgs FUNC)
+    set(multiValueArgs "")
+    cmake_parse_arguments(REG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
+    if("${REG_FUNC}" STREQUAL "")
+        message(FATAL_ERROR "add_chain_registration: FUNC is required")
+    endif()
+    get_property(CURRENT CACHE CHAIN_REGISTRATION_PROPERTIES PROPERTY VALUE)
+    list(APPEND CURRENT "${REG_FUNC}")
+    set(CHAIN_REGISTRATION_PROPERTIES "${CURRENT}" CACHE INTERNAL "List of chain registration functions" FORCE)
 endfunction()
 
 # Chain properties registration and header generation
@@ -86,9 +132,15 @@ function(add_prover)
 
     # Add the library
     add_library(${PROVER_NAME} STATIC ${PROVER_SOURCES})
-    
-    # Set include directories
-    target_include_directories(${PROVER_NAME} PUBLIC ../../prover prover)
+
+    # Set include directories. `prover` is the plugin-local subdir (relative to
+    # the caller's CMakeLists.txt). The core `src/prover` headers are reached
+    # via an absolute path so a plugin outside `src/chains/` keeps working.
+    target_include_directories(${PROVER_NAME} PUBLIC
+        prover
+        ${C4_SRC_DIR}/prover
+        ${C4_SRC_DIR}/util
+    )
 
     
     # Link dependencies
@@ -111,10 +163,30 @@ function(generate_verifiers_header)
     endif()
     
     set(VERIFIERS_H "${CMAKE_BINARY_DIR}/verifiers.h")
-    
+
     # Start with header guard and includes
     file(WRITE ${VERIFIERS_H} "#ifndef VERIFIERS_H\n")
     file(APPEND ${VERIFIERS_H} "#define VERIFIERS_H\n\n")
+
+    # Declarations and dispatcher for chain-id registrations provided via
+    # `add_chain_registration`. Each helper is idempotent (`c4_register_chain_family`
+    # overwrites by chain_id) so calling them on every dispatch is cheap.
+    set(UNIQ_REGS ${CHAIN_REGISTRATION_PROPERTIES})
+    if(UNIQ_REGS)
+        list(REMOVE_DUPLICATES UNIQ_REGS)
+    endif()
+    foreach(func ${UNIQ_REGS})
+        if(NOT "${func}" STREQUAL "")
+            file(APPEND ${VERIFIERS_H} "void ${func}(void);\n")
+        endif()
+    endforeach()
+    file(APPEND ${VERIFIERS_H} "\nstatic inline void c4_register_chains(void) {\n")
+    foreach(func ${UNIQ_REGS})
+        if(NOT "${func}" STREQUAL "")
+            file(APPEND ${VERIFIERS_H} "  ${func}();\n")
+        endif()
+    endforeach()
+    file(APPEND ${VERIFIERS_H} "}\n\n")
 
     # Add function declarations for each verifier
     foreach(prop ${VERIFIER_PROPERTIES})
@@ -130,6 +202,7 @@ function(generate_verifiers_header)
 
     # Add request_container function
     file(APPEND ${VERIFIERS_H} "static const ssz_def_t* request_container(chain_type_t chain_type) {\n")
+    file(APPEND ${VERIFIERS_H} "  c4_register_chains();\n")
     file(APPEND ${VERIFIERS_H} "  const ssz_def_t* container = NULL;\n")
     foreach(prop ${VERIFIER_PROPERTIES})
         string(REPLACE ":" ";" parts "${prop}")
@@ -141,6 +214,7 @@ function(generate_verifiers_header)
 
     # Add handle_verification function
     file(APPEND ${VERIFIERS_H} "static bool handle_verification(verify_ctx_t* ctx) {\n")
+    file(APPEND ${VERIFIERS_H} "  c4_register_chains();\n")
     foreach(prop ${VERIFIER_PROPERTIES})
         string(REPLACE ":" ";" parts "${prop}")
         list(GET parts 2 verify)
@@ -151,6 +225,7 @@ function(generate_verifiers_header)
 
     # Add request_container function
     file(APPEND ${VERIFIERS_H} "method_type_t c4_get_method_type(chain_id_t chain_id, char* method, json_t params, verify_flags_t flags) {\n")
+    file(APPEND ${VERIFIERS_H} "  c4_register_chains();\n")
     file(APPEND ${VERIFIERS_H} "  method_type_t type = METHOD_UNDEFINED;\n")
     foreach(prop ${VERIFIER_PROPERTIES})
         string(REPLACE ":" ";" parts "${prop}")
@@ -199,8 +274,11 @@ function(generate_verifiers_header)
         endif()
     endforeach()
 
-    # Add c4_init_rpc_ctx dispatcher (no-op if no module registered a hook)
+    # Add c4_init_rpc_ctx dispatcher (no-op if no module registered a hook).
+    # Registrations run here too so bindings and the CLI see plugin chain ids
+    # before the first RPC is dispatched (`c4_get_client_state`, `c4_chain_type`).
     file(APPEND ${VERIFIERS_H} "\nvoid c4_init_rpc_ctx(c4_init_ctx_t* ctx) {\n")
+    file(APPEND ${VERIFIERS_H} "  c4_register_chains();\n")
     foreach(prop ${VERIFIER_PROPERTIES})
         string(REPLACE ":" ";" parts "${prop}")
         list(LENGTH parts count)
@@ -266,6 +344,43 @@ function(generate_verifiers_header)
     endforeach()
     file(APPEND ${VERIFIERS_H} "}\n\n")
 
+    # Prototypes for every REGISTER_CHAIN handler. Each module that opted in
+    # exposes `bool <fn>(c4_state_t* state, json_t data)` (see chains.h for the
+    # c4_register_chain contract and JSON schema).
+    foreach(prop ${VERIFIER_PROPERTIES})
+        string(REPLACE ":" ";" parts "${prop}")
+        list(LENGTH parts count)
+        if(count GREATER 8)
+            list(GET parts 8 register_chain)
+            if(NOT "${register_chain}" STREQUAL "")
+                file(APPEND ${VERIFIERS_H} "bool ${register_chain}(c4_state_t* state, json_t data);\n")
+            endif()
+        endif()
+    endforeach()
+
+    # c4_register_chain dispatcher: switch on chain_type and route to the
+    # chain module's handler. A chain type without REGISTER_CHAIN hook falls
+    # through to the error branch so the host sees a clear failure.
+    file(APPEND ${VERIFIERS_H} "\nbool c4_register_chain(c4_state_t* state, chain_type_t type, json_t data) {\n")
+    file(APPEND ${VERIFIERS_H} "  c4_register_chains();\n")
+    file(APPEND ${VERIFIERS_H} "  switch (type) {\n")
+    foreach(prop ${VERIFIER_PROPERTIES})
+        string(REPLACE ":" ";" parts "${prop}")
+        list(LENGTH parts count)
+        if(count GREATER 9)
+            list(GET parts 8 register_chain)
+            list(GET parts 9 chain_type)
+            if(NOT "${register_chain}" STREQUAL "" AND NOT "${chain_type}" STREQUAL "")
+                file(APPEND ${VERIFIERS_H} "    case ${chain_type}: return ${register_chain}(state, data);\n")
+            endif()
+        endif()
+    endforeach()
+    file(APPEND ${VERIFIERS_H} "    default: break;\n")
+    file(APPEND ${VERIFIERS_H} "  }\n")
+    file(APPEND ${VERIFIERS_H} "  c4_state_add_error(state, \"c4_register_chain: no handler for this chain type\");\n")
+    file(APPEND ${VERIFIERS_H} "  return false;\n")
+    file(APPEND ${VERIFIERS_H} "}\n\n")
+
     # Close header guard
     file(APPEND ${VERIFIERS_H} "#endif // VERIFIERS_H\n")
 endfunction()
@@ -278,10 +393,30 @@ function(generate_provers_header)
     endif()
     
     set(PROVERS_H "${CMAKE_BINARY_DIR}/provers.h")
-    
+
     # Start with header guard and includes
     file(WRITE ${PROVERS_H} "#ifndef PROVERS_H\n")
     file(APPEND ${PROVERS_H} "#define PROVERS_H\n\n")
+
+    # Declarations and dispatcher for chain-id registrations provided via
+    # `add_chain_registration`. Same helper as in verifiers.h; each translation
+    # unit gets its own `static inline` copy.
+    set(UNIQ_REGS ${CHAIN_REGISTRATION_PROPERTIES})
+    if(UNIQ_REGS)
+        list(REMOVE_DUPLICATES UNIQ_REGS)
+    endif()
+    foreach(func ${UNIQ_REGS})
+        if(NOT "${func}" STREQUAL "")
+            file(APPEND ${PROVERS_H} "void ${func}(void);\n")
+        endif()
+    endforeach()
+    file(APPEND ${PROVERS_H} "\nstatic inline void c4_register_chains(void) {\n")
+    foreach(func ${UNIQ_REGS})
+        if(NOT "${func}" STREQUAL "")
+            file(APPEND ${PROVERS_H} "  ${func}();\n")
+        endif()
+    endforeach()
+    file(APPEND ${PROVERS_H} "}\n\n")
 
     # Add function declarations for each prover
     foreach(prop ${PROVER_PROPERTIES})
@@ -331,6 +466,7 @@ function(generate_provers_header)
 
     # Add prover_execute function
     file(APPEND ${PROVERS_H} "static void prover_execute(prover_ctx_t* ctx) {\n")
+    file(APPEND ${PROVERS_H} "  c4_register_chains();\n")
     foreach(prop ${PROVER_PROPERTIES})
         string(REPLACE ":" ";" parts "${prop}")
         list(GET parts 1 proof)
@@ -358,9 +494,13 @@ function(add_server_handler)
     cmake_parse_arguments(HANDLER "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
 
     add_library(${HANDLER_NAME} STATIC ${HANDLER_SOURCES})
-    target_include_directories(${HANDLER_NAME} PUBLIC 
-        ../../server
-        ../../
+    # Core server headers and the `src/` root (so `#include "chains/..."` and
+    # `#include "util/..."` work) are passed as absolute paths; chain-local
+    # headers can still be included via `#include "<name>/..."` relative to
+    # `${C4_SRC_DIR}/chains`.
+    target_include_directories(${HANDLER_NAME} PUBLIC
+        ${C4_SRC_DIR}/server
+        ${C4_SRC_DIR}
     )
     
     # Link against CURL since server.h includes curl/curl.h

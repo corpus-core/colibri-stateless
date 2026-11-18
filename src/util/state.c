@@ -77,7 +77,7 @@ void c4_append_prover_request_props(buffer_t* payload, bytes_t client_state, cha
   bytes_t cs       = client_state;
   bool    cs_owned = false;
   if (!cs.data || !cs.len) {
-    cs       = c4_get_client_state(chain_id);
+    cs       = c4_get_client_state(c4_get_l1_chain_id_for_l2(chain_id));
     cs_owned = true;
   }
   if (cs.data && cs.len)
@@ -94,6 +94,17 @@ void c4_append_prover_request_props(buffer_t* payload, bytes_t client_state, cha
     bprintf(payload, ",\"signers\":\"0x%x\"", witness_key);
   if (last_block_hash.data && last_block_hash.len == 32)
     bprintf(payload, ",\"last_block_hash\":\"0x%x\"", last_block_hash);
+
+  // TODO: move this into the Arbitrum chain module and create a function to plugin per chain-type
+  if (c4_chain_type(chain_id) == C4_CHAIN_TYPE_ARBITRUM) {
+    uint8_t  address[20] = {0};
+    uint64_t timestamp   = 0;
+    uint64_t number      = 0;
+    uint64_t now         = current_unix_ms();
+    if (c4_get_cached_batch_poster(chain_id, address, &timestamp, &number) &&
+        (now < timestamp || now - timestamp <= C4_BATCH_POSTER_MAX_AGE_MS))
+      bprintf(payload, ",\"batch_poster\":\"0x%x\"", bytes(address, 20));
+  }
 }
 
 void c4_request_free(data_request_t* req) {

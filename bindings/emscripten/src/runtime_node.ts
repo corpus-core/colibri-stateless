@@ -65,6 +65,7 @@ type NativeBinding = {
 
     setCheckpoint(chainId: bigint, checkpoint: string | null): void;
     resetCaches(): void;
+    configureChain(conf: string): string | null;
     decodeProof(data: Uint8Array): string | null;
     registerStorage(storage: Storage): void;
     version(): number;
@@ -125,6 +126,7 @@ function createNativeRuntime(binding: NativeBinding): C4Runtime {
 
         setCheckpoint: binding.setCheckpoint,
         resetCaches: binding.resetCaches,
+        configureChain: binding.configureChain,
 
         reqSetResponse: (req: DataRequest, data: Uint8Array, nodeIndex: number) =>
             binding.reqSetResponse(String(req.req_ptr), data, nodeIndex),
