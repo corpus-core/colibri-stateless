@@ -29,6 +29,7 @@
 #include "eth_verify.h"
 #include "ssz.h"
 #include "unity.h"
+#include <stdio.h>
 #include <string.h>
 
 void setUp(void) {
@@ -345,6 +346,70 @@ void test_witness_block_proof_rejects_after_hook(void) {
   safe_free(proof.bytes.data);
 }
 
+/**
+ * Regression test: a truncated dynamic container must be rejected without reading
+ * past the end of its buffer.
+ *
+ * `C4Request` has a 16-byte fixed part (4-byte version + three offsets). Before the
+ * fix, the validator only required `SSZ_OFFSET_SIZE` bytes for a dynamic container and
+ * then read the offsets of a 4..15 byte input out of bounds. Every prefix is copied
+ * into an exactly-sized heap block so that valgrind / ASan flag any such read.
+ */
+void test_truncated_dynamic_container_is_rejected(void) {
+  ssz_builder_t req        = ssz_builder_for_type(ETH_SSZ_VERIFY_REQUEST);
+  uint8_t       version[4] = {1, 0, 0, 0};
+  uint8_t       none       = 0;
+  ssz_add_bytes(&req, "version", bytes(version, 4));
+  ssz_add_bytes(&req, "data", bytes(&none, 1));
+  ssz_add_bytes(&req, "proof", bytes(&none, 1));
+  ssz_add_bytes(&req, "sync_data", bytes(&none, 1));
+  ssz_ob_t full = ssz_builder_to_bytes(&req);
+  TEST_ASSERT_EQUAL_UINT32(19, full.bytes.len); // 16 bytes fixed part + three union selectors
+  TEST_ASSERT_TRUE_MESSAGE(ssz_is_valid(full, true, NULL), "the untruncated request must be valid");
+
+  for (uint32_t len = 1; len < full.bytes.len; len++) {
+    char       msg[48];
+    c4_state_t state  = {0};
+    bytes_t    prefix = bytes_dup(bytes(full.bytes.data, len));
+    bool       valid  = ssz_is_valid((ssz_ob_t) {.def = full.def, .bytes = prefix}, true, &state);
+    bool       error  = state.error != NULL;
+    snprintf(msg, sizeof(msg), "prefix of %u bytes", (unsigned) len);
+    c4_state_free(&state);
+    safe_free(prefix.data);
+    TEST_ASSERT_FALSE_MESSAGE(valid, msg);
+    TEST_ASSERT_TRUE_MESSAGE(error, msg);
+  }
+  safe_free(full.bytes.data);
+}
+
+// Dynamic container whose fixed part (4-byte offset + 32 bytes) is larger than SSZ_OFFSET_SIZE.
+static const ssz_def_t TRUNCATED_FIELDS[]  = {SSZ_BYTES("list", 64), SSZ_BYTES32("hash")};
+static const ssz_def_t TRUNCATED_CONTAINER = SSZ_CONTAINER("Truncated", TRUNCATED_FIELDS);
+
+/**
+ * Regression test: a dynamic container that is shorter than its fixed part must not
+ * be accepted.
+ *
+ * Before the fix, the 4-byte input `04 00 00 00` passed validation: the offset is in
+ * range, and the 32-byte `hash` field was only checked against the length taken from
+ * the definition, never against the buffer. Unlike the out-of-bounds read above, this
+ * is observable without a memory checker.
+ */
+void test_dynamic_container_shorter_than_fixed_part_is_rejected(void) {
+  uint8_t    only_offset[36] = {4, 0, 0, 0}; // oversized on purpose: no read may depend on it
+  c4_state_t state           = {0};
+  ssz_ob_t   truncated       = {.def = &TRUNCATED_CONTAINER, .bytes = bytes(only_offset, 4)};
+  TEST_ASSERT_FALSE(ssz_is_valid(truncated, true, &state));
+  TEST_ASSERT_EQUAL_STRING("Invalid length for container", state.error);
+  c4_state_free(&state);
+  TEST_ASSERT_FALSE_MESSAGE(ssz_is_valid(truncated, false, NULL), "the length check must not depend on `recursive`");
+
+  // One byte short of the fixed part is still rejected, the exact fixed part (empty list) is valid.
+  only_offset[0] = 36;
+  TEST_ASSERT_FALSE(ssz_is_valid((ssz_ob_t) {.def = &TRUNCATED_CONTAINER, .bytes = bytes(only_offset, 35)}, true, NULL));
+  TEST_ASSERT_TRUE(ssz_is_valid((ssz_ob_t) {.def = &TRUNCATED_CONTAINER, .bytes = bytes(only_offset, 36)}, true, NULL));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_ssz);
@@ -357,5 +422,7 @@ int main(void) {
   RUN_TEST(test_witness_block_proof_empty_list);
   RUN_TEST(test_witness_block_proof_max_16);
   RUN_TEST(test_witness_block_proof_rejects_after_hook);
+  RUN_TEST(test_truncated_dynamic_container_is_rejected);
+  RUN_TEST(test_dynamic_container_shorter_than_fixed_part_is_rejected);
   return UNITY_END();
 }

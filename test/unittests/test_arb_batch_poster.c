@@ -349,24 +349,23 @@ void test_cache_rejects_null_and_a_short_record(void) {
   TEST_ASSERT_TRUE(arb_batch_poster_l1_is_current(C4_CHAIN_ARB_ONE, 1));
 }
 
-void test_append_sends_a_future_or_exact_timestamp(void) {
+// A record stamped in the future (clock skew between writer and reader) is still sent.
+// The margin is one hour, so the result does not depend on how long the test runs.
+//
+// The inclusive edge of the window (age == C4_BATCH_POSTER_MAX_AGE_MS) is deliberately not
+// asserted: `c4_append_prover_request_props` reads the clock itself, so that check only held
+// when both clock reads fell into the same millisecond and failed under valgrind. Both sides
+// of the edge are covered with a safe margin in `test_append_sends_batch_poster_for_one_day`.
+void test_append_sends_a_future_timestamp(void) {
   uint64_t now = current_unix_ms();
-  c4_set_cached_batch_poster(C4_CHAIN_ARB_ONE, KNOWN_POSTER, now + 1000, 3);
+  c4_set_cached_batch_poster(C4_CHAIN_ARB_ONE, KNOWN_POSTER, now + 60ull * 60ull * 1000ull, 3);
   buffer_t future = {0};
   bprintf(&future, "{");
   c4_append_prover_request_props(&future, NULL_BYTES, C4_CHAIN_ARB_ONE, 0, NULL_BYTES, NULL_BYTES);
   bprintf(&future, "}");
-  TEST_ASSERT_NOT_NULL(strstr((char*) future.data.data, "batch_poster"));
-  buffer_free(&future);
-
-  if (now <= C4_BATCH_POSTER_MAX_AGE_MS) TEST_IGNORE_MESSAGE("clock is before the 24h window");
-  c4_set_cached_batch_poster(C4_CHAIN_ARB_ONE, KNOWN_POSTER, now - C4_BATCH_POSTER_MAX_AGE_MS, 3);
-  buffer_t exact = {0};
-  bprintf(&exact, "{");
-  c4_append_prover_request_props(&exact, NULL_BYTES, C4_CHAIN_ARB_ONE, 0, NULL_BYTES, NULL_BYTES);
-  bprintf(&exact, "}");
-  TEST_ASSERT_NOT_NULL(strstr((char*) exact.data.data, "batch_poster"));
-  buffer_free(&exact);
+  bool sent = strstr((char*) future.data.data, "batch_poster") != NULL;
+  buffer_free(&future); // free before asserting: a failing Unity assert would skip it and leak
+  TEST_ASSERT_TRUE(sent);
 }
 
 void test_storage_key_ignores_null(void) {
@@ -694,7 +693,7 @@ int main(void) {
   RUN_TEST(test_blockhash_signer_sync_restores_the_outer_object);
   RUN_TEST(test_sequencer_inbox_is_only_arbitrum_one);
   RUN_TEST(test_cache_rejects_null_and_a_short_record);
-  RUN_TEST(test_append_sends_a_future_or_exact_timestamp);
+  RUN_TEST(test_append_sends_a_future_timestamp);
   RUN_TEST(test_storage_key_ignores_null);
   RUN_TEST(test_feed_recover_signer_accepts_both_v_ranges);
   RUN_TEST(test_flag_off_does_not_queue);
