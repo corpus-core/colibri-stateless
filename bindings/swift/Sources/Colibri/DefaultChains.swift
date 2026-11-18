@@ -31,7 +31,7 @@ enum DefaultChains {
         case 696991:
             return ["https://rollupx.colibri-proof.tech"]
         case 42161:
-            return ["https://c4.incubed.net"]
+            return ["https://arbitrum.colibri-proof.tech"]
         default:
             return ["https://c4.incubed.net"]
         }

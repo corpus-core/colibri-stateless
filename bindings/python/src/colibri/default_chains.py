@@ -25,7 +25,7 @@ _PROVERS = {
     10200: ["https://chiado.colibri-proof.tech"],  # chiado
     7091047534: ["https://plataberget.colibri-proof.tech"],  # plataberget
     696991: ["https://rollupx.colibri-proof.tech"],  # rollupx
-    42161: ["https://c4.incubed.net"],  # arbitrum
+    42161: ["https://arbitrum.colibri-proof.tech"],  # arbitrum
 }
 
 _ETH_RPCS = {

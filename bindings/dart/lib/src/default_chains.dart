@@ -37,7 +37,7 @@ List<String> defaultProvers(int chainId) {
     10200 => ["https://chiado.colibri-proof.tech"],
     7091047534 => ["https://plataberget.colibri-proof.tech"],
     696991 => ["https://rollupx.colibri-proof.tech"],
-    42161 => ["https://c4.incubed.net"],
+    42161 => ["https://arbitrum.colibri-proof.tech"],
     _ => ["https://c4.incubed.net"],
   };
 }

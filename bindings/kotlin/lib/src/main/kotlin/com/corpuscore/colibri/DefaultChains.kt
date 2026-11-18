@@ -27,7 +27,7 @@ object DefaultChains {
         BigInteger.valueOf(10200L) -> arrayOf("https://chiado.colibri-proof.tech")
         BigInteger("7091047534") -> arrayOf("https://plataberget.colibri-proof.tech")
         BigInteger.valueOf(696991L) -> arrayOf("https://rollupx.colibri-proof.tech")
-        BigInteger.valueOf(42161L) -> arrayOf("https://c4.incubed.net")
+        BigInteger.valueOf(42161L) -> arrayOf("https://arbitrum.colibri-proof.tech")
         else -> arrayOf("https://c4.incubed.net")
     }
 

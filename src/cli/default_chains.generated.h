@@ -50,7 +50,7 @@ static const char* c4_default_chain_config_json(chain_id_t chain_id) {
     case 696991ULL: // rollupx
       return "{\"eth_rpc\":[\"https://rollupx.colibri-proof.tech/execution\",\"https://rollupx.eez.dev/rpc/l2\"],\"beacon_api\":[\"https://mainnet.colibri-proof.tech/consensus\"],\"checkpointz\":[\"https://mainnet.colibri-proof.tech/consensus\"],\"prover\":[\"https://rollupx.colibri-proof.tech\"]}";
     case 42161ULL: // arbitrum
-      return "{\"eth_rpc\":[\"https://arb1.arbitrum.io/rpc\",\"https://arbitrum-one-rpc.publicnode.com\"],\"beacon_api\":[\"https://mainnet.colibri-proof.tech/consensus\",\"https://gateway.tenderly.co/public/mainnet\",\"https://ethereum-beacon-api.publicnode.com\"],\"checkpointz\":[\"https://sync-mainnet.beaconcha.in\",\"https://mainnet.checkpoint.sigp.io\"],\"prover\":[\"https://c4.incubed.net\"]}";
+      return "{\"eth_rpc\":[\"https://arb1.arbitrum.io/rpc\",\"https://arbitrum-one-rpc.publicnode.com\"],\"beacon_api\":[\"https://mainnet.colibri-proof.tech/consensus\",\"https://gateway.tenderly.co/public/mainnet\",\"https://ethereum-beacon-api.publicnode.com\"],\"checkpointz\":[\"https://sync-mainnet.beaconcha.in\",\"https://mainnet.checkpoint.sigp.io\"],\"prover\":[\"https://arbitrum.colibri-proof.tech\"]}";
     default:
       return NULL;
   }

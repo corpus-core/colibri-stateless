@@ -130,7 +130,7 @@ export const default_config: {
       "https://gateway.tenderly.co/public/mainnet",
       "https://ethereum-beacon-api.publicnode.com",
     ],
-    prover: ["https://c4.incubed.net"],
+    prover: ["https://arbitrum.colibri-proof.tech"],
     checkpointz: [
       "https://sync-mainnet.beaconcha.in",
       "https://mainnet.checkpoint.sigp.io",
