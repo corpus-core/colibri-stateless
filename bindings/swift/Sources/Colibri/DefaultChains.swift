@@ -78,6 +78,7 @@ enum DefaultChains {
             ]
         case 42161:
             return [
+                "https://arbitrum.colibri-proof.tech/execution",
                 "https://arb1.arbitrum.io/rpc",
                 "https://arbitrum-one-rpc.publicnode.com",
             ]

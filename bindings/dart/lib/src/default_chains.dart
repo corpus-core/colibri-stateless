@@ -76,6 +76,7 @@ List<String> defaultEthRpcs(int chainId) {
         "https://rollupx.eez.dev/rpc/l2",
       ],
     42161 => [
+        "https://arbitrum.colibri-proof.tech/execution",
         "https://arb1.arbitrum.io/rpc",
         "https://arbitrum-one-rpc.publicnode.com",
       ],
