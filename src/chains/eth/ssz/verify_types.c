@@ -143,15 +143,15 @@ extern const ssz_def_t C4_ETH_REQUEST_SYNCDATA_UNION[];
 static const ssz_def_t ARB_SIGNER_SYNCDATA[] = {
     SSZ_ADDRESS("signer"),
     SSZ_CONTAINER("account", ETH_ACCOUNT_PROOF),
-    {.name = "sync_data", .type = SSZ_TYPE_UNION, .def.container = {.elements = C4_ETH_REQUEST_SYNCDATA_UNION, .len = 4}},
+    SSZ_UNION("sync_data", C4_ETH_REQUEST_SYNCDATA_UNION),
 };
 
 // A Union of possible types of sync data used to update the sync state by verifying the transition from the last period to the required.
 const ssz_def_t C4_ETH_REQUEST_SYNCDATA_UNION[] = {
     SSZ_NONE,
-    SSZ_CONTAINER(ETH_SSZ_NAME_LC_SYNC_DATA, ETH_LC_SYNCDATA),                 // Light Client Sync Data
-    SSZ_CONTAINER(ETH_SSZ_NAME_ZK_SYNC_DATA, ETH_ZK_SYNCDATA),                 // ZK Proof Sync Data (356-byte Groth16)
-    SSZ_CONTAINER(ETH_SSZ_NAME_ARB_SIGNER_SYNC_DATA, ARB_SIGNER_SYNCDATA),     // Arbitrum batch poster, proven on L1
+    SSZ_CONTAINER(ETH_SSZ_NAME_LC_SYNC_DATA, ETH_LC_SYNCDATA),             // Light Client Sync Data
+    SSZ_CONTAINER(ETH_SSZ_NAME_ZK_SYNC_DATA, ETH_ZK_SYNCDATA),             // ZK Proof Sync Data (356-byte Groth16)
+    SSZ_CONTAINER(ETH_SSZ_NAME_ARB_SIGNER_SYNC_DATA, ARB_SIGNER_SYNCDATA), // Arbitrum batch poster, proven on L1
 };
 
 // the main container defining the incoming data processed by the verifier
