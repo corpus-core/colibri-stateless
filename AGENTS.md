@@ -158,7 +158,7 @@ Colibri Stateless is a high-performance prover/verifier for Ethereum and Layer-2
     - `src/server/web_ui/` -- Colibri Server Web Configuration UI
   - `src/util/` (14 .c, 14 .h) -- Utility Modules
   - `src/verifier/` (1 .c, 1 .h)
-- `test/` (96 .c, 6 .h) -- Test Suite
+- `test/` (98 .c, 6 .h) -- Test Suite
   - `test/data/`
     - `test/data/arb_feed/`
     - `test/data/eez_eip2935_blockByNumber/`
@@ -218,7 +218,7 @@ Colibri Stateless is a high-performance prover/verifier for Ethereum and Layer-2
   - `test/embedded/` (6 .c, 1 .h) -- Build the Docker image
   - `test/eth/`
     - `test/eth/TrieTests/`
-  - `test/unittests/` (90 .c, 5 .h)
+  - `test/unittests/` (92 .c, 5 .h)
   - `test/valgrind/` -- Valgrind Suppressions
 - `valgrind_results/` (13 .c, 14 .h)
   - `valgrind_results/util/` (13 .c, 14 .h) -- Utility Modules

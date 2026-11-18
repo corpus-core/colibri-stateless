@@ -180,6 +180,8 @@ add_verifier(
   PROVER_PAYLOAD c4_eth_get_prover_payload
   PROVER_CACHE_URL c4_eth_get_prover_cache_request
   RESET_CACHES c4_eth_reset_caches
+  REGISTER_CHAIN c4_eth_register_chain
+  CHAIN_TYPE C4_CHAIN_TYPE_ETHEREUM
 )
 
 # Register ETH chain properties provider

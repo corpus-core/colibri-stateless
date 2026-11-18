@@ -1422,3 +1422,40 @@ char* c4_rpc_execute_json_status(void* ctx);
  * @param ctx The RPC context to free (may be NULL, in which case this is a no-op)
  */
 void c4_free_rpc_ctx(void* ctx);
+
+/**
+ * Registers a chain configuration at runtime from a JSON blob.
+ *
+ * The JSON must be an object with a `"chain_type"` field that selects which
+ * chain-type-specific handler receives the rest of the payload. `chain_type`
+ * accepts either a numeric `C4_CHAIN_TYPE_*` constant or one of the canonical
+ * string selectors `"ethereum"`, `"op"`, `"eez"`, `"arbitrum"`. The remaining
+ * fields are forwarded unchanged to the handler; see the per-chain schema in
+ * `src/chains/<chain>/...` or the Adding-a-chain documentation for the exact
+ * layout (e.g. for Ethereum: `chain_id`, `genesis_validators_root`,
+ * `fork_epochs`, `fork_versions`, plus optional blob-schedule fields).
+ *
+ * The handler owns heap-allocated copies of every inner table for the
+ * lifetime of the process; the caller may free its input immediately.
+ * Chains baked into the core (mainnet / sepolia / gnosis / OP mainnet /
+ * Arbitrum One / …) always take precedence over runtime entries.
+ *
+ * Example:
+ * ```json
+ * {
+ *   "chain_type": "ethereum",
+ *   "chain_id":   42,
+ *   "genesis_validators_root": "0x4b363db9...",
+ *   "fork_epochs":   [0, 0, 0, 0, 0, 0, 1536],
+ *   "fork_versions": [
+ *     "0x00000000", "0x01000000", "0x02000000", "0x03000000",
+ *     "0x04000000", "0x05000000", "0x06000000", "0x07000000"
+ *   ]
+ * }
+ * ```
+ *
+ * @param conf JSON object as C string (see schema above and per-chain docs)
+ * @return `NULL` on success; otherwise a dynamically allocated error message
+ *         the caller must free with `free()`.
+ */
+char* c4_configure_chain(const char* conf);

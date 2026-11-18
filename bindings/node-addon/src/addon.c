@@ -715,6 +715,21 @@ static napi_value reset_caches(napi_env env, napi_callback_info info) {
   return NULL;
 }
 
+// configureChain(conf) -> string | null
+// Returns the error message (as JS string) on failure; otherwise null.
+static napi_value configure_chain(napi_env env, napi_callback_info info) {
+  GET_ARGS(env, info, 1);
+  bool  ok   = true;
+  char* conf = get_string(env, argv[0], &ok);
+  if (!ok) return NULL;
+  char* err = c4_configure_chain(conf);
+  safe_free(conf);
+  // make_owned_string returns napi null when passed NULL and frees the
+  // allocation on success; both paths are fine because the malloc'd string
+  // from c4_configure_chain uses the same allocator as safe_free (`free`).
+  return make_owned_string(env, err);
+}
+
 // decodeProof(data: Uint8Array) -> JSON string | null
 static napi_value decode_proof(napi_env env, napi_callback_info info) {
   GET_ARGS(env, info, 1);
@@ -763,6 +778,7 @@ static napi_value init(napi_env env, napi_value exports) {
       {"reqSetError", req_set_error},
       {"setCheckpoint", set_checkpoint},
       {"resetCaches", reset_caches},
+      {"configureChain", configure_chain},
       {"decodeProof", decode_proof},
       {"registerStorage", register_storage},
       {"version", version},

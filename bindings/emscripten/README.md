@@ -411,6 +411,27 @@ The constructor of the colibri client accepts a configuration-object, which may 
     })
     ```
 
+- `chain_configs` - optional array of runtime chain registrations forwarded to `c4_configure_chain`
+
+    Lets you register L1 / L2 chains that are not baked into the core at compile time (a custom Ethereum-fork L1, a private OP rollup, …). Each entry needs a `chain_type` selector (one of `"ethereum"`, `"op"`, `"eez"`, `"arbitrum"`, or the numeric `C4_CHAIN_TYPE_*`) plus the fields required by the corresponding handler — see [Adding a chain › Registering chain configs at runtime](../../src/chains/adding_a_chain.md#registering-chain-configs-at-runtime) for the full per-chain schema. Registration happens lazily on the first `rpc()` / `createProof()` / `verifyProof()` call and is deduplicated across every `C4Client` instance that shares the same process (the C core rejects a re-registration of the same `chain_id`).
+
+    ```js
+    new Colibri({
+      chainId: 42, // a private Ethereum-fork L1
+      rpcs: ["https://rpc.example.net"],
+      beacon_apis: ["https://beacon.example.net"],
+      chain_configs: [{
+        chain_type: "ethereum",
+        chain_id:   42,
+        genesis_validators_root: "0x4b363db94e286120d76eb905340fdd4e54bfe9f06bf33ff6cf5ad27f511bfe95",
+        fork_epochs:   [0, 0, 0, 0, 0, 0, 1536],
+        fork_versions: [
+          "0x00000000", "0x01000000", "0x02000000", "0x03000000",
+          "0x04000000", "0x05000000", "0x06000000", "0x07000000"
+        ]
+      }]
+    })
+    ```
 
 
 ## Building

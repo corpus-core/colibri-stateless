@@ -141,7 +141,7 @@ native archives from the matching GitHub Release.
 
 - `dart/` -- 354 files
 - `docker/` -- 10 files
-- `emscripten/` -- 218 files
+- `emscripten/` -- 219 files
 - `kotlin/` -- 38 files
 - `node-addon/` -- 3 files
 - `python/` -- 29 files

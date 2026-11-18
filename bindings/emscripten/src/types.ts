@@ -116,6 +116,42 @@ export interface ChainConfig {
     verifyTransactions?: boolean;
 }
 
+/**
+ * Canonical chain-type selector forwarded to `c4_configure_chain`. The
+ * numeric form (`C4_CHAIN_TYPE_*`) is also accepted by the C core.
+ */
+export type ChainTypeName = 'ethereum' | 'op' | 'eez' | 'arbitrum';
+
+/**
+ * Runtime chain-configuration passed to `c4_configure_chain`. Required
+ * `chain_type` selects the handler; every other field is forwarded unchanged
+ * to the matching module's registration handler. See
+ * [`src/chains/adding_a_chain.md`](../../src/chains/adding_a_chain.md) for
+ * the per-handler JSON schema.
+ *
+ * Example (Ethereum-fork L1):
+ * ```ts
+ * {
+ *   chain_type: 'ethereum',
+ *   chain_id:   42,
+ *   genesis_validators_root: '0x4b363db9...',
+ *   fork_epochs:   [0, 0, 0, 0, 0, 0, 1536],
+ *   fork_versions: [
+ *     '0x00000000', '0x01000000', '0x02000000', '0x03000000',
+ *     '0x04000000', '0x05000000', '0x06000000', '0x07000000'
+ *   ]
+ * }
+ * ```
+ */
+export interface ChainRegistration {
+    /** Selector: either a canonical string or the numeric `C4_CHAIN_TYPE_*`. */
+    chain_type: ChainTypeName | number;
+    /** Chain identifier. Accepts both `uint` and `0x`-prefixed hex strings. */
+    chain_id: number | string;
+    /** Additional per-handler fields (see Adding-a-chain documentation). */
+    [field: string]: unknown;
+}
+
 export interface EIP1193Client {
     request(args: RequestArguments): Promise<unknown>
     on(event: string, callback: (data: any) => void): this
@@ -181,6 +217,17 @@ export interface Config extends ChainConfig {
     chains: {
         [chainId: number]: ChainConfig;
     };
+    /**
+     * Runtime chain configurations registered before the first proof /
+     * verification call. Each entry is passed verbatim to `c4_configure_chain`
+     * in the C core. Registration is idempotent across `C4Client` instances
+     * that share one process (deduplicated by the JSON payload).
+     *
+     * Use this to add L1 / L2 chains that are not baked into the core at
+     * compile time (e.g. a private Ethereum-fork chain or a custom OP rollup).
+     * See [`ChainRegistration`](#ChainRegistration) for the per-chain schema.
+     */
+    chain_configs?: ChainRegistration[];
     fallback_provider?: EIP1193Client;
     warningHandler: WarningHandler;
     /** Optional callback invoked for every sub-request transfer with the response byte count. */

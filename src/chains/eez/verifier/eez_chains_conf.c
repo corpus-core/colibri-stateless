@@ -23,6 +23,8 @@
 
 #include "eez_chains_conf.h"
 #include "bytes.h"
+#include "json.h"
+#include "state.h"
 #include <stddef.h>
 #include <string.h>
 
@@ -40,9 +42,20 @@ static const eez_chain_config_t eez_chain_configs[] = {
     },
 };
 
+// Additional EEZ rollups registered at runtime through `c4_eez_register_chain`.
+// Built-ins in `eez_chain_configs[]` always take precedence: the lookup below
+// scans them first, so a plugin cannot override a known rollup.
+#define EEZ_CHAIN_CONFIG_EXTRA_MAX 8
+
+static eez_chain_config_t eez_chain_configs_extra[EEZ_CHAIN_CONFIG_EXTRA_MAX];
+static uint32_t           eez_chain_configs_extra_len = 0;
+
 const eez_chain_config_t* eez_get_chain_config(chain_id_t chain_id) {
   for (size_t i = 0; i < sizeof(eez_chain_configs) / sizeof(eez_chain_configs[0]); i++) {
     if (eez_chain_configs[i].chain_id == chain_id) return &eez_chain_configs[i];
+  }
+  for (uint32_t i = 0; i < eez_chain_configs_extra_len; i++) {
+    if (eez_chain_configs_extra[i].chain_id == chain_id) return &eez_chain_configs_extra[i];
   }
   return NULL;
 }
@@ -50,6 +63,67 @@ const eez_chain_config_t* eez_get_chain_config(chain_id_t chain_id) {
 const eez_chain_config_t* eez_get_all_chain_configs(size_t* count) {
   if (count) *count = sizeof(eez_chain_configs) / sizeof(eez_chain_configs[0]);
   return eez_chain_configs;
+}
+
+bool c4_eez_register_chain(c4_state_t* state, json_t data) {
+  if (!state) return false;
+  // `chain_id` accepts both JSON numbers and hex-strings so wallet-style
+  // configs (`"0xfeedbeef"`) and plain JSON numbers (`42`) both work.
+  const char* schema_err = json_validate(
+      data,
+      "{chain_id:uint|hexuint,rollup_id:uint|hexuint,proxy:address,name?:string}",
+      "c4_eez_register_chain");
+  if (schema_err) {
+    c4_state_add_error(state, schema_err);
+    safe_free((void*) schema_err);
+    return false;
+  }
+
+  chain_id_t chain_id = (chain_id_t) json_get_uint64(data, "chain_id");
+  if (chain_id == 0) {
+    c4_state_add_error(state, "c4_eez_register_chain: chain_id must not be 0");
+    return false;
+  }
+  if (eez_get_chain_config(chain_id)) {
+    c4_state_add_error(state, "c4_eez_register_chain: chain_id is already registered");
+    return false;
+  }
+  if (eez_chain_configs_extra_len >= EEZ_CHAIN_CONFIG_EXTRA_MAX) {
+    c4_state_add_error(state, "c4_eez_register_chain: extra chain config table is full");
+    return false;
+  }
+
+  eez_chain_config_t* slot = &eez_chain_configs_extra[eez_chain_configs_extra_len];
+  memset(slot, 0, sizeof(*slot));
+  slot->chain_id  = chain_id;
+  slot->rollup_id = json_get_uint64(data, "rollup_id");
+
+  // Parse the 20-byte proxy address. `address_t` is `uint8_t[20]`.
+  buffer_t proxy_buf = {0};
+  bytes_t  parsed    = json_as_bytes(json_get(data, "proxy"), &proxy_buf);
+  if (!parsed.data || parsed.len != 20) {
+    buffer_free(&proxy_buf);
+    c4_state_add_error(state, "c4_eez_register_chain: proxy must be 20 bytes");
+    return false;
+  }
+  memcpy(slot->proxy, parsed.data, 20);
+  buffer_free(&proxy_buf);
+
+  // Optional human-readable name. We duplicate the JSON string onto the heap
+  // because the parsed JSON buffer is caller-owned.
+  json_t name_val = json_get(data, "name");
+  slot->name      = name_val.type == JSON_TYPE_NOT_FOUND ? NULL : json_new_string(name_val);
+
+  eez_chain_configs_extra_len++;
+  return true;
+}
+
+void c4_eez_reset_chain_config_registry(void) {
+  for (uint32_t i = 0; i < eez_chain_configs_extra_len; i++) {
+    safe_free((void*) eez_chain_configs_extra[i].name);
+    memset(&eez_chain_configs_extra[i], 0, sizeof(eez_chain_configs_extra[i]));
+  }
+  eez_chain_configs_extra_len = 0;
 }
 
 C4_STATIC_UNLESS_TEST void eez_bytes32_add(bytes32_t value, uint8_t add) {

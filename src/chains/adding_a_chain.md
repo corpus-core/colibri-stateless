@@ -52,6 +52,8 @@ add_verifier(
   INIT_RPC_CTX     <chain>_init_rpc_ctx           # optional
   PROVER_CACHE_URL c4_<chain>_get_prover_cache_request # optional
   RESET_CACHES     c4_<chain>_reset_caches        # optional
+  REGISTER_CHAIN   c4_<chain>_register_chain      # optional; JSON-driven runtime config
+  CHAIN_TYPE       C4_CHAIN_TYPE_<CHAIN>          # required when REGISTER_CHAIN is set
   DEPENDS          util eth_verifier              # link dependencies
 )
 ```
@@ -67,6 +69,8 @@ add_verifier(
 | `INIT_RPC_CTX`       | `void (c4_init_ctx_t*)`                                                                             | runs before each RPC; a good place to attach snapshots or register hooks    |
 | `PROVER_CACHE_URL`   | `bool (chain_id_t, const char*, json_t, uint32_t, bool, bool, bytes_t, bytes_t, char**, uint32_t*)` | custom prover-cache URL                                                     |
 | `RESET_CACHES`       | `void (void)`                                                                                       | clear verifier caches                                                       |
+| `REGISTER_CHAIN`    | `bool (c4_state_t*, json_t)`                                                                        | runtime config handler; the generated `c4_register_chain` dispatcher routes to it (see "Registering chain configs at runtime") |
+| `CHAIN_TYPE`         | `C4_CHAIN_TYPE_*` constant                                                                          | chain-type key that selects `REGISTER_CHAIN` in the dispatcher              |
 | `DEPENDS`            | -                                                                                                   | other static libs to link publicly (always include `util`; EVM-L2s add `eth_verifier`) |
 
 A verifier that only serves its own chain family must gate on `c4_chain_type(ctx->chain_id)`:
@@ -188,6 +192,118 @@ Rules:
 * The companion `c4_register_l1_for_l2` applies the same built-in guard to its `l2` argument and additionally rejects `l1 == 0`, so plugins cannot steer `TRY_AS_L1` or `c4_get_client_state` into a sentinel or hijack sync-committee state for a core chain.
 
 The registration function is wired into both dispatchers through `add_chain_registration(FUNC polygon_register_chains)`; the generated `c4_register_chains()` helper fires at the top of `handle_verification`, `request_container`, `c4_get_method_type`, `c4_init_rpc_ctx` and `prover_execute`.
+
+## Registering chain configs at runtime
+
+`c4_register_chain_family` only answers the "what type is this id?" question. Most chain types also need a per-chain config block (sync-committee parameters, genesis-validators root, sequencer address, rollup proxy, …). Historically these configs lived in static C tables inside each plugin (`chain_data[]` for ETH, `op_chain_configs[]` for OP, `eez_chain_configs[]` for EEZ, hard-coded constants for ARB). Adding a new chain that uses an existing stack — e.g. a Luxor L1 that is ETH-compatible — required a C patch.
+
+`c4_register_chain(c4_state_t* state, chain_type_t type, json_t data)` is a generic entry point that forwards the JSON config to a chain-type-specific handler. The dispatcher is generated into `verifiers.h` from the new `add_verifier` arguments:
+
+```cmake
+add_verifier(
+  NAME eth_verifier
+  ...
+  REGISTER_CHAIN c4_eth_register_chain      # optional
+  CHAIN_TYPE     C4_CHAIN_TYPE_ETHEREUM     # required when REGISTER_CHAIN is set
+)
+```
+
+Each plugin owns its own JSON schema and its own extras table (built-in entries always win on lookup). ETH, EEZ, OP and ARB ship handlers out of the box; a plugin that invents a new `chain_type_t` can add one in the same way.
+
+```c
+// From the bindings (pseudo-code):
+json_t      cfg = json_parse(...);
+c4_state_t  s   = {0};
+if (!c4_register_chain(&s, C4_CHAIN_TYPE_ETHEREUM, cfg)) {
+  fprintf(stderr, "register_chain failed: %s\n", s.error);
+  c4_state_free(&s);
+  return -1;
+}
+```
+
+Reference JSON per chain type:
+
+* `C4_CHAIN_TYPE_ETHEREUM` — `chain_id`, `genesis_validators_root`, `fork_epochs` (`N` entries), `fork_versions` (`N+1` four-byte values); optional `slots_per_epoch_bits`, `epochs_per_period_bits`, `weak_subjectivity_epochs`, `zk_sync_keys_root`, `min_blob_base_fee`, `max_blobs_per_block_electra`, `blob_schedule`, `blob_params`. The generic `fork_version_func` reads from the `fork_versions` table.
+* `C4_CHAIN_TYPE_EEZ` — `chain_id`, `rollup_id`, `proxy` (20-byte L1 proxy contract); optional `name`.
+* `C4_CHAIN_TYPE_OP` — `chain_id`, `sequencer_address` (20 bytes). Prover-only fields (Kona ports, HTTP endpoint) remain at zero; they can be configured through the usual server-config path.
+* `C4_CHAIN_TYPE_ARBITRUM` — `chain_id`, `sequencer_inbox` (20 bytes).
+
+Rules:
+
+* Chain ids already present in a plugin's built-in table are rejected; built-ins always win.
+* Each extras table is capped (currently 8 entries per plugin). The call fails with a descriptive error once the table is full.
+* The call is **not** idempotent at the plugin level: registering the same id twice fails.
+* All inner tables (`fork_epochs`, `fork_versions`, `blob_schedule`, `blob_params`, OP sequencer bytes, EEZ `name`) are copied onto the heap and owned by the registry for the lifetime of the process.
+* A matching `c4_<chain>_reset_chain_spec_registry` / `c4_<chain>_reset_chain_config_registry` is exported for tests only.
+* The runtime registration does **not** register the chain family (routing). If the new id is not in the built-in `switch` of `c4_chain_type`, the caller must also invoke `c4_register_chain_family` so the request reaches the right verifier.
+
+### Public binding entry point: `c4_configure_chain`
+
+`c4_register_chain` operates on `json_t`, so bindings would need to pull in the SSZ/JSON headers just to build the payload. To avoid that, the stable public API in [`src/api/colibri.h`](https://github.com/corpus-core/colibri-stateless/blob/dev/src/api/colibri.h) exposes
+
+```c
+char* c4_configure_chain(const char* conf);
+```
+
+`conf` is a JSON object: a mandatory `"chain_type"` selector plus the fields from the schema above. `chain_type` accepts either the numeric `C4_CHAIN_TYPE_*` constant **or** one of the canonical strings `"ethereum"` / `"op"` / `"eez"` / `"arbitrum"` (aliases: `"eth"`, `"optimism"`, `"arb"`). The function returns `NULL` on success; otherwise a heap-allocated error message that the caller must `free()`.
+
+Example payloads (one per chain type):
+
+```json
+{
+  "chain_type": "ethereum",
+  "chain_id":   42,
+  "genesis_validators_root": "0x4b363db9...",
+  "fork_epochs":   [0, 0, 0, 0, 0, 0, 1536],
+  "fork_versions": [
+    "0x00000000", "0x01000000", "0x02000000", "0x03000000",
+    "0x04000000", "0x05000000", "0x06000000", "0x07000000"
+  ]
+}
+```
+
+```json
+{ "chain_type": "op", "chain_id": 42069, "sequencer_address": "0x1234...1234" }
+```
+
+```json
+{ "chain_type": "eez", "chain_id": 7777, "rollup_id": 1, "proxy": "0x1234...1234" }
+```
+
+```json
+{ "chain_type": "arbitrum", "chain_id": 888001, "sequencer_inbox": "0x1234...1234" }
+```
+
+### JavaScript / TypeScript bindings
+
+The `@corpus-core/colibri-stateless` client exposes custom chain registrations as an optional array on the `Config` object. Entries are forwarded to `c4_configure_chain` lazily on the first `rpc()` / `createProof()` / `verifyProof()` call and deduplicated across all `C4Client` instances sharing the same process.
+
+```ts
+import Colibri from '@corpus-core/colibri-stateless';
+
+const client = new Colibri({
+  chainId: 42, // our new fictional Ethereum-fork chain
+  rpcs: ['https://rpc.example.net'],
+  beacon_apis: ['https://beacon.example.net'],
+  chain_configs: [{
+    chain_type: 'ethereum',
+    chain_id:   42,
+    genesis_validators_root: '0x4b363db94e286120d76eb905340fdd4e54bfe9f06bf33ff6cf5ad27f511bfe95',
+    fork_epochs:   [0, 0, 0, 0, 0, 0, 1536],
+    fork_versions: [
+      '0x00000000', '0x01000000', '0x02000000', '0x03000000',
+      '0x04000000', '0x05000000', '0x06000000', '0x07000000'
+    ]
+  }],
+});
+
+const balance = await client.request({
+  method: 'eth_getBalance',
+  params: ['0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045', 'latest'],
+});
+```
+
+See the `ChainRegistration` type in [`bindings/emscripten/src/types.ts`](https://github.com/corpus-core/colibri-stateless/blob/dev/bindings/emscripten/src/types.ts) for the full TypeScript shape. The per-handler fields (`fork_epochs`, `sequencer_address`, `proxy`, …) are documented above under *Reference JSON per chain type*.
 
 ## What a plugin may not change
 

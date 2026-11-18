@@ -259,7 +259,7 @@ typedef struct data_request {
  * Used by the async state machine to track operations that require
  * external data.
  */
-typedef struct {
+typedef struct c4_state {
   data_request_t* requests; ///< Linked list of data requests (NULL if no requests)
   char*           error;    ///< Accumulated error messages (NULL if no errors)
 } c4_state_t;

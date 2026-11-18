@@ -33,6 +33,8 @@ add_verifier(
   VERIFY c4_arb_verify
   METHOD_TYPE c4_arb_get_method_type
   INIT_RPC_CTX arb_init_rpc_ctx
+  REGISTER_CHAIN c4_arb_register_chain
+  CHAIN_TYPE C4_CHAIN_TYPE_ARBITRUM
 )
 
 add_prover(

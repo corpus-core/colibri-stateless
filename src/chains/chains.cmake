@@ -23,9 +23,19 @@ function(add_verifier)
 
     # Parse arguments
     set(options "")
-    set(oneValueArgs NAME GET_REQ_TYPE VERIFY METHOD_TYPE PROVER_PAYLOAD INIT_RPC_CTX PROVER_CACHE_URL RESET_CACHES)
+    set(oneValueArgs NAME GET_REQ_TYPE VERIFY METHOD_TYPE PROVER_PAYLOAD INIT_RPC_CTX PROVER_CACHE_URL RESET_CACHES REGISTER_CHAIN CHAIN_TYPE)
     set(multiValueArgs SOURCES DEPENDS)
     cmake_parse_arguments(VERIFIER "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
+
+    # REGISTER_CHAIN + CHAIN_TYPE must be paired: a handler without a chain_type
+    # would never be routed to (silent dead code), and a chain_type without a
+    # handler would leave a `case` arm referencing an undeclared function.
+    if(VERIFIER_REGISTER_CHAIN AND NOT VERIFIER_CHAIN_TYPE)
+        message(FATAL_ERROR "add_verifier(${VERIFIER_NAME}): REGISTER_CHAIN requires CHAIN_TYPE")
+    endif()
+    if(VERIFIER_CHAIN_TYPE AND NOT VERIFIER_REGISTER_CHAIN)
+        message(FATAL_ERROR "add_verifier(${VERIFIER_NAME}): CHAIN_TYPE requires REGISTER_CHAIN")
+    endif()
 
     # Add the library
     add_library(${VERIFIER_NAME} STATIC ${VERIFIER_SOURCES})
@@ -49,7 +59,7 @@ function(add_verifier)
     get_property(CURRENT_PROPERTIES CACHE VERIFIER_PROPERTIES PROPERTY VALUE)
     
     # Append to the global list (optional hooks may be empty)
-    list(APPEND CURRENT_PROPERTIES "${VERIFIER_NAME}:${VERIFIER_GET_REQ_TYPE}:${VERIFIER_VERIFY}:${VERIFIER_METHOD_TYPE}:${VERIFIER_PROVER_PAYLOAD}:${VERIFIER_INIT_RPC_CTX}:${VERIFIER_PROVER_CACHE_URL}:${VERIFIER_RESET_CACHES}")
+    list(APPEND CURRENT_PROPERTIES "${VERIFIER_NAME}:${VERIFIER_GET_REQ_TYPE}:${VERIFIER_VERIFY}:${VERIFIER_METHOD_TYPE}:${VERIFIER_PROVER_PAYLOAD}:${VERIFIER_INIT_RPC_CTX}:${VERIFIER_PROVER_CACHE_URL}:${VERIFIER_RESET_CACHES}:${VERIFIER_REGISTER_CHAIN}:${VERIFIER_CHAIN_TYPE}")
     set(VERIFIER_PROPERTIES "${CURRENT_PROPERTIES}" CACHE INTERNAL "List of all verifier properties" FORCE)
 endfunction()
 
@@ -332,6 +342,43 @@ function(generate_verifiers_header)
             endif()
         endif()
     endforeach()
+    file(APPEND ${VERIFIERS_H} "}\n\n")
+
+    # Prototypes for every REGISTER_CHAIN handler. Each module that opted in
+    # exposes `bool <fn>(c4_state_t* state, json_t data)` (see chains.h for the
+    # c4_register_chain contract and JSON schema).
+    foreach(prop ${VERIFIER_PROPERTIES})
+        string(REPLACE ":" ";" parts "${prop}")
+        list(LENGTH parts count)
+        if(count GREATER 8)
+            list(GET parts 8 register_chain)
+            if(NOT "${register_chain}" STREQUAL "")
+                file(APPEND ${VERIFIERS_H} "bool ${register_chain}(c4_state_t* state, json_t data);\n")
+            endif()
+        endif()
+    endforeach()
+
+    # c4_register_chain dispatcher: switch on chain_type and route to the
+    # chain module's handler. A chain type without REGISTER_CHAIN hook falls
+    # through to the error branch so the host sees a clear failure.
+    file(APPEND ${VERIFIERS_H} "\nbool c4_register_chain(c4_state_t* state, chain_type_t type, json_t data) {\n")
+    file(APPEND ${VERIFIERS_H} "  c4_register_chains();\n")
+    file(APPEND ${VERIFIERS_H} "  switch (type) {\n")
+    foreach(prop ${VERIFIER_PROPERTIES})
+        string(REPLACE ":" ";" parts "${prop}")
+        list(LENGTH parts count)
+        if(count GREATER 9)
+            list(GET parts 8 register_chain)
+            list(GET parts 9 chain_type)
+            if(NOT "${register_chain}" STREQUAL "" AND NOT "${chain_type}" STREQUAL "")
+                file(APPEND ${VERIFIERS_H} "    case ${chain_type}: return ${register_chain}(state, data);\n")
+            endif()
+        endif()
+    endforeach()
+    file(APPEND ${VERIFIERS_H} "    default: break;\n")
+    file(APPEND ${VERIFIERS_H} "  }\n")
+    file(APPEND ${VERIFIERS_H} "  c4_state_add_error(state, \"c4_register_chain: no handler for this chain type\");\n")
+    file(APPEND ${VERIFIERS_H} "  return false;\n")
     file(APPEND ${VERIFIERS_H} "}\n\n")
 
     # Close header guard

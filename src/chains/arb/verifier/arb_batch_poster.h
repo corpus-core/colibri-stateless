@@ -29,6 +29,7 @@ extern "C" {
 #endif
 
 #include "chains.h"
+#include "json.h"
 #include <stdint.h>
 
 /** `SequencerInbox.isBatchPoster` mapping slot. */
@@ -71,6 +72,36 @@ void arb_batch_poster_storage_key(const uint8_t poster[20], uint8_t out[32]);
  * @return true when the proof is not older than the cache
  */
 bool arb_batch_poster_l1_is_current(chain_id_t chain_id, uint64_t l1_number);
+
+/**
+ * Registers an additional Arbitrum rollup at runtime from a JSON description.
+ *
+ * Called via the generated `c4_register_chain(state, C4_CHAIN_TYPE_ARBITRUM,
+ * data)` dispatcher. Reference JSON layout:
+ *
+ * ```json
+ * {
+ *   "chain_id":        "0x66eee",
+ *   "sequencer_inbox": "0x1c479675ad559dc151f6ec7ed3fbf8cee79582b6"
+ * }
+ * ```
+ *
+ * `chain_id` accepts both a plain JSON number (`421614`) and an Ethereum-style
+ * hex string (`"0x66eee"`). Built-in chains (Arbitrum One) always take
+ * precedence over runtime entries.
+ *
+ * @param state state collecting the error message on failure (must not be NULL)
+ * @param data parsed JSON body with one chain description
+ * @return true on success, false with `state->error` populated on failure
+ */
+bool c4_arb_register_chain(c4_state_t* state, json_t data);
+
+/**
+ * Resets the runtime-registered Arbitrum rollup configs.
+ *
+ * Only intended for tests: empties the extras array. Built-ins are unaffected.
+ */
+void c4_arb_reset_chain_config_registry(void);
 
 #ifdef __cplusplus
 }

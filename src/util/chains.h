@@ -33,6 +33,16 @@ extern "C" {
 
 #include "bytes.h"
 #include "crypto.h"
+#include "json.h"
+
+// Forward declaration so chains.h can expose `c4_register_chain` without
+// including state.h (state.h already includes chains.h and would cycle).
+// The matching full definition lives in state.h and must stay tagged.
+#ifndef C4_STATE_T_FWD
+#define C4_STATE_T_FWD
+struct c4_state;
+typedef struct c4_state c4_state_t;
+#endif
 
 /**
  * Builds a legacy `chain_id_t` from an EVM numeric chain id only (type bits zero).
@@ -266,6 +276,50 @@ bool c4_register_l1_for_l2(chain_id_t l2, chain_id_t l1);
  * Intended for unit tests; production code never calls this.
  */
 void c4_reset_chain_registry(void);
+
+/**
+ * Registers chain-type-specific runtime configuration (fork epochs, blob
+ * schedules, genesis validators root, …) from JSON.
+ *
+ * Dispatched to the module that owns `type` through the generated
+ * `c4_register_chain` in `verifiers.h`: every `add_verifier(... REGISTER_CHAIN
+ * <fn> ...)` registration contributes one branch in the switch. Modules that
+ * do not expose `REGISTER_CHAIN` have no runtime configuration path.
+ *
+ * The JSON schema is defined by each chain module. For ETH, keys match the
+ * fields of `chain_spec_t`; see `src/chains/eth/ssz/chain_spec.c` for the
+ * authoritative schema. `fork_epochs` is an array ordered by fork id (Altair,
+ * Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, …); `fork_versions` is an
+ * array of 4-byte hex strings, Phase0 first, so `len(fork_versions) ==
+ * len(fork_epochs) + 1`. Example (ETH / Luxor L1):
+ *
+ * ```json
+ * {
+ *   "chain_id": 42,
+ *   "genesis_validators_root": "0x4b363db9...",
+ *   "slots_per_epoch_bits": 5,
+ *   "epochs_per_period_bits": 8,
+ *   "weak_subjectivity_epochs": 3682,
+ *   "fork_epochs":   [0, 0, 0, 0, 0, 0, 1536],
+ *   "fork_versions": [
+ *     "0x00000000", "0x01000000", "0x02000000", "0x03000000",
+ *     "0x04000000", "0x05000000", "0x06000000", "0x07000000"
+ *   ],
+ *   "max_blobs_per_block_electra": 9
+ * }
+ * ```
+ *
+ * On failure, `state->error` carries a human-readable message and the function
+ * returns `false`. On success, subsequent calls to the chain's lookup
+ * functions (e.g. `c4_eth_get_chain_spec`) return the registered entry.
+ *
+ * @param state state object that collects the error message (must not be NULL)
+ * @param type chain family that owns the configuration
+ * @param data parsed JSON body describing one chain
+ * @return true on success, false if the chain type has no `REGISTER_CHAIN`
+ *         handler or the handler rejected the payload (see `state->error`)
+ */
+bool c4_register_chain(c4_state_t* state, chain_type_t type, json_t data);
 
 #ifdef __cplusplus
 }

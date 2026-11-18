@@ -97,6 +97,13 @@ export default class C4Client {
   private flags: number = 0;
   private verify_flags: number = 0;
   private _lightClientTimer: ReturnType<typeof setInterval> | null = null;
+  /** Local per-client fast-path flag: once set, `ensure_chain_configured` is a no-op. */
+  private chain_configs_applied = false;
+
+  /** Global dedup set so multiple C4Client instances in the same process do not register the same JSON twice.
+   *  C core rejects re-registrations of the same chain_id, so client-side deduplication avoids a false-positive
+   *  "chain_id is already registered" error. */
+  private static readonly registered_chain_configs = new Set<string>();
 
   /** Default freshness window for `latest` proofs in seconds (≈5 Ethereum slots). */
   private static readonly DEFAULT_MAX_LATEST_AGE_SECONDS = 60;
@@ -193,12 +200,41 @@ export default class C4Client {
   }
 
   /**
+   * Registers any custom chain configurations attached to `this.config.chain_configs`
+   * in the native C core. Called lazily before the first prover/verifier interaction
+   * and short-circuits on subsequent calls. Registrations are deduplicated across
+   * all `C4Client` instances in the same process because the C core only accepts
+   * a given `chain_id` once.
+   */
+  private async ensure_chain_configured(): Promise<void> {
+    if (this.chain_configs_applied) return;
+    const cfgs = this.config.chain_configs;
+    if (!cfgs || cfgs.length === 0) {
+      this.chain_configs_applied = true;
+      return;
+    }
+    const runtime = await getRuntime();
+    for (const cfg of cfgs) {
+      // JSON.stringify yields a stable canonical form for the simple plain
+      // objects expected here (no cycles, no functions); good enough to
+      // dedupe across calls and clients in the same process.
+      const json = JSON.stringify(cfg);
+      if (C4Client.registered_chain_configs.has(json)) continue;
+      const err = runtime.configureChain(json);
+      if (err) throw new Error(`c4_configure_chain failed: ${err}`);
+      C4Client.registered_chain_configs.add(json);
+    }
+    this.chain_configs_applied = true;
+  }
+
+  /**
    * Checks whether the RPC method is supported or proofable.
    * @param method - The method to check
    * @param args - Optional method arguments (used in PAP mode to check cached data availability)
    * @returns The method type
    */
   async getMethodSupport(method: string, args?: any[]): Promise<C4MethodType> {
+    await this.ensure_chain_configured();
     const runtime = await getRuntime();
     const paramsStr = args ? JSON.stringify(args) : null;
     return runtime.getMethodType(BigInt(this.config.chainId), method, paramsStr, this.verify_flags) as C4MethodType;
@@ -211,6 +247,7 @@ export default class C4Client {
    * @returns The proof
    */
   async createProof(method: string, args: any[]): Promise<Uint8Array> {
+    await this.ensure_chain_configured();
     const runtime = await getRuntime();
     let ctx = null;
 
@@ -244,6 +281,7 @@ export default class C4Client {
    * @returns The result
    */
   async verifyProof(method: string, args: any[], proof: Uint8Array): Promise<any> {
+    await this.ensure_chain_configured();
     const runtime = await getRuntime();
     let ctx = null;
 
@@ -289,6 +327,7 @@ export default class C4Client {
    * @returns The result
    */
   async rpc(method: string, args: any[], method_type?: C4MethodType): Promise<any> {
+    await this.ensure_chain_configured();
     // eth_sendTransaction stays in bindings (requires fallback_provider interaction)
     if (method === 'eth_sendTransaction' && (this.config as any).verifyTransactions) {
       return await TransactionVerifier.verifyAndSendTransaction(

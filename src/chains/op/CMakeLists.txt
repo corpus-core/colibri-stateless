@@ -74,6 +74,8 @@ add_verifier(
   VERIFY c4_op_verify
   METHOD_TYPE c4_op_get_method_type
   INIT_RPC_CTX op_init_rpc_ctx
+  REGISTER_CHAIN c4_op_register_chain
+  CHAIN_TYPE C4_CHAIN_TYPE_OP
 )
 
 

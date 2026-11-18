@@ -151,3 +151,7 @@ void c4_rpc_set_min_latest_block_ts(void* ctx, uint64_t ts) {
 void c4_free_rpc_ctx(void* ctx) {
   c4_rpc_ctx_free((c4_rpc_ctx_t*) ctx);
 }
+// `c4_configure_chain` is implemented in colibri_common.c so the Emscripten
+// and Node.js bindings (which link against colibri_common but not against this
+// translation unit) can call it directly. Its declaration lives in both
+// `colibri.h` (public C-API) and `colibri_common.h` (shared binding header).

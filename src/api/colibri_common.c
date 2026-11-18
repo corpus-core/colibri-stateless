@@ -347,6 +347,70 @@ API_PUBLIC void c4_reset_caches(void) {
   c4_reset_prover_caches();
 }
 
+/* ── Runtime chain registration ── */
+
+// Maps a `"chain_type"` JSON value (number or string) to a `chain_type_t`.
+// Returns -1 when the value cannot be interpreted; `out_err` then points at
+// a static diagnostic suitable for `strdup`.
+static int c4i_parse_chain_type_field(json_t ct, const char** out_err) {
+  if (ct.type == JSON_TYPE_NOT_FOUND) {
+    *out_err = "c4_configure_chain: missing required field \"chain_type\"";
+    return -1;
+  }
+  if (ct.type == JSON_TYPE_NUMBER) {
+    uint64_t v = json_as_uint64(ct);
+    if (v > 255) {
+      *out_err = "c4_configure_chain: chain_type out of range";
+      return -1;
+    }
+    return (int) v;
+  }
+  if (ct.type == JSON_TYPE_STRING) {
+    if (json_equal_string(ct, "ethereum") || json_equal_string(ct, "eth")) return C4_CHAIN_TYPE_ETHEREUM;
+    if (json_equal_string(ct, "op") || json_equal_string(ct, "optimism")) return C4_CHAIN_TYPE_OP;
+    if (json_equal_string(ct, "eez")) return C4_CHAIN_TYPE_EEZ;
+    if (json_equal_string(ct, "arbitrum") || json_equal_string(ct, "arb")) return C4_CHAIN_TYPE_ARBITRUM;
+    *out_err = "c4_configure_chain: unknown chain_type (expected one of ethereum, op, eez, arbitrum, or a numeric C4_CHAIN_TYPE_*)";
+    return -1;
+  }
+  *out_err = "c4_configure_chain: chain_type must be a number or a string";
+  return -1;
+}
+
+API_PUBLIC char* c4_configure_chain(const char* conf) {
+  if (!conf || !*conf) return strdup("c4_configure_chain: conf is required");
+
+  // Duplicate the input so the parsed `json_t` can reference a stable buffer
+  // for the duration of the call; the handler copies anything it wants to
+  // keep (arrays, byte32 hashes), so freeing `owned` at the end is safe.
+  char* owned = strdup(conf);
+  if (!owned) return strdup("c4_configure_chain: out of memory");
+
+  json_t data = json_parse(owned);
+  if (data.type != JSON_TYPE_OBJECT) {
+    free(owned);
+    return strdup("c4_configure_chain: conf must be a JSON object");
+  }
+
+  const char* parse_err = NULL;
+  int         type      = c4i_parse_chain_type_field(json_get(data, "chain_type"), &parse_err);
+  if (type < 0) {
+    free(owned);
+    return strdup(parse_err);
+  }
+
+  c4_state_t state = {0};
+  bool       ok    = c4_register_chain(&state, (chain_type_t) type, data);
+  free(owned);
+  if (ok) {
+    c4_state_free(&state);
+    return NULL;
+  }
+  char* err = state.error ? strdup(state.error) : strdup("c4_configure_chain: unknown error");
+  c4_state_free(&state);
+  return err;
+}
+
 /* ── Standalone checkpoint setter ── */
 
 void c4_set_checkpoint(chain_id_t chain_id, const char* checkpoint_hex) {

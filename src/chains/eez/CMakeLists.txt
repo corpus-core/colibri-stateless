@@ -71,6 +71,8 @@ add_verifier(
   VERIFY c4_eez_verify
   METHOD_TYPE c4_eez_get_method_type
   INIT_RPC_CTX eez_init_rpc_ctx
+  REGISTER_CHAIN c4_eez_register_chain
+  CHAIN_TYPE C4_CHAIN_TYPE_EEZ
 )
 
 add_prover(

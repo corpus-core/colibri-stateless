@@ -30,6 +30,7 @@ extern "C" {
 
 #include "chains.h"
 #include "common.h"
+#include "json.h"
 #include "ssz.h"
 
 typedef enum {
@@ -69,20 +70,54 @@ typedef struct {
   uint64_t max_blobs_per_block;
 } eth_blob_params_t;
 
+// Per-chain configuration consumed by the verifier / prover. Instances live
+// either in the static `chain_data[]` table (fully immutable, protected via
+// the array being `static const`) or in the heap-backed runtime extras added
+// through `c4_eth_register_chain`. Individual members intentionally do NOT
+// carry `const` — writing through a struct-level `const` from the static
+// table is still forbidden by the type of the surrounding array, while the
+// runtime extras need to be assignable field-by-field without casting away
+// qualifiers (which would be UB on genuinely `const` members).
 typedef struct {
   chain_id_t                 chain_id;
-  const uint64_t*            fork_epochs;
-  const bytes32_t            genesis_validators_root;
-  const bytes32_t            zk_sync_keys_root;        // initial zk sync keys root
-  const int                  slots_per_epoch_bits;     // 5 = 32 slots per epoch
-  const int                  epochs_per_period_bits;   // 8 = 256 epochs per period
-  const uint64_t             weak_subjectivity_epochs; // max epochs before checkpoint validation required
+  const uint64_t*            fork_epochs;                 // fork activation epochs, FORKS_END-terminated
+  bytes32_t                  genesis_validators_root;
+  bytes32_t                  zk_sync_keys_root;           // initial zk sync keys root
+  int                        slots_per_epoch_bits;        // 5 = 32 slots per epoch
+  int                        epochs_per_period_bits;      // 8 = 256 epochs per period
+  uint64_t                   weak_subjectivity_epochs;    // max epochs before checkpoint validation required
   fork_version_func_t        fork_version_func;
+  const uint8_t*             fork_versions;               // optional: pointer to `(C4_FORK_MAX + 1) * 4` bytes; one 4-byte fork version per fork id (phase0 .. HEZE). NULL → use `fork_version_func`. Chains registered through `c4_eth_register_chain` set both: `fork_version_func = generic_fork_version` and this table.
   const eth_blob_schedule_t* blob_schedule;               // EIP-7892 blob schedule, DESCENDING by timestamp, {0,0}-terminated; NULL uses Cancun default
   uint64_t                   min_blob_base_fee;           // MIN_BLOB_BASE_FEE (`minBlobGasPrice`); 0 uses Ethereum's default (1 wei). Gnosis / Chiado use 1e9.
   const eth_blob_params_t*   blob_params;                 // CL BLOB_SCHEDULE, DESCENDING by epoch, {*,0}-terminated; NULL = empty
   uint64_t                   max_blobs_per_block_electra; // MAX_BLOBS_PER_BLOCK_ELECTRA; 0 uses Ethereum's default (9). Gnosis / Chiado use 2.
 } chain_spec_t;
+
+/**
+ * Registers an additional `chain_spec_t` at runtime from a JSON description.
+ *
+ * Called via the generated `c4_register_chain(state, C4_CHAIN_TYPE_ETHEREUM,
+ * data)` dispatcher. The JSON schema is validated inside the function; see
+ * the public header `src/util/chains.h` for the reference layout. All inner
+ * arrays (`fork_epochs`, `fork_versions`, `blob_schedule`, `blob_params`)
+ * are copied onto the heap and owned by the registry for the lifetime of
+ * the process; the caller may free its input immediately.
+ *
+ * @param state state collecting the error message on failure (must not be NULL)
+ * @param data parsed JSON body with one chain description
+ * @return true on success, false with `state->error` populated on failure
+ */
+bool c4_eth_register_chain(c4_state_t* state, json_t data);
+
+/**
+ * Resets the runtime-registered Ethereum chain specs.
+ *
+ * Only intended for tests: frees every heap-allocated side table owned by
+ * entries previously added through `c4_eth_register_chain` and empties the
+ * extras array. Built-in chains in `chain_data[]` are unaffected.
+ */
+void c4_eth_reset_chain_spec_registry(void);
 
 bool      c4_chain_genesis_validators_root(chain_id_t chain_id, bytes32_t genesis_validators_root);
 fork_id_t c4_chain_fork_id(chain_id_t chain_id, uint64_t epoch);
