@@ -223,7 +223,7 @@ bool c4_handle_proof_get_request(client_t* client) {
   // GET responses are shared-cache friendly: never include the client-specific
   // last_block_hash here, the proof always carries the full block proof.
   c4_proof_request_dispatch(client, method_str, params_str, version_num, extra_flags,
-                            cs, wk, NULL_BYTES, NULL, NULL, cc_buf);
+                            cs, wk, NULL_BYTES, NULL_BYTES, NULL, NULL, cc_buf);
 
   if (cs.data) safe_free(cs.data);
   if (wk.data) safe_free(wk.data);

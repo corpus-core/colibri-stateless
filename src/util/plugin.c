@@ -197,6 +197,46 @@ c4_parallel_for_fn c4_get_parallel_for(void) {
   return g_parallel_for;
 }
 
+static void batch_poster_key(chain_id_t chain_id, char out[100]) {
+  // `sbprintf` takes the array size with `sizeof`. A parameter declared as
+  // `char[100]` is a pointer, so the formatting has to land in a local array.
+  char tmp[100] = {0};
+  sbprintf(tmp, "batch_poster_%l", (uint64_t) chain_id);
+  memcpy(out, tmp, sizeof(tmp));
+}
+
+bool c4_get_cached_batch_poster(chain_id_t chain_id, uint8_t address[20], uint64_t* timestamp, uint64_t* block_number) {
+  if (!address || !timestamp || !block_number) return false;
+  storage_plugin_t storage = {0};
+  c4_get_storage_config(&storage);
+  char     name[100] = {0};
+  buffer_t buf       = {0};
+  batch_poster_key(chain_id, name);
+  if (!storage.get || !storage.get(name, &buf) || buf.data.len != 36) {
+    if (buf.data.data) safe_free(buf.data.data);
+    return false;
+  }
+  memcpy(address, buf.data.data, 20);
+  *timestamp    = bytes_as_be(bytes(buf.data.data + 20, 8));
+  *block_number = bytes_as_be(bytes(buf.data.data + 28, 8));
+  safe_free(buf.data.data);
+  return true;
+}
+
+void c4_set_cached_batch_poster(chain_id_t chain_id, const uint8_t address[20], uint64_t timestamp, uint64_t block_number) {
+  if (!address) return;
+  storage_plugin_t storage = {0};
+  c4_get_storage_config(&storage);
+  if (!storage.set) return;
+  uint8_t record[36] = {0};
+  char    name[100]  = {0};
+  memcpy(record, address, 20);
+  uint64_to_be(record + 20, timestamp);
+  uint64_to_be(record + 28, block_number);
+  batch_poster_key(chain_id, name);
+  storage.set(name, bytes(record, 36));
+}
+
 bytes_t c4_get_client_state(chain_id_t chain_id) {
   storage_plugin_t storage = {0};
   c4_get_storage_config(&storage);

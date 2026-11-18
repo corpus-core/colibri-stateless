@@ -22,6 +22,7 @@
 set(VERIFIER_SOURCES
   verifier/arb_verify.c
   verifier/arb_verify_block.c
+  verifier/arb_batch_poster.c
 )
 
 add_verifier(
@@ -39,6 +40,7 @@ add_prover(
   SOURCES
     prover/arb_prover.c
     prover/arb_proof_block.c
+    prover/arb_batch_poster.c
   DEPENDS util eth_prover arb_verifier
   PROOF arb_prover_execute
 )

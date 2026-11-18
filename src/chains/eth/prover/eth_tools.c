@@ -79,6 +79,17 @@ typedef struct {
 } block_proof_prover_hooks_t;
 
 static block_proof_prover_hooks_t prover_hooks[C4_BLOCK_PROOF_HOOKS];
+static c4_sync_data_fn             sync_hooks[C4_BLOCK_PROOF_HOOKS];
+
+void c4_register_sync_data_prover(chain_type_t chain_type, c4_sync_data_fn fn) {
+  if ((unsigned) chain_type >= C4_BLOCK_PROOF_HOOKS) return;
+  sync_hooks[chain_type] = fn;
+}
+
+c4_sync_data_fn c4_sync_data_prover_fn(chain_type_t chain_type) {
+  if ((unsigned) chain_type >= C4_BLOCK_PROOF_HOOKS) return NULL;
+  return sync_hooks[chain_type];
+}
 
 void c4_register_block_proof_prover(chain_type_t chain_type, c4_add_block_proof_extra_fn add, c4_get_el_block_extra_fn get) {
   if ((unsigned) chain_type >= C4_BLOCK_PROOF_HOOKS) return;

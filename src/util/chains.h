@@ -173,8 +173,10 @@ chain_type_t c4_chain_type(chain_id_t chain_id);
  *
  * For an EEZ L2 (`C4_CHAIN_EEZ_*`) this is the L1 the rollup settles on: the L2
  * block hash is proven by an L1 storage proof, so sync-committee state, light
- * client updates and the client state all belong to that L1. Every other chain
- * (L1s and OP-Stack L2s) is returned unchanged.
+ * client updates and the client state all belong to that L1. Arbitrum One uses
+ * the same mapping: the batch-poster account proof is an L1 `clProof`, so its
+ * sync-committee state is Ethereum mainnet. Every other chain (L1s and
+ * OP-Stack L2s) is returned unchanged.
  *
  * The mapping is a switch in `chains.c` on purpose: `util` must not depend on a
  * chain module, and callers need the answer before any module is initialised
@@ -183,10 +185,11 @@ chain_type_t c4_chain_type(chain_id_t chain_id);
  * | `chain`                | result                   |
  * |------------------------|--------------------------|
  * | `C4_CHAIN_EEZ_ROLLUPX` | `C4_CHAIN_MAINNET` (`1`) |
+ * | `C4_CHAIN_ARB_ONE`     | `C4_CHAIN_MAINNET` (`1`) |
  * | anything else          | `chain`                  |
  *
  * @param chain client chain id
- * @return L1 chain id for an EEZ L2, otherwise `chain` itself
+ * @return L1 chain id for an EEZ L2 or Arbitrum One, otherwise `chain` itself
  */
 chain_id_t c4_get_l1_chain_id_for_l2(chain_id_t chain);
 

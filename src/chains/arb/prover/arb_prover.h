@@ -83,6 +83,29 @@ bool arb_add_feed_proof(prover_ctx_t* ctx, ssz_builder_t* builder, eth_block_t* 
  */
 void arb_register_block_proof_prover(void);
 
+/**
+ * Queues the L1 `eth_getStorageAt` for the batch poster when the prover flag is set.
+ *
+ * A pending request does not stop the block fetch. The same request is consumed
+ * by `arb_batch_poster_sync`.
+ *
+ * @param ctx prover context
+ * @return `C4_SUCCESS` when no proof is required or the request is queued, or `C4_ERROR`
+ */
+c4_status_t arb_batch_poster_prepare(prover_ctx_t* ctx);
+
+/**
+ * Builds `arbSignerSyncData` from the L1 prover response.
+ *
+ * The account proof and the L1 `sync_data` (none, light client, or ZK) share one
+ * container. With the flag unset the builder stays empty.
+ *
+ * @param ctx prover context
+ * @param builder sync-data builder, empty on entry
+ * @return `C4_SUCCESS`, `C4_PENDING`, or `C4_ERROR`
+ */
+c4_status_t arb_batch_poster_sync(prover_ctx_t* ctx, ssz_builder_t* builder);
+
 #ifdef __cplusplus
 }
 #endif

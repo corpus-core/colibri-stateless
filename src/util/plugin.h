@@ -66,6 +66,35 @@ void    c4_set_storage_config(storage_plugin_t* plugin);
 bytes_t c4_get_client_state(chain_id_t chain_id);
 
 /**
+ * Loads the cached batch poster for one chain (`batch_poster_<chain_id>`).
+ *
+ * The record is 20 address bytes, an 8-byte big-endian Unix timestamp in
+ * milliseconds (`current_unix_ms` when the proof was accepted) and an 8-byte
+ * big-endian L1 block number. The API does not check the age. Callers that
+ * send the address compare the timestamp with `current_unix_ms`.
+ *
+ * @param chain_id chain the poster belongs to
+ * @param address receives the 20-byte address (must not be NULL)
+ * @param timestamp receives the Unix timestamp in milliseconds (must not be NULL)
+ * @param block_number receives the L1 block number (must not be NULL)
+ * @return true when a 36-byte record was stored
+ */
+bool c4_get_cached_batch_poster(chain_id_t chain_id, uint8_t address[20], uint64_t* timestamp, uint64_t* block_number);
+
+/**
+ * Stores the batch poster for one chain under `batch_poster_<chain_id>`.
+ *
+ * Same record layout as `c4_get_cached_batch_poster`. A missing storage
+ * backend drops the write.
+ *
+ * @param chain_id chain the poster belongs to
+ * @param address 20-byte address (must not be NULL)
+ * @param timestamp Unix timestamp in milliseconds
+ * @param block_number L1 block number of the proof
+ */
+void c4_set_cached_batch_poster(chain_id_t chain_id, const uint8_t address[20], uint64_t timestamp, uint64_t block_number);
+
+/**
  * Returns whether `name` is a safe basename for file-backed storage.
  *
  * Rejects `NULL`, empty strings, `.`, `..`, and any name containing `/` or `\`.

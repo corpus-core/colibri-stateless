@@ -549,9 +549,16 @@ bool c4_try_forward_legacy_proof(client_t* client, uint32_t version, const char*
   return true;
 }
 
+static c4_batch_poster_precheck_fn batch_poster_precheck = NULL;
+
+void c4_set_batch_poster_precheck(c4_batch_poster_precheck_fn fn) {
+  batch_poster_precheck = fn;
+}
+
 void c4_proof_request_dispatch(client_t* client, char* method_str, char* params_str,
                                uint32_t version, prover_flags_t extra_flags,
                                bytes_t client_state, bytes_t witness_key, bytes_t last_block_hash,
+                               bytes_t batch_poster,
                                server_list_t* proxy_rpc, server_list_t* proxy_beacon,
                                const char* cache_control) {
   prover_flags_t flags = C4_PROVER_FLAG_UV_SERVER_CTX | http_server.prover_flags | extra_flags;
@@ -577,6 +584,8 @@ void c4_proof_request_dispatch(client_t* client, char* method_str, char* params_
   // may reference this block by hash only instead of appending the full block proof.
   if (last_block_hash.data && last_block_hash.len == 32)
     memcpy(ctx->last_block_hash, last_block_hash.data, 32);
+  if (batch_poster_precheck)
+    batch_poster_precheck(ctx, batch_poster.data, batch_poster.len);
 
   // Tracing: start root span
   if (tracing_is_enabled() && client->trace_level != TRACE_LEVEL_NONE) {
@@ -633,6 +642,7 @@ bool c4_handle_proof_request(client_t* client) {
   json_t logs_compl   = json_get(rpc_req, "logs_completeness");
   json_t signers      = json_get(rpc_req, "signers");
   json_t last_block   = json_get(rpc_req, "last_block_hash");
+  json_t batch_poster = json_get(rpc_req, "batch_poster");
   if (method.type != JSON_TYPE_STRING || params.type != JSON_TYPE_ARRAY) {
     c4_write_error_response(client, 400, "Invalid request");
     return true;
@@ -723,8 +733,17 @@ bool c4_handle_proof_request(client_t* client) {
     if (parsed.len == 32) lbh = parsed;
   }
 
+  // "0x" + 40 hex chars. Anything else is treated as a missing poster.
+  uint8_t  poster_data[20] = {0};
+  buffer_t poster_buf      = stack_buffer(poster_data);
+  bytes_t  poster          = NULL_BYTES;
+  if (batch_poster.type == JSON_TYPE_STRING && batch_poster.len == 44) {
+    bytes_t parsed = json_as_bytes(batch_poster, &poster_buf);
+    if (parsed.len == 20) poster = parsed;
+  }
+
   c4_proof_request_dispatch(client, bprintf(NULL, "%j", method), bprintf(NULL, "%J", params),
-                            version_num, extra_flags, cs, wk, lbh, proxy_rpc, proxy_beacon, NULL);
+                            version_num, extra_flags, cs, wk, lbh, poster, proxy_rpc, proxy_beacon, NULL);
 
   buffer_free(&client_state_buf);
   buffer_free(&witness_buf);

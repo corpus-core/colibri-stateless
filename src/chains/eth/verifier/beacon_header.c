@@ -303,9 +303,10 @@ c4_status_t c4_verify_block(verify_ctx_t* ctx, ssz_ob_t block, bytes_t* el_heade
     return verify_block_by_blockhash(ctx, block, el_header, block_hash);
 
   if (strcmp(block.def->name, ETH_SSZ_NAME_CL_PROOF) == 0) {
-    // A chain that settles on another chain (EEZ) has no consensus layer of its own.
-    // A clProof would authenticate a block of that other chain, never one of this chain.
-    // The EEZ hook verifies its inner L1 proof with the L1 chain id, so it passes here.
+    // A chain that settles on another chain (EEZ, Arbitrum One) has no consensus layer
+    // of its own. A clProof would authenticate a block of that other chain, never one
+    // of this chain. The chain hook verifies its inner L1 proof with the L1 chain id,
+    // so it passes here.
     if (c4_get_l1_chain_id_for_l2(ctx->chain_id) != ctx->chain_id)
       THROW_ERROR("clProof is not valid for a chain without its own consensus layer!");
     return verify_block_by_blockproof(ctx, block, el_header, block_hash);

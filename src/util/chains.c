@@ -90,11 +90,12 @@ uint64_t c4_chain_specific_id(chain_id_t chain_id) {
 }
 
 chain_id_t c4_get_l1_chain_id_for_l2(chain_id_t chain) {
-  // Only EEZ L2s are remapped: their block hashes are proven on the L1, so the
-  // sync-committee state belongs to that L1. This switch is the only place that
-  // names that L1. Every chain in the EEZ config table needs a case here.
+  // EEZ L2s and Arbitrum One are remapped: their L1 proofs use the sync-committee
+  // state of that L1. This switch is the only place that names that L1. Every
+  // chain in the EEZ config table needs a case here.
   switch (chain) {
     case C4_CHAIN_EEZ_ROLLUPX: // RollupX settles on Ethereum mainnet
+    case C4_CHAIN_ARB_ONE:     // Arbitrum One batch-poster proof is an L1 account proof
       return C4_CHAIN_MAINNET;
 
     default:

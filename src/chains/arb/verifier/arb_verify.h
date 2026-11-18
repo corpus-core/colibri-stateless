@@ -49,13 +49,29 @@ extern "C" {
 void arb_feed_digest(uint64_t chain_id, uint64_t sequence, bytes32_t block_hash, bytes_t signed_tail, bytes32_t out);
 
 /**
+ * Recovers the feed signer of one Nitro message.
+ *
+ * `v` may be 0/1 or 27/28. There is no EIP-191 prefix. `chain_id` is the numeric
+ * id used in the digest, the same value `arb_feed_digest` takes.
+ *
+ * @param chain_id numeric chain id (42161 for Arbitrum One)
+ * @param sequence feed sequence
+ * @param block_hash 32-byte `keccak256(elHeader)`
+ * @param signed_tail uncompressed tail
+ * @param signature 65 bytes `r || s || v`
+ * @param address receives the 20-byte signer
+ * @return true when recovery succeeds
+ */
+bool arb_feed_recover_signer(uint64_t chain_id, uint64_t sequence, bytes32_t block_hash, bytes_t signed_tail, bytes_t signature, uint8_t address[20]);
+
+/**
  * Verifies the `arbFeedProof` variant of `ETH_EL_PROOF_UNION`.
  * Registered via `c4_register_block_proof_verify` for `C4_CHAIN_TYPE_ARBITRUM`.
  *
- * The recovered signer must be the Arbitrum One batch poster
- * `0xC1b634853Cb333D3aD8663715b08f41A3Aec47cc`. The L1 proof of that address
- * is not checked yet. The digest uses `ctx->chain_id`; a chain reaches this
- * function only when `c4_chain_type` is `C4_CHAIN_TYPE_ARBITRUM`.
+ * The recovered signer must equal the cached batch poster for `ctx->chain_id`.
+ * The L1 proof of that address is `arbSignerSyncData` and is applied before this
+ * check. The digest uses `ctx->chain_id`; a chain reaches this function only
+ * when `c4_chain_type` is `C4_CHAIN_TYPE_ARBITRUM`.
  *
  * @param ctx verification context
  * @param block selected `arbFeedProof` union member
@@ -96,7 +112,9 @@ method_type_t c4_arb_get_method_type(chain_id_t chain_id, char* method, json_t p
  *
  * Registers the feed-proof hook first. The hook slot depends only on
  * `C4_CHAIN_TYPE_ARBITRUM`, so registration runs before the chain-type check.
- * Sync data and the proof are then handled by `c4_eth_verify_request`.
+ * An `arbSignerSyncData` sync object is applied first: its nested L1 sync, then
+ * the account proof. After that, sync data is cleared and the proof is handled
+ * by `c4_eth_verify_request`.
  *
  * @param ctx verification context
  * @return `false` if `ctx->chain_id` is not Arbitrum, otherwise `true` (result in `ctx`)

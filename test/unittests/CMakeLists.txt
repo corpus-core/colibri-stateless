@@ -120,6 +120,22 @@ foreach(test_source ${TEST_SOURCES})
         endif()
     endif()
 
+    if("${test_name}" STREQUAL "test_arb_batch_poster")
+        if(CHAIN_ARB)
+            target_link_libraries(${test_name} PRIVATE arb_verifier arb_prover)
+            target_include_directories(${test_name} PRIVATE
+                ${CMAKE_SOURCE_DIR}/src/prover
+                ${CMAKE_SOURCE_DIR}/src/chains/eth/ssz
+                ${CMAKE_SOURCE_DIR}/src/chains/eth/verifier
+                ${CMAKE_SOURCE_DIR}/src/chains/eth/prover
+                ${CMAKE_SOURCE_DIR}/src/chains/arb/verifier
+                ${CMAKE_SOURCE_DIR}/src/chains/arb/prover
+            )
+        else()
+            target_compile_definitions(${test_name} PRIVATE NO_CHAIN_ARB=1)
+        endif()
+    endif()
+
     # EEZ tests call the module directly (chain table, storage proof, block hooks).
     if("${test_name}" STREQUAL "test_arb_preconf")
         if(CHAIN_ARB AND HTTP_SERVER)

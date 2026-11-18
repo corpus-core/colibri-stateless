@@ -569,6 +569,13 @@ static c4_status_t fetch_updates_data(prover_ctx_t* ctx, syncdata_state_t* sync_
 }
 
 c4_status_t c4_get_syncdata_proof(prover_ctx_t* ctx, syncdata_state_t* sync_data, ssz_builder_t* builder) {
+  // A chain hook (Arbitrum batch poster) owns sync_data when it sets the builder
+  // or returns pending/error. An empty success leaves the Ethereum path below.
+  c4_sync_data_fn sync_fn = c4_sync_data_prover_fn(c4_chain_type(ctx->chain_id));
+  if (sync_fn) {
+    c4_status_t sync_status = sync_fn(ctx, builder);
+    if (sync_status != C4_SUCCESS || builder->def) return sync_status;
+  }
   // The block was proven by an L1 prover response (EEZ). That prover already built the
   // sync data for the client state we forwarded, so we pass its variant through as is.
   // This must happen before the flag checks below: the flags describe what *this* prover

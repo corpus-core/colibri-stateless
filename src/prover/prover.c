@@ -40,13 +40,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-// Include platform-specific time headers OR uv.h
-#ifdef _WIN32
-#include <windows.h>
-#else // Non-Windows: Need sys/time.h for current_unix_ms()
-#include <sys/time.h>
-#endif
-
 #ifdef C4_PROVER_USE_UV_TIME
 // Also include uv.h if using uv time source for current_ms()
 #include <uv.h>
@@ -60,27 +53,7 @@
    (entry)->key.uint64[3] == (query.uint64[3]))
 
 // ---- Time helpers (always available) ---------------------------------------
-// Function to get current time as Unix epoch milliseconds using system calls
-uint64_t current_unix_ms() {
-  struct timeval time_val;
-#ifdef _WIN32
-  FILETIME       ft;
-  ULARGE_INTEGER large_int;
-  GetSystemTimeAsFileTime(&ft);
-  large_int.LowPart  = ft.dwLowDateTime;
-  large_int.HighPart = ft.dwHighDateTime;
-  // Convert to microseconds from Jan 1, 1601
-  // Then adjust to Unix epoch (Jan 1, 1970)
-  uint64_t unix_time = (large_int.QuadPart - 116444736000000000LL) / 10;
-  time_val.tv_sec    = unix_time / 1000000;
-  time_val.tv_usec   = unix_time % 1000000;
-#else
-  gettimeofday(&time_val, NULL);
-#endif
-  return time_val.tv_sec * 1000L + time_val.tv_usec / 1000;
-}
-
-// Keep current_ms() as it is (with the conditional uv_now)
+// `current_unix_ms` is declared in common.h and defined in util.
 uint64_t current_ms() {
 #ifdef C4_PROVER_USE_UV_TIME
   return uv_now(uv_default_loop());

@@ -39,7 +39,7 @@ extern "C" {
  *
  * Parses a hex checkpoint string and stores it globally for the chain.
  * This must be called before verification if the host has a known checkpoint.
- * For an L2 that settles on L1 (EEZ) the checkpoint is stored for the L1 chain
+ * For an L2 that settles on L1 (EEZ, Arbitrum One) the checkpoint is stored for the L1 chain
  * (`c4_get_l1_chain_id_for_l2(chain_id)`).
  *
  * @param chain_id target chain ID

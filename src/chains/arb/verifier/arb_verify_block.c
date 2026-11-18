@@ -26,6 +26,7 @@
 #include "crypto.h"
 #include "el_header.h"
 #include "header_cache.h"
+#include "plugin.h"
 #include "ssz.h"
 #include <string.h>
 #include <zstd.h>
@@ -39,11 +40,6 @@
 
 static const char ARB_FEED_PREFIX[] = "Arbitrum Nitro Feed:";
 _Static_assert(sizeof(ARB_FEED_PREFIX) == 21, "prefix is 20 bytes plus the terminator");
-
-// Batch poster that signs the Arbitrum One feed today. Replaced by the L1 signer proof.
-static const uint8_t ARB_ONE_BATCH_POSTER[20] = {
-    0xC1, 0xb6, 0x34, 0x85, 0x3C, 0xb3, 0x33, 0xD3, 0xaD, 0x86,
-    0x63, 0x71, 0x5b, 0x08, 0xf4, 0x1A, 0x3A, 0xec, 0x47, 0xcc};
 
 /**
  * Recovers the 20-byte signer of a secp256k1 signature over `digest`.
@@ -62,6 +58,13 @@ static bool recover_signer(bytes32_t digest, bytes_t signature, address_t addres
   keccak(bytes(pub, 64), hash);
   memcpy(address, hash + 12, 20);
   return true;
+}
+
+bool arb_feed_recover_signer(uint64_t chain_id, uint64_t sequence, bytes32_t block_hash, bytes_t signed_tail, bytes_t signature, uint8_t address[20]) {
+  bytes32_t digest = {0};
+  if (!address || signature.len != 65) return false;
+  arb_feed_digest(chain_id, sequence, block_hash, signed_tail, digest);
+  return recover_signer(digest, signature, address);
 }
 
 /**
@@ -151,8 +154,13 @@ c4_status_t arb_verify_feed_proof(verify_ctx_t* ctx, ssz_ob_t block, bytes_t* el
   arb_feed_digest(ctx->chain_id, block_number - ARB_ONE_NITRO_GENESIS, hash, tail, digest);
   if (owned) safe_free(tail.data);
 
-  address_t signer = {0};
-  if (!recover_signer(digest, signature, signer) || memcmp(signer, ARB_ONE_BATCH_POSTER, 20) != 0)
+  address_t signer    = {0};
+  uint8_t   trusted[20] = {0};
+  uint64_t  timestamp   = 0;
+  uint64_t  l1_number   = 0;
+  if (!c4_get_cached_batch_poster(ctx->chain_id, trusted, &timestamp, &l1_number))
+    THROW_ERROR("unknown batch poster");
+  if (!recover_signer(digest, signature, signer) || memcmp(signer, trusted, 20) != 0)
     THROW_ERROR("invalid sequencer signature");
 
   memcpy(block_hash, hash, 32);

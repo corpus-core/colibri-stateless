@@ -87,4 +87,21 @@ static inline uint64_t max64(uint64_t a, uint64_t b) {
   return a > b ? a : b;
 }
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/**
+ * Wall-clock time in milliseconds since the Unix epoch.
+ *
+ * Defined in `time.c`. Every package links util, so prover and verifier share this clock.
+ *
+ * @return Unix time in milliseconds
+ */
+uint64_t current_unix_ms();
+
+#ifdef __cplusplus
+}
+#endif
+
 #endif // C4_VISIBILITY_H

@@ -166,7 +166,7 @@ static void enrich_pending_prover_requests(c4_rpc_ctx_t* ctx) {
     buffer_t  out = {0};
     bytes32_t lbh = {0};
     buffer_append(&out, bytes(req->payload.data, req->payload.len - 1));
-    c4_append_prover_request_props(&out, ctx->client_state, c4_get_l1_chain_id_for_l2(ctx->chain_id), ctx->prover_flags, ctx->witness_keys, get_last_block_hash(ctx, lbh));
+    c4_append_prover_request_props(&out, ctx->client_state, ctx->chain_id, ctx->prover_flags, ctx->witness_keys, get_last_block_hash(ctx, lbh));
     append_proxy_fields(&out, ctx);
     bprintf(&out, "}");
     safe_free(req->payload.data);
@@ -512,7 +512,7 @@ static c4_status_t rpc_handle_remote_proof(c4_rpc_ctx_t* ctx) {
     buffer_free(&method_buf);
     buffer_free(&params_buf);
     bytes32_t lbh = {0};
-    c4_append_prover_request_props(&payload, ctx->client_state, c4_get_l1_chain_id_for_l2(ctx->chain_id), ctx->prover_flags, ctx->witness_keys, get_last_block_hash(ctx, lbh));
+    c4_append_prover_request_props(&payload, ctx->client_state, ctx->chain_id, ctx->prover_flags, ctx->witness_keys, get_last_block_hash(ctx, lbh));
     append_proxy_fields(&payload, ctx);
     bprintf(&payload, "}");
     ctx->rpc_state.requests->payload = payload.data;

@@ -506,6 +506,7 @@ bool c4_handle_proof_request(client_t* client);
  * @param last_block_hash 32-byte hash of the newest block header the client has verified
  *                     and cached (copied, pass `NULL_BYTES` if unknown); lets the prover
  *                     omit the block proof (blockHash union variant) for matching blocks
+ * @param batch_poster 20-byte batch poster the client already trusts, or empty
  * @param proxy_rpc    per-request RPC proxy list (ownership transferred, may be NULL)
  * @param proxy_beacon per-request Beacon proxy list (ownership transferred, may be NULL)
  * @param cache_control optional `Cache-Control` header value for the direct response (copied, may be NULL)
@@ -513,8 +514,29 @@ bool c4_handle_proof_request(client_t* client);
 void c4_proof_request_dispatch(client_t* client, char* method_str, char* params_str,
                                uint32_t version, prover_flags_t extra_flags,
                                bytes_t client_state, bytes_t witness_key, bytes_t last_block_hash,
+                               bytes_t batch_poster,
                                server_list_t* proxy_rpc, server_list_t* proxy_beacon,
                                const char* cache_control);
+
+/**
+ * Decides whether this proof must carry a batch-poster update.
+ *
+ * Called once, before the prover runs. The hook may set `C4_PROVER_FLAG_ARB_BATCH_POSTER`
+ * and copy the address to prove into `ctx->batch_poster`. `batch_poster` is the client
+ * value (20 bytes) or empty when the client omitted it.
+ *
+ * @param ctx prover context of this request
+ * @param batch_poster client address, or NULL
+ * @param len length of `batch_poster`
+ */
+typedef void (*c4_batch_poster_precheck_fn)(prover_ctx_t* ctx, const uint8_t* batch_poster, uint32_t len);
+
+/**
+ * Registers the batch-poster precheck. The last registration wins.
+ *
+ * @param fn hook, or NULL to clear
+ */
+void c4_set_batch_poster_precheck(c4_batch_poster_precheck_fn fn);
 /**
  * Forwards a proof request to a legacy 2.x prover server when the client version is below 3.0.0.
  *

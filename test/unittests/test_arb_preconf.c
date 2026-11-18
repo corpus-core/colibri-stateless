@@ -35,6 +35,7 @@ int main(void) {
 #include "eth_verify.h"
 #include "header_cache.h"
 #include "json.h"
+#include "plugin.h"
 #include "rlp.h"
 #include "ssz.h"
 
@@ -289,6 +290,12 @@ void test_arb_feed_digest_matches_nitro_layout(void) {
   free(tail.data);
 }
 
+static void clear_batch_poster(void) {
+  storage_plugin_t storage = {0};
+  c4_get_storage_config(&storage);
+  if (storage.del) storage.del("batch_poster_42161");
+}
+
 void test_arb_feed_rejects_other_signer(void) {
   char*   text   = read_fixture();
   json_t  rpc    = json_parse(text);
@@ -309,6 +316,8 @@ void test_arb_feed_rejects_other_signer(void) {
   uint8_t address[20];
   signer_of(digest, bytes(sig, 65), address);
   TEST_ASSERT_NOT_EQUAL(0, memcmp(address, ARB_ONE_POSTER, 20));
+  clear_batch_poster();
+  c4_set_cached_batch_poster(C4_CHAIN_ARB_ONE, ARB_ONE_POSTER, 1, 1);
 
   char*   err   = NULL;
   bytes_t proof = arb_preconf_encode(rpc, bytes(hash, 32), bytes(sig, 65), bytes(tail, sizeof(tail)), &err);
@@ -348,6 +357,22 @@ void test_arb_feed_rejects_other_signer(void) {
   TEST_ASSERT_EQUAL_INT(C4_ERROR, c4_verify_block(&ctx, ob, &el, block_hash));
   TEST_ASSERT_NOT_NULL(strstr(ctx.state.error, "invalid sequencer signature"));
   c4_state_free(&ctx.state);
+
+  clear_batch_poster();
+  memset(&ctx, 0, sizeof(ctx));
+  ctx.chain_id = C4_CHAIN_ARB_ONE;
+  ob.bytes     = proof;
+  TEST_ASSERT_EQUAL_INT(C4_ERROR, arb_verify_feed_proof(&ctx, ob, &el, block_hash));
+  TEST_ASSERT_NOT_NULL(strstr(ctx.state.error, "unknown batch poster"));
+  c4_state_free(&ctx.state);
+
+  c4_set_cached_batch_poster(C4_CHAIN_ARB_ONE, address, 1, 1);
+  memset(&ctx, 0, sizeof(ctx));
+  ctx.chain_id = C4_CHAIN_ARB_ONE;
+  ob.bytes     = proof;
+  TEST_ASSERT_EQUAL_INT(C4_SUCCESS, arb_verify_feed_proof(&ctx, ob, &el, block_hash));
+  c4_state_free(&ctx.state);
+  clear_batch_poster();
 
   safe_free(v0.data);
   safe_free(proof.data);

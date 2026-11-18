@@ -357,6 +357,7 @@ c4_status_t arb_get_el_block(prover_ctx_t* ctx, json_t block, eth_block_t* out, 
   bool by_num  = !by_hash && digits >= 1 && digits <= 16 && is_quoted_hex(block, digits);
   if (!is_latest(block) && !by_hash && !by_num)
     THROW_ERROR("only latest, a block number or a block hash is supported");
+  TRY_ASYNC(arb_batch_poster_prepare(ctx));
 
   bytes32_t id = {0};
   snap_id(block, with_body, id);
@@ -412,4 +413,5 @@ bool arb_add_feed_proof(prover_ctx_t* ctx, ssz_builder_t* builder, eth_block_t* 
 
 void arb_register_block_proof_prover(void) {
   c4_register_block_proof_prover(C4_CHAIN_TYPE_ARBITRUM, arb_add_feed_proof, arb_get_el_block);
+  c4_register_sync_data_prover(C4_CHAIN_TYPE_ARBITRUM, arb_batch_poster_sync);
 }
