@@ -122,6 +122,7 @@ export const default_config: {
   '42161': { // arbitrum
     alias: ["arbitrum","arb1","0xa4b1"],
     rpcs: [
+      "https://arbitrum.colibri-proof.tech/execution",
       "https://arb1.arbitrum.io/rpc",
       "https://arbitrum-one-rpc.publicnode.com",
     ],

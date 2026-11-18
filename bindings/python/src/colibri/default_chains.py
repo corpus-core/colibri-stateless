@@ -60,6 +60,7 @@ _ETH_RPCS = {
         "https://rollupx.eez.dev/rpc/l2",
     ],  # rollupx
     42161: [
+        "https://arbitrum.colibri-proof.tech/execution",
         "https://arb1.arbitrum.io/rpc",
         "https://arbitrum-one-rpc.publicnode.com",
     ],  # arbitrum

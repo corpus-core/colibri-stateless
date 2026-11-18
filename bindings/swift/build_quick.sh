@@ -109,6 +109,22 @@ let package = Package(
                     "../../build_quick/src/chains/eth/precompiles/libeth_precompiles.a",
                     "../../build_quick/src/chains/eth/bn254/libeth_bn254.a",
                     "../../build_quick/src/chains/eth/zk_verifier/libzk_verifier.a",
+                    // Keep this list in sync with Package.swift: the generated dispatchers
+                    // reference every chain module that is enabled in the CMake build.
+                    // OP Stack support (CHAIN_OP=ON is passed above)
+                    "../../build_quick/src/chains/op/libop_verifier.a",
+                    "../../build_quick/src/chains/op/libop_prover.a",
+                    // EEZ support (CHAIN_EEZ is ON by default)
+                    "../../build_quick/src/chains/eez/libeez_verifier.a",
+                    "../../build_quick/src/chains/eez/libeez_prover.a",
+                    // Arbitrum support (CHAIN_ARB is ON by default)
+                    "../../build_quick/src/chains/arb/libarb_verifier.a",
+                    "../../build_quick/src/chains/arb/libarb_prover.a",
+                    // ZSTD (OP Stack preconfirmations, Arbitrum feed) and EVMOne (eth_call)
+                    "../../build_quick/libs/zstd/zstd_build/lib/libzstd.a",
+                    "../../build_quick/libs/evmone/libevmone_wrapper.a",
+                    "../../build_quick/_deps/evmone_external-build/libevmone.a",
+                    "../../build_quick/libs/evmone/libkeccak_bridge.a",
                     "../../build_quick/libs/intx/libintx_wrapper.a",
                     "../../build_quick/libs/crypto/libcrypto.a",
                     "../../build_quick/libs/blst/libblst.a"

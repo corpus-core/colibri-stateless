@@ -78,6 +78,7 @@ pub fn default_eth_rpcs(chain_id: u64) -> Vec<String> {
             "https://rollupx.eez.dev/rpc/l2".into(),
         ],
         ARBITRUM => vec![
+            "https://arbitrum.colibri-proof.tech/execution".into(),
             "https://arb1.arbitrum.io/rpc".into(),
             "https://arbitrum-one-rpc.publicnode.com".into(),
         ],

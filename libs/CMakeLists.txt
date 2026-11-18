@@ -33,8 +33,11 @@ if((ETH_ZKPROOF OR ETH_CALL) AND USE_MCL)
     add_subdirectory(mcl) # MCL for ZK proofs
 endif()
 
-if(CHAIN_OP)
-    add_subdirectory(zstd) # ZSTD is only needed for OP-Stack chains
+# ZSTD inflates sequencer payloads: OP-Stack preconfirmations and the Arbitrum
+# feed `signedTail`. Both chain modules link the `zstd` target, so it must exist
+# whenever either of them is built (e.g. CHAIN_OP=OFF with CHAIN_ARB=ON).
+if(CHAIN_OP OR CHAIN_ARB)
+    add_subdirectory(zstd)
 endif()
 
 if (HTTP_SERVER)

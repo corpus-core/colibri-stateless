@@ -188,7 +188,13 @@ static c4_status_t load_head(prover_ctx_t* ctx, const arb_el_snap_t** head) {
   eth_block_t ignored = {0};
   TRY_ASYNC(cache_snap(ctx, id, feed, NULL_BYTES, (json_t) {0}, NULL, NULL_BYTES, &ignored));
   cached = c4_state_cache_get(&ctx->state, id);
-  if (!cached.data) THROW_ERROR("arb feed proof was not cached");
+  if (!cached.data) {
+    // Explicit `C4_ERROR` instead of `THROW_ERROR`: the static analyzer cannot see
+    // across translation units that `c4_state_add_error` never returns success, and
+    // would otherwise assume the caller continues with `*head` still unset.
+    c4_state_add_error(&ctx->state, "arb feed proof was not cached");
+    return C4_ERROR;
+  }
   *head = (const arb_el_snap_t*) cached.data;
   return C4_SUCCESS;
 }

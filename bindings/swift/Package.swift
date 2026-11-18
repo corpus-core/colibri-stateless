@@ -34,6 +34,9 @@ let package = Package(
                     // EEZ support (CHAIN_EEZ is ON by default; the generated dispatchers reference it)
                     "../../build_macos_arm/src/chains/eez/libeez_verifier.a",
                     "../../build_macos_arm/src/chains/eez/libeez_prover.a",
+                    // Arbitrum support (CHAIN_ARB is ON by default; the generated dispatchers reference it)
+                    "../../build_macos_arm/src/chains/arb/libarb_verifier.a",
+                    "../../build_macos_arm/src/chains/arb/libarb_prover.a",
                     "../../build_macos_arm/libs/zstd/zstd_build/lib/libzstd.a",
                     "../../build_macos_arm/libs/evmone/libevmone_wrapper.a",
                     "../../build_macos_arm/_deps/evmone_external-build/libevmone.a",

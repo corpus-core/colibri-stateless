@@ -41,6 +41,8 @@ jobs:
             -DCMAKE_BUILD_TYPE=MinSizeRel \
             -DCURL=OFF \
             -DCHAIN_OP=OFF \
+            -DCHAIN_EEZ=OFF \
+            -DCHAIN_ARB=OFF \
             -DEVMONE=OFF \
             -DETH_BLOCK=OFF \
             -DETH_TX=1 \

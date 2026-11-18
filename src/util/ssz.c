@@ -131,6 +131,26 @@ static bool add_error_prefix(c4_state_t* state, const char* prefix) {
 }
 
 /**
+ * Size of the fixed part of a container: every fixed-size field inline plus one
+ * offset per dynamic field.
+ *
+ * This differs from `ssz_fixed_length` for dynamic containers, which returns only
+ * `SSZ_OFFSET_SIZE` there (the footprint of the container inside its parent).
+ *
+ * @param def definition of a container or progressive container
+ * @return the number of bytes any valid serialization of the container must at least have
+ */
+static size_t container_fixed_part(const ssz_def_t* def) {
+  const ssz_def_t* elements = ssz_container_elements(def);
+  uint32_t         count    = ssz_container_len(def);
+  size_t           len      = 0;
+  for (uint32_t i = 0; i < count; i++) {
+    if (ssz_field_active(def, i)) len += ssz_fixed_length(elements + i);
+  }
+  return len;
+}
+
+/**
  * Recursive worker of `ssz_is_valid` which tracks the nesting level.
  *
  * @param ob the object to validate
@@ -230,7 +250,11 @@ static bool is_valid_at_depth(ssz_ob_t ob, bool recursive, c4_state_t* state, ui
       // resolve base container + active_fields for progressive containers)
     case SSZ_TYPE_CONTAINER: {
       // Container with mixed fixed/dynamic fields
-      if (ssz_is_dynamic(ob.def) ? (ob.bytes.len < ssz_fixed_length(ob.def)) : (ob.bytes.len != ssz_fixed_length(ob.def))) THROW_INVALID("Invalid length for container");
+      // The fixed part (inline fields + offsets) must be fully present before any field is
+      // read below. `ssz_fixed_length` cannot be used for the lower bound: it returns just
+      // SSZ_OFFSET_SIZE for a dynamic container, which let truncated input be read out of bounds.
+      size_t fixed_part = container_fixed_part(ob.def);
+      if (ssz_is_dynamic(ob.def) ? (ob.bytes.len < fixed_part) : (ob.bytes.len != fixed_part)) THROW_INVALID("Invalid length for container");
       if (recursive) {
         const ssz_def_t* elements    = ssz_container_elements(ob.def);
         uint32_t         count       = ssz_container_len(ob.def);
