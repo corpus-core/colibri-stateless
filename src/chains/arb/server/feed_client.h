@@ -6,6 +6,7 @@
 #ifndef arb_feed_client_h__
 #define arb_feed_client_h__
 
+#include "chains.h"
 #include "json.h"
 #include <stdbool.h>
 #include <stdint.h>
@@ -33,6 +34,21 @@ bool arb_feed_store_message(json_t message);
  * @return false when no signed block has been seen yet
  */
 bool arb_feed_copy_head(uint8_t block_hash[32], uint8_t signature[65], uint8_t** tail, uint32_t* tail_len, uint64_t* sequence);
+
+/**
+ * Returns the sender address of the current head's `signatureV2` for `chain_id`.
+ *
+ * Internally caches the recovered address for the lifetime of the current head:
+ * the first caller pays for the ecrecover, every following caller reads from
+ * the cache under the feed head mutex. The cache is invalidated as soon as a
+ * new signed message replaces the head.
+ *
+ * @param chain_id the Arbitrum chain id the signer should be recovered for
+ * @param out_signer 20-byte buffer that receives the recovered address
+ * @return `true` on success. `false` when no signed message has been seen yet
+ *         or the cached head signature cannot be recovered.
+ */
+bool arb_feed_get_head_signer(chain_id_t chain_id, uint8_t out_signer[20]);
 
 /**
  * Opens the sequencer feed configured in `arb_config.feed_url` and logs each

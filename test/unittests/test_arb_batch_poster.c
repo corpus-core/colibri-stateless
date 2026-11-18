@@ -34,6 +34,18 @@ static const uint8_t KNOWN_POSTER[20] = {
     0xC1, 0xb6, 0x34, 0x85, 0x3C, 0xb3, 0x33, 0xD3, 0xaD, 0x86,
     0x63, 0x71, 0x5b, 0x08, 0xf4, 0x1A, 0x3A, 0xec, 0x47, 0xcc};
 
+// Test-only signer lookup backing storage. In the server build the hook is
+// wired to the feed-client cache; in unit tests we drive it directly.
+static uint8_t test_signer[20]     = {0};
+static bool    test_signer_present = false;
+
+static bool test_signer_hook(chain_id_t chain_id, uint8_t out[20]) {
+  (void) chain_id;
+  if (!test_signer_present || !out) return false;
+  memcpy(out, test_signer, 20);
+  return true;
+}
+
 static void clear_poster(chain_id_t chain_id) {
   char             name[100] = {0};
   storage_plugin_t storage   = {0};
@@ -45,12 +57,18 @@ static void clear_poster(chain_id_t chain_id) {
 void setUp(void) {
   clear_poster(C4_CHAIN_ARB_ONE);
   clear_poster(C4_CHAIN_MAINNET);
+  memset(test_signer, 0, sizeof(test_signer));
+  test_signer_present = false;
+  arb_register_signer_lookup(test_signer_hook);
 }
 
 void tearDown(void) {
   clear_poster(C4_CHAIN_ARB_ONE);
   clear_poster(C4_CHAIN_MAINNET);
   c4_register_sync_data_prover(C4_CHAIN_TYPE_ARBITRUM, arb_batch_poster_sync);
+  arb_register_signer_lookup(NULL);
+  memset(test_signer, 0, sizeof(test_signer));
+  test_signer_present = false;
 }
 
 static const uint8_t INBOX[20] = {
@@ -156,7 +174,8 @@ static prover_ctx_t poster_ctx(chain_id_t chain) {
   prover_ctx_t ctx = {0};
   ctx.chain_id     = chain;
   ctx.flags        = C4_PROVER_FLAG_ARB_BATCH_POSTER;
-  memcpy(ctx.batch_poster, KNOWN_POSTER, 20);
+  memcpy(test_signer, KNOWN_POSTER, 20);
+  test_signer_present = true;
   return ctx;
 }
 
@@ -391,7 +410,7 @@ void test_flag_off_does_not_queue(void) {
   prover_ctx_t  ctx   = {0};
   ssz_builder_t built = {0};
   ctx.chain_id        = C4_CHAIN_ARB_ONE;
-  memcpy(ctx.batch_poster, KNOWN_POSTER, 20);
+  // No signer in cache, no flag -> prover must stay inert.
   TEST_ASSERT_EQUAL_INT(C4_SUCCESS, arb_batch_poster_prepare(&ctx));
   TEST_ASSERT_EQUAL_INT(C4_SUCCESS, arb_batch_poster_sync(&ctx, &built));
   TEST_ASSERT_NULL(ctx.state.requests);
@@ -404,30 +423,43 @@ void test_missing_poster_and_unknown_chain_fail_before_a_request(void) {
   ssz_builder_t built = {0};
   ctx.chain_id        = C4_CHAIN_ARB_ONE;
   ctx.flags           = C4_PROVER_FLAG_ARB_BATCH_POSTER;
+  // Lookup hook registered in setUp() but `test_signer_present` is false,
+  // so the prover must refuse before queuing anything.
   TEST_ASSERT_EQUAL_INT(C4_ERROR, arb_batch_poster_prepare(&ctx));
-  TEST_ASSERT_NOT_NULL(strstr(ctx.state.error, "batch poster address is missing"));
+  TEST_ASSERT_NOT_NULL(strstr(ctx.state.error, "no signed Arbitrum feed message"));
   TEST_ASSERT_NULL(ctx.state.requests);
   c4_state_free(&ctx.state);
   memset(&ctx.state, 0, sizeof(ctx.state));
   TEST_ASSERT_EQUAL_INT(C4_ERROR, arb_batch_poster_sync(&ctx, &built));
-  TEST_ASSERT_NOT_NULL(strstr(ctx.state.error, "batch poster address is missing"));
+  TEST_ASSERT_NOT_NULL(strstr(ctx.state.error, "no signed Arbitrum feed message"));
   c4_state_free(&ctx.state);
 
+  // Signer is known but chain has no sequencer inbox configured.
   ctx = poster_ctx(C4_CHAIN_MAINNET);
   TEST_ASSERT_EQUAL_INT(C4_ERROR, arb_batch_poster_prepare(&ctx));
   TEST_ASSERT_NOT_NULL(strstr(ctx.state.error, "no sequencer inbox for this chain"));
   TEST_ASSERT_NULL(ctx.state.requests);
   c4_state_free(&ctx.state);
+
+  // Explicitly drop the hook: the prover must then report that too.
+  arb_register_signer_lookup(NULL);
+  prover_ctx_t ctx2 = {0};
+  ctx2.chain_id     = C4_CHAIN_ARB_ONE;
+  ctx2.flags        = C4_PROVER_FLAG_ARB_BATCH_POSTER;
+  TEST_ASSERT_EQUAL_INT(C4_ERROR, arb_batch_poster_prepare(&ctx2));
+  TEST_ASSERT_NOT_NULL(strstr(ctx2.state.error, "no Arbitrum signer lookup registered"));
+  c4_state_free(&ctx2.state);
+  arb_register_signer_lookup(test_signer_hook);
 }
 
 void test_l1_request_targets_mainnet_and_omits_the_cached_poster(void) {
   c4_set_cached_batch_poster(C4_CHAIN_ARB_ONE, KNOWN_POSTER, current_unix_ms(), 9);
   uint8_t      state_bytes[2] = {0xab, 0xcd};
-  uint8_t      signer[20]     = {0};
+  uint8_t      witness[20]    = {0};
   prover_ctx_t ctx            = poster_ctx(C4_CHAIN_ARB_ONE);
-  signer[0]                   = 0x11;
+  witness[0]                  = 0x11;
   ctx.client_state            = bytes(state_bytes, 2);
-  ctx.witness_key             = bytes(signer, 20);
+  ctx.witness_key             = bytes(witness, 20);
   ctx.flags |= C4_PROVER_FLAG_ZK_PROOF;
   memset(ctx.last_block_hash, 0xee, 32);
 
@@ -453,7 +485,7 @@ void test_l1_request_targets_mainnet_and_omits_the_cached_poster(void) {
   c4_state_free(&ctx.state);
 
   ctx             = poster_ctx(C4_CHAIN_ARB_ONE);
-  ctx.witness_key = bytes(signer, 19);
+  ctx.witness_key = bytes(witness, 19);
   req             = queued_request(&ctx);
   TEST_ASSERT_NULL(strstr((char*) req->payload.data, "signers"));
   c4_state_free(&ctx.state);

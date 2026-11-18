@@ -106,6 +106,37 @@ c4_status_t arb_batch_poster_prepare(prover_ctx_t* ctx);
  */
 c4_status_t arb_batch_poster_sync(prover_ctx_t* ctx, ssz_builder_t* builder);
 
+/**
+ * Callback that resolves the current Arbitrum batch poster for `chain_id`.
+ *
+ * Returning `true` means `out_signer` holds the 20-byte address to prove on L1.
+ * The prover calls this at every invocation of `arb_batch_poster_prepare` and
+ * `arb_batch_poster_sync`; a fresh signer between the two phases is handled
+ * transparently because the L1 request id is derived from the resulting storage
+ * slot.
+ */
+typedef bool (*arb_signer_lookup_fn_t)(chain_id_t chain_id, uint8_t out_signer[20]);
+
+/**
+ * Registers the hook used by `arb_batch_poster_prepare` / `arb_batch_poster_sync`
+ * to look up the signer whose `isBatchPoster` slot must be proven.
+ *
+ * In the server build this is wired to the sequencer-feed cache
+ * (`arb_feed_get_head_signer`). Passing `NULL` unregisters the hook, which is
+ * what the core library sees when the feed is not linked in. Tests may provide
+ * their own stub.
+ *
+ * Thread model: the hook pointer must be installed before the first prover
+ * worker runs (typically in `arb_server_init`) and must only be cleared after
+ * all workers have drained (typically in `arb_server_shutdown`). The pointer
+ * is read without a lock from worker threads; on all supported targets an
+ * aligned pointer store is atomic, but concurrent install/clear while workers
+ * are active is not supported.
+ *
+ * @param fn new lookup hook, or `NULL` to clear
+ */
+void arb_register_signer_lookup(arb_signer_lookup_fn_t fn);
+
 #ifdef __cplusplus
 }
 #endif

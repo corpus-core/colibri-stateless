@@ -4,8 +4,10 @@
  */
 
 #include "feed_client.h"
+#include "../verifier/arb_verify.h" // arb_feed_recover_signer
 #include "arb_conf.h"
 #include "bytes.h"
+#include "chains.h"
 #include "json.h"
 #include "logger.h"
 #include "server.h"
@@ -79,15 +81,21 @@ static struct {
   uint8_t          head_sig[65];
   uint8_t*         head_tail;
   uint32_t         head_tail_len;
-  uint32_t         reconnect_ms;
-  char             error_buffer[CURL_ERROR_SIZE];
-  char             chain_id[32];
-  char             accept_b64[32];
-  char*            url;
-  bool             tls;
-  char             host[256];
-  char             path[256];
-  int              port;
+  // Cached recovered signer for the current head. Invalidated whenever the
+  // head is replaced (`head_update` / `head_clear`). The first consumer that
+  // needs the signer pays for the ecrecover; every subsequent consumer in the
+  // same head epoch reads from here under `head_lock`.
+  bool     head_signer_valid;
+  uint8_t  head_signer[20];
+  uint32_t reconnect_ms;
+  char     error_buffer[CURL_ERROR_SIZE];
+  char     chain_id[32];
+  char     accept_b64[32];
+  char*    url;
+  bool     tls;
+  char     host[256];
+  char     path[256];
+  int      port;
 } feed;
 
 static void start_connect(void);
@@ -496,9 +504,10 @@ static void head_clear(void) {
   if (!feed.head_lock_ready) return;
   uv_mutex_lock(&feed.head_lock);
   safe_free(feed.head_tail);
-  feed.head_tail     = NULL;
-  feed.head_tail_len = 0;
-  feed.head_valid    = false;
+  feed.head_tail         = NULL;
+  feed.head_tail_len     = 0;
+  feed.head_valid        = false;
+  feed.head_signer_valid = false;
   uv_mutex_unlock(&feed.head_lock);
 }
 
@@ -706,10 +715,11 @@ bool arb_feed_store_message(json_t message) {
   safe_free(feed.head_tail);
   memcpy(feed.head_hash, hash, 32);
   memcpy(feed.head_sig, sig.data.data, 65);
-  feed.head_tail     = owned;
-  feed.head_tail_len = owned_len;
-  feed.head_seq      = seq;
-  feed.head_valid    = true;
+  feed.head_tail         = owned;
+  feed.head_tail_len     = owned_len;
+  feed.head_seq          = seq;
+  feed.head_valid        = true;
+  feed.head_signer_valid = false; // new head -> any cached signer is stale
   uv_mutex_unlock(&feed.head_lock);
   buffer_free(&sig);
   return true;
@@ -731,6 +741,51 @@ bool arb_feed_copy_head(uint8_t block_hash[32], uint8_t signature[65], uint8_t**
   }
   uv_mutex_unlock(&feed.head_lock);
   return ok;
+}
+
+bool arb_feed_get_head_signer(chain_id_t chain_id, uint8_t out_signer[20]) {
+  if (!out_signer) return false;
+  if (!feed.head_lock_ready) return false;
+
+  // Fast path: cached signer for the current head.
+  uv_mutex_lock(&feed.head_lock);
+  if (feed.head_valid && feed.head_signer_valid) {
+    memcpy(out_signer, feed.head_signer, 20);
+    uv_mutex_unlock(&feed.head_lock);
+    return true;
+  }
+  // Snapshot everything we need for recovery, drop the lock before we hash.
+  if (!feed.head_valid || !feed.head_tail || feed.head_tail_len == 0) {
+    uv_mutex_unlock(&feed.head_lock);
+    return false;
+  }
+  uint64_t seq      = feed.head_seq;
+  uint32_t tail_len = feed.head_tail_len;
+  uint8_t  hash[32];
+  uint8_t  sig[65];
+  memcpy(hash, feed.head_hash, 32);
+  memcpy(sig, feed.head_sig, 65);
+  uint8_t* tail = safe_malloc(tail_len);
+  memcpy(tail, feed.head_tail, tail_len);
+  uv_mutex_unlock(&feed.head_lock);
+
+  uint8_t recovered[20];
+  bool    ok = arb_feed_recover_signer(chain_id, seq, hash, bytes(tail, tail_len), bytes(sig, 65), recovered);
+  safe_free(tail);
+  if (!ok) return false;
+
+  // Publish into the cache only if the head has not been replaced in the
+  // meantime. A racing `head_update` would have cleared `head_signer_valid`,
+  // so we gate the write on the sequence number as well.
+  uv_mutex_lock(&feed.head_lock);
+  if (feed.head_valid && feed.head_seq == seq) {
+    memcpy(feed.head_signer, recovered, 20);
+    feed.head_signer_valid = true;
+  }
+  uv_mutex_unlock(&feed.head_lock);
+
+  memcpy(out_signer, recovered, 20);
+  return true;
 }
 
 static void log_feed_message(void) {
@@ -1131,6 +1186,11 @@ void arb_feed_start(void) {
     log_info("Arbitrum feed already running");
     return;
   }
+  // Initialize the head mutex eagerly here, before any worker thread can ever
+  // reach `arb_feed_get_head_signer`. This removes the `head_lock_ready`
+  // cross-file invariant: we no longer rely on the first feed message creating
+  // the mutex on the main thread before a worker observes it.
+  ensure_head_lock();
   if (!ws_accept_selfcheck()) {
     log_error("Arbitrum feed websocket accept self-check failed");
     return;

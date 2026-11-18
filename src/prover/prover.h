@@ -160,7 +160,6 @@ typedef struct {
   bytes_t        client_state;     ///< Optional synced-period / checkpoint snapshot from the client
   bytes32_t      last_block_hash;  ///< Cached EL block hash; skips redundant block proofs when it matches the request
   bytes_t        witness_key;      ///< Witness signer key material for checkpoint signing
-  uint8_t        batch_poster[20]; ///< Feed batch poster to prove on L1 when `C4_PROVER_FLAG_ARB_BATCH_POSTER` is set
 #ifdef PROVER_CACHE
   cache_entry_t* cache; ///< Per-request cache list (server builds; promotes to global on free)
 #endif

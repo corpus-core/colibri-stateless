@@ -21,8 +21,8 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "arb_prover.h"
 #include "arb_batch_poster.h"
+#include "arb_prover.h"
 #include "beacon_types.h"
 #include "crypto.h"
 #include "ssz.h"
@@ -31,14 +31,47 @@
 
 #define ARB_L1_PROOF_TTL 12
 
-static c4_status_t load_l1_account(prover_ctx_t* ctx, ssz_ob_t* response) {
+// Registered by the host (server build points this at the sequencer-feed cache).
+// Stays NULL in builds without a feed, in which case
+// `C4_PROVER_FLAG_ARB_BATCH_POSTER` must not be set by anyone.
+//
+// Threading: see `arb_register_signer_lookup` in arb_prover.h. The pointer is
+// written at init/shutdown and read without a lock from worker threads. We do
+// not use `_Atomic` because the project does not yet depend on `stdatomic.h`
+// (compat with older MSVC toolchains); aligned pointer stores are atomic on
+// every supported target, and the hook is only ever flipped between a stable
+// function pointer and NULL at shutdown.
+static arb_signer_lookup_fn_t _signer_lookup = NULL;
+
+void arb_register_signer_lookup(arb_signer_lookup_fn_t fn) {
+  _signer_lookup = fn;
+}
+
+// Resolves the signer for this chain through the registered hook. Each call
+// re-queries, so if the feed advertises a new signer between prepare/sync the
+// prover produces a different storage slot and therefore a different L1
+// request id; the previously queued request stays in `ctx->state` unused until
+// the context is freed. That is intentional: it keeps the prover stateless
+// with respect to the feed.
+static c4_status_t resolve_signer(prover_ctx_t* ctx, uint8_t out[20]) {
+  // Snapshot the pointer so a racing `arb_register_signer_lookup(NULL)` cannot
+  // flip us from a successful null-check into a NULL call. Harmless on today's
+  // targets because stores are atomic, but cheap defence-in-depth.
+  arb_signer_lookup_fn_t fn = _signer_lookup;
+  if (!fn) THROW_ERROR("no Arbitrum signer lookup registered");
+  if (!fn(c4_chain_specific_id(ctx->chain_id), out))
+    THROW_ERROR("no signed Arbitrum feed message to prove the batch poster from");
+  return C4_SUCCESS;
+}
+
+static c4_status_t load_l1_account(prover_ctx_t* ctx, ssz_ob_t* response, uint8_t signer[20]) {
   if (!(ctx->flags & C4_PROVER_FLAG_ARB_BATCH_POSTER)) return C4_SUCCESS;
-  if (bytes_all_zero(bytes(ctx->batch_poster, 20))) THROW_ERROR("batch poster address is missing");
+  TRY_ASYNC(resolve_signer(ctx, signer));
 
   uint8_t inbox[20] = {0};
   uint8_t slot[32]  = {0};
   if (!arb_sequencer_inbox(ctx->chain_id, inbox)) THROW_ERROR("no sequencer inbox for this chain");
-  arb_batch_poster_storage_key(ctx->batch_poster, slot);
+  arb_batch_poster_storage_key(signer, slot);
 
   bytes32_t  id      = {0};
   buffer_t   payload = {0};
@@ -87,8 +120,9 @@ static c4_status_t load_l1_account(prover_ctx_t* ctx, ssz_ob_t* response) {
 }
 
 c4_status_t arb_batch_poster_prepare(prover_ctx_t* ctx) {
-  ssz_ob_t    ignored = {0};
-  c4_status_t status  = load_l1_account(ctx, &ignored);
+  ssz_ob_t    ignored    = {0};
+  uint8_t     signer[20] = {0};
+  c4_status_t status     = load_l1_account(ctx, &ignored, signer);
   // The block fetch continues while the L1 request is in flight.
   if (status == C4_PENDING) return C4_SUCCESS;
   return status;
@@ -97,8 +131,9 @@ c4_status_t arb_batch_poster_prepare(prover_ctx_t* ctx) {
 c4_status_t arb_batch_poster_sync(prover_ctx_t* ctx, ssz_builder_t* builder) {
   if (!(ctx->flags & C4_PROVER_FLAG_ARB_BATCH_POSTER)) return C4_SUCCESS;
 
-  ssz_ob_t    response = {0};
-  c4_status_t status   = load_l1_account(ctx, &response);
+  ssz_ob_t    response   = {0};
+  uint8_t     signer[20] = {0};
+  c4_status_t status     = load_l1_account(ctx, &response, signer);
   if (status != C4_SUCCESS) return status;
 
   ssz_ob_t account = ssz_get(&response, "proof");
@@ -115,7 +150,7 @@ c4_status_t arb_batch_poster_sync(prover_ctx_t* ctx, ssz_builder_t* builder) {
   if (!arb_sequencer_inbox(ctx->chain_id, inbox) || !proven.bytes.data || proven.bytes.len != 20 ||
       memcmp(proven.bytes.data, inbox, 20) != 0)
     THROW_ERROR("L1 account proof is not the sequencer inbox");
-  arb_batch_poster_storage_key(ctx->batch_poster, slot);
+  arb_batch_poster_storage_key(signer, slot);
   if (!stored.def || ssz_len(stored) != 1) THROW_ERROR("batch poster proof must contain one storage entry");
   ssz_ob_t entry = ssz_at(stored, 0);
   ssz_ob_t key   = ssz_get(&entry, "key");
@@ -127,7 +162,7 @@ c4_status_t arb_batch_poster_sync(prover_ctx_t* ctx, ssz_builder_t* builder) {
     THROW_ERROR("L1 prover returned a nested batch poster sync");
 
   ssz_builder_t sync = ssz_builder_for_type(ETH_SSZ_VERIFY_ARB_SIGNER_SYNC);
-  ssz_add_bytes(&sync, "signer", bytes(ctx->batch_poster, 20));
+  ssz_add_bytes(&sync, "signer", bytes(signer, 20));
   ssz_add_ob(&sync, "account", account);
   if (!l1_sync.def || l1_sync.def->type == SSZ_TYPE_NONE) {
     uint8_t none = 0;
