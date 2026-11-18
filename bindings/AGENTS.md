@@ -140,12 +140,12 @@ native archives from the matching GitHub Release.
 ### Binding Modules (auto-generated)
 
 - `dart/` -- 354 files
-- `docker/` -- 9 files
-- `emscripten/` -- 121 files
+- `docker/` -- 10 files
+- `emscripten/` -- 218 files
 - `kotlin/` -- 38 files
 - `node-addon/` -- 3 files
-- `python/` -- 28 files
-- `rust/` -- 1550 files
+- `python/` -- 29 files
+- `rust/` -- 3433 files
 - `swift/` -- 15 files
 
 <!-- AUTO:BINDINGS_INDEX:END -->

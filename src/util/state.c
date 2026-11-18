@@ -95,6 +95,7 @@ void c4_append_prover_request_props(buffer_t* payload, bytes_t client_state, cha
   if (last_block_hash.data && last_block_hash.len == 32)
     bprintf(payload, ",\"last_block_hash\":\"0x%x\"", last_block_hash);
 
+  // TODO: move this into the Arbitrum chain module and create a function to plugin per chain-type
   if (c4_chain_type(chain_id) == C4_CHAIN_TYPE_ARBITRUM) {
     uint8_t  address[20] = {0};
     uint64_t timestamp   = 0;

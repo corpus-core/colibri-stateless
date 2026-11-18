@@ -287,9 +287,7 @@ static c4_status_t verify_block_by_blockproof(verify_ctx_t* ctx, ssz_ob_t block,
   return C4_SUCCESS;
 }
 
-#ifndef C4_BLOCK_PROOF_HOOKS
-#define C4_BLOCK_PROOF_HOOKS 16
-#endif
+// C4_BLOCK_PROOF_HOOKS is defined centrally in `src/util/chains.h`.
 static c4_verify_block_extra_fn verify_block_hooks[C4_BLOCK_PROOF_HOOKS];
 
 void c4_register_block_proof_verify(chain_type_t chain_type, c4_verify_block_extra_fn fn) {

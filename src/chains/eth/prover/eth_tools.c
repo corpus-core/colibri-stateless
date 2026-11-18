@@ -69,9 +69,7 @@ uint8_t* c4_eth_tx_cachekey(bytes32_t target, bytes32_t blockhash) {
 }
 #endif
 
-#ifndef C4_BLOCK_PROOF_HOOKS
-#define C4_BLOCK_PROOF_HOOKS 16
-#endif
+// C4_BLOCK_PROOF_HOOKS is defined centrally in `src/util/chains.h`.
 
 typedef struct {
   c4_add_block_proof_extra_fn add;

@@ -232,6 +232,26 @@ function parseCmakeOptions(dir) {
             }
           }
         }
+        // `set(NAME "" CACHE STRING "description")` is used for string-valued
+        // configuration (e.g. EXTRA_CHAIN); treat it like an `option()` entry
+        // so it shows up in the generated option tables. The greedy match
+        // keeps descriptions that contain `)` intact.
+        else if (line.trim().startsWith('set(') && line.includes('CACHE')) {
+          const inner = line.trim().match(/set\((.+)\)\s*$/);
+          if (!inner) continue;
+          const tokens = parseCmakeTokens(inner[1]);
+          const cacheIdx = tokens.indexOf('CACHE');
+          if (cacheIdx < 1) continue;
+          const key = tokens[0];
+          if (seen.has(key)) continue;
+          seen.add(key);
+          options.push({
+            name: key,
+            description: tokens[cacheIdx + 2] || '',
+            default: cacheIdx > 1 ? tokens[1] : '',
+            file: relPath(d),
+          });
+        }
       }
     } else if (stat.isDirectory()) {
       for (const entry of fs.readdirSync(d)) {

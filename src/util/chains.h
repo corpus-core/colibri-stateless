@@ -200,6 +200,73 @@ chain_id_t c4_get_l1_chain_id_for_l2(chain_id_t chain);
  * @return network-specific id (e.g. `1` for mainnet, `8453` for Base)
  */
 uint64_t c4_chain_specific_id(chain_id_t chain_id);
+
+/** Maximum number of additional chain-id to chain-type (or L1) mappings. */
+#define C4_CHAIN_REGISTRY_MAX 32
+
+/**
+ * Number of slots in every `chain_type_t`-indexed hook table
+ * (`verify_block_hooks`, `prover_hooks`, `sync_hooks`, …).
+ *
+ * Centralised so `c4_register_chain_family()` and the hook tables in
+ * `beacon_header.c` / `eth_tools.c` cannot drift out of sync.
+ */
+#define C4_BLOCK_PROOF_HOOKS 16
+
+/**
+ * Registers an extra `chain_id -> chain_type` mapping consulted by
+ * `c4_chain_type()` when the built-in switch does not match.
+ *
+ * Idempotent: a second call with the same `chain_id` overwrites the type.
+ *
+ * Built-in chain ids are **hard-rejected**: any id that `chains.h` declares
+ * as a `C4_CHAIN_*` constant (`C4_CHAIN_MAINNET`, `C4_CHAIN_OP_*`,
+ * `C4_CHAIN_EEZ_*`, `C4_CHAIN_ARB_ONE`, `C4_CHAIN_POLYGON`, `C4_CHAIN_BSC`,
+ * every Bolt/Haifa/Telos/Moon/Fuse/Cronos/Avalanche variant, …) cannot be
+ * rerouted. This preserves the core-routing invariant even when a plugin
+ * tries to claim a built-in id. See `c4_reset_chain_registry` for tests.
+ *
+ * The runtime hook tables (see `beacon_header.c` and `eth_tools.c`) are
+ * indexed by `chain_type_t` with `C4_BLOCK_PROOF_HOOKS` slots, so values
+ * `>= C4_BLOCK_PROOF_HOOKS` are rejected as well.
+ *
+ * Intended for `EXTRA_CHAIN` plugins and for `add_chain_registration`
+ * dispatcher functions; a plugin that needs to claim a brand-new id
+ * (anything that is **not** already a `C4_CHAIN_*` constant) calls this
+ * once at startup.
+ *
+ * @param chain_id packed chain identifier (must be non-zero and not a built-in id)
+ * @param type chain family the module handles (must be `< C4_BLOCK_PROOF_HOOKS`)
+ * @return true if stored or updated, false on invalid input, a built-in id, or a full table
+ */
+bool c4_register_chain_family(chain_id_t chain_id, chain_type_t type);
+
+/**
+ * Registers an extra `L2 -> L1` mapping consulted by `c4_get_l1_chain_id_for_l2`
+ * when the built-in switch does not match.
+ *
+ * Idempotent: a second call with the same `l2` overwrites the L1.
+ *
+ * Built-in `l2` ids (every `C4_CHAIN_*` constant) are hard-rejected for the
+ * same reason as `c4_register_chain_family`: a plugin must not reroute the
+ * sync-committee lookup for Ethereum mainnet, Arbitrum One, or any other
+ * chain the core already knows about. `l2 == 0`, `l1 == 0` and `l2 == l1`
+ * are rejected as well to prevent self-referential or sentinel lookups.
+ *
+ * @param l2 L2 chain id whose proofs anchor on `l1` (must be non-zero and not a built-in id)
+ * @param l1 chain id that secures `l2` via consensus (must be non-zero and `!= l2`)
+ * @return true if stored or updated, false on invalid input, a built-in `l2`, or a full table
+ */
+bool c4_register_l1_for_l2(chain_id_t l2, chain_id_t l1);
+
+/**
+ * Clears every mapping stored by `c4_register_chain_family` and
+ * `c4_register_l1_for_l2`. Built-in mappings are not affected.
+ *
+ * Intended for unit tests; production code never calls this.
+ */
+void c4_reset_chain_registry(void);
+
 #ifdef __cplusplus
 }
 #endif
