@@ -39,7 +39,11 @@
 #define ARB_FEED_TAIL_MAX (32u * 1024u * 1024u)
 
 static const char ARB_FEED_PREFIX[] = "Arbitrum Nitro Feed:";
-_Static_assert(sizeof(ARB_FEED_PREFIX) == 21, "prefix is 20 bytes plus the terminator");
+// Compile-time guard: prefix is 20 bytes plus the terminator. `_Static_assert`
+// at file scope is rejected by MSVC's C frontend, so we use the portable
+// typedef-negative-size trick (same as `lcu_gloas.c`). A false condition
+// yields an "array with negative size" error on Clang / GCC / MSVC.
+typedef char arb_feed_prefix_size_check[(sizeof(ARB_FEED_PREFIX) == 21) ? 1 : -1];
 
 /**
  * Recovers the 20-byte signer of a secp256k1 signature over `digest`.

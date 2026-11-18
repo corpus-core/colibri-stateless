@@ -47,6 +47,9 @@ LIBRARIES=(
     # EEZ support (CHAIN_EEZ is ON by default; the generated dispatchers reference it)
     "src/chains/eez/libeez_verifier.a"
     "src/chains/eez/libeez_prover.a"
+    # Arbitrum support (CHAIN_ARB is ON by default; the generated dispatchers reference it)
+    "src/chains/arb/libarb_verifier.a"
+    "src/chains/arb/libarb_prover.a"
     # EVMOne dependencies (always included as EVMONE is enabled by default)
     "libs/intx/libintx_wrapper.a"
     "libs/evmone/libevmone_wrapper.a"
