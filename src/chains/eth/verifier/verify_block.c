@@ -105,6 +105,39 @@ static bool is_block_header_method(const char* method) {
   return strcmp(method, "eth_getBlockHeader") == 0 || strcmp(method, "eth_blockNumber") == 0 || strcmp(method, "eth_blobBaseFee") == 0 || strcmp(method, "eth_maxPriorityFeePerGas") == 0;
 }
 
+static int el_header_field_count(bytes_t header) {
+  bytes_t list = header;
+  if (rlp_decode(&list, 0, &list) != RLP_LIST) return 0;
+  return (int) rlp_decode(&list, -1, NULL);
+}
+
+// BlockNonce is an 8-byte string. A uint64 write swaps those bytes.
+static void add_block_nonce(ssz_builder_t* data, bytes_t el_header) {
+  uint8_t nonce[8] = {0};
+  bytes_t raw      = eth_el_header_get(el_header, EL_NONCE);
+  if (raw.data && raw.len) {
+    if (raw.len > 8) raw = bytes(raw.data + raw.len - 8, 8);
+    memcpy(nonce + 8 - raw.len, raw.data, raw.len);
+  }
+  ssz_add_bytes(data, "nonce", bytes(nonce, 8));
+}
+
+// Nitro stores sendCount in mixHash[0:8], the L1 block in mixHash[8:16],
+// and the send root in the 32-byte extraData. A short header has none of the
+// post-Shanghai fields, so those JSON keys stay off.
+static uint32_t arbitrum_block_mask(bytes_t el_header, uint32_t mask) {
+  int fields = el_header_field_count(el_header);
+  if (fields <= 16) mask &= ~(ETH_BLOCK_BIT_WITHDRAWALS_ROOT | ETH_BLOCK_BIT_WITHDRAWALS);
+  if (fields <= 17) mask &= ~ETH_BLOCK_BIT_BLOB_GAS_USED;
+  if (fields <= 18) mask &= ~ETH_BLOCK_BIT_EXCESS_BLOB_GAS;
+  if (fields <= 19) mask &= ~ETH_BLOCK_BIT_PARENT_BEACON_ROOT;
+  bytes_t mix   = eth_el_header_get(el_header, EL_PREV_RANDAO);
+  bytes_t extra = eth_el_header_get(el_header, EL_EXTRA_DATA);
+  if (mix.len >= 16) mask |= ETH_BLOCK_BIT_L1_BLOCK_NUMBER | ETH_BLOCK_BIT_SEND_COUNT;
+  if (extra.len == 32) mask |= ETH_BLOCK_BIT_SEND_ROOT;
+  return mask;
+}
+
 bool eth_set_block_data(verify_ctx_t* ctx, bytes_t el_header, bool include_txs, ssz_ob_t* body, uint32_t mask) {
   if (strcmp(ctx->method, "eth_blobBaseFee") == 0) {
     uint64_t      block_ts = eth_el_header_get_uint64(el_header, EL_TIMESTAMP);
@@ -155,6 +188,7 @@ bool eth_set_block_data(verify_ctx_t* ctx, bytes_t el_header, bool include_txs, 
     keccak(el_header, block_hash);
     bytes32_t     tx_root = {0};
     ssz_builder_t data    = ssz_builder_for_type(ETH_SSZ_DATA_BLOCK);
+    if (c4_chain_type(ctx->chain_id) == C4_CHAIN_TYPE_ARBITRUM) mask = arbitrum_block_mask(el_header, mask);
     ssz_add_uint32(&data, mask);
     ssz_add_uint64(&data, eth_el_header_get_uint64(el_header, EL_BLOCK_NUMBER));
     ssz_add_bytes(&data, "hash", bytes(block_hash, 32));
@@ -164,11 +198,14 @@ bool eth_set_block_data(verify_ctx_t* ctx, bytes_t el_header, bool include_txs, 
     ssz_add_bytes(&data, "extraData", eth_el_header_get(el_header, EL_EXTRA_DATA));
     ssz_add_bytes(&data, "withdrawalsRoot", eth_el_header_get(el_header, EL_WITHDRAWALS_ROOT));
     ssz_add_uint256(&data, eth_el_header_get(el_header, EL_BASE_FEE_PER_GAS));
-    ssz_add_uint64(&data, eth_el_header_get_uint64(el_header, EL_NONCE));
+    add_block_nonce(&data, el_header);
     ssz_add_bytes(&data, "miner", eth_el_header_get(el_header, EL_FEE_RECIPIENT));
     ssz_add_bytes(&data, "withdrawals", ssz_get(body, "withdrawals").bytes);
     ssz_add_uint64(&data, eth_el_header_get_uint64(el_header, EL_EXCESS_BLOB_GAS));
-    ssz_add_bytes(&data, "difficulty", NULL_BYTES);
+    if (c4_chain_type(ctx->chain_id) == C4_CHAIN_TYPE_ARBITRUM)
+      ssz_add_uint64(&data, eth_el_header_get_uint64(el_header, EL_DIFFICULTY));
+    else
+      ssz_add_bytes(&data, "difficulty", NULL_BYTES);
     ssz_add_uint64(&data, eth_el_header_get_uint64(el_header, EL_GAS_LIMIT));
     ssz_add_uint64(&data, eth_el_header_get_uint64(el_header, EL_GAS_USED));
     ssz_add_uint64(&data, eth_el_header_get_uint64(el_header, EL_TIMESTAMP));
@@ -182,6 +219,17 @@ bool eth_set_block_data(verify_ctx_t* ctx, bytes_t el_header, bool include_txs, 
     ssz_add_uint64(&data, eth_el_header_get_uint64(el_header, EL_BLOB_GAS_USED));
     ssz_add_bytes(&data, "requestsHash", eth_el_header_get(el_header, EL_REQUESTS_HASH));
     ssz_add_bytes(&data, "blockAccessListHash", eth_el_header_get(el_header, EL_BLOCK_ACCESS_LIST_HASH));
+    bytes_t  mix        = eth_el_header_get(el_header, EL_PREV_RANDAO);
+    bytes_t  extra      = eth_el_header_get(el_header, EL_EXTRA_DATA);
+    uint64_t send_count = 0;
+    uint64_t l1_number  = 0;
+    if (mix.len >= 16) {
+      send_count = bytes_as_be(bytes(mix.data, 8));
+      l1_number  = bytes_as_be(bytes(mix.data + 8, 8));
+    }
+    ssz_add_uint64(&data, l1_number);
+    ssz_add_uint64(&data, send_count);
+    ssz_add_bytes(&data, "sendRoot", extra.len == 32 ? extra : NULL_BYTES);
 
     ctx->data = ssz_builder_to_bytes(&data);
   }

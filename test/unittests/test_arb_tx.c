@@ -38,6 +38,7 @@ int main(void) {
 #include "beacon_types.h"
 #include "bytes.h"
 #include "eth_tx.h"
+#include "eth_verify.h"
 #include "rlp.h"
 #include "ssz.h"
 #include "state.h"
@@ -718,6 +719,188 @@ void test_arb_receipt_rejects_bad_to_and_nonce(void) {
   buffer_free(&nonce_receipt);
 }
 
+static void add_hash(buffer_t* buf, uint8_t fill) {
+  uint8_t tmp[32];
+  memset(tmp, fill, sizeof(tmp));
+  rlp_add_item(buf, bytes(tmp, 32));
+}
+
+// 16-field Nitro header (through baseFee). Extra fields append the Shanghai and Cancun tail.
+// mix, extra, and nonce are copied into the RLP list, so the caller buffers need only live for the call.
+static bytes_t nitro_block_header_parts(int fields, bytes_t extra, bytes_t mix, bytes_t nonce) {
+  buffer_t buf        = {0};
+  uint8_t  miner[20]  = {0};
+  uint8_t  bloom[256] = {0};
+  miner[19]           = 0xab;
+  add_hash(&buf, 0x11);
+  add_hash(&buf, 0x22);
+  rlp_add_item(&buf, bytes(miner, 20));
+  add_hash(&buf, 0x33);
+  add_hash(&buf, 0x44);
+  add_hash(&buf, 0x55);
+  rlp_add_item(&buf, bytes(bloom, 256));
+  rlp_add_uint64(&buf, 1);
+  rlp_add_uint64(&buf, 0x1f5406e3);
+  rlp_add_uint64(&buf, 0x4000000000000ULL);
+  rlp_add_uint64(&buf, 0x1ec25);
+  rlp_add_uint64(&buf, 0x6afedb51);
+  rlp_add_item(&buf, extra);
+  rlp_add_item(&buf, mix);
+  rlp_add_item(&buf, nonce);
+  rlp_add_uint64(&buf, 0x1319290);
+  if (fields > 16) add_hash(&buf, 0x66);
+  if (fields > 17) rlp_add_uint64(&buf, 0);
+  if (fields > 18) rlp_add_uint64(&buf, 0);
+  if (fields > 19) add_hash(&buf, 0x77);
+  rlp_to_list(&buf);
+  return buf.data;
+}
+
+static bytes_t nitro_block_header(int fields) {
+  uint8_t extra[32];
+  uint8_t mix[32] = {
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x90, 0x2b,
+      0x00, 0x00, 0x00, 0x00, 0x01, 0x93, 0x93, 0x8f,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x3d,
+      0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+  uint8_t nonce[8] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x28, 0x06, 0xa2};
+  memset(extra, 0x50, sizeof(extra));
+  extra[1] = 0x7c;
+  return nitro_block_header_parts(fields, bytes(extra, 32), bytes(mix, 32), bytes(nonce, 8));
+}
+
+static char* block_json(chain_id_t chain, bytes_t header) {
+  ssz_builder_t body_b = ssz_builder_for_type(ETH_SSZ_EL_BLOCK_CONTENT);
+  ssz_add_bytes(&body_b, "transactions", NULL_BYTES);
+  ssz_add_bytes(&body_b, "withdrawals", NULL_BYTES);
+  ssz_ob_t     body = ssz_builder_to_bytes(&body_b);
+  verify_ctx_t ctx  = {0};
+  ctx.method        = "eth_getBlockByNumber";
+  ctx.chain_id      = chain;
+  bool ok           = eth_set_block_data(&ctx, header, false, &body, ETH_BLOCK_DATA_MASK_ALL_WITHOUT_REQUESTS);
+  TEST_ASSERT_TRUE_MESSAGE(ok, ctx.state.error ? ctx.state.error : "eth_set_block_data failed");
+  char* json = ssz_dump_to_str(ctx.data, false, true);
+  safe_free(ctx.data.bytes.data);
+  safe_free(body.bytes.data);
+  c4_state_free(&ctx.state);
+  return json;
+}
+
+void test_arb_block_json_matches_nitro_header(void) {
+  bytes_t header = nitro_block_header(16);
+  char*   json   = block_json(C4_CHAIN_ARB_ONE, header);
+  TEST_ASSERT_NOT_NULL(strstr(json, "\"nonce\":\"0x00000000002806a2\""));
+  TEST_ASSERT_NOT_NULL(strstr(json, "\"difficulty\":\"0x1\""));
+  TEST_ASSERT_NOT_NULL(strstr(json, "\"l1BlockNumber\":\"0x193938f\""));
+  TEST_ASSERT_NOT_NULL(strstr(json, "\"sendCount\":\"0x2902b\""));
+  TEST_ASSERT_NOT_NULL(strstr(json, "\"sendRoot\":\"0x507c505050505050505050505050505050505050505050505050505050505050\""));
+  TEST_ASSERT_NOT_NULL(strstr(json, "\"extraData\":\"0x507c505050505050505050505050505050505050505050505050505050505050\""));
+  assert_key(json, "withdrawalsRoot", false);
+  assert_key(json, "withdrawals", false);
+  assert_key(json, "excessBlobGas", false);
+  assert_key(json, "parentBeaconBlockRoot", false);
+  assert_key(json, "blobGasUsed", false);
+  safe_free(json);
+  safe_free(header.data);
+}
+
+void test_mainnet_block_json_hides_arb_fields(void) {
+  bytes_t header = nitro_block_header(16);
+  char*   json   = block_json(C4_CHAIN_MAINNET, header);
+  TEST_ASSERT_NOT_NULL(strstr(json, "\"nonce\":\"0x00000000002806a2\""));
+  TEST_ASSERT_NOT_NULL(strstr(json, "\"difficulty\":\"0x0\""));
+  assert_key(json, "l1BlockNumber", false);
+  assert_key(json, "sendCount", false);
+  assert_key(json, "sendRoot", false);
+  assert_key(json, "withdrawalsRoot", true);
+  safe_free(json);
+  safe_free(header.data);
+}
+
+void test_arb_block_json_keeps_post_shanghai_fields(void) {
+  bytes_t header = nitro_block_header(20);
+  char*   json   = block_json(C4_CHAIN_ARB_ONE, header);
+  assert_key(json, "withdrawalsRoot", true);
+  assert_key(json, "withdrawals", true);
+  assert_key(json, "blobGasUsed", true);
+  assert_key(json, "excessBlobGas", true);
+  assert_key(json, "parentBeaconBlockRoot", true);
+  assert_key(json, "l1BlockNumber", true);
+  assert_key(json, "sendCount", true);
+  assert_key(json, "sendRoot", true);
+  safe_free(json);
+  safe_free(header.data);
+}
+
+// mixHash below 16 bytes and extraData other than 32 bytes must not invent Arbitrum keys.
+// A nonce shorter than 8 bytes is left-padded, on Arbitrum and on mainnet.
+void test_arb_block_json_hides_short_header_fields(void) {
+  uint8_t mix[15] = {
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x90, 0x2b,
+      0x00, 0x00, 0x00, 0x00, 0x01, 0x93, 0x93};
+  uint8_t extra[31];
+  uint8_t nonce[2] = {0x06, 0xa2};
+  memset(extra, 0xab, sizeof(extra));
+  bytes_t header = nitro_block_header_parts(16, bytes(extra, 31), bytes(mix, 15), bytes(nonce, 2));
+  char*   json   = block_json(C4_CHAIN_ARB_ONE, header);
+  TEST_ASSERT_NOT_NULL(strstr(json, "\"nonce\":\"0x00000000000006a2\""));
+  TEST_ASSERT_NOT_NULL(strstr(json, "\"difficulty\":\"0x1\""));
+  TEST_ASSERT_NOT_NULL(strstr(json, "\"extraData\":\"0xababababababababababababababababababababababababababababababab\""));
+  assert_key(json, "l1BlockNumber", false);
+  assert_key(json, "sendCount", false);
+  assert_key(json, "sendRoot", false);
+  safe_free(json);
+
+  json = block_json(C4_CHAIN_MAINNET, header);
+  TEST_ASSERT_NOT_NULL(strstr(json, "\"nonce\":\"0x00000000000006a2\""));
+  TEST_ASSERT_NOT_NULL(strstr(json, "\"difficulty\":\"0x0\""));
+  TEST_ASSERT_NOT_NULL(strstr(json, "\"extraData\":\"0xababababababababababababababababababababababababababababababab\""));
+  assert_key(json, "l1BlockNumber", false);
+  assert_key(json, "sendCount", false);
+  assert_key(json, "sendRoot", false);
+  assert_key(json, "withdrawalsRoot", true);
+  safe_free(json);
+  safe_free(header.data);
+}
+
+// 16-byte mixHash is enough for l1BlockNumber and sendCount. extraData of 33 bytes is not a sendRoot.
+// A nonce longer than 8 bytes keeps the last 8 bytes.
+void test_arb_block_json_arb_length_boundaries(void) {
+  uint8_t mix[16] = {
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x90, 0x2b,
+      0x00, 0x00, 0x00, 0x00, 0x01, 0x93, 0x93, 0x8f};
+  uint8_t extra[33];
+  uint8_t nonce[9] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x28, 0x06, 0xa2, 0xff};
+  memset(extra, 0xcd, sizeof(extra));
+  bytes_t header = nitro_block_header_parts(16, bytes(extra, 33), bytes(mix, 16), bytes(nonce, 9));
+  char*   json   = block_json(C4_CHAIN_ARB_ONE, header);
+  TEST_ASSERT_NOT_NULL(strstr(json, "\"nonce\":\"0x000000002806a2ff\""));
+  TEST_ASSERT_NOT_NULL(strstr(json, "\"l1BlockNumber\":\"0x193938f\""));
+  TEST_ASSERT_NOT_NULL(strstr(json, "\"sendCount\":\"0x2902b\""));
+  TEST_ASSERT_NOT_NULL(strstr(json, "\"extraData\":\"0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd\""));
+  assert_key(json, "sendRoot", false);
+  safe_free(json);
+  safe_free(header.data);
+}
+
+void test_arb_block_json_shanghai_boundaries(void) {
+  int fields[] = {17, 18, 19};
+  for (int i = 0; i < 3; i++) {
+    bytes_t header = nitro_block_header(fields[i]);
+    char*   json   = block_json(C4_CHAIN_ARB_ONE, header);
+    assert_key(json, "withdrawalsRoot", true);
+    assert_key(json, "withdrawals", true);
+    assert_key(json, "blobGasUsed", fields[i] > 17);
+    assert_key(json, "excessBlobGas", fields[i] > 18);
+    assert_key(json, "parentBeaconBlockRoot", false);
+    assert_key(json, "l1BlockNumber", true);
+    assert_key(json, "sendCount", true);
+    assert_key(json, "sendRoot", true);
+    safe_free(json);
+    safe_free(header.data);
+  }
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_type2_mask_leaves_arb_bits_clear);
@@ -733,6 +916,12 @@ int main(void) {
   RUN_TEST(test_arb_header_l1_block_number);
   RUN_TEST(test_arb_unsigned_receipt_contract_address);
   RUN_TEST(test_arb_receipt_rejects_bad_to_and_nonce);
+  RUN_TEST(test_arb_block_json_matches_nitro_header);
+  RUN_TEST(test_mainnet_block_json_hides_arb_fields);
+  RUN_TEST(test_arb_block_json_keeps_post_shanghai_fields);
+  RUN_TEST(test_arb_block_json_hides_short_header_fields);
+  RUN_TEST(test_arb_block_json_arb_length_boundaries);
+  RUN_TEST(test_arb_block_json_shanghai_boundaries);
   return UNITY_END();
 }
 
