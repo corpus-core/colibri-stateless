@@ -97,6 +97,11 @@ bool verify_block_receipts_proof(verify_ctx_t* ctx) {
 
     if (!c4_write_receipt_data_from_raw(ctx, &item_builder, raw_tx, raw_receipt, block_hash, blk_num, i,
                                         base_fee, excess_blob_gas, block_ts,
+#ifdef CHAIN_ARB
+                                        c4_arb_header_l1_block_number(el_header),
+#else
+                                        0,
+#endif
                                         &prev_cumulative, &next_log_index)) {
       ssz_builder_free(&data_builder);
       ssz_builder_free(&item_builder);

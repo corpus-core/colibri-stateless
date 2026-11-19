@@ -100,9 +100,12 @@ static const ssz_def_t ETH_AUTHORIZATION_LIST_DATA[] = {
 static const ssz_def_t ETH_AUTHORIZATION_LIST_DATA_CONTAINER = SSZ_CONTAINER("AuthorizationListData", ETH_AUTHORIZATION_LIST_DATA);
 
 // The transaction data as result of an eth_getTransactionByHash rpc-call.
-// Supports all transaction types including Optimism Deposited Transactions (0x7E).
+// Supports Ethereum types 0-4, Optimism deposited transactions (0x7E) and the
+// Arbitrum Nitro types 0x64, 0x65, 0x66, 0x68, 0x69 and 0x6A. The extra Nitro
+// fields are flat RPC names. Their mask bits stay clear for every non-Arbitrum type,
+// so those JSON objects do not grow a new key.
 static const ssz_def_t ETH_TX_DATA[] = {
-    SSZ_OPT_MASK("_optmask", 4),                                               // the bitmask defining the fields to be included
+    SSZ_OPT_MASK("_optmask", 8),                                               // bitmask of included fields (8 bytes, bits 0-63)
     SSZ_BYTES32("blockHash"),                                                  // the blockHash of the execution block containing the transaction
     SSZ_UINT64("blockNumber"),                                                 // the number of the execution block containing the transaction
     SSZ_BYTES32("hash"),                                                       // the hash of the transaction
@@ -130,7 +133,19 @@ static const ssz_def_t ETH_TX_DATA[] = {
     SSZ_BOOLEAN("isSystemTx"),                                                 // system transaction flag as bytes (OP Stack only) - rendered as uint
     SSZ_UINT8("depositReceiptVersion"),                                        // deposit receipt version (OP Stack only) - rendered as uint
     SSZ_UINT256("maxFeePerBlobGas"),                                           // the maximum fee per blob gas the sender is willing to pay (EIP-4844, type-3 only)
-    SSZ_UINT64("blockTimestamp")                                               // the timestamp of the block containing the transaction (post-Cancun)
+    SSZ_UINT64("blockTimestamp"),                                              // the timestamp of the block containing the transaction (post-Cancun)
+    SSZ_BYTES32("requestId"),                                                  // Arbitrum deposit, contract and submit-retryable
+    SSZ_BYTES32("ticketId"),                                                   // Arbitrum retry
+    SSZ_UINT256("maxRefund"),                                                  // Arbitrum retry, wei refund cap
+    SSZ_UINT256("submissionFeeRefund"),                                        // Arbitrum retry
+    SSZ_ADDRESS("refundTo"),                                                   // Arbitrum retry, and submit-retryable fee refund address
+    SSZ_UINT256("l1BaseFee"),                                                  // Arbitrum submit-retryable
+    SSZ_UINT256("depositValue"),                                               // Arbitrum submit-retryable
+    SSZ_NULLABLE_BYTES("retryTo", 20),                                         // Arbitrum submit-retryable; omitted when the RLP address is nil
+    SSZ_UINT256("retryValue"),                                                 // Arbitrum submit-retryable
+    SSZ_BYTES("retryData", 1073741824),                                        // Arbitrum submit-retryable calldata (empty renders as "0x")
+    SSZ_ADDRESS("beneficiary"),                                                // Arbitrum submit-retryable
+    SSZ_UINT256("maxSubmissionFee")                                            // Arbitrum submit-retryable
 };
 
 // ::: Logs Proof
@@ -173,6 +188,7 @@ static const ssz_def_t ETH_RECEIPT_DATA[] = {
     SSZ_NULLABLE_BYTES("contractAddress", 20),             // address of the created contract (contract-creation only)
     SSZ_UINT64("blobGasUsed"),                             // blob gas used by the transaction (EIP-4844, type-3 only)
     SSZ_UINT64("blobGasPrice"),                            // blob gas price paid by the transaction (EIP-4844, type-3 only)
+    SSZ_UINT64("l1BlockNumber"),                           // Arbitrum Nitro: L1 block number from mixHash/prevRandao bytes 8..16
 };
 
 static const ssz_def_t ETH_RECEIPT_DATA_CONTAINER = SSZ_CONTAINER("EthTransactionReceipt", ETH_RECEIPT_DATA);
