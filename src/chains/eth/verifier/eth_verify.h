@@ -44,8 +44,19 @@ bool verify_pap_tx(verify_ctx_t* ctx);
 #endif
 
 // helper
-#define ETH_BLOCK_DATA_MASK_ALL                  0xFFFFFFFF
-#define ETH_BLOCK_DATA_MASK_ALL_WITHOUT_REQUESTS ((ETH_BLOCK_DATA_MASK_ALL & ~(1 << 25)) & ~(1 << 26))
+// Bits 27-29 are Arbitrum header fields. They stay clear until the chain type
+// is Arbitrum, so Ethereum JSON keeps its previous keys.
+#define ETH_BLOCK_BIT_WITHDRAWALS_ROOT      (1u << 7)
+#define ETH_BLOCK_BIT_WITHDRAWALS           (1u << 11)
+#define ETH_BLOCK_BIT_EXCESS_BLOB_GAS       (1u << 12)
+#define ETH_BLOCK_BIT_PARENT_BEACON_ROOT    (1u << 20)
+#define ETH_BLOCK_BIT_BLOB_GAS_USED         (1u << 24)
+#define ETH_BLOCK_BIT_L1_BLOCK_NUMBER       (1u << 27)
+#define ETH_BLOCK_BIT_SEND_COUNT            (1u << 28)
+#define ETH_BLOCK_BIT_SEND_ROOT             (1u << 29)
+#define ETH_BLOCK_ARB_HEADER_BITS           (ETH_BLOCK_BIT_L1_BLOCK_NUMBER | ETH_BLOCK_BIT_SEND_COUNT | ETH_BLOCK_BIT_SEND_ROOT)
+#define ETH_BLOCK_DATA_MASK_ALL             (0xFFFFFFFFu & ~ETH_BLOCK_ARB_HEADER_BITS)
+#define ETH_BLOCK_DATA_MASK_ALL_WITHOUT_REQUESTS ((ETH_BLOCK_DATA_MASK_ALL & ~(1u << 25)) & ~(1u << 26))
 
 c4_status_t c4_verify_blockroot_signature(verify_ctx_t* ctx, ssz_ob_t* header, ssz_ob_t* sync_committee_bits, ssz_ob_t* sync_committee_signature, uint64_t slot, bytes32_t pubkey_hash);
 // Authenticates `header` via `clHeaderProof` of an `ETH_CL_HEADER_PROOF` (`block_proof`).
@@ -126,6 +137,25 @@ method_type_t c4_eth_classify_method(char* method, json_t params, verify_flags_t
  * @return `true` when this module handled the request (success, error, or pending is in `ctx`)
  */
 bool c4_eth_verify_request(verify_ctx_t* ctx);
+
+/**
+ * Builds the JSON-facing block object from a verified RLP execution header.
+ *
+ * `eth_getBlockByNumber` and `eth_getBlockByHash` use `body` for the transaction
+ * and withdrawal lists. Header-only methods ignore `body`. On Arbitrum the nonce
+ * is the raw 8 header bytes, difficulty comes from the header, and
+ * `l1BlockNumber`, `sendCount`, and `sendRoot` are read from `mixHash` and
+ * `extraData`. Post-Shanghai keys stay hidden when that header does not contain
+ * the matching field. On every other chain those three keys stay off and
+ * difficulty stays `0x0`.
+ *
+ * @param ctx verification context; `method` and `chain_id` select the object
+ * @param el_header verified RLP execution header
+ * @param include_txs true writes full transactions, false writes hashes
+ * @param body proven block body, required for the full-block methods
+ * @param mask optional-field bits of `ETH_BLOCK_DATA`
+ * @return true when `ctx->data` holds the object
+ */
 bool eth_set_block_data(verify_ctx_t* ctx, bytes_t el_header, bool include_txs, ssz_ob_t* body, uint32_t mask);
 bool eth_calculate_domain(chain_id_t chain_id, uint64_t slot, bytes32_t domain);
 bool c4_eth_verify_accounts(verify_ctx_t* ctx, ssz_ob_t accounts, bytes32_t state_root);

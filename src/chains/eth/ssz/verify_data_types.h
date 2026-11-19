@@ -232,7 +232,10 @@ static const ssz_def_t ETH_BLOCK_DATA[] = {
     SSZ_BYTES32("stateRoot"),                                    // the stateRoot
     SSZ_UINT64("blobGasUsed"),                                   // the gas used for the blob transactions
     SSZ_BYTES32("requestsHash"),                                 // the requestHash ( eip-7685 )
-    SSZ_BYTES32("blockAccessListHash")                           // the blockAccessListHash ( EIP-7928 )
+    SSZ_BYTES32("blockAccessListHash"),                          // the blockAccessListHash ( EIP-7928 )
+    SSZ_UINT64("l1BlockNumber"),                                 // Arbitrum: L1 block number from mixHash bytes 8..16
+    SSZ_UINT64("sendCount"),                                     // Arbitrum: send count from mixHash bytes 0..8
+    SSZ_BYTES32("sendRoot")                                      // Arbitrum: send root, the 32-byte extraData
 
 };
 
