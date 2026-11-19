@@ -104,6 +104,10 @@ if(CHAIN_ETH)
   add_definitions(-DCHAIN_ETH)
 endif()
 
+if(CHAIN_ARB)
+  add_definitions(-DCHAIN_ARB)
+endif()
+
 if(USE_MCL)
   add_definitions(-DUSE_MCL)
 endif()

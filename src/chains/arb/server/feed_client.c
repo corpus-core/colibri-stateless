@@ -30,7 +30,7 @@
 
 #define FEED_MAX_MESSAGE      (8u * 1024u * 1024u)
 #define FEED_MAX_OUT          (64u * 1024u)
-#define FEED_MAX_LOGGED       32u
+#define FEED_LOG_INTERVAL_NS  (10ull * 1000ull * 1000ull * 1000ull)
 #define FEED_READ_CHUNK       (16u * 1024u)
 #define FEED_READS_PER_TICK   32
 #define FEED_INACTIVITY_MS    30000u
@@ -73,6 +73,9 @@ static struct {
   uint32_t         out_off;
   buffer_t         message;
   uint64_t         last_seq;
+  uint64_t         log_window_ns;
+  uint32_t         log_count;
+  char             log_hash[80];
   uv_mutex_t       head_lock;
   bool             head_lock_ready;
   bool             head_valid;
@@ -788,6 +791,33 @@ bool arb_feed_get_head_signer(chain_id_t chain_id, uint8_t out_signer[20]) {
   return true;
 }
 
+/**
+ * Counts one sequencer message toward a 10-second summary.
+ *
+ * The window starts at the first message and rolls every 10 seconds of monotonic
+ * time. The summary line carries the message count and the latest block hash
+ * seen in that window. A missing or non-string hash keeps the previous one.
+ *
+ * @param block_hash `blockHash` of this message
+ */
+static void note_logged_feed_message(json_t block_hash) {
+  uint64_t now = uv_hrtime();
+  if (feed.log_window_ns == 0) feed.log_window_ns = now;
+  feed.log_count++;
+  if (block_hash.type == JSON_TYPE_STRING && block_hash.len >= 2) {
+    size_t n = block_hash.len - 2;
+    if (n >= sizeof(feed.log_hash)) n = sizeof(feed.log_hash) - 1;
+    memcpy(feed.log_hash, block_hash.start + 1, n);
+    feed.log_hash[n] = 0;
+  }
+  if (now - feed.log_window_ns < FEED_LOG_INTERVAL_NS) return;
+  log_info("Arbitrum feed %d messages, last blockHash=%s seq=%l",
+           feed.log_count, feed.log_hash[0] ? feed.log_hash : "-", feed.last_seq);
+  feed.log_count     = 0;
+  feed.log_hash[0]   = 0;
+  feed.log_window_ns = now;
+}
+
 static void log_feed_message(void) {
   size_t len = feed.message.data.len;
   if (buffer_grow(&feed.message, len + 1) < len + 1) {
@@ -804,19 +834,14 @@ static void log_feed_message(void) {
 
   json_t messages = json_get(root, "messages");
   if (messages.type == JSON_TYPE_ARRAY) {
-    uint32_t seen = 0;
     json_for_each_value(messages, msg) {
       if (msg.type != JSON_TYPE_OBJECT) continue;
       json_t   seq_json = json_get(msg, "sequenceNumber");
       uint64_t seq      = 0;
       if (parse_u64(seq_json, &seq)) feed.last_seq = seq;
-      if (seen < FEED_MAX_LOGGED)
-        log_info("Arbitrum feed seq=%j blockHash=%j", seq_json, json_get(msg, "blockHash"));
-      seen++;
+      note_logged_feed_message(json_get(msg, "blockHash"));
       arb_feed_store_message(msg);
     }
-    if (seen > FEED_MAX_LOGGED)
-      log_info("Arbitrum feed log truncated after %d messages", FEED_MAX_LOGGED);
   }
 
   json_t confirmed = json_get(root, "confirmedSequenceNumberMessage");
