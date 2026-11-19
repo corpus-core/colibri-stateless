@@ -268,6 +268,11 @@ static bool pap_tx_receipt(verify_ctx_t* ctx) {
     bytes_t raw_receipt = ssz_at(receipts, i).bytes;
     if (!c4_write_receipt_data_from_raw(ctx, &builder, raw_tx, raw_receipt, el_block_hash, blk_num, i,
                                         base_fee, excess_blob_gas, block_ts,
+#ifdef CHAIN_ARB
+                                        c4_arb_header_l1_block_number(el_header),
+#else
+                                        0,
+#endif
                                         &prev_cumulative, &next_log_index))
       RETURN_VERIFY_ERROR(ctx, "invalid receipt data from RLP!");
   }
