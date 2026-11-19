@@ -61,6 +61,11 @@ bool verify_receipt_proof(verify_ctx_t* ctx) {
   if (!c4_tx_verify_receipt_data(ctx, ctx->data,
                                  block_hash, eth_el_header_get_uint64(el_header, EL_BLOCK_NUMBER),
                                  tx_index, raw_tx, raw_receipt)) RETURN_VERIFY_ERROR(ctx, "invalid tx data!");
+#ifdef CHAIN_ARB
+  // The prover's receipt omits l1BlockNumber. The verified header carries it.
+  if (c4_chain_type(ctx->chain_id) == C4_CHAIN_TYPE_ARBITRUM && !c4_arb_receipt_apply_l1_block_number(ctx, el_header))
+    RETURN_VERIFY_ERROR(ctx, "invalid arbitrum l1 block number");
+#endif
 
   ctx->success = true;
   return true;

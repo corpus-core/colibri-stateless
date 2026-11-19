@@ -56,8 +56,8 @@ extern "C" {
 #define TX_MINT                     16777216
 #define TX_IS_SYSTEM_TX             33554432
 #define TX_DEPOSIT_RECEIPT_VERSION  67108864
-#define TX_MAX_FEE_PER_BLOB_GAS     134217728  // bit 27 — set only for type-3 (blob) transactions
-#define TX_BLOCK_TIMESTAMP          268435456  // bit 28 — timestamp of the containing block
+#define TX_MAX_FEE_PER_BLOB_GAS     134217728 // bit 27 — set only for type-3 (blob) transactions
+#define TX_BLOCK_TIMESTAMP          268435456 // bit 28 — timestamp of the containing block
 // Bits 29-40 are Arbitrum Nitro RPC fields. They stay clear for types 0-4 and 0x7E.
 // Bit N is field index N of ETH_TX_DATA. The mask is 8 bytes, so these use 1ull.
 #define TX_REQUEST_ID            (1ull << 29) // deposit, contract, submit-retryable
@@ -75,25 +75,25 @@ extern "C" {
 
 // Receipt opt-mask bits (ETH_RECEIPT_DATA container). Bit N corresponds to the
 // Nth SSZ field after `_optmask`; keep in sync with `verify_data_types.h`.
-#define RCPT_BLOCK_HASH               (1u << 1)
-#define RCPT_BLOCK_NUMBER             (1u << 2)
-#define RCPT_TRANSACTION_HASH         (1u << 3)
-#define RCPT_TRANSACTION_INDEX        (1u << 4)
-#define RCPT_TYPE                     (1u << 5)
-#define RCPT_FROM                     (1u << 6)
-#define RCPT_TO                       (1u << 7)
-#define RCPT_CUMULATIVE_GAS_USED      (1u << 8)
-#define RCPT_GAS_USED                 (1u << 9)
-#define RCPT_LOGS                     (1u << 10)
-#define RCPT_LOGS_BLOOM               (1u << 11)
-#define RCPT_STATUS                   (1u << 12)
-#define RCPT_EFFECTIVE_GAS_PRICE      (1u << 13)
-#define RCPT_DEPOSIT_NONCE            (1u << 14)  // OP-Stack deposited tx only
-#define RCPT_DEPOSIT_RECEIPT_VERSION  (1u << 15)  // OP-Stack deposited tx only
-#define RCPT_CONTRACT_ADDRESS         (1u << 16)  // contract-creation only
-#define RCPT_BLOB_GAS_USED            (1u << 17)  // EIP-4844 / type-3 only
-#define RCPT_BLOB_GAS_PRICE           (1u << 18)  // EIP-4844 / type-3 only
-#define RCPT_L1_BLOCK_NUMBER          (1u << 19)  // Arbitrum Nitro: L1 block number from the header
+#define RCPT_BLOCK_HASH              (1u << 1)
+#define RCPT_BLOCK_NUMBER            (1u << 2)
+#define RCPT_TRANSACTION_HASH        (1u << 3)
+#define RCPT_TRANSACTION_INDEX       (1u << 4)
+#define RCPT_TYPE                    (1u << 5)
+#define RCPT_FROM                    (1u << 6)
+#define RCPT_TO                      (1u << 7)
+#define RCPT_CUMULATIVE_GAS_USED     (1u << 8)
+#define RCPT_GAS_USED                (1u << 9)
+#define RCPT_LOGS                    (1u << 10)
+#define RCPT_LOGS_BLOOM              (1u << 11)
+#define RCPT_STATUS                  (1u << 12)
+#define RCPT_EFFECTIVE_GAS_PRICE     (1u << 13)
+#define RCPT_DEPOSIT_NONCE           (1u << 14) // OP-Stack deposited tx only
+#define RCPT_DEPOSIT_RECEIPT_VERSION (1u << 15) // OP-Stack deposited tx only
+#define RCPT_CONTRACT_ADDRESS        (1u << 16) // contract-creation only
+#define RCPT_BLOB_GAS_USED           (1u << 17) // EIP-4844 / type-3 only
+#define RCPT_BLOB_GAS_PRICE          (1u << 18) // EIP-4844 / type-3 only
+#define RCPT_L1_BLOCK_NUMBER         (1u << 19) // Arbitrum Nitro: L1 block number from the header
 
 // tools for eth tx and receipt handling
 
@@ -135,6 +135,20 @@ bool    c4_write_tx_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer, byte
  * @return the L1 block number, or 0 when the header does not carry one
  */
 uint64_t c4_arb_header_l1_block_number(bytes_t el_header);
+
+/**
+ * Writes the proven L1 block number into a receipt so the JSON includes it.
+ *
+ * Receipt proofs carry the prover's RPC receipt. That encoding leaves
+ * `l1BlockNumber` masked off, and an older prover omits the slot. The value
+ * comes from the verified execution header. The receipt bytes are replaced
+ * and `VERIFY_FLAG_FREE_DATA` is set.
+ *
+ * @param ctx verification context whose `data` is the receipt
+ * @param el_header verified execution-layer header
+ * @return false when the receipt bytes cannot hold the field
+ */
+bool c4_arb_receipt_apply_l1_block_number(verify_ctx_t* ctx, bytes_t el_header);
 #endif
 bool c4_write_receipt_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer, bytes_t tx_raw, bytes_t receipt_raw,
                                     bytes32_t block_hash, uint64_t block_number, uint32_t tx_index,

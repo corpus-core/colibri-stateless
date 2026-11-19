@@ -45,8 +45,8 @@ int main(void) {
 #include <string.h>
 
 // common.HexToAddress("0xa4b05") and common.HexToAddress("0x6e")
-static const uint8_t ARBOS[20]      = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x0a, 0x4b, 0x05};
-static const uint8_t RETRYABLE[20]  = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x6e};
+static const uint8_t ARBOS[20]     = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x0a, 0x4b, 0x05};
+static const uint8_t RETRYABLE[20] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x6e};
 
 void setUp(void) {}
 void tearDown(void) {}
@@ -146,7 +146,7 @@ void test_type2_mask_leaves_arb_bits_clear(void) {
 }
 
 void test_arb_deposit(void) {
-  buffer_t buf  = {0};
+  buffer_t buf = {0};
   uint8_t  from[20];
   memset(from, 0x11, 20);
   rlp_add_uint64(&buf, 42161);
@@ -384,8 +384,8 @@ void test_arb_submit_nil_retry_to(void) {
   rlp_add_item(&buf, NULL_BYTES);
   seal(&buf, 0x69);
 
-  ssz_ob_t tx    = decode_tx(buf.data);
-  uint64_t bits  = bytes_as_le(ssz_get(&tx, "_optmask").bytes);
+  ssz_ob_t tx   = decode_tx(buf.data);
+  uint64_t bits = bytes_as_le(ssz_get(&tx, "_optmask").bytes);
   TEST_ASSERT_EQUAL_UINT64(0, bits & TX_RETRY_TO);
   TEST_ASSERT_NOT_EQUAL(0, bits & TX_RETRY_DATA);
   assert_submit_abi(ssz_get(&tx, "input").bytes, request, refund, beneficiary, NULL, NULL, 0);
@@ -399,7 +399,7 @@ void test_arb_submit_nil_retry_to(void) {
 }
 
 void test_arb_internal(void) {
-  buffer_t buf  = {0};
+  buffer_t buf     = {0};
   uint8_t  data[2] = {0xde, 0xad};
   rlp_add_uint64(&buf, 42161);
   rlp_add_item(&buf, bytes(data, 2));
@@ -425,7 +425,7 @@ void test_arb_internal(void) {
 }
 
 void test_arb_rejects_bad_widths_and_unknown_types(void) {
-  buffer_t buf = {0};
+  buffer_t buf     = {0};
   uint8_t  wide[9] = {1, 0, 0, 0, 0, 0, 0, 0, 1};
   uint8_t  from[20];
   memset(from, 0x44, 20);
@@ -451,7 +451,7 @@ void test_arb_rejects_bad_widths_and_unknown_types(void) {
   ctx               = (verify_ctx_t) {0};
   builder           = ssz_builder_for_type(ETH_SSZ_DATA_TX);
   TEST_ASSERT_FALSE(c4_write_tx_data_from_raw(&ctx, &builder, bytes(raw_gap, 2), zero, zero, 1, 1, 0, 0));
-  TEST_ASSERT_NOT_NULL(strstr(ctx.state.error, "unsupported transaction type"));
+  TEST_ASSERT_NOT_NULL(strstr(ctx.state.error, "unsupported transaction type 0x67"));
   c4_state_free(&ctx.state);
   ssz_builder_free(&builder);
 
@@ -459,7 +459,7 @@ void test_arb_rejects_bad_widths_and_unknown_types(void) {
   ctx                   = (verify_ctx_t) {0};
   builder               = ssz_builder_for_type(ETH_SSZ_DATA_TX);
   TEST_ASSERT_FALSE(c4_write_tx_data_from_raw(&ctx, &builder, bytes(raw_classic, 2), zero, zero, 1, 1, 0, 0));
-  TEST_ASSERT_NOT_NULL(strstr(ctx.state.error, "unsupported transaction type"));
+  TEST_ASSERT_NOT_NULL(strstr(ctx.state.error, "unsupported transaction type 0x78"));
   c4_state_free(&ctx.state);
   ssz_builder_free(&builder);
 }
@@ -503,11 +503,11 @@ void test_arb_receipt_l1_block_and_base_fee(void) {
   safe_free(rec.bytes.data);
   c4_state_free(&ctx.state);
 
-  ctx               = (verify_ctx_t) {0};
-  ctx.chain_id      = C4_CHAIN_MAINNET;
-  builder           = ssz_builder_for_type(ETH_SSZ_DATA_RECEIPT);
-  cum               = 0;
-  logs              = 0;
+  ctx          = (verify_ctx_t) {0};
+  ctx.chain_id = C4_CHAIN_MAINNET;
+  builder      = ssz_builder_for_type(ETH_SSZ_DATA_RECEIPT);
+  cum          = 0;
+  logs         = 0;
   TEST_ASSERT_TRUE(c4_write_receipt_data_from_raw(&ctx, &builder, tx.data, receipt.data, zero, 10, 1, 100, 0, 0, 42, &cum, &logs));
   rec  = ssz_builder_to_bytes(&builder);
   json = ssz_dump_to_str(rec, false, true);
@@ -519,8 +519,89 @@ void test_arb_receipt_l1_block_and_base_fee(void) {
   buffer_free(&receipt);
 }
 
-void test_arb_header_l1_block_number(void) {
+static bytes_t nitro_header(buffer_t* header, const uint8_t mix[32]) {
+  for (int i = 0; i < 13; i++) rlp_add_item(header, NULL_BYTES);
+  rlp_add_item(header, bytes((uint8_t*) mix, 32));
+  rlp_to_list(header);
+  return header->data;
+}
+
+void test_arb_receipt_proof_gains_l1_block_number(void) {
+  buffer_t tx = {0};
+  rlp_add_uint64(&tx, 42161);
+  rlp_add_item(&tx, bytes((uint8_t*) "\x01", 1));
+  seal(&tx, 0x6a);
+  buffer_t receipt = {0};
+  make_receipt(&receipt, 0x6a);
+
+  verify_ctx_t  ctx     = {0};
+  ssz_builder_t builder = ssz_builder_for_type(ETH_SSZ_DATA_RECEIPT);
+  bytes32_t     zero    = {0};
+  uint64_t      cum     = 0;
+  uint32_t      logs    = 0;
+  ctx.chain_id          = C4_CHAIN_ARB_ONE;
+  TEST_ASSERT_TRUE(c4_write_receipt_data_from_raw(&ctx, &builder, tx.data, receipt.data, zero, 10, 0, 100, 0, 0, 1, &cum, &logs));
+  ssz_ob_t rec = ssz_builder_to_bytes(&builder);
+
+  uint32_to_le(rec.bytes.data, uint32_from_le(rec.bytes.data) & ~RCPT_L1_BLOCK_NUMBER);
+  ssz_ob_t slot = ssz_get(&rec, "l1BlockNumber");
+  TEST_ASSERT_EQUAL_UINT32(8, slot.bytes.len);
+  memset(slot.bytes.data, 0, slot.bytes.len);
+  char* json = ssz_dump_to_str(rec, false, true);
+  assert_key(json, "l1BlockNumber", false);
+  safe_free(json);
+
+  uint8_t mix[32] = {0};
+  mix[8]          = 0x01;
+  mix[9]          = 0x02;
+  mix[10]         = 0x03;
+  mix[11]         = 0x04;
+  mix[12]         = 0x05;
+  mix[13]         = 0x06;
+  mix[14]         = 0x07;
+  mix[15]         = 0x08;
   buffer_t header = {0};
+  ctx.data        = rec;
+  TEST_ASSERT_TRUE(c4_arb_receipt_apply_l1_block_number(&ctx, nitro_header(&header, mix)));
+  safe_free(rec.bytes.data);
+  rec  = ctx.data;
+  json = ssz_dump_to_str(rec, false, true);
+  TEST_ASSERT_NOT_NULL(strstr(json, "\"l1BlockNumber\":\"0x102030405060708\""));
+  assert_addr(rec, "to", ARBOS);
+  safe_free(json);
+
+  slot         = ssz_get(&rec, "l1BlockNumber");
+  size_t   pos = (size_t) (slot.bytes.data - rec.bytes.data);
+  uint32_t len = slot.bytes.len;
+  memmove(rec.bytes.data + pos, rec.bytes.data + pos + len, rec.bytes.len - pos - len);
+  rec.bytes.len -= len;
+  const ssz_def_t* elements = ssz_container_elements(rec.def);
+  uint32_t         count    = ssz_container_len(rec.def);
+  uint32_t         cursor   = 0;
+  for (uint32_t i = 0; i < count; i++) {
+    if (ssz_is_dynamic(elements + i) && cursor + 4 <= pos) {
+      uint32_t off = uint32_from_le(rec.bytes.data + cursor);
+      if (off >= pos) uint32_to_le(rec.bytes.data + cursor, off - len);
+    }
+    cursor += ssz_fixed_length(elements + i);
+  }
+  uint32_to_le(rec.bytes.data, uint32_from_le(rec.bytes.data) & ~RCPT_L1_BLOCK_NUMBER);
+  ctx.data = rec;
+  TEST_ASSERT_TRUE(c4_arb_receipt_apply_l1_block_number(&ctx, header.data));
+  rec  = ctx.data;
+  json = ssz_dump_to_str(rec, false, true);
+  TEST_ASSERT_NOT_NULL(strstr(json, "\"l1BlockNumber\":\"0x102030405060708\""));
+  assert_addr(rec, "from", ARBOS);
+  assert_addr(rec, "to", ARBOS);
+  safe_free(json);
+  safe_free(rec.bytes.data);
+  buffer_free(&header);
+  buffer_free(&tx);
+  buffer_free(&receipt);
+}
+
+void test_arb_header_l1_block_number(void) {
+  buffer_t header  = {0};
   uint8_t  mix[32] = {0};
   mix[8]           = 0x01;
   mix[9]           = 0x02;
@@ -648,6 +729,7 @@ int main(void) {
   RUN_TEST(test_arb_internal);
   RUN_TEST(test_arb_rejects_bad_widths_and_unknown_types);
   RUN_TEST(test_arb_receipt_l1_block_and_base_fee);
+  RUN_TEST(test_arb_receipt_proof_gains_l1_block_number);
   RUN_TEST(test_arb_header_l1_block_number);
   RUN_TEST(test_arb_unsigned_receipt_contract_address);
   RUN_TEST(test_arb_receipt_rejects_bad_to_and_nonce);

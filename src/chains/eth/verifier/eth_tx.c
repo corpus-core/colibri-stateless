@@ -344,6 +344,25 @@ static bytes_t arb_tx_to(verify_ctx_t* ctx, tx_type_t type, bytes_t rlp_list, co
 }
 #endif
 
+/**
+ * Stores an error that names the transaction type byte the decoder rejected.
+ *
+ * @param ctx verification context that receives the error
+ * @param type raw transaction type byte
+ * @return always false, so callers can return this directly
+ */
+static bool reject_unsupported_tx_type(verify_ctx_t* ctx, uint32_t type) {
+#ifdef MESSAGES
+  char err[64];
+  snprintf(err, sizeof(err), "unsupported transaction type 0x%02x", type);
+  c4_state_add_error(&ctx->state, err);
+#else
+  ctx->state.error = "E";
+#endif
+  ctx->success = false;
+  return false;
+}
+
 static bool get_and_remove_tx_type(verify_ctx_t* ctx, bytes_t* raw_tx, tx_type_t* type) {
   if (raw_tx->len < 1) RETURN_VERIFY_ERROR(ctx, "invalid tx data, missing type!");
   *type = raw_tx->data[0];
@@ -352,7 +371,7 @@ static bool get_and_remove_tx_type(verify_ctx_t* ctx, bytes_t* raw_tx, tx_type_t
     *type = TX_TYPE_LEGACY; // legacy tx
   else {
     // Check if transaction type is supported by trying to get its definitions
-    if (!get_tx_type_defs(*type)) RETURN_VERIFY_ERROR(ctx, "unsupported transaction type!");
+    if (!get_tx_type_defs(*type)) return reject_unsupported_tx_type(ctx, *type);
     raw_tx->data++;
     raw_tx->len--;
   }
@@ -367,7 +386,7 @@ INTERNAL bool c4_tx_create_from_address(verify_ctx_t* ctx, bytes_t raw_tx, uint8
   if (!get_and_remove_tx_type(ctx, &raw_tx, &type)) RETURN_VERIFY_ERROR(ctx, "invalid tx data, missing type!");
   if (rlp_decode(&raw_tx, 0, &raw_tx) != RLP_LIST) RETURN_VERIFY_ERROR(ctx, "invalid tx data!");
   const rlp_type_defs_t* defs_ptr = get_tx_type_defs(type);
-  if (!defs_ptr) RETURN_VERIFY_ERROR(ctx, "unsupported transaction type");
+  if (!defs_ptr) return reject_unsupported_tx_type(ctx, type);
   rlp_type_defs_t defs = *defs_ptr;
   if (type == TX_TYPE_DEPOSITED) {
     bytes_t from = {0};
@@ -1044,6 +1063,78 @@ uint64_t c4_arb_header_l1_block_number(bytes_t el_header) {
   return bytes_as_be(bytes(mix.data + 8, 8));
 }
 
+static uint32_t receipt_field_index(const ssz_def_t* def, const char* name) {
+  const ssz_def_t* elements = ssz_container_elements(def);
+  uint32_t         count    = ssz_container_len(def);
+  for (uint32_t i = 0; i < count; i++) {
+    if (strcmp(elements[i].name, name) == 0) return i;
+  }
+  return UINT32_MAX;
+}
+
+static uint32_t receipt_fixed_offset(const ssz_def_t* def, uint32_t index) {
+  const ssz_def_t* elements = ssz_container_elements(def);
+  uint32_t         pos      = 0;
+  for (uint32_t i = 0; i < index; i++)
+    pos += ssz_fixed_length(elements + i);
+  return pos;
+}
+
+bool c4_arb_receipt_apply_l1_block_number(verify_ctx_t* ctx, bytes_t el_header) {
+  bytes_t mix = eth_el_header_get(el_header, EL_PREV_RANDAO);
+  if (!ctx || !ctx->data.def || !ctx->data.bytes.data || !mix.data || mix.len < 16) return true;
+  const ssz_def_t* def      = ctx->data.def;
+  const ssz_def_t* elements = ssz_container_elements(def);
+  uint32_t         count    = ssz_container_len(def);
+  uint32_t         l1_idx   = receipt_field_index(def, "l1BlockNumber");
+  uint32_t         to_idx   = receipt_field_index(def, "to");
+  if (l1_idx == UINT32_MAX || to_idx == UINT32_MAX || l1_idx >= 64 || !ssz_is_dynamic(elements + to_idx)) return true;
+
+  uint32_t l1_len     = ssz_fixed_length(elements + l1_idx);
+  uint32_t l1_pos     = receipt_fixed_offset(def, l1_idx);
+  uint32_t fixed_with = receipt_fixed_offset(def, count);
+  uint32_t to_off_pos = receipt_fixed_offset(def, to_idx);
+  uint32_t mask_len   = ssz_fixed_length(elements);
+  if (l1_len != 8 || mask_len != 4 || to_off_pos + 4 > ctx->data.bytes.len || l1_pos + l1_len != fixed_with) return true;
+
+  uint32_t dyn_start = uint32_from_le(ctx->data.bytes.data + to_off_pos);
+  bool     insert    = dyn_start + l1_len == fixed_with;
+  bool     present   = dyn_start == fixed_with;
+  if (!present && !insert) return true;
+  if (present && l1_pos + l1_len > ctx->data.bytes.len) return false;
+
+  if (insert && (dyn_start != l1_pos || l1_pos > ctx->data.bytes.len)) return false;
+  for (uint32_t i = 0; insert && i < count; i++) {
+    if (!ssz_is_dynamic(elements + i)) continue;
+    if (receipt_fixed_offset(def, i) + 4 > l1_pos) return false;
+  }
+
+  bytes_t out = {0};
+  if (insert) {
+    out.data = safe_malloc(ctx->data.bytes.len + l1_len);
+    out.len  = ctx->data.bytes.len + l1_len;
+    memcpy(out.data, ctx->data.bytes.data, l1_pos);
+    memset(out.data + l1_pos, 0, l1_len);
+    memcpy(out.data + l1_pos + l1_len, ctx->data.bytes.data + l1_pos, ctx->data.bytes.len - l1_pos);
+    for (uint32_t i = 0; i < count; i++) {
+      if (!ssz_is_dynamic(elements + i)) continue;
+      uint32_t pos = receipt_fixed_offset(def, i);
+      uint32_to_le(out.data + pos, uint32_from_le(out.data + pos) + l1_len);
+    }
+  }
+  else {
+    out = bytes_dup(ctx->data.bytes);
+  }
+
+  uint32_t mask = uint32_from_le(out.data);
+  uint32_to_le(out.data, mask | (1u << l1_idx));
+  uint64_to_le(out.data + l1_pos, bytes_as_be(bytes(mix.data + 8, 8)));
+  if (ctx->flags & VERIFY_FLAG_FREE_DATA) safe_free(ctx->data.bytes.data);
+  ctx->data.bytes = out;
+  ctx->flags |= VERIFY_FLAG_FREE_DATA;
+  return true;
+}
+
 /**
  * Writes one Nitro transaction into ETH_TX_DATA.
  *
@@ -1067,28 +1158,28 @@ static bool write_arb_tx_data(verify_ctx_t* ctx, ssz_builder_t* buffer, bytes_t 
   uint64_t mask = (uint64_t) TX_BLOCK_HASH | TX_BLOCK_NUMBER | TX_HASH | TX_TRANSACTION_INDEX | TX_TYPE |
                   TX_NONCE | TX_INPUT | TX_R | TX_S | TX_V | TX_GAS | TX_FROM | TX_TO | TX_VALUE |
                   TX_GAS_PRICE | TX_CHAIN_ID;
-  uint64_t nonce      = 0;
-  uint64_t gas        = 0;
-  uint64_t gas_price  = 0;
-  uint64_t max_fee    = 0;
-  uint64_t chain_id   = 0;
+  uint64_t nonce       = 0;
+  uint64_t gas         = 0;
+  uint64_t gas_price   = 0;
+  uint64_t max_fee     = 0;
+  uint64_t chain_id    = 0;
   bool     has_max_fee = false;
-  uint8_t  from[20]   = {0};
-  bytes_t  input      = NULL_BYTES;
-  bytes_t  value      = NULL_BYTES;
-  bytes_t  to         = NULL_BYTES;
-  bytes_t  request_id = NULL_BYTES;
-  bytes_t  ticket_id  = NULL_BYTES;
-  bytes_t  max_refund = NULL_BYTES;
-  bytes_t  submission = NULL_BYTES;
-  bytes_t  refund_to  = NULL_BYTES;
-  bytes_t  l1_base    = NULL_BYTES;
-  bytes_t  deposit    = NULL_BYTES;
-  bytes_t  retry_to   = NULL_BYTES;
-  bytes_t  retry_val  = NULL_BYTES;
-  bytes_t  retry_data = NULL_BYTES;
+  uint8_t  from[20]    = {0};
+  bytes_t  input       = NULL_BYTES;
+  bytes_t  value       = NULL_BYTES;
+  bytes_t  to          = NULL_BYTES;
+  bytes_t  request_id  = NULL_BYTES;
+  bytes_t  ticket_id   = NULL_BYTES;
+  bytes_t  max_refund  = NULL_BYTES;
+  bytes_t  submission  = NULL_BYTES;
+  bytes_t  refund_to   = NULL_BYTES;
+  bytes_t  l1_base     = NULL_BYTES;
+  bytes_t  deposit     = NULL_BYTES;
+  bytes_t  retry_to    = NULL_BYTES;
+  bytes_t  retry_val   = NULL_BYTES;
+  bytes_t  retry_data  = NULL_BYTES;
   bytes_t  beneficiary = NULL_BYTES;
-  bytes_t  max_submit = NULL_BYTES;
+  bytes_t  max_submit  = NULL_BYTES;
   bytes_t  gas_fee_cap = NULL_BYTES;
   buffer_t abi         = {0};
 
@@ -1165,8 +1256,7 @@ static bool write_arb_tx_data(verify_ctx_t* ctx, ssz_builder_t* buffer, bytes_t 
       if (!arb_take_bytes(ctx, rlp_list, defs, "data", &input)) return false;
       break;
     default:
-      c4_state_add_error(&ctx->state, "unsupported transaction type");
-      return false;
+      return reject_unsupported_tx_type(ctx, type);
   }
   if (has_max_fee) {
     max_fee = gas_price;
@@ -1223,7 +1313,7 @@ INTERNAL bool c4_write_tx_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer
 
   bytes_t                rlp_list_payload = raw_tx;                 // Renamed to avoid confusion with rlp_list var below
   const rlp_type_defs_t* defs_ptr         = get_tx_type_defs(type); // get the specific typedef for the tx type
-  if (!defs_ptr) RETURN_VERIFY_ERROR(ctx, "unsupported transaction type");
+  if (!defs_ptr) return reject_unsupported_tx_type(ctx, type);
   if (rlp_decode(&rlp_list_payload, 0, &rlp_list_payload) != RLP_LIST) RETURN_VERIFY_ERROR(ctx, "c4_write_tx_data_from_raw: invalid RLP list payload");
   int num_fields = rlp_decode(&rlp_list_payload, -1, NULL);
   if (num_fields != defs_ptr->len) RETURN_VERIFY_ERROR(ctx, "c4_write_tx_data_from_raw: RLP field count mismatch with definition");
@@ -1498,7 +1588,7 @@ bool c4_write_receipt_data_from_raw(verify_ctx_t* ctx, ssz_builder_t* buffer, by
   if (!get_and_remove_tx_type(ctx, &tx_list_payload, &type)) return false;
   if (rlp_decode(&tx_list_payload, 0, &tx_list_payload) != RLP_LIST) RETURN_VERIFY_ERROR(ctx, "write_receipt_data: invalid tx list");
   defs_ptr = get_tx_type_defs(type);
-  if (!defs_ptr) RETURN_VERIFY_ERROR(ctx, "write_receipt_data: unsupported tx type");
+  if (!defs_ptr) return reject_unsupported_tx_type(ctx, type);
 
   if (type != TX_TYPE_LEGACY) {
     if (receipt_raw.len < 1 || receipt_raw.data[0] != type) RETURN_VERIFY_ERROR(ctx, "write_receipt_data: receipt type mismatch");
