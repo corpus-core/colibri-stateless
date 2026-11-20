@@ -6,8 +6,9 @@
 #include <stddef.h>
 #include <string.h>
 
-// Centralized OP Stack chain configurations
-// NOTE: Sequencer addresses are placeholders for new chains - update with actual values
+// Centralized OP Stack chain configurations.
+// Real entries store SystemConfig.unsafeBlockSigner() from Ethereum mainnet.
+// Placeholder entries below are not verifiable until those signers are replaced.
 static const op_chain_config_t op_chain_configs[] = {
     // Well-known OP Stack chains with verified sequencer addresses
     OP_CHAIN_CONFIG(
@@ -36,9 +37,16 @@ static const op_chain_config_t op_chain_configs[] = {
         3),
     OP_CHAIN_CONFIG(
         130,
-        "\x83\x3C\x6f\x27\x84\x74\xA7\x86\x58\xaf\x91\xaE\x8e\xdC\x92\x6F\xE3\x3a\x23\x0e",
+        "\xFa\xAC\xA0\xA1\x0e\x4a\x23\xC5\xE0\x14\x85\xDE\x07\x76\x75\x47\xd4\xD8\x05\x6D",
         "Unichain",
         "https://unichain.operationsolarstorm.org/latest",
+        3),
+    // No operationsolarstorm endpoint. Gossip does not need one; http_endpoint stays NULL.
+    OP_CHAIN_CONFIG(
+        57073,
+        "\x7b\x32\x22\x82\xDF\x45\xE5\x37\xE5\xde\x76\xD6\x0e\x14\x32\xDb\x3c\xF3\xF8\xE1",
+        "Ink",
+        NULL,
         3),
 
     // Additional OP Stack chains (TODO: Update with actual sequencer addresses)

@@ -51,6 +51,7 @@
 // | Worldchain | 480 |
 // | Zora | 7777777 |
 // | Unichain | 130 |
+// | Ink | 57073 |
 // | PGN | 424 |
 // | Orderly Network | 291 |
 // | Mode Network | 34443 |

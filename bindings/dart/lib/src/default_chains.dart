@@ -14,6 +14,16 @@ const int chainPlataberget = 7091047534;
 const int chainRollupx = 696991;
 /// arbitrum chain ID.
 const int chainArbitrum = 42161;
+/// base chain ID.
+const int chainBase = 8453;
+/// optimism chain ID.
+const int chainOptimism = 10;
+/// unichain chain ID.
+const int chainUnichain = 130;
+/// zora chain ID.
+const int chainZora = 7777777;
+/// ink chain ID.
+const int chainInk = 57073;
 
 /// Default prover endpoints by chain.
 List<String> defaultProvers(int chainId) {
@@ -38,6 +48,11 @@ List<String> defaultProvers(int chainId) {
     7091047534 => ["https://plataberget.colibri-proof.tech"],
     696991 => ["https://rollupx.colibri-proof.tech"],
     42161 => ["https://arbitrum.colibri-proof.tech"],
+    8453 => ["https://base.colibri-proof.tech"],
+    10 => ["https://optimism.colibri-proof.tech"],
+    130 => ["https://unichain.colibri-proof.tech"],
+    7777777 => ["https://zora.colibri-proof.tech"],
+    57073 => ["https://ink.colibri-proof.tech"],
     _ => ["https://c4.incubed.net"],
   };
 }
@@ -80,6 +95,29 @@ List<String> defaultEthRpcs(int chainId) {
         "https://arb1.arbitrum.io/rpc",
         "https://arbitrum-one-rpc.publicnode.com",
       ],
+    8453 => [
+        "https://base.colibri-proof.tech/execution",
+        "https://mainnet.base.org",
+        "https://base-rpc.publicnode.com",
+      ],
+    10 => [
+        "https://optimism.colibri-proof.tech/execution",
+        "https://mainnet.optimism.io",
+        "https://optimism-rpc.publicnode.com",
+      ],
+    130 => [
+        "https://unichain.colibri-proof.tech/execution",
+        "https://mainnet.unichain.org",
+        "https://unichain-rpc.publicnode.com",
+      ],
+    7777777 => [
+        "https://zora.colibri-proof.tech/execution",
+        "https://rpc.zora.energy",
+      ],
+    57073 => [
+        "https://ink.colibri-proof.tech/execution",
+        "https://rpc-gel.inkonchain.com",
+      ],
     _ => <String>[],
   };
 }
@@ -112,6 +150,11 @@ List<String> defaultBeaconApis(int chainId) {
         "https://gateway.tenderly.co/public/mainnet",
         "https://ethereum-beacon-api.publicnode.com",
       ],
+    8453 => ["https://mainnet.colibri-proof.tech/consensus"],
+    10 => ["https://mainnet.colibri-proof.tech/consensus"],
+    130 => ["https://mainnet.colibri-proof.tech/consensus"],
+    7777777 => ["https://mainnet.colibri-proof.tech/consensus"],
+    57073 => ["https://mainnet.colibri-proof.tech/consensus"],
     _ => <String>[],
   };
 }
@@ -140,6 +183,11 @@ List<String> defaultCheckpointz(int chainId) {
         "https://sync-mainnet.beaconcha.in",
         "https://mainnet.checkpoint.sigp.io",
       ],
+    8453 => ["https://mainnet.colibri-proof.tech/consensus"],
+    10 => ["https://mainnet.colibri-proof.tech/consensus"],
+    130 => ["https://mainnet.colibri-proof.tech/consensus"],
+    7777777 => ["https://mainnet.colibri-proof.tech/consensus"],
+    57073 => ["https://mainnet.colibri-proof.tech/consensus"],
     _ => <String>[],
   };
 }

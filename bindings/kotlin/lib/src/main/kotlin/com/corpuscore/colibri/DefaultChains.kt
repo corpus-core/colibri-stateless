@@ -28,6 +28,11 @@ object DefaultChains {
         BigInteger("7091047534") -> arrayOf("https://plataberget.colibri-proof.tech")
         BigInteger.valueOf(696991L) -> arrayOf("https://rollupx.colibri-proof.tech")
         BigInteger.valueOf(42161L) -> arrayOf("https://arbitrum.colibri-proof.tech")
+        BigInteger.valueOf(8453L) -> arrayOf("https://base.colibri-proof.tech")
+        BigInteger.valueOf(10L) -> arrayOf("https://optimism.colibri-proof.tech")
+        BigInteger.valueOf(130L) -> arrayOf("https://unichain.colibri-proof.tech")
+        BigInteger.valueOf(7777777L) -> arrayOf("https://zora.colibri-proof.tech")
+        BigInteger.valueOf(57073L) -> arrayOf("https://ink.colibri-proof.tech")
         else -> arrayOf("https://c4.incubed.net")
     }
 
@@ -69,6 +74,29 @@ object DefaultChains {
                 "https://arb1.arbitrum.io/rpc",
                 "https://arbitrum-one-rpc.publicnode.com",
             )
+        BigInteger.valueOf(8453L) -> arrayOf(
+                "https://base.colibri-proof.tech/execution",
+                "https://mainnet.base.org",
+                "https://base-rpc.publicnode.com",
+            )
+        BigInteger.valueOf(10L) -> arrayOf(
+                "https://optimism.colibri-proof.tech/execution",
+                "https://mainnet.optimism.io",
+                "https://optimism-rpc.publicnode.com",
+            )
+        BigInteger.valueOf(130L) -> arrayOf(
+                "https://unichain.colibri-proof.tech/execution",
+                "https://mainnet.unichain.org",
+                "https://unichain-rpc.publicnode.com",
+            )
+        BigInteger.valueOf(7777777L) -> arrayOf(
+                "https://zora.colibri-proof.tech/execution",
+                "https://rpc.zora.energy",
+            )
+        BigInteger.valueOf(57073L) -> arrayOf(
+                "https://ink.colibri-proof.tech/execution",
+                "https://rpc-gel.inkonchain.com",
+            )
         else -> emptyArray()
     }
 
@@ -100,6 +128,11 @@ object DefaultChains {
                 "https://gateway.tenderly.co/public/mainnet",
                 "https://ethereum-beacon-api.publicnode.com",
             )
+        BigInteger.valueOf(8453L) -> arrayOf("https://mainnet.colibri-proof.tech/consensus")
+        BigInteger.valueOf(10L) -> arrayOf("https://mainnet.colibri-proof.tech/consensus")
+        BigInteger.valueOf(130L) -> arrayOf("https://mainnet.colibri-proof.tech/consensus")
+        BigInteger.valueOf(7777777L) -> arrayOf("https://mainnet.colibri-proof.tech/consensus")
+        BigInteger.valueOf(57073L) -> arrayOf("https://mainnet.colibri-proof.tech/consensus")
         else -> emptyArray()
     }
 
@@ -127,6 +160,11 @@ object DefaultChains {
                 "https://sync-mainnet.beaconcha.in",
                 "https://mainnet.checkpoint.sigp.io",
             )
+        BigInteger.valueOf(8453L) -> arrayOf("https://mainnet.colibri-proof.tech/consensus")
+        BigInteger.valueOf(10L) -> arrayOf("https://mainnet.colibri-proof.tech/consensus")
+        BigInteger.valueOf(130L) -> arrayOf("https://mainnet.colibri-proof.tech/consensus")
+        BigInteger.valueOf(7777777L) -> arrayOf("https://mainnet.colibri-proof.tech/consensus")
+        BigInteger.valueOf(57073L) -> arrayOf("https://mainnet.colibri-proof.tech/consensus")
         else -> emptyArray()
     }
 

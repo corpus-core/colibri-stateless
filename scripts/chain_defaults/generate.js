@@ -22,6 +22,11 @@ const RUST_CONST = {
   7091047534: 'PLATABERGET',
   696991: 'ROLLUPX',
   42161: 'ARBITRUM',
+  8453: 'BASE',
+  10: 'OPTIMISM',
+  130: 'UNICHAIN',
+  7777777: 'ZORA',
+  57073: 'INK',
 };
 
 const RUST_DOC = {
@@ -32,6 +37,11 @@ const RUST_DOC = {
   7091047534: 'Platåberget (Glamsterdam devnet-8).',
   696991: 'RollupX (EEZ).',
   42161: 'Arbitrum One.',
+  8453: 'Base (OP-Stack).',
+  10: 'OP Mainnet.',
+  130: 'Unichain (OP-Stack).',
+  7777777: 'Zora (OP-Stack).',
+  57073: 'Ink (OP-Stack).',
 };
 
 function loadSpec() {

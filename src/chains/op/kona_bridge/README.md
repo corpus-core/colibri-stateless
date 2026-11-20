@@ -16,7 +16,7 @@ The bridge is not linked into the verifier library. The in-process C FFI (`BUILD
 docker build -f src/chains/op/kona_bridge/Dockerfile -t kona-preconf-service .
 ```
 
-`CHAIN_ID` selects the network. Named presets exist for OP Mainnet (10), Base (8453), Unichain (130), Worldchain (480), and Zora (7777777). Gossip peers come from `kona_peers` for that chain id.
+`CHAIN_ID` selects the network. Named presets exist for OP Mainnet (10), Base (8453), Unichain (130), Worldchain (480), Zora (7777777), and Ink (57073). An unknown chain id exits instead of joining Base. Gossip peers come from `kona_peers` for that chain id. If the embedded rollup registry has no config for the chain id, the process exits instead of using Base's rollup config.
 
 ## Path into a proof
 

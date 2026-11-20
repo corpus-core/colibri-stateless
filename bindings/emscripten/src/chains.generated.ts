@@ -138,4 +138,82 @@ export const default_config: {
     ],
     pollingInterval: 1000,
   },
+  '8453': { // base
+    alias: ["base","0x2105"],
+    rpcs: [
+      "https://base.colibri-proof.tech/execution",
+      "https://mainnet.base.org",
+      "https://base-rpc.publicnode.com",
+    ],
+    beacon_apis: [
+      "https://mainnet.colibri-proof.tech/consensus",
+    ],
+    prover: ["https://base.colibri-proof.tech"],
+    checkpointz: [
+      "https://mainnet.colibri-proof.tech/consensus",
+    ],
+    pollingInterval: 200,
+  },
+  '10': { // optimism
+    alias: ["optimism","op","op-mainnet","0xa"],
+    rpcs: [
+      "https://optimism.colibri-proof.tech/execution",
+      "https://mainnet.optimism.io",
+      "https://optimism-rpc.publicnode.com",
+    ],
+    beacon_apis: [
+      "https://mainnet.colibri-proof.tech/consensus",
+    ],
+    prover: ["https://optimism.colibri-proof.tech"],
+    checkpointz: [
+      "https://mainnet.colibri-proof.tech/consensus",
+    ],
+    pollingInterval: 2000,
+  },
+  '130': { // unichain
+    alias: ["unichain","0x82"],
+    rpcs: [
+      "https://unichain.colibri-proof.tech/execution",
+      "https://mainnet.unichain.org",
+      "https://unichain-rpc.publicnode.com",
+    ],
+    beacon_apis: [
+      "https://mainnet.colibri-proof.tech/consensus",
+    ],
+    prover: ["https://unichain.colibri-proof.tech"],
+    checkpointz: [
+      "https://mainnet.colibri-proof.tech/consensus",
+    ],
+    pollingInterval: 1000,
+  },
+  '7777777': { // zora
+    alias: ["zora","0x76adf1"],
+    rpcs: [
+      "https://zora.colibri-proof.tech/execution",
+      "https://rpc.zora.energy",
+    ],
+    beacon_apis: [
+      "https://mainnet.colibri-proof.tech/consensus",
+    ],
+    prover: ["https://zora.colibri-proof.tech"],
+    checkpointz: [
+      "https://mainnet.colibri-proof.tech/consensus",
+    ],
+    pollingInterval: 2000,
+  },
+  '57073': { // ink
+    alias: ["ink","0xdef1"],
+    rpcs: [
+      "https://ink.colibri-proof.tech/execution",
+      "https://rpc-gel.inkonchain.com",
+    ],
+    beacon_apis: [
+      "https://mainnet.colibri-proof.tech/consensus",
+    ],
+    prover: ["https://ink.colibri-proof.tech"],
+    checkpointz: [
+      "https://mainnet.colibri-proof.tech/consensus",
+    ],
+    pollingInterval: 1000,
+  },
 };

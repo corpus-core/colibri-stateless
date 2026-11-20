@@ -37,6 +37,25 @@ assert.deepStrictEqual(plataberget.prover, ['https://plataberget.colibri-proof.t
 assert(plataberget.eth_rpc[0].includes('/execution'));
 assert(plataberget.beacon_api[0].includes('/consensus'));
 
+// OP-Stack chains have no beacon of their own. Settlement data stays on Ethereum mainnet.
+const OP_STACK = [
+  [8453, 'base'],
+  [10, 'optimism'],
+  [130, 'unichain'],
+  [7777777, 'zora'],
+  [57073, 'ink'],
+];
+for (const [id, name] of OP_STACK) {
+  const chain = byId.get(id);
+  assert(chain, `missing OP-Stack chain ${name}`);
+  assert.strictEqual(chain.name, name);
+  assert.deepStrictEqual(chain.prover, [`https://${name}.colibri-proof.tech`]);
+  assert.strictEqual(chain.eth_rpc[0], `https://${name}.colibri-proof.tech/execution`);
+  assert(chain.eth_rpc.length > 1, `${name} needs a public execution RPC beside the prover`);
+  assert.deepStrictEqual(chain.beacon_api, ['https://mainnet.colibri-proof.tech/consensus']);
+  assert.deepStrictEqual(chain.checkpointz, ['https://mainnet.colibri-proof.tech/consensus']);
+}
+
 for (const [id, head] of Object.entries(EXPECTED_PROVER_HEAD)) {
   const chain = byId.get(Number(id));
   assert(chain, `missing chain ${id}`);
