@@ -36,6 +36,8 @@ function add_section(line, sections) {
             open: true,
             types: [],
             rpcs: [],
+            chains: [],
+            chain_docs_pending: [],
             parent_title: null,
             path: null,
         }
@@ -124,6 +126,40 @@ function add_rpc(file, line, sections, comment) {
     }
     return false
 
+}
+
+// CHAIN_DOC(id, "Name", "comment") is a case label. The following
+// `return C4_CHAIN_TYPE_*` is the chain family for every doc entry since the
+// previous return. Name and comment are published; the numeric id is resolved
+// from chains.h / chains.c and the prover from chain_defaults/chains.json.
+function add_chain_doc(line, sections) {
+    let section = sections.at(-1)
+    if (!section) return false
+    if (!section.chains) section.chains = []
+    if (!section.chain_docs_pending) section.chain_docs_pending = []
+
+    if (!line.includes('#define')) {
+        const doc = line.match(/CHAIN_DOC\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*,\s*"([^"]*)"\s*,\s*"([^"]*)"\s*\)/)
+        if (doc) {
+            const entry = {
+                id_symbol: doc[1],
+                name: doc[2],
+                comment: doc[3],
+                chain_type: null,
+            }
+            section.chains.push(entry)
+            section.chain_docs_pending.push(entry)
+            return true
+        }
+    }
+
+    const returned = line.match(/return\s+(C4_CHAIN_TYPE_[A-Z0-9_]+)\s*;/)
+    if (returned && section.chain_docs_pending.length) {
+        for (const entry of section.chain_docs_pending) entry.chain_type = returned[1]
+        section.chain_docs_pending = []
+        return true
+    }
+    return false
 }
 
 function add_function_def(sections, line, doc_comment, file, line_number) {
@@ -280,7 +316,7 @@ function parse_ssz_file(file) {
             line = splits[0]
             comment = ((comment || '') + '\n' + splits.slice(1).join('//')).trim()
         }
-        if (add_rpc(file, line, sections, comment)) {
+        if (add_chain_doc(line, sections) || add_rpc(file, line, sections, comment)) {
             comment = ''
             continue
         }
@@ -353,6 +389,7 @@ function add_sections(old_sections, new_sections) {
             found.content = [...found.content, ...section.content]
             found.types = [...found.types, ...section.types]
             found.rpcs = [...found.rpcs, ...section.rpcs];
+            found.chains = [...(found.chains || []), ...(section.chains || [])];
         }
         else
             old_sections.push(section)
@@ -435,6 +472,116 @@ function find_section_for_type(sections, type) {
     return null
 }
 
+const CHAIN_TYPE_LABEL = {
+    C4_CHAIN_TYPE_ETHEREUM: 'Ethereum',
+    C4_CHAIN_TYPE_OP: 'OP-Stack',
+    C4_CHAIN_TYPE_ARBITRUM: 'Arbitrum',
+    C4_CHAIN_TYPE_EEZ: 'EEZ',
+}
+
+const CHAIN_TYPE_ORDER = [
+    'C4_CHAIN_TYPE_ETHEREUM',
+    'C4_CHAIN_TYPE_OP',
+    'C4_CHAIN_TYPE_ARBITRUM',
+    'C4_CHAIN_TYPE_EEZ',
+]
+
+function html_escape(value) {
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+}
+
+function load_chain_id_numbers() {
+    const header = fs.readFileSync(get_full_src_path('util/chains.h'), 'utf8')
+    const source = fs.readFileSync(get_full_src_path('util/chains.c'), 'utf8')
+    const ids = new Map()
+    const pattern = /(?:#define|const\s+chain_id_t)\s+(C4_CHAIN_[A-Z0-9_]+)\s*=?\s*(?:CHAIN_ID\s*\([^,]+,\s*|CHAIN\s*\()\s*(0x[0-9a-fA-F]+|\d+)\s*\)/g
+    for (const text of [header, source]) {
+        pattern.lastIndex = 0
+        let match
+        while ((match = pattern.exec(text))) ids.set(match[1], Number(match[2]))
+    }
+    return ids
+}
+
+function load_default_chain_spec() {
+    const spec = JSON.parse(fs.readFileSync(path.join(__dirname, '../chain_defaults/chains.json'), 'utf8'))
+    const byId = new Map()
+    for (const chain of spec.chains || []) byId.set(chain.id, chain)
+    return byId
+}
+
+function prover_links(chain) {
+    const urls = chain.prover || []
+    if (urls.length == 0) throw new Error(`chains.json chain ${chain.name} (${chain.id}) has no prover`)
+    return urls.map(url => {
+        let host = url
+        try { host = new URL(url).host } catch (_) { /* keep the raw value */ }
+        return `<a href="${html_escape(url)}">${html_escape(host)}</a>`
+    }).join('<br>')
+}
+
+function create_chain_table(section, chainIds, defaults, documentedIds) {
+    section.children.forEach(child => create_chain_table(child, chainIds, defaults, documentedIds))
+    if (!section.chains || section.chains.length == 0) return
+
+    const rows = []
+    section.chains.forEach((entry, index) => {
+        if (!entry.chain_type) throw new Error(`CHAIN_DOC ${entry.id_symbol} is not followed by return C4_CHAIN_TYPE_*`)
+        const id = chainIds.get(entry.id_symbol)
+        if (id == null) throw new Error(`CHAIN_DOC uses unknown chain id ${entry.id_symbol}`)
+        const spec = defaults.get(id)
+        if (!spec) {
+            console.warn(`skipping ${entry.name} (${id}): not registered in chains.json`)
+            return
+        }
+        rows.push({ ...entry, id, index, spec })
+        documentedIds.add(id)
+    })
+
+    rows.sort((a, b) => {
+        const ao = CHAIN_TYPE_ORDER.indexOf(a.chain_type)
+        const bo = CHAIN_TYPE_ORDER.indexOf(b.chain_type)
+        const ai = ao < 0 ? CHAIN_TYPE_ORDER.length : ao
+        const bi = bo < 0 ? CHAIN_TYPE_ORDER.length : bo
+        return ai - bi || a.index - b.index
+    })
+
+    section.content.push('')
+    section.content.push('<table>')
+    section.content.push('  <thead>')
+    section.content.push('    <tr>')
+    section.content.push('      <th>Chain</th>')
+    section.content.push('      <th>Chain Type</th>')
+    section.content.push('      <th>Prover</th>')
+    section.content.push('      <th>Comment</th>')
+    section.content.push('    </tr>')
+    section.content.push('  </thead>')
+    section.content.push('  <tbody>')
+    for (const row of rows) {
+        const typeLabel = CHAIN_TYPE_LABEL[row.chain_type] || row.chain_type
+        section.content.push('    <tr>')
+        section.content.push(`      <td>${html_escape(row.name)}</td>`)
+        section.content.push(`      <td>${html_escape(typeLabel)}</td>`)
+        section.content.push(`      <td>${prover_links(row.spec)}</td>`)
+        section.content.push(`      <td>${html_escape(row.comment)}</td>`)
+        section.content.push('    </tr>')
+    }
+    section.content.push('  </tbody>')
+    section.content.push('</table>')
+    section.content.push('')
+}
+
+function assert_defaults_are_documented(defaults, documentedIds) {
+    for (const [id, chain] of defaults) {
+        if (!documentedIds.has(id))
+            throw new Error(`chains.json chain ${chain.name} (${id}) has no CHAIN_DOC in c4_chain_type`)
+    }
+}
+
 function parse_ssz_files(files, rpc_docs) {
     let types = {}
     let sections = []
@@ -447,6 +594,11 @@ function parse_ssz_files(files, rpc_docs) {
     for (let section of sections) assign_path(section, '')
     for (let type of Object.values(types)) create_type(type, types)
     sections.forEach(s => create_rpc_table(s, sections, rpc_docs))
+    const chainIds = load_chain_id_numbers()
+    const defaults = load_default_chain_spec()
+    const documentedIds = new Set()
+    sections.forEach(s => create_chain_table(s, chainIds, defaults, documentedIds))
+    assert_defaults_are_documented(defaults, documentedIds)
 
     return sections
 }

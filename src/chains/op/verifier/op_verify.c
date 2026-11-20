@@ -42,7 +42,8 @@
 //
 // ## Supported chains
 //
-// `c4_chain_type` maps these chain ids to OP-Stack:
+// `c4_chain_type` maps these chain ids to OP-Stack. Each listed chain has a
+// configured sequencer signer (`SystemConfig.unsafeBlockSigner()`):
 //
 // | Chain | Chain ID |
 // |-------|----------|
@@ -52,12 +53,6 @@
 // | Zora | 7777777 |
 // | Unichain | 130 |
 // | Ink | 57073 |
-// | PGN | 424 |
-// | Orderly Network | 291 |
-// | Mode Network | 34443 |
-// | Fraxtal | 252 |
-// | Mantle | 5000 |
-// | Klaytn | 8217 |
 
 method_type_t c4_op_get_method_type(chain_id_t chain_id, char* method, json_t params, verify_flags_t flags) {
   if (c4_chain_type(chain_id) != C4_CHAIN_TYPE_OP) return METHOD_UNDEFINED;

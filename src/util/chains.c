@@ -79,76 +79,60 @@ static uint32_t            l1_registry_len = 0;
 // not be reroutable at runtime. If a new `C4_CHAIN_*` constant is added to
 // `chains.h`, extend this list and `test_chain_registry.c` together.
 static bool is_builtin_chain_id(chain_id_t id) {
-  return id == C4_CHAIN_MAINNET
-         || id == C4_CHAIN_SEPOLIA
-         || id == C4_CHAIN_GNOSIS
-         || id == C4_CHAIN_GNOSIS_CHIADO
-         || id == C4_CHAIN_PLATABERGET
-         || id == C4_CHAIN_BTC_MAINNET
-         || id == C4_CHAIN_BTC_TESTNET
-         || id == C4_CHAIN_BTC_DEVNET
-         || id == C4_CHAIN_SOL_MAINNET
-         || id == C4_CHAIN_BSC
-         || id == C4_CHAIN_POLYGON
-         || id == C4_CHAIN_BASE
-         || id == C4_CHAIN_ARBITRUM
-         || id == C4_CHAIN_OPTIMISM
-         || id == C4_CHAIN_CRONOS
-         || id == C4_CHAIN_FUSE
-         || id == C4_CHAIN_AVALANCHE
-         || id == C4_CHAIN_MOONRIVER
-         || id == C4_CHAIN_MOONBEAM
-         || id == C4_CHAIN_TELOS
-         || id == C4_CHAIN_HAIFA
-         || id == C4_CHAIN_BOLT
-         || id == C4_CHAIN_BOLT_TESTNET
-         || id == C4_CHAIN_BOLT_DEVNET
-         || id == C4_CHAIN_BOLT_STAGING
-         || id == C4_CHAIN_BOLT_MAINNET
+  return id == C4_CHAIN_MAINNET || id == C4_CHAIN_SEPOLIA || id == C4_CHAIN_GNOSIS || id == C4_CHAIN_GNOSIS_CHIADO || id == C4_CHAIN_PLATABERGET || id == C4_CHAIN_BTC_MAINNET || id == C4_CHAIN_BTC_TESTNET || id == C4_CHAIN_BTC_DEVNET || id == C4_CHAIN_SOL_MAINNET || id == C4_CHAIN_BSC || id == C4_CHAIN_POLYGON || id == C4_CHAIN_BASE || id == C4_CHAIN_ARBITRUM || id == C4_CHAIN_OPTIMISM || id == C4_CHAIN_CRONOS || id == C4_CHAIN_FUSE || id == C4_CHAIN_AVALANCHE || id == C4_CHAIN_MOONRIVER || id == C4_CHAIN_MOONBEAM || id == C4_CHAIN_TELOS || id == C4_CHAIN_HAIFA || id == C4_CHAIN_BOLT || id == C4_CHAIN_BOLT_TESTNET || id == C4_CHAIN_BOLT_DEVNET || id == C4_CHAIN_BOLT_STAGING || id == C4_CHAIN_BOLT_MAINNET
          // Macros from `chains.h` already handled by the switch above; listed
          // here so a plugin cannot override them through the registry either.
-         || id == C4_CHAIN_OP_MAINNET
-         || id == C4_CHAIN_OP_BASE
-         || id == C4_CHAIN_OP_WORLDCHAIN
-         || id == C4_CHAIN_OP_ZORA
-         || id == C4_CHAIN_OP_UNICHAIN
-         || id == C4_CHAIN_OP_INK
-         || id == C4_CHAIN_OP_PGN
-         || id == C4_CHAIN_OP_ORDERLY
-         || id == C4_CHAIN_OP_MODE
-         || id == C4_CHAIN_OP_FRAXTAL
-         || id == C4_CHAIN_OP_MANTLE
-         || id == C4_CHAIN_OP_KLAYTN
-         || id == C4_CHAIN_ARB_ONE
-         || id == C4_CHAIN_EEZ_ROLLUPX;
+         || id == C4_CHAIN_OP_MAINNET || id == C4_CHAIN_OP_BASE || id == C4_CHAIN_OP_WORLDCHAIN || id == C4_CHAIN_OP_ZORA || id == C4_CHAIN_OP_UNICHAIN || id == C4_CHAIN_OP_INK || id == C4_CHAIN_OP_PGN || id == C4_CHAIN_OP_ORDERLY || id == C4_CHAIN_OP_MODE || id == C4_CHAIN_OP_FRAXTAL || id == C4_CHAIN_OP_MANTLE || id == C4_CHAIN_OP_KLAYTN || id == C4_CHAIN_ARB_ONE || id == C4_CHAIN_EEZ_ROLLUPX;
 }
+// The table lists every `CHAIN_DOC` entry in `c4_chain_type` whose numeric id
+// is also registered in `scripts/chain_defaults/chains.json`. That file is what
+// the bindings ship, so a chain appears here only once clients can select it
+// without extra configuration. The prover column is taken from that file.
+//
+
+// `name` and `comment` are documentation only. The macro expands to the case
+// label; `scripts/doc/parse_defs.js` reads the two strings for the GitBook table.
+
+// : Supported chains
+//
+// Colibri currently supports those EVM L1 or L2-Chains:
+//
+#define CHAIN_DOC(id, name, comment) case id:
 
 chain_type_t c4_chain_type(chain_id_t chain_id) {
   // OP Stack chains - use switch for better performance.
-  // A new case is a newly supported chain. Also add it to the published list:
-  // `// : OP-Stack` in op_verify.c, or `// : EEZ` in eez_verify.c.
-  // Arbitrum One is mapped here; its published section lands with the feed proof.
+  // A new case is a newly supported chain. Also add it to the published list
+  // with CHAIN_DOC, and to scripts/chain_defaults/chains.json, which the
+  // overview requires. Arbitrum One is mapped here; its published section
+  // lands with the feed proof.
   switch (chain_id) {
-    case C4_CHAIN_OP_MAINNET:    // OP Mainnet (10)
-    case C4_CHAIN_OP_BASE:       // Base (8453)
-    case C4_CHAIN_OP_WORLDCHAIN: // Worldchain (480)
-    case C4_CHAIN_OP_ZORA:       // Zora (7777777)
-    case C4_CHAIN_OP_UNICHAIN:   // Unichain (130)
-    case C4_CHAIN_OP_INK:        // Ink (57073)
-    case C4_CHAIN_OP_PGN:        // PGN (424)
-    case C4_CHAIN_OP_ORDERLY:    // Orderly Network (291)
-    case C4_CHAIN_OP_MODE:       // Mode Network (34443)
-    case C4_CHAIN_OP_FRAXTAL:    // Fraxtal (252)
-    case C4_CHAIN_OP_MANTLE:     // Mantle (5000)
-    case C4_CHAIN_OP_KLAYTN:     // Klaytn (8217)
+    CHAIN_DOC(C4_CHAIN_OP_MAINNET, "OP Mainnet", "Proof based on preconfs and sequence signatures")    // 10
+    CHAIN_DOC(C4_CHAIN_OP_BASE, "Base", "Proof based on preconfs and sequence signatures")             // 8453
+    CHAIN_DOC(C4_CHAIN_OP_WORLDCHAIN, "Worldchain", "Proof based on preconfs and sequence signatures") // 480
+    CHAIN_DOC(C4_CHAIN_OP_ZORA, "Zora", "Proof based on preconfs and sequence signatures")             // 7777777
+    CHAIN_DOC(C4_CHAIN_OP_UNICHAIN, "Unichain", "Proof based on preconfs and sequence signatures")     // 130
+    CHAIN_DOC(C4_CHAIN_OP_INK, "Ink", "Proof based on preconfs and sequence signatures")               // 57073
+    case C4_CHAIN_OP_PGN:                                                                              // PGN (424)
+    case C4_CHAIN_OP_ORDERLY:                                                                          // Orderly Network (291)
+    case C4_CHAIN_OP_MODE:                                                                             // Mode Network (34443)
+    case C4_CHAIN_OP_FRAXTAL:                                                                          // Fraxtal (252)
+    case C4_CHAIN_OP_MANTLE:                                                                           // Mantle (5000)
+    case C4_CHAIN_OP_KLAYTN:                                                                           // Klaytn (8217)
       return C4_CHAIN_TYPE_OP;
 
-    // EEZ (Ethereum Economic Zone) chains
-    case C4_CHAIN_EEZ_ROLLUPX: // RollupX (696991)
+      // EEZ (Ethereum Economic Zone) chains
+      CHAIN_DOC(C4_CHAIN_EEZ_ROLLUPX, "RollupX", "L2 block hash proven by an L1 storage proof of the EEZ proxy") // 696991
       return C4_CHAIN_TYPE_EEZ;
 
-    case C4_CHAIN_ARB_ONE: // Arbitrum One (42161)
+      CHAIN_DOC(C4_CHAIN_ARB_ONE, "Arbitrum One", "Nitro feed signature checked against the L1 batch poster") // 42161
       return C4_CHAIN_TYPE_ARBITRUM;
+
+      CHAIN_DOC(C4_CHAIN_MAINNET, "Ethereum Mainnet", "Sync-committee signature over the beacon block") // 1
+      CHAIN_DOC(C4_CHAIN_SEPOLIA, "Sepolia", "Sync-committee signature over the beacon block")          // 11155111
+      CHAIN_DOC(C4_CHAIN_GNOSIS, "Gnosis", "Sync-committee signature over the beacon block")            // 100
+      CHAIN_DOC(C4_CHAIN_GNOSIS_CHIADO, "Chiado", "Sync-committee signature over the beacon block")     // 10200
+      CHAIN_DOC(C4_CHAIN_PLATABERGET, "Platåberget", "Sync-committee signature over the beacon block")  // 7091047534
+      return C4_CHAIN_TYPE_ETHEREUM;
 
     default:
       // Extra mapping from an `EXTRA_CHAIN` plugin or `add_chain_registration`.

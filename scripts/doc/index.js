@@ -27,6 +27,8 @@ const doc_files = [
     // adding a new chain (CMake helpers, runtime hooks, EXTRA_CHAIN)
     "chains/adding_a_chain.md",
 
+    "util/chains.c",
+
     // cli
     "cli/prover.c",
     "cli/ssz.c",
