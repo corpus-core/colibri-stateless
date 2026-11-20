@@ -217,6 +217,69 @@ fn can_promote_explicit(topic_peers: usize) -> bool {
 
 /// Inbound subscribers must not freeze discovery. We only stop dialing once
 /// enough *outbound* peers sit on a blocks topic.
+const GOSSIP_LOG_INTERVAL: Duration = Duration::from_secs(10);
+
+/// Counts gossip payloads and emits one summary every 10 seconds.
+///
+/// The window opens on the first payload. The payload that arrives once 10
+/// seconds have passed is included, then the window starts over.
+struct GossipLogWindow {
+    started: Option<Instant>,
+    messages: u64,
+    preconfs: u64,
+    last_number: u64,
+    last_hash: String,
+}
+
+impl GossipLogWindow {
+    fn new() -> Self {
+        Self {
+            started: None,
+            messages: 0,
+            preconfs: 0,
+            last_number: 0,
+            last_hash: String::new(),
+        }
+    }
+
+    /// Records one gossip payload and the preconf decoded from it, when any.
+    ///
+    /// @param now time of this payload
+    /// @param preconf block number and hash when the handler accepted the payload
+    /// @return summary line once the 10-second window has elapsed
+    fn record(&mut self, now: Instant, preconf: Option<(u64, String)>) -> Option<String> {
+        if self.started.is_none() {
+            self.started = Some(now);
+        }
+        self.messages += 1;
+        if let Some((number, hash)) = preconf {
+            self.preconfs += 1;
+            self.last_number = number;
+            self.last_hash = hash;
+        }
+        let started = self.started.expect("window opened above");
+        if now.saturating_duration_since(started) < GOSSIP_LOG_INTERVAL {
+            return None;
+        }
+        let number = if self.preconfs == 0 {
+            "-".to_string()
+        } else {
+            self.last_number.to_string()
+        };
+        let hash = if self.last_hash.is_empty() {
+            "-"
+        } else {
+            self.last_hash.as_str()
+        };
+        let summary = format!(
+            "📨 Gossip {} messages, {} preconfs, last block #{} hash={}",
+            self.messages, self.preconfs, number, hash
+        );
+        *self = Self::new();
+        Some(summary)
+    }
+}
+
 fn outbound_topic_count(topic_peers: &HashSet<PeerId>, outbound_peers: &HashSet<PeerId>) -> usize {
     topic_peers.intersection(outbound_peers).count()
 }
@@ -434,6 +497,7 @@ pub async fn run_gossip_network(
 
     let mut latest_block_number = 0u64;
     let mut last_status_block = 0u64;
+    let mut log_window = GossipLogWindow::new();
     let mut next_peer_log = 0u64;
     const STATUS_INTERVAL: u64 = 200; // Status every ~200 blocks (~6 min on OP chains)
     const PEER_LOG_SECS: u64 = 30;
@@ -581,7 +645,7 @@ pub async fn run_gossip_network(
                             ..
                         } => {
                             saw_gossip_message = true;
-                            info!(
+                            tracing::debug!(
                                 "📨 Gossip message from {} topic={} len={}",
                                 propagation_source,
                                 message.topic,
@@ -622,13 +686,18 @@ pub async fn run_gossip_network(
                         warn!(
                             "⚠️  Gossip message dropped by kona handler (decode / signer / validation)"
                         );
+                        if let Some(line) = log_window.record(Instant::now(), None) {
+                            info!("{line}");
+                        }
                     }
                     continue;
                 };
 
                 let hash = payload_envelope.payload.block_hash();
                 let number = payload_envelope.payload.block_number();
-                info!("🎉 P2P: PRECONF RECEIVED! Block #{} Hash: {}", number, hash);
+                if let Some(line) = log_window.record(Instant::now(), Some((number, hash.to_string()))) {
+                    info!("{line}");
+                }
 
                 {
                     let mut stats_guard = stats.lock().unwrap();
@@ -857,6 +926,40 @@ mod tests {
         assert!(can_promote_explicit(1));
         assert!(can_promote_explicit(MESH_TARGET));
         assert!(!can_promote_explicit(MESH_TARGET + 1));
+    }
+
+    #[test]
+    fn gossip_log_window_summarizes_every_ten_seconds() {
+        let start = Instant::now();
+        let mut window = GossipLogWindow::new();
+        assert!(window.record(start, Some((1, "0xaaa".into()))).is_none());
+        assert!(window
+            .record(start + Duration::from_secs(9), Some((2, "0xbbb".into())))
+            .is_none());
+        let line = window
+            .record(start + Duration::from_secs(10), Some((3, "0xccc".into())))
+            .expect("window closes on the payload that reaches 10 seconds");
+        assert!(line.contains("3 messages"), "{line}");
+        assert!(line.contains("3 preconfs"), "{line}");
+        assert!(line.contains("#3"), "{line}");
+        assert!(line.contains("0xccc"), "{line}");
+        assert!(window
+            .record(start + Duration::from_secs(11), None)
+            .is_none());
+    }
+
+    #[test]
+    fn gossip_log_window_reports_messages_without_a_preconf() {
+        let start = Instant::now();
+        let mut window = GossipLogWindow::new();
+        assert!(window.record(start, None).is_none());
+        let line = window
+            .record(start + Duration::from_secs(10), None)
+            .expect("the next payload after 10 seconds closes the window");
+        assert!(line.contains("2 messages"), "{line}");
+        assert!(line.contains("0 preconfs"), "{line}");
+        assert!(line.contains("#-"), "{line}");
+        assert!(line.contains("hash=-"), "{line}");
     }
 
     #[test]
