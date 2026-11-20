@@ -25,13 +25,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-// Definitionen der Chain-Konstanten
-const chain_id_t C4_CHAIN_MAINNET       = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 1);
-const chain_id_t C4_CHAIN_GNOSIS        = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 100);
-const chain_id_t C4_CHAIN_SEPOLIA       = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 11155111);
-const chain_id_t C4_CHAIN_PLATABERGET   = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 7091047534);
-const chain_id_t C4_CHAIN_GNOSIS_CHIADO = CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, 10200);
-
+// Definitionen der Chain-Konstanten. The Ethereum L1 ids are macros in chains.h
+// so they are valid case labels.
 const chain_id_t C4_CHAIN_BTC_MAINNET  = CHAIN_ID(C4_CHAIN_TYPE_BITCOIN, 0);
 const chain_id_t C4_CHAIN_BTC_TESTNET  = CHAIN_ID(C4_CHAIN_TYPE_BITCOIN, 1);
 const chain_id_t C4_CHAIN_BTC_DEVNET   = CHAIN_ID(C4_CHAIN_TYPE_BITCOIN, 2);

@@ -49,7 +49,7 @@ typedef struct c4_state c4_state_t;
  *
  * Prefer `CHAIN_ID` for new code so the high byte encodes `chain_type_t`.
  */
-#define CHAIN(id)                ((chain_id_t) ((uint64_t) id))
+#define CHAIN(id) ((chain_id_t) ((uint64_t) id))
 
 /**
  * Encodes a chain type in the top byte and the network-specific id in the lower 56 bits.
@@ -91,11 +91,17 @@ typedef enum {
 typedef uint64_t chain_id_t;
 #endif
 
-/** Well-known Ethereum L1 testnets and networks (see `chains.c` for full list). */
-extern const chain_id_t C4_CHAIN_MAINNET;
-extern const chain_id_t C4_CHAIN_SEPOLIA;
-extern const chain_id_t C4_CHAIN_GNOSIS_CHIADO;
-extern const chain_id_t C4_CHAIN_GNOSIS;
+/**
+ * Ethereum L1 networks as integer constant expressions, so `c4_chain_type()` can use them as `case` labels.
+ *
+ * `C4_CHAIN_TYPE_ETHEREUM` is 0, so `CHAIN(id)` is the same value as the previous
+ * `CHAIN_ID(C4_CHAIN_TYPE_ETHEREUM, id)` objects. Other networks stay `extern const` in `chains.c`.
+ */
+#define C4_CHAIN_MAINNET       CHAIN(1)
+#define C4_CHAIN_SEPOLIA       CHAIN(11155111)
+#define C4_CHAIN_GNOSIS        CHAIN(100)
+#define C4_CHAIN_GNOSIS_CHIADO CHAIN(10200)
+#define C4_CHAIN_PLATABERGET   CHAIN(7091047534)
 
 #define C4_CHAIN_OP_MAINNET    CHAIN(10)
 #define C4_CHAIN_OP_BASE       CHAIN(8453)
@@ -141,7 +147,6 @@ extern const chain_id_t C4_CHAIN_BOLT_TESTNET;
 extern const chain_id_t C4_CHAIN_BOLT_DEVNET;
 extern const chain_id_t C4_CHAIN_BOLT_STAGING;
 extern const chain_id_t C4_CHAIN_BOLT_MAINNET;
-extern const chain_id_t C4_CHAIN_PLATABERGET;
 
 /**
  * Generic chain properties (extensible).
