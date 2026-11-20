@@ -26,6 +26,7 @@ const doc_files = [
 
     // adding a new chain (CMake helpers, runtime hooks, EXTRA_CHAIN)
     "chains/adding_a_chain.md",
+    "chains/arb/doc.md",
 
     "util/chains.c",
 

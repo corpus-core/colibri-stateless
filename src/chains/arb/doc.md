@@ -1,4 +1,4 @@
-# Arbitrum One: Block Verification Strategy for colibri-stateless
+: Arbitrum
 
 Status: draft, 2026-11-16 (rev 6: signer validity window on the existing freshness gate)
 Scope: how a colibri verifier establishes trust in an Arbitrum One (chain id 42161) block hash, and what differs from Ethereum mainnet once the block hash is trusted.
@@ -23,7 +23,7 @@ Items marked **[verify]** were not confirmed against source or chain while writi
 
 ---
 
-## 1. Background
+## Background
 
 Arbitrum One has a single sequencer. For each sequenced message it produces exactly one L2 block and publishes the message on a WebSocket feed (`wss://arb1.arbitrum.io/feed`) before the data reaches L1. Later the batch poster posts compressed batches to the `SequencerInbox` on L1, and validators post assertions about the resulting state to the rollup contract, which are confirmed after the challenge period.
 
@@ -37,9 +37,9 @@ L1 batches alone do not help a stateless verifier: they commit to inputs, not to
 
 ---
 
-## 2. Milestone 1: sequencer feed signature
+:: M1 sequencer feed signature
 
-### 2.1 What the sequencer signs
+## 2.1 What the sequencer signs
 
 Source of truth: `BroadcastFeedMessage.SignatureHash` in Nitro, `broadcaster/message/message.go`. The reimplementation in `arb-feed-sigs.js` reproduces Nitro's test vector and recovers one stable signer on live Arbitrum One traffic.
 
@@ -95,7 +95,7 @@ Two consequences for the proof format:
 - The digest cannot be computed without the full message, including `l2Msg` (all transactions of the block; 5.4 kB in the sample above). The proof size is therefore about one block of transactions, comparable to the OP-Stack payload proof.
 - Fields 1 to 4 are fully determined by the verifier's chain config and the L2 header. Everything from field 5 on is opaque to the block hash check.
 
-### 2.2 Proof format: `arbFeedProof`
+## Proof format: `arbFeedProof`
 
 New variant appended to `ETH_EL_PROOF_UNION` at index 6. Existing indices stay frozen.
 
@@ -130,7 +130,7 @@ Design decisions:
 - **Reuse of `ETH_SEQUENCER_PAYLOAD_UNION`** for optional ZSTD compression, as with OP-Stack.
 - **No signer material in the block proof.** The proof of who may sign travels in `sync_data` of the `C4Request`, exactly like sync committee updates (2.4). A block proof stays small and cacheable.
 
-### 2.3 Verification algorithm
+## Verification algorithm
 
 Input: chain config (`chainId`, `genesisBlock = 22207817`, trusted signer set, `SequencerInbox` address), proof.
 
@@ -147,7 +147,7 @@ Optional freshness check for `latest`: reject if the header timestamp is older t
 
 Worked example (first message of the capture): `seq = 502600783`, `number = 524808600`, `blockHash = 0xc71d…2e73`, tail = `0x0000 | be64(2621089) | 0x03 | a4b0…6572 | be64(26428992) | be64(1794849013) | (no requestId) | (empty base fee) | l2Msg`. Recovered signer: `0xC1b634853Cb333D3aD8663715b08f41A3Aec47cc`.
 
-### 2.4 Which signer is the right one
+## Which signer is the right one
 
 The feed is signed with the batch poster's L1 wallet key: in Nitro, the feed's `dataSigner` is opened from `node.batch-poster.parent-chain-wallet`. `0xC1b634853Cb333D3aD8663715b08f41A3Aec47cc` is the address that submits Arbitrum One batches to the `SequencerInbox` (`0x1c479675ad559DC151F6Ec7ed3FbF8ceE79582B6`) and is labelled "Arbitrum: Batch Submitter" on Etherscan.
 
@@ -217,7 +217,7 @@ Rule: **a signer is trusted only until `l1ProofTime + W`**, where `l1ProofTime` 
 - **The check applies to every `arbFeedProof`, not only to `latest`.** For `latest`, the existing gate plus `header.timestamp <= l1ProofTime + W` would already be enough, because the header must be fresh and inside the signer's lifetime at once. For an explicit block number the freshness gate does not run, and an attacker holding a removed key could back-date the header of a forged block into the signer's lifetime. Comparing the deadline with `min_latest_block_ts` directly closes that, independent of the block tag and of the attacker-chosen header timestamp.
 - **If the host disables the gate** (`min_latest_block_ts == 0`), the verifier has no time reference and cannot expire a signer. This should be documented as an explicit downgrade, and the EEZ-style exception inside `eth_check_latest_freshness` must not be extended to Arbitrum.
 
-### 2.5 Prover (remote proof) design
+## Prover (remote proof) design
 
 The feed is a stream and cannot be queried per block, so M1 needs the remote prover.
 
@@ -243,7 +243,7 @@ The feed is a stream and cannot be queried per block, so M1 needs the remote pro
 
 ---
 
-## 3. Milestone 2: L1 anchor (design sketch)
+:: M2: L1 anchor (design sketch)
 
 When an assertion is confirmed, the rollup contract calls `Outbox.updateSendRoot(sendRoot, l2BlockHash)`, which stores
 
@@ -274,11 +274,11 @@ Outlook: Offchain Labs is working on ZK settlement (SP1 proofs plus committee at
 
 ---
 
-## 4. Milestone 4: historic blocks
+:: M4: historic blocks
 
 Milestone 1 proves the head and the ring buffer behind it, about 27 hours. Everything older is a milestone of its own, described here. It builds on Milestone 1 and is independent of Milestones 2 and 3; the numbers do not fix an order.
 
-### 4.1 Trust principle: ancestry, not old signatures
+## Trust principle: ancestry, not old signatures
 
 A stored checkpoint was signed by the key that was valid at the time. Trusting that signature later is wrong once the key has been rotated: the verifier only knows the current signer, and it must not accept "was a batch poster at some earlier L1 block", because a retired key that leaks afterwards could sign arbitrary old blocks.
 
@@ -305,7 +305,7 @@ Two ways to deliver that chain:
 
 The hop chain is the baseline and the fallback. The ZK variant is the same statement, compressed.
 
-### 4.2 Server data: block hash log and checkpoints
+## Server data: block hash log and checkpoints
 
 **A. Block hash log.** A flat, append-only file with 32 bytes per L2 block, indexed by block number. It is fed from the feed, which delivers every block hash for free. Cost: 4 blocks/s, about 12.6 MB per 27 h, about 4 GB per year.
 
@@ -346,7 +346,7 @@ The server rebuilds the trie from the log and compares `root` with the `storageH
 - On request, the trie of a checkpoint is rebuilt from the log and kept in an LRU cache; storage proofs for any slot are cut from it.
 - **Backfill.** Because old checkpoints need no signature, history from before the server existed can be added later from an archive node (headers, account proofs, block hashes), back to the block where the history contract went live with ArbOS 40.
 
-### 4.3 ZK re-anchoring
+## ZK re-anchoring
 
 **Statement.** An SP1 program takes the hops from an anchor `A` back through all checkpoints and proves:
 
@@ -387,7 +387,7 @@ A verifier that has seen the anchor once can cache its hash, so repeated histori
 
 **Between rotation and proof.** Proving takes time. Until the new proof exists, historic requests are answered with a temporary `NotAvailable` error; rotations are rare and the gap is short. A configurable limit caps how far back proofs are built at all, which bounds the cost of a re-anchoring.
 
-### 4.4 Relation to the L1 anchor
+## Relation to the L1 anchor
 
 Milestone 2 offers a second, signer-independent route to history: `Outbox.roots` keeps the block hash of every confirmed assertion, so a block older than the challenge period can be proven with one L1 proof and one EIP-2935 hop, without ZK and with L1 as trust base. It needs the same block hash log, plus the account proof of the history contract captured for each assertion block.
 
@@ -397,11 +397,12 @@ Consequences for planning:
 - If history is wanted before Milestone 2, or without any dependency on L1 proofs, ZK re-anchoring is the way to keep proofs small.
 - Both routes can coexist: L1 for `finalized`-grade history, the ancestry chain for the recent week and as fallback.
 
----
 
-## 5. Execution layer: what differs from Ethereum mainnet
+:: Arbitrum Features
 
-### 5.1 Block header
+## Execution layer: what differs from Ethereum mainnet
+
+### Block header
 
 Hashing is standard: `blockHash = keccak256(rlp(header))`. `stateRoot`, `transactionsRoot`, `receiptsRoot`, `number` and `timestamp` sit where they do on mainnet. Repurposed fields:
 
@@ -418,7 +419,7 @@ Other points:
 - Block numbers below 22207817 are pre-Nitro ("classic") and out of scope.
 - `header.timestamp` need not equal the feed message timestamp **[verify]**; the verifier takes time from the header only.
 
-### 5.2 Transactions
+### Transactions
 
 Additional typed transactions exist next to 0x00, 0x01, 0x02 and 0x04. Blob transactions (0x03) are not accepted on L2.
 
@@ -434,17 +435,17 @@ Additional typed transactions exist next to 0x00, 0x01, 0x02 and 0x04. Blob tran
 
 Impact on colibri: transaction proofs must decode these types for `eth_getTransactionBy*` (hash = `keccak256(type || rlp(fields))`), and sender recovery does not apply to 0x64 to 0x6a, where the sender is a field of the transaction. The transaction trie itself is a standard MPT keyed by `rlp(index)`.
 
-### 5.3 Receipts and logs
+### Receipts and logs
 
 The receipts trie is a standard MPT. `gasUsed` includes the L1 data component. RPC-only fields such as `gasUsedForL1` and `l1BlockNumber` are not part of the consensus receipt and cannot be proven from `receiptsRoot` **[verify with test vectors, including the newer multi-gas fields]**. Log proofs work as on mainnet.
 
-### 5.4 State and `eth_getProof`
+### State and `eth_getProof`
 
 Accounts and storage use the standard MPT with the standard account encoding, and Nitro nodes serve `eth_getProof`. ArbOS keeps its own state in the storage of a reserved account (`0xA4B05FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF`), which is provable like any other storage.
 
 Operational note: with four blocks per second, a node's recent-state window covers little wall-clock time. The prover should take account proofs at the signed head and needs archive state for anything older.
 
-### 5.5 EVM semantics (relevant for verified `eth_call` and simulation)
+### EVM semantics (relevant for verified `eth_call` and simulation)
 
 - `NUMBER` returns an approximation of the L1 block number (`l1BlockNumber` from `mixHash`), not the L2 block number. `BLOCKHASH` follows the same L1-oriented numbering and is not a real L1 hash. L2 values come from `ArbSys.arbBlockNumber()` and `arbBlockHash()`.
 - `COINBASE`, `DIFFICULTY`/`PREVRANDAO` (constant 1) and `BLOBBASEFEE` differ from mainnet **[verify exact values per ArbOS version]**.
@@ -454,11 +455,11 @@ Operational note: with four blocks per second, a node's recent-state window cove
 - **Gas** is two-dimensional: L2 execution plus an L1 data fee charged in L2 gas units. `eth_estimateGas` and exact gas accounting in simulation need the ArbOS pricing state. The base fee is set by ArbOS, not by EIP-1559's formula, and priority fees are normally not paid out.
 - **Hard forks** are ArbOS versions (in `mixHash`), activated by on-chain governance, not by timestamp tables. The EVM rule set must be chosen from the ArbOS version of the header.
 
-### 5.6 RPC tags
+### RPC tags
 
 `latest` is the sequencer head, `safe` the newest block whose batch is on L1, `finalized` the same at a finalized L1 block. These are node-local derivations from L1 data and have no header field.
 
-### 5.7 Stylus (WASM) contracts
+### Stylus (WASM) contracts
 
 colibri executes `eth_call` with evmone on storage values embedded in the proof. For EVM contracts on Arbitrum this works as on mainnet, with the host adjustments from 4.5. Stylus contracts share the same state (account, code hash, storage trie, ABI, logs) but are executed by a different engine, which evmone does not provide.
 
@@ -485,7 +486,7 @@ Consequences:
 
 ---
 
-## 6. Comparison with existing colibri L2 paths
+## Comparison with existing colibri L2 paths
 
 | | OP-Stack (`sequencerProof`) | EEZ (`eezL1Proof`) | Arbitrum M1 (`arbFeedProof`) | Arbitrum M2 (`arbL1Proof`) |
 |---|---|---|---|---|
@@ -497,55 +498,55 @@ Consequences:
 
 ---
 
-## 7. Security considerations and risks
+## Security considerations and risks
 
-### 7.1 Trust model of M1
+### Trust model of M1
 
 The verifier trusts one key held by the sequencer operator. That is the trust every Arbitrum RPC user already places in the chain's soft finality, minus the trust in the RPC provider: a provider can withhold, but cannot forge. It is weaker than mainnet verification (sync committee) and weaker than M2.
 
-### 7.2 Sequencer equivocation and reorgs
+### Sequencer equivocation and reorgs
 
 The sequencer can sign two different blocks for one sequence number, by fault, failover or malice, and both signatures verify. Nothing on the feed makes this slashable. Until the batch is on L1 and the assertion confirmed, an M1-verified block is a promise. Mitigations: document the finality level, expose it in the API, let applications that move value wait for M2-grade proofs or compare the M1 chain against the latest L1 anchor (the anchored block must be an ancestor, checkable through `eip2935`).
 
-### 7.3 Key compromise and rotation
+### Key compromise and rotation
 
 The feed key is the batch poster's hot wallet, an online key that also signs L1 transactions. If it leaks, an attacker can sign arbitrary block hashes until the address is removed from `isBatchPoster`. A verifier does not see the removal by itself, and an attacker holding the removed key can keep serving it old-key signatures, which is most dangerous for verifiers that were offline for a long time. The signer validity window in 2.4 bounds this: a signer is trusted for at most `W` (default 27 h) past the timestamp of its last L1 proof, and a replayed proof cannot extend that. A legitimate rotation without the L1 path would break all deployed verifiers, which is the second reason to implement it in M1 and not later. Historic blocks are never authenticated by an old signature but as ancestors of a block signed by the current signer (4.1).
 
-### 7.4 Messages without block hash, and field ambiguity
+### Messages without block hash, and field ambiguity
 
 The digest is a flat concatenation with two variable-length fields and an optional `blockHash`. A third party cannot forge signatures but could try to re-interpret a genuine one, in particular a message signed without `blockHash`, where the bytes after `sequenceNumber` are `blockMetadata | delayedMessagesRead | …`. The verifier always places `keccak256(elHeader)` at that position. For the digests to match, the attacker needs a header whose hash equals 32 bytes of structured message data, a keccak preimage. The construction is safe under preimage resistance; no extra check is needed. The chain id and prefix prevent replay across chains and across other uses of the key (L1 transactions sign RLP with a different structure).
 
-### 7.5 Stale `latest`
+### Stale `latest`
 
 A prover can serve an old but correctly signed block as `latest`; signatures do not expire. colibri's existing gate covers this: `eth_check_latest_freshness` rejects a `latest` proof whose header timestamp is below `ctx->min_latest_block_ts`. It works for Arbitrum unchanged, since the timestamp comes from the verified header. With blocks every 250 ms the host can choose a much tighter bound than on mainnet. The gate is off when the host passes 0; the same value serves as the clock for the signer validity window (2.4).
 
-### 7.6 Availability
+### Availability
 
 The feed is a single service run by the operator. If it is down, lagging or rate-limited, M1 proofs stop while the chain may continue. Fallbacks in order: other feed relays, `witnessProof` once implemented, M2. Liveness also depends on the prover's L2 node keeping up with the feed.
 
-### 7.7 Format stability
+### Format stability
 
 `signatureV2` replaced an earlier `signature` field with a different preimage. Nitro's source warns that changing `SignatureHash` breaks older clients, so changes are unlikely to be silent, but a future V3 is possible. The opaque tail tolerates appended fields; a change before `blockHash` or to the prefix needs a new proof variant. The prover should alert when recovery stops yielding the known signer.
 
-### 7.8 Trust base of M2 and of the signer proof
+### Trust base of M2 and of the signer proof
 
 Both rely on upgradeable L1 contracts. Arbitrum One is a Stage 1 rollup: the Security Council can upgrade contracts, replace batch posters and, in an emergency, act without delay. Contract addresses and storage slots are part of colibri's chain config and must be re-validated after Arbitrum governance upgrades. The M2 anchor additionally assumes at least one honest, live validator during the challenge period.
 
-### 7.9 EIP-2935 chain
+### EIP-2935 chain
 
 Blocks reached through the history contract inherit the trust of the block they are proven against. An M1 head therefore puts up to 27 hours of history under sequencer trust, even though most of it may already be posted to L1. Historic proofs of Milestone 4 extend this: all history hangs on one anchor signed by the current signer, plus the soundness of the ZK proof where one is used.
 
-### 7.10 Proof size and DoS
+### Proof size and DoS
 
 Message size is bounded by Nitro's limits, but the SSZ bound of `ETH_SEQUENCER_PAYLOAD_UNION` is 1 GiB. Embedded verifiers should enforce their own cap and bound the ZSTD output size before decompressing.
 
-### 7.11 Execution-layer gaps
+### Execution-layer gaps
 
 Rejecting what cannot be verified is safer than approximating it: calls into Stylus contracts, calls touching unimplemented ArbOS precompiles and `NodeInterface` results fail closed with `NotSupported` instead of returning unverified data. The Stylus check sits on every call target inside the host, because an EVM contract can reach Stylus code at any call depth (5.7).
 
 ---
 
-## 8. Implementation plan
+:: Implementation plan
 
 **Milestone 1**
 
@@ -590,9 +591,7 @@ Risks specific to this milestone: bit-exact metering is the largest piece of wor
 6. Server: re-anchoring job triggered by a signer change; fallback behaviour while the proof is being built.
 7. Backfill of checkpoints from an archive node, back to ArbOS 40.
 
----
-
-## 9. Open items to verify
+## Open items to verify
 
 - Deployed storage layout of `SequencerInbox` (slots 3 and 9) and `Outbox` (slot 3) behind their proxies.
 - Outbox and rollup addresses for Arbitrum One; challenge period and assertion interval.
@@ -615,7 +614,7 @@ Risks specific to this milestone: bit-exact metering is the largest piece of wor
 
 ---
 
-## 10. Sources
+## Sources
 
 - Nitro, feed message and signature hash: https://github.com/OffchainLabs/nitro/blob/master/broadcaster/message/message.go
 - Nitro, signature test vector: https://github.com/OffchainLabs/nitro/blob/master/broadcaster/message/message_signature_test.go
