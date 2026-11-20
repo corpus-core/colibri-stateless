@@ -128,10 +128,24 @@ function add_rpc(file, line, sections, comment) {
 
 }
 
-// CHAIN_DOC(id, "Name", "comment") is a case label. The following
+// `case ID: CHAIN_DOC("Name", "comment")`, also when a formatter puts
+// `CHAIN_DOC` on the following line. The case label stays in the source
+// because MSVC rejects a macro argument as a case constant. The following
 // `return C4_CHAIN_TYPE_*` is the chain family for every doc entry since the
-// previous return. Name and comment are published; the numeric id is resolved
-// from chains.h / chains.c and the prover from chain_defaults/chains.json.
+// previous return. The numeric id is resolved from chains.h / chains.c and
+// the prover from chain_defaults/chains.json.
+function push_chain_doc(section, idSymbol, name, comment) {
+    const entry = {
+        id_symbol: idSymbol,
+        name,
+        comment,
+        chain_type: null,
+    }
+    section.chains.push(entry)
+    section.chain_docs_pending.push(entry)
+    section.pending_case_symbol = null
+}
+
 function add_chain_doc(line, sections) {
     let section = sections.at(-1)
     if (!section) return false
@@ -139,24 +153,27 @@ function add_chain_doc(line, sections) {
     if (!section.chain_docs_pending) section.chain_docs_pending = []
 
     if (!line.includes('#define')) {
-        const doc = line.match(/CHAIN_DOC\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*,\s*"([^"]*)"\s*,\s*"([^"]*)"\s*\)/)
-        if (doc) {
-            const entry = {
-                id_symbol: doc[1],
-                name: doc[2],
-                comment: doc[3],
-                chain_type: null,
-            }
-            section.chains.push(entry)
-            section.chain_docs_pending.push(entry)
+        const sameLine = line.match(/case\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*CHAIN_DOC\(\s*"([^"]*)"\s*,\s*"([^"]*)"\s*\)/)
+        if (sameLine) {
+            push_chain_doc(section, sameLine[1], sameLine[2], sameLine[3])
             return true
         }
+        const docOnly = line.match(/CHAIN_DOC\(\s*"([^"]*)"\s*,\s*"([^"]*)"\s*\)/)
+        if (docOnly) {
+            if (!section.pending_case_symbol)
+                throw new Error('CHAIN_DOC is not attached to a case label: ' + line.trim())
+            push_chain_doc(section, section.pending_case_symbol, docOnly[1], docOnly[2])
+            return true
+        }
+        const caseOnly = line.match(/case\s+([A-Za-z_][A-Za-z0-9_]*)\s*:/)
+        if (caseOnly) section.pending_case_symbol = caseOnly[1]
     }
 
     const returned = line.match(/return\s+(C4_CHAIN_TYPE_[A-Z0-9_]+)\s*;/)
     if (returned && section.chain_docs_pending.length) {
         for (const entry of section.chain_docs_pending) entry.chain_type = returned[1]
         section.chain_docs_pending = []
+        section.pending_case_symbol = null
         return true
     }
     return false
@@ -564,7 +581,7 @@ function create_chain_table(section, chainIds, defaults, documentedIds) {
     for (const row of rows) {
         const typeLabel = CHAIN_TYPE_LABEL[row.chain_type] || row.chain_type
         section.content.push('    <tr>')
-        section.content.push(`      <td>${html_escape(row.name)}</td>`)
+        section.content.push(`      <td><strong>${html_escape(row.name)}</strong> (${row.id})</td>`)
         section.content.push(`      <td>${html_escape(typeLabel)}</td>`)
         section.content.push(`      <td>${prover_links(row.spec)}</td>`)
         section.content.push(`      <td>${html_escape(row.comment)}</td>`)

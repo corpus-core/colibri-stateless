@@ -84,20 +84,21 @@ static bool is_builtin_chain_id(chain_id_t id) {
          // here so a plugin cannot override them through the registry either.
          || id == C4_CHAIN_OP_MAINNET || id == C4_CHAIN_OP_BASE || id == C4_CHAIN_OP_WORLDCHAIN || id == C4_CHAIN_OP_ZORA || id == C4_CHAIN_OP_UNICHAIN || id == C4_CHAIN_OP_INK || id == C4_CHAIN_OP_PGN || id == C4_CHAIN_OP_ORDERLY || id == C4_CHAIN_OP_MODE || id == C4_CHAIN_OP_FRAXTAL || id == C4_CHAIN_OP_MANTLE || id == C4_CHAIN_OP_KLAYTN || id == C4_CHAIN_ARB_ONE || id == C4_CHAIN_EEZ_ROLLUPX;
 }
-// The table lists every `CHAIN_DOC` entry in `c4_chain_type` whose numeric id
-// is also registered in `scripts/chain_defaults/chains.json`. That file is what
-// the bindings ship, so a chain appears here only once clients can select it
-// without extra configuration. The prover column is taken from that file.
-//
-
-// `name` and `comment` are documentation only. The macro expands to the case
-// label; `scripts/doc/parse_defs.js` reads the two strings for the GitBook table.
+// `name` and `comment` are documentation only. The case label stays in the
+// source: MSVC does not accept a macro argument as a case constant (C2051)
+// when the id is a `const` object. `scripts/doc/parse_defs.js` reads the two
+// strings for the GitBook table.
+#define CHAIN_DOC(name, comment)
 
 // : Supported chains
 //
 // Colibri currently supports those EVM L1 or L2-Chains:
 //
-#define CHAIN_DOC(id, name, comment) case id:
+// The table lists every `CHAIN_DOC` entry in `c4_chain_type` whose numeric id
+// is also registered in `scripts/chain_defaults/chains.json`. That file is what
+// the bindings ship, so a chain appears here only once clients can select it
+// without extra configuration. The prover column is taken from that file.
+//
 
 chain_type_t c4_chain_type(chain_id_t chain_id) {
   // OP Stack chains - use switch for better performance.
@@ -106,32 +107,35 @@ chain_type_t c4_chain_type(chain_id_t chain_id) {
   // overview requires. Arbitrum One is mapped here; its published section
   // lands with the feed proof.
   switch (chain_id) {
-    CHAIN_DOC(C4_CHAIN_OP_MAINNET, "OP Mainnet", "Proof based on preconfs and sequence signatures")    // 10
-    CHAIN_DOC(C4_CHAIN_OP_BASE, "Base", "Proof based on preconfs and sequence signatures")             // 8453
-    CHAIN_DOC(C4_CHAIN_OP_WORLDCHAIN, "Worldchain", "Proof based on preconfs and sequence signatures") // 480
-    CHAIN_DOC(C4_CHAIN_OP_ZORA, "Zora", "Proof based on preconfs and sequence signatures")             // 7777777
-    CHAIN_DOC(C4_CHAIN_OP_UNICHAIN, "Unichain", "Proof based on preconfs and sequence signatures")     // 130
-    CHAIN_DOC(C4_CHAIN_OP_INK, "Ink", "Proof based on preconfs and sequence signatures")               // 57073
-    case C4_CHAIN_OP_PGN:                                                                              // PGN (424)
-    case C4_CHAIN_OP_ORDERLY:                                                                          // Orderly Network (291)
-    case C4_CHAIN_OP_MODE:                                                                             // Mode Network (34443)
-    case C4_CHAIN_OP_FRAXTAL:                                                                          // Fraxtal (252)
-    case C4_CHAIN_OP_MANTLE:                                                                           // Mantle (5000)
-    case C4_CHAIN_OP_KLAYTN:                                                                           // Klaytn (8217)
+    case C4_CHAIN_OP_MAINNET: CHAIN_DOC("OP Mainnet", "Proof based on preconfs and sequence signatures")    // 10
+    case C4_CHAIN_OP_BASE: CHAIN_DOC("Base", "Proof based on preconfs and sequence signatures")             // 8453
+    case C4_CHAIN_OP_WORLDCHAIN: CHAIN_DOC("Worldchain", "Proof based on preconfs and sequence signatures") // 480
+    case C4_CHAIN_OP_ZORA: CHAIN_DOC("Zora", "Proof based on preconfs and sequence signatures")             // 7777777
+    case C4_CHAIN_OP_UNICHAIN: CHAIN_DOC("Unichain", "Proof based on preconfs and sequence signatures")     // 130
+    case C4_CHAIN_OP_INK: CHAIN_DOC("Ink", "Proof based on preconfs and sequence signatures")               // 57073
+    case C4_CHAIN_OP_PGN:                                                                                   // PGN (424)
+    case C4_CHAIN_OP_ORDERLY:                                                                               // Orderly Network (291)
+    case C4_CHAIN_OP_MODE:                                                                                  // Mode Network (34443)
+    case C4_CHAIN_OP_FRAXTAL:                                                                               // Fraxtal (252)
+    case C4_CHAIN_OP_MANTLE:                                                                                // Mantle (5000)
+    case C4_CHAIN_OP_KLAYTN:                                                                                // Klaytn (8217)
       return C4_CHAIN_TYPE_OP;
 
-      // EEZ (Ethereum Economic Zone) chains
-      CHAIN_DOC(C4_CHAIN_EEZ_ROLLUPX, "RollupX", "L2 block hash proven by an L1 storage proof of the EEZ proxy") // 696991
+    // EEZ (Ethereum Economic Zone) chains
+    case C4_CHAIN_EEZ_ROLLUPX:
+      CHAIN_DOC("RollupX", "L2 block hash proven by an L1 storage proof of the EEZ proxy") // 696991
       return C4_CHAIN_TYPE_EEZ;
 
-      CHAIN_DOC(C4_CHAIN_ARB_ONE, "Arbitrum One", "Nitro feed signature checked against the L1 batch poster") // 42161
+    case C4_CHAIN_ARB_ONE:
+      CHAIN_DOC("Arbitrum One", "Nitro feed signature checked against the L1 batch poster") // 42161
       return C4_CHAIN_TYPE_ARBITRUM;
 
-      CHAIN_DOC(C4_CHAIN_MAINNET, "Ethereum Mainnet", "Sync-committee signature over the beacon block") // 1
-      CHAIN_DOC(C4_CHAIN_SEPOLIA, "Sepolia", "Sync-committee signature over the beacon block")          // 11155111
-      CHAIN_DOC(C4_CHAIN_GNOSIS, "Gnosis", "Sync-committee signature over the beacon block")            // 100
-      CHAIN_DOC(C4_CHAIN_GNOSIS_CHIADO, "Chiado", "Sync-committee signature over the beacon block")     // 10200
-      CHAIN_DOC(C4_CHAIN_PLATABERGET, "Platåberget", "Sync-committee signature over the beacon block")  // 7091047534
+    case C4_CHAIN_MAINNET: CHAIN_DOC("Ethereum Mainnet", "Sync-committee signature over the beacon block") // 1
+    case C4_CHAIN_SEPOLIA: CHAIN_DOC("Sepolia", "Sync-committee signature over the beacon block")          // 11155111
+    case C4_CHAIN_GNOSIS: CHAIN_DOC("Gnosis", "Sync-committee signature over the beacon block")            // 100
+    case C4_CHAIN_GNOSIS_CHIADO: CHAIN_DOC("Chiado", "Sync-committee signature over the beacon block")     // 10200
+    case C4_CHAIN_PLATABERGET:
+      CHAIN_DOC("Platåberget", "Sync-committee signature over the beacon block") // 7091047534
       return C4_CHAIN_TYPE_ETHEREUM;
 
     default:
