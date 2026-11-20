@@ -32,6 +32,26 @@ static bool c4_default_chain_id_from_name(const char* name, chain_id_t* out) {
     *out = 42161ULL;
     return true;
   }
+  if (strcmp(name, "base") == 0 || strcmp(name, "0x2105") == 0) {
+    *out = 8453ULL;
+    return true;
+  }
+  if (strcmp(name, "optimism") == 0 || strcmp(name, "op") == 0 || strcmp(name, "op-mainnet") == 0 || strcmp(name, "0xa") == 0) {
+    *out = 10ULL;
+    return true;
+  }
+  if (strcmp(name, "unichain") == 0 || strcmp(name, "0x82") == 0) {
+    *out = 130ULL;
+    return true;
+  }
+  if (strcmp(name, "zora") == 0 || strcmp(name, "0x76adf1") == 0) {
+    *out = 7777777ULL;
+    return true;
+  }
+  if (strcmp(name, "ink") == 0 || strcmp(name, "0xdef1") == 0) {
+    *out = 57073ULL;
+    return true;
+  }
   return false;
 }
 
@@ -51,6 +71,16 @@ static const char* c4_default_chain_config_json(chain_id_t chain_id) {
       return "{\"eth_rpc\":[\"https://rollupx.colibri-proof.tech/execution\",\"https://rollupx.eez.dev/rpc/l2\"],\"beacon_api\":[\"https://mainnet.colibri-proof.tech/consensus\"],\"checkpointz\":[\"https://mainnet.colibri-proof.tech/consensus\"],\"prover\":[\"https://rollupx.colibri-proof.tech\"]}";
     case 42161ULL: // arbitrum
       return "{\"eth_rpc\":[\"https://arbitrum.colibri-proof.tech/execution\",\"https://arb1.arbitrum.io/rpc\",\"https://arbitrum-one-rpc.publicnode.com\"],\"beacon_api\":[\"https://mainnet.colibri-proof.tech/consensus\",\"https://gateway.tenderly.co/public/mainnet\",\"https://ethereum-beacon-api.publicnode.com\"],\"checkpointz\":[\"https://sync-mainnet.beaconcha.in\",\"https://mainnet.checkpoint.sigp.io\"],\"prover\":[\"https://arbitrum.colibri-proof.tech\"]}";
+    case 8453ULL: // base
+      return "{\"eth_rpc\":[\"https://base.colibri-proof.tech/execution\",\"https://mainnet.base.org\",\"https://base-rpc.publicnode.com\"],\"beacon_api\":[\"https://mainnet.colibri-proof.tech/consensus\"],\"checkpointz\":[\"https://mainnet.colibri-proof.tech/consensus\"],\"prover\":[\"https://base.colibri-proof.tech\"]}";
+    case 10ULL: // optimism
+      return "{\"eth_rpc\":[\"https://optimism.colibri-proof.tech/execution\",\"https://mainnet.optimism.io\",\"https://optimism-rpc.publicnode.com\"],\"beacon_api\":[\"https://mainnet.colibri-proof.tech/consensus\"],\"checkpointz\":[\"https://mainnet.colibri-proof.tech/consensus\"],\"prover\":[\"https://optimism.colibri-proof.tech\"]}";
+    case 130ULL: // unichain
+      return "{\"eth_rpc\":[\"https://unichain.colibri-proof.tech/execution\",\"https://mainnet.unichain.org\",\"https://unichain-rpc.publicnode.com\"],\"beacon_api\":[\"https://mainnet.colibri-proof.tech/consensus\"],\"checkpointz\":[\"https://mainnet.colibri-proof.tech/consensus\"],\"prover\":[\"https://unichain.colibri-proof.tech\"]}";
+    case 7777777ULL: // zora
+      return "{\"eth_rpc\":[\"https://zora.colibri-proof.tech/execution\",\"https://rpc.zora.energy\"],\"beacon_api\":[\"https://mainnet.colibri-proof.tech/consensus\"],\"checkpointz\":[\"https://mainnet.colibri-proof.tech/consensus\"],\"prover\":[\"https://zora.colibri-proof.tech\"]}";
+    case 57073ULL: // ink
+      return "{\"eth_rpc\":[\"https://ink.colibri-proof.tech/execution\",\"https://rpc-gel.inkonchain.com\"],\"beacon_api\":[\"https://mainnet.colibri-proof.tech/consensus\"],\"checkpointz\":[\"https://mainnet.colibri-proof.tech/consensus\"],\"prover\":[\"https://ink.colibri-proof.tech\"]}";
     default:
       return NULL;
   }

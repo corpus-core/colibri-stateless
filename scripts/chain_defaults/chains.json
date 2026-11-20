@@ -190,6 +190,121 @@
       "prover": [
         "https://arbitrum.colibri-proof.tech"
       ]
+    },
+    {
+      "id": 8453,
+      "name": "base",
+      "aliases": [
+        "base",
+        "0x2105"
+      ],
+      "pollingInterval": 200,
+      "eth_rpc": [
+        "https://base.colibri-proof.tech/execution",
+        "https://mainnet.base.org",
+        "https://base-rpc.publicnode.com"
+      ],
+      "beacon_api": [
+        "https://mainnet.colibri-proof.tech/consensus"
+      ],
+      "checkpointz": [
+        "https://mainnet.colibri-proof.tech/consensus"
+      ],
+      "prover": [
+        "https://base.colibri-proof.tech"
+      ]
+    },
+    {
+      "id": 10,
+      "name": "optimism",
+      "aliases": [
+        "optimism",
+        "op",
+        "op-mainnet",
+        "0xa"
+      ],
+      "pollingInterval": 2000,
+      "eth_rpc": [
+        "https://optimism.colibri-proof.tech/execution",
+        "https://mainnet.optimism.io",
+        "https://optimism-rpc.publicnode.com"
+      ],
+      "beacon_api": [
+        "https://mainnet.colibri-proof.tech/consensus"
+      ],
+      "checkpointz": [
+        "https://mainnet.colibri-proof.tech/consensus"
+      ],
+      "prover": [
+        "https://optimism.colibri-proof.tech"
+      ]
+    },
+    {
+      "id": 130,
+      "name": "unichain",
+      "aliases": [
+        "unichain",
+        "0x82"
+      ],
+      "pollingInterval": 1000,
+      "eth_rpc": [
+        "https://unichain.colibri-proof.tech/execution",
+        "https://mainnet.unichain.org",
+        "https://unichain-rpc.publicnode.com"
+      ],
+      "beacon_api": [
+        "https://mainnet.colibri-proof.tech/consensus"
+      ],
+      "checkpointz": [
+        "https://mainnet.colibri-proof.tech/consensus"
+      ],
+      "prover": [
+        "https://unichain.colibri-proof.tech"
+      ]
+    },
+    {
+      "id": 7777777,
+      "name": "zora",
+      "aliases": [
+        "zora",
+        "0x76adf1"
+      ],
+      "pollingInterval": 2000,
+      "eth_rpc": [
+        "https://zora.colibri-proof.tech/execution",
+        "https://rpc.zora.energy"
+      ],
+      "beacon_api": [
+        "https://mainnet.colibri-proof.tech/consensus"
+      ],
+      "checkpointz": [
+        "https://mainnet.colibri-proof.tech/consensus"
+      ],
+      "prover": [
+        "https://zora.colibri-proof.tech"
+      ]
+    },
+    {
+      "id": 57073,
+      "name": "ink",
+      "aliases": [
+        "ink",
+        "0xdef1"
+      ],
+      "pollingInterval": 1000,
+      "eth_rpc": [
+        "https://ink.colibri-proof.tech/execution",
+        "https://rpc-gel.inkonchain.com"
+      ],
+      "beacon_api": [
+        "https://mainnet.colibri-proof.tech/consensus"
+      ],
+      "checkpointz": [
+        "https://mainnet.colibri-proof.tech/consensus"
+      ],
+      "prover": [
+        "https://ink.colibri-proof.tech"
+      ]
     }
   ]
 }

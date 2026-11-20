@@ -26,6 +26,11 @@ _PROVERS = {
     7091047534: ["https://plataberget.colibri-proof.tech"],  # plataberget
     696991: ["https://rollupx.colibri-proof.tech"],  # rollupx
     42161: ["https://arbitrum.colibri-proof.tech"],  # arbitrum
+    8453: ["https://base.colibri-proof.tech"],  # base
+    10: ["https://optimism.colibri-proof.tech"],  # optimism
+    130: ["https://unichain.colibri-proof.tech"],  # unichain
+    7777777: ["https://zora.colibri-proof.tech"],  # zora
+    57073: ["https://ink.colibri-proof.tech"],  # ink
 }
 
 _ETH_RPCS = {
@@ -64,6 +69,29 @@ _ETH_RPCS = {
         "https://arb1.arbitrum.io/rpc",
         "https://arbitrum-one-rpc.publicnode.com",
     ],  # arbitrum
+    8453: [
+        "https://base.colibri-proof.tech/execution",
+        "https://mainnet.base.org",
+        "https://base-rpc.publicnode.com",
+    ],  # base
+    10: [
+        "https://optimism.colibri-proof.tech/execution",
+        "https://mainnet.optimism.io",
+        "https://optimism-rpc.publicnode.com",
+    ],  # optimism
+    130: [
+        "https://unichain.colibri-proof.tech/execution",
+        "https://mainnet.unichain.org",
+        "https://unichain-rpc.publicnode.com",
+    ],  # unichain
+    7777777: [
+        "https://zora.colibri-proof.tech/execution",
+        "https://rpc.zora.energy",
+    ],  # zora
+    57073: [
+        "https://ink.colibri-proof.tech/execution",
+        "https://rpc-gel.inkonchain.com",
+    ],  # ink
 }
 
 _BEACON_APIS = {
@@ -92,6 +120,11 @@ _BEACON_APIS = {
         "https://gateway.tenderly.co/public/mainnet",
         "https://ethereum-beacon-api.publicnode.com",
     ],  # arbitrum
+    8453: ["https://mainnet.colibri-proof.tech/consensus"],  # base
+    10: ["https://mainnet.colibri-proof.tech/consensus"],  # optimism
+    130: ["https://mainnet.colibri-proof.tech/consensus"],  # unichain
+    7777777: ["https://mainnet.colibri-proof.tech/consensus"],  # zora
+    57073: ["https://mainnet.colibri-proof.tech/consensus"],  # ink
 }
 
 _CHECKPOINTZ = {
@@ -116,6 +149,11 @@ _CHECKPOINTZ = {
         "https://sync-mainnet.beaconcha.in",
         "https://mainnet.checkpoint.sigp.io",
     ],  # arbitrum
+    8453: ["https://mainnet.colibri-proof.tech/consensus"],  # base
+    10: ["https://mainnet.colibri-proof.tech/consensus"],  # optimism
+    130: ["https://mainnet.colibri-proof.tech/consensus"],  # unichain
+    7777777: ["https://mainnet.colibri-proof.tech/consensus"],  # zora
+    57073: ["https://mainnet.colibri-proof.tech/consensus"],  # ink
 }
 
 def default_provers(chain_id: int) -> List[str]:

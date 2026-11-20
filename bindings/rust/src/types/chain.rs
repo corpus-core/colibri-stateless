@@ -16,6 +16,16 @@ pub const PLATABERGET: u64 = 7_091_047_534;
 pub const ROLLUPX: u64 = 696_991;
 /// Arbitrum One.
 pub const ARBITRUM: u64 = 42_161;
+/// Base (OP-Stack).
+pub const BASE: u64 = 8_453;
+/// OP Mainnet.
+pub const OPTIMISM: u64 = 10;
+/// Unichain (OP-Stack).
+pub const UNICHAIN: u64 = 130;
+/// Zora (OP-Stack).
+pub const ZORA: u64 = 7_777_777;
+/// Ink (OP-Stack).
+pub const INK: u64 = 57_073;
 
 /// Default prover URLs per chain.
 pub fn default_provers(chain_id: u64) -> Vec<String> {
@@ -40,6 +50,11 @@ pub fn default_provers(chain_id: u64) -> Vec<String> {
         PLATABERGET => vec!["https://plataberget.colibri-proof.tech".into()],
         ROLLUPX => vec!["https://rollupx.colibri-proof.tech".into()],
         ARBITRUM => vec!["https://arbitrum.colibri-proof.tech".into()],
+        BASE => vec!["https://base.colibri-proof.tech".into()],
+        OPTIMISM => vec!["https://optimism.colibri-proof.tech".into()],
+        UNICHAIN => vec!["https://unichain.colibri-proof.tech".into()],
+        ZORA => vec!["https://zora.colibri-proof.tech".into()],
+        INK => vec!["https://ink.colibri-proof.tech".into()],
         _ => vec!["https://c4.incubed.net".into()],
     }
 }
@@ -82,6 +97,29 @@ pub fn default_eth_rpcs(chain_id: u64) -> Vec<String> {
             "https://arb1.arbitrum.io/rpc".into(),
             "https://arbitrum-one-rpc.publicnode.com".into(),
         ],
+        BASE => vec![
+            "https://base.colibri-proof.tech/execution".into(),
+            "https://mainnet.base.org".into(),
+            "https://base-rpc.publicnode.com".into(),
+        ],
+        OPTIMISM => vec![
+            "https://optimism.colibri-proof.tech/execution".into(),
+            "https://mainnet.optimism.io".into(),
+            "https://optimism-rpc.publicnode.com".into(),
+        ],
+        UNICHAIN => vec![
+            "https://unichain.colibri-proof.tech/execution".into(),
+            "https://mainnet.unichain.org".into(),
+            "https://unichain-rpc.publicnode.com".into(),
+        ],
+        ZORA => vec![
+            "https://zora.colibri-proof.tech/execution".into(),
+            "https://rpc.zora.energy".into(),
+        ],
+        INK => vec![
+            "https://ink.colibri-proof.tech/execution".into(),
+            "https://rpc-gel.inkonchain.com".into(),
+        ],
         _ => vec![],
     }
 }
@@ -114,6 +152,11 @@ pub fn default_beacon_apis(chain_id: u64) -> Vec<String> {
             "https://gateway.tenderly.co/public/mainnet".into(),
             "https://ethereum-beacon-api.publicnode.com".into(),
         ],
+        BASE => vec!["https://mainnet.colibri-proof.tech/consensus".into()],
+        OPTIMISM => vec!["https://mainnet.colibri-proof.tech/consensus".into()],
+        UNICHAIN => vec!["https://mainnet.colibri-proof.tech/consensus".into()],
+        ZORA => vec!["https://mainnet.colibri-proof.tech/consensus".into()],
+        INK => vec!["https://mainnet.colibri-proof.tech/consensus".into()],
         _ => vec![],
     }
 }
@@ -142,6 +185,11 @@ pub fn default_checkpointz(chain_id: u64) -> Vec<String> {
             "https://sync-mainnet.beaconcha.in".into(),
             "https://mainnet.checkpoint.sigp.io".into(),
         ],
+        BASE => vec!["https://mainnet.colibri-proof.tech/consensus".into()],
+        OPTIMISM => vec!["https://mainnet.colibri-proof.tech/consensus".into()],
+        UNICHAIN => vec!["https://mainnet.colibri-proof.tech/consensus".into()],
+        ZORA => vec!["https://mainnet.colibri-proof.tech/consensus".into()],
+        INK => vec!["https://mainnet.colibri-proof.tech/consensus".into()],
         _ => vec![],
     }
 }
@@ -160,6 +208,11 @@ mod tests {
             PLATABERGET,
             ROLLUPX,
             ARBITRUM,
+            BASE,
+            OPTIMISM,
+            UNICHAIN,
+            ZORA,
+            INK,
         ] {
             assert!(!default_provers(id).is_empty());
             assert!(!default_eth_rpcs(id).is_empty());
