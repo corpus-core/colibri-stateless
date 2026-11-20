@@ -55,7 +55,7 @@ impl ChainConfig {
                 bootnodes: Vec::new(),
             },
             "unichain" => ChainConfig {
-                unsafe_signer: address!("833C6f278474A78658af91aE8edC926FE33a230e"),
+                unsafe_signer: address!("FaACA0A10e4a23C5E01485DE07767547d4D8056D"),
                 chain_id: 130,
                 bootnodes: Vec::new(),
             },
@@ -65,18 +65,96 @@ impl ChainConfig {
                 bootnodes: Vec::new(),
             },
             "zora" => ChainConfig {
-                unsafe_signer: address!("3Dc8Dfd070C835cAd15a6A27e089FF4cF4C92280"),
+                unsafe_signer: address!("3Dc8Dfd0709C835cAd15a6A27e089FF4cF4C9228"),
                 chain_id: 7777777,
                 bootnodes: Vec::new(),
             },
+            // No HTTP rollup endpoint. Gossip uses kona_peers bootnodes only.
+            "ink" => ChainConfig {
+                unsafe_signer: address!("7b322282DF45E537E5de76D60E1432Db3cF3F8E1"),
+                chain_id: 57073,
+                bootnodes: Vec::new(),
+            },
             _ => {
-                // Use provided chain_id for custom networks
+                // Not a Base fallback. Callers that join a network use `from_chain_id`.
                 ChainConfig {
-                    unsafe_signer: Address::ZERO, // Will be configured from C config
+                    unsafe_signer: Address::ZERO,
                     chain_id,
                     bootnodes: Vec::new(),
                 }
             }
         }
+    }
+
+    /// Build the preset for `chain_id`.
+    ///
+    /// Unknown ids are rejected. Mapping them onto Base would make the process
+    /// gossip on Base while the operator believes it joined another chain.
+    /// The chain id inside a named preset is fixed; the argument is not copied
+    /// into the Base preset.
+    pub fn from_chain_id(chain_id: u64) -> Result<Self, String> {
+        let network = match chain_id {
+            10 => "op-mainnet",
+            8453 => "base",
+            130 => "unichain",
+            480 => "worldchain",
+            7777777 => "zora",
+            57073 => "ink",
+            _ => {
+                return Err(format!(
+                    "unsupported OP-Stack chain id {chain_id}: refusing to fall back to Base"
+                ));
+            }
+        };
+        let config = Self::from(network, chain_id);
+        if config.chain_id != chain_id {
+            return Err(format!(
+                "preset {network} has chain id {}, not {chain_id}",
+                config.chain_id
+            ));
+        }
+        Ok(config)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn presets_keep_onchain_signers_and_chain_ids() {
+        let unichain = ChainConfig::from_chain_id(130).unwrap();
+        assert_eq!(unichain.chain_id, 130);
+        assert_eq!(
+            unichain.unsafe_signer,
+            address!("FaACA0A10e4a23C5E01485DE07767547d4D8056D")
+        );
+        assert_ne!(
+            unichain.unsafe_signer,
+            address!("833C6f278474A78658af91aE8edC926FE33a230e")
+        );
+
+        let zora = ChainConfig::from_chain_id(7777777).unwrap();
+        assert_eq!(
+            zora.unsafe_signer,
+            address!("3Dc8Dfd0709C835cAd15a6A27e089FF4cF4C9228")
+        );
+
+        let ink = ChainConfig::from_chain_id(57073).unwrap();
+        assert_eq!(ink.chain_id, 57073);
+        assert_eq!(
+            ink.unsafe_signer,
+            address!("7b322282DF45E537E5de76D60E1432Db3cF3F8E1")
+        );
+        assert!(ink.get_http_endpoint().is_none());
+    }
+
+    #[test]
+    fn unknown_chain_does_not_join_base() {
+        match ChainConfig::from_chain_id(57074) {
+            Ok(_) => panic!("unknown chain id joined a preset"),
+            Err(err) => assert!(err.contains("refusing to fall back to Base")),
+        }
+        assert_eq!(ChainConfig::from_chain_id(8453).unwrap().chain_id, 8453);
     }
 }

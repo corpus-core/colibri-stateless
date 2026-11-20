@@ -93,6 +93,7 @@ void test_builtin_chain_ids_are_hard_rejected(void) {
       C4_CHAIN_OP_WORLDCHAIN,
       C4_CHAIN_OP_ZORA,
       C4_CHAIN_OP_UNICHAIN,
+      C4_CHAIN_OP_INK,
       C4_CHAIN_OP_PGN,
       C4_CHAIN_OP_ORDERLY,
       C4_CHAIN_OP_MODE,

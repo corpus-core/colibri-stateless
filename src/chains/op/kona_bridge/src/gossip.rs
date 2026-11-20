@@ -293,18 +293,13 @@ pub async fn run_gossip_network(
         "🔍 Looking up rollup config for chain {}",
         chain_config.chain_id
     );
+    // Missing registry data must not reuse Base's rollup config: that joins
+    // Base's gossip topics under another chain id.
     let rollup_config = ROLLUP_CONFIGS
         .get(&chain_config.chain_id)
-        .or_else(|| {
-            warn!(
-                "⚠️  Rollup config not found for chain {}, using Base as fallback",
-                chain_config.chain_id
-            );
-            ROLLUP_CONFIGS.get(&8453) // Base fallback
-        })
         .ok_or_else(|| {
             format!(
-                "No rollup config found for chain {} or Base fallback",
+                "no rollup config for chain {}: refusing to fall back to Base",
                 chain_config.chain_id
             )
         })?

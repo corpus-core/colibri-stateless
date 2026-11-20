@@ -19,7 +19,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 use tokio::sync::broadcast;
-use tracing::{info, warn};
+use tracing::info;
 #[cfg(feature = "ffi")]
 use tracing::error;
 
@@ -241,29 +241,10 @@ pub async fn run_http_first_network(
     info!("🚀 HTTP-first network starting for chain {}", chain_id);
     info!("🧹 TTL cleanup: {} minutes, interval: {} minutes", ttl_minutes, cleanup_interval);
     info!("🌐 HTTP polling: {}s interval, {} failure threshold", http_poll_interval, http_failure_threshold);
-    
-    // Start TTL cleanup task
-    let cleanup_output_dir = output_dir.clone();
-    let cleanup_running = running.clone();
-    tokio::spawn(async move {
-        cleanup_old_files(cleanup_output_dir, ttl_minutes, cleanup_interval, cleanup_running).await;
-    });
-    
-    // Determine network name from chain_id
-    let network_name = match chain_id {
-        10 => "op-mainnet",
-        8453 => "base", 
-        130 => "unichain",
-        480 => "worldchain",
-        7777777 => "zora",
-        _ => {
-            warn!("⚠️  Unknown chain ID {}, using default config", chain_id);
-            "base" // fallback
-        }
-    };
 
-    let mut chain_config = ChainConfig::from(network_name, chain_id);
-    
+    // Reject unknown ids before spawning tasks. A Base fallback would join
+    // the wrong gossip network.
+    let mut chain_config = ChainConfig::from_chain_id(chain_id)?;
     // Seed the gossip BlockHandler signer. This is the ingest check; processing.rs
     // only serializes envelopes that already passed. Clients re-check in
     // op_verify_sequencer_proof.
@@ -273,6 +254,13 @@ pub async fn run_http_first_network(
             info!("🔐 Using sequencer from C config: {}", addr);
         }
     }
+
+    // Start TTL cleanup task
+    let cleanup_output_dir = output_dir.clone();
+    let cleanup_running = running.clone();
+    tokio::spawn(async move {
+        cleanup_old_files(cleanup_output_dir, ttl_minutes, cleanup_interval, cleanup_running).await;
+    });
     
     // Initialize HTTP health tracker with simplified switching
     let health_tracker = Arc::new(Mutex::new(HttpHealthTracker {

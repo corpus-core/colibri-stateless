@@ -112,6 +112,7 @@ static bool is_builtin_chain_id(chain_id_t id) {
          || id == C4_CHAIN_OP_WORLDCHAIN
          || id == C4_CHAIN_OP_ZORA
          || id == C4_CHAIN_OP_UNICHAIN
+         || id == C4_CHAIN_OP_INK
          || id == C4_CHAIN_OP_PGN
          || id == C4_CHAIN_OP_ORDERLY
          || id == C4_CHAIN_OP_MODE
@@ -133,6 +134,7 @@ chain_type_t c4_chain_type(chain_id_t chain_id) {
     case C4_CHAIN_OP_WORLDCHAIN: // Worldchain (480)
     case C4_CHAIN_OP_ZORA:       // Zora (7777777)
     case C4_CHAIN_OP_UNICHAIN:   // Unichain (130)
+    case C4_CHAIN_OP_INK:        // Ink (57073)
     case C4_CHAIN_OP_PGN:        // PGN (424)
     case C4_CHAIN_OP_ORDERLY:    // Orderly Network (291)
     case C4_CHAIN_OP_MODE:       // Mode Network (34443)

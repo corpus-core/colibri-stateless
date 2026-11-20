@@ -80,6 +80,16 @@ async fn main() -> anyhow::Result<()> {
     let sequencer_address = env::var("SEQUENCER_ADDRESS").ok();
     let mode = env::var("MODE").unwrap_or_else(|_| "gossip".to_string());
 
+    // Reject unknown ids before binding a port or writing a directory.
+    // A Base fallback would join the wrong gossip network.
+    let mut chain_config = ChainConfig::from_chain_id(chain_id)
+        .map_err(|err| anyhow::anyhow!(err))?;
+    if let Some(ref addr) = sequencer_address {
+        if let Ok(parsed) = addr.parse::<Address>() {
+            chain_config.unsafe_signer = parsed;
+        }
+    }
+
     fs::create_dir_all(&output_dir)?;
 
     info!("🚀 kona-preconf-service starting");
@@ -109,23 +119,9 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
-    // P2P / HTTP-first network (blocks until shutdown)
-    let network_name = match chain_id {
-        10      => "op-mainnet",
-        8453    => "base",
-        130     => "unichain",
-        480     => "worldchain",
-        7777777 => "zora",
-        _       => { tracing::warn!("Unknown chain {}, using base config", chain_id); "base" }
-    };
-
-    let mut chain_config = ChainConfig::from(network_name, chain_id);
-    // Seeds kona's BlockHandler; processing.rs does not re-check the signer.
-    if let Some(ref addr) = sequencer_address {
-        if let Ok(parsed) = addr.parse::<Address>() {
-            chain_config.unsafe_signer = parsed;
-        }
-    }
+    // P2P / HTTP-first network (blocks until shutdown). `chain_config` was
+    // resolved before the HTTP server started. Seeds kona's BlockHandler;
+    // processing.rs does not re-check the signer.
 
     // Start TTL cleanup
     {
