@@ -257,8 +257,10 @@ static const ssz_def_t FULU_LIGHT_CLIENT_FINALITY_UPDATE[] = {
 
 const ssz_def_t FULU_LIGHT_CLIENT_FINALITY_UPDATE_CONTAINER = SSZ_CONTAINER("LightClientFinalityUpdate", FULU_LIGHT_CLIENT_FINALITY_UPDATE);
 
-_Static_assert(C4_FULU_LIGHT_CLIENT_FINALITY_UPDATE_FIXED == 4 + 4 + 7 * 32 + 64 + 96 + 8,
-               "Fulu LightClientFinalityUpdate fixed preamble");
+// Fixed preamble: two offsets, a 7-node branch, the sync aggregate and the signature slot.
+// `_Static_assert` at file scope is rejected by MSVC's C frontend.
+typedef char c4_fulu_finality_update_fixed_check
+    [(C4_FULU_LIGHT_CLIENT_FINALITY_UPDATE_FIXED == 4 + 4 + 7 * 32 + 64 + 96 + 8) ? 1 : -1];
 
 static const ssz_def_t BEACON_BLOCKHEADER_CONTAINER C4_UNUSED = SSZ_CONTAINER("BeaconBlockHeader", BEACON_BLOCK_HEADER);
 

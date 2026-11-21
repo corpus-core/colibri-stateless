@@ -214,10 +214,10 @@ static const ssz_def_t ETH_CHECKPOINT_PROOF[] = {
 // `proof` is a progressive list because the finalized-root depth differs by fork
 // (Deneb 6, Electra/Fulu 7, Gloas 9).
 static const ssz_def_t ETH_SIGNATURE_FINALIZED_HEADER_PROOF[] = {
-    SSZ_BIT_VECTOR("sync_committee_bits", 512),     // participation bits of the sync committee that signed `header`
+    SSZ_BIT_VECTOR("sync_committee_bits", 512),      // participation bits of the sync committee that signed `header`
     SSZ_BYTE_VECTOR("sync_committee_signature", 96), // aggregate signature over `header`
-    SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),   // attested beacon header (not the requested block)
-    SSZ_PROG_LIST("proof", ssz_bytes32)             // branch from the requested block root to `header.stateRoot`
+    SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),    // attested beacon header (not the requested block)
+    SSZ_PROG_LIST("proof", ssz_bytes32)              // branch from the requested block root to `header.stateRoot`
 };
 
 static const ssz_def_t ETH_HEADER_PROOFS_UNION[] = {
@@ -228,8 +228,10 @@ static const ssz_def_t ETH_HEADER_PROOFS_UNION[] = {
     SSZ_CONTAINER(ETH_SSZ_NAME_SIGNATURE_FINALIZED, ETH_SIGNATURE_FINALIZED_HEADER_PROOF), // finalized checkpoint inclusion under the attested state
 };
 
-_Static_assert(sizeof(ETH_HEADER_PROOFS_UNION) / sizeof(ETH_HEADER_PROOFS_UNION[0]) == 5,
-               "signatureFinalized is selector 4; do not insert a variant in front of it");
+// `signatureFinalized` is selector 4; do not insert a variant in front of it.
+// `_Static_assert` at file scope is rejected by MSVC's C frontend.
+typedef char c4_header_proofs_union_len_check
+    [(sizeof(ETH_HEADER_PROOFS_UNION) / sizeof(ETH_HEADER_PROOFS_UNION[0]) == 5) ? 1 : -1];
 
 // ::: Execution Layer Header Proof
 //

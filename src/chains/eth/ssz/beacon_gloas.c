@@ -76,8 +76,10 @@ static const ssz_def_t GLOAS_LIGHT_CLIENT_FINALITY_UPDATE[] = {
 
 const ssz_def_t GLOAS_LIGHT_CLIENT_FINALITY_UPDATE_CONTAINER = SSZ_CONTAINER("LightClientFinalityUpdate", GLOAS_LIGHT_CLIENT_FINALITY_UPDATE);
 
-_Static_assert(C4_GLOAS_LIGHT_CLIENT_FINALITY_UPDATE_SIZE == 2 * 496 + 9 * 32 + 64 + 96 + 8,
-               "Gloas LightClientFinalityUpdate size");
+// Fully fixed: two 496-byte headers, a 9-node branch, the sync aggregate and the signature slot.
+// `_Static_assert` at file scope is rejected by MSVC's C frontend.
+typedef char c4_gloas_finality_update_size_check
+    [(C4_GLOAS_LIGHT_CLIENT_FINALITY_UPDATE_SIZE == 2 * 496 + 9 * 32 + 64 + 96 + 8) ? 1 : -1];
 
 // -----------------------------------------------------------------------------
 // Prover-only definitions: full block / bid / envelope parsing
