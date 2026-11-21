@@ -235,7 +235,13 @@ static c4_status_t fetch_l1_anchor_proof(prover_ctx_t* ctx, const eez_chain_conf
     // into a proof of this build, so it must use this wire format. A prover answers older
     // versions in their legacy format (and a prover context without a client version
     // defaults to an old one).
-    bprintf(&payload, ",\"version\":%d", c4_current_version_number());
+    // `"safe"` stays on 3.1.2. The L1 proof is verified nested, and a nested
+    // `signatureFinalized` is checked at the finalized gindex. A justified branch would
+    // be rejected. 3.1.2 still returns the plain `signature` proof of that block.
+    uint32_t l1_version = c4_current_version_number();
+    if (strcmp(l1_tag, "safe") == 0 && l1_version > c4_version_number(3, 1, 2))
+      l1_version = c4_version_number(3, 1, 2);
+    bprintf(&payload, ",\"version\":%d", l1_version);
     if (ctx->client_state.data && ctx->client_state.len)
       bprintf(&payload, ",\"c4\":\"0x%x\"", ctx->client_state);
     if (ctx->flags & C4_PROVER_FLAG_ZK_PROOF)

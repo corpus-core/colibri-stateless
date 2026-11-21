@@ -67,52 +67,52 @@ static const ssz_def_t GLOAS_TEST_SYNC_COMMITTEE_FIELDS[] = {
 
 // Positions match `specs/gloas/beacon-chain.md` line 816 (BeaconState, 46 fields).
 static const ssz_def_t GLOAS_TEST_BEACON_STATE_BASE[] = {
-    SSZ_UINT64("genesis_time"),                                                // 0
-    SSZ_BYTES32("genesis_validators_root"),                                    // 1
-    SSZ_UINT64("slot"),                                                        // 2
-    SSZ_UINT64("fork"),                                                        // 3
-    SSZ_UINT64("latest_block_header"),                                         // 4
-    SSZ_UINT64("block_roots"),                                                 // 5
-    SSZ_UINT64("state_roots"),                                                 // 6
-    SSZ_UINT64("historical_roots"),                                            // 7
-    SSZ_UINT64("eth1_data"),                                                   // 8
-    SSZ_UINT64("eth1_data_votes"),                                             // 9
-    SSZ_UINT64("eth1_deposit_index"),                                          // 10
-    SSZ_UINT64("validators"),                                                  // 11
-    SSZ_UINT64("balances"),                                                    // 12
-    SSZ_UINT64("randao_mixes"),                                                // 13
-    SSZ_UINT64("slashings"),                                                   // 14
-    SSZ_UINT64("previous_epoch_participation"),                                // 15
-    SSZ_UINT64("current_epoch_participation"),                                 // 16
-    SSZ_UINT64("justification_bits"),                                          // 17
-    SSZ_UINT64("previous_justified_checkpoint"),                               // 18
-    SSZ_UINT64("current_justified_checkpoint"),                                // 19
-    SSZ_CONTAINER("finalized_checkpoint", GLOAS_TEST_CHECKPOINT_FIELDS),       // 20
-    SSZ_UINT64("inactivity_scores"),                                           // 21
-    SSZ_CONTAINER("current_sync_committee", GLOAS_TEST_SYNC_COMMITTEE_FIELDS), // 22
-    SSZ_CONTAINER("next_sync_committee", GLOAS_TEST_SYNC_COMMITTEE_FIELDS),    // 23
-    SSZ_BYTES32("latest_block_hash"),                                          // 24
-    SSZ_UINT64("next_withdrawal_index"),                                       // 25
-    SSZ_UINT64("next_withdrawal_validator_index"),                             // 26
-    SSZ_UINT64("historical_summaries"),                                        // 27
-    SSZ_UINT64("deposit_requests_start_index"),                                // 28
-    SSZ_UINT64("deposit_balance_to_consume"),                                  // 29
-    SSZ_UINT64("exit_balance_to_consume"),                                     // 30
-    SSZ_UINT64("earliest_exit_epoch"),                                         // 31
-    SSZ_UINT64("consolidation_balance_to_consume"),                            // 32
-    SSZ_UINT64("earliest_consolidation_epoch"),                                // 33
-    SSZ_UINT64("pending_deposits"),                                            // 34
-    SSZ_UINT64("pending_partial_withdrawals"),                                 // 35
-    SSZ_UINT64("pending_consolidations"),                                      // 36
-    SSZ_UINT64("proposer_lookahead"),                                          // 37
-    SSZ_UINT64("builders"),                                                    // 38
-    SSZ_UINT64("next_withdrawal_builder_index"),                               // 39
-    SSZ_UINT64("execution_payload_availability"),                              // 40
-    SSZ_UINT64("builder_pending_payments"),                                    // 41
-    SSZ_UINT64("builder_pending_withdrawals"),                                 // 42
-    SSZ_UINT64("latest_execution_payload_bid"),                                // 43
-    SSZ_UINT64("payload_expected_withdrawals"),                                // 44
-    SSZ_UINT64("ptc_window")                                                   // 45
+    SSZ_UINT64("genesis_time"),                                                  // 0
+    SSZ_BYTES32("genesis_validators_root"),                                      // 1
+    SSZ_UINT64("slot"),                                                          // 2
+    SSZ_UINT64("fork"),                                                          // 3
+    SSZ_UINT64("latest_block_header"),                                           // 4
+    SSZ_UINT64("block_roots"),                                                   // 5
+    SSZ_UINT64("state_roots"),                                                   // 6
+    SSZ_UINT64("historical_roots"),                                              // 7
+    SSZ_UINT64("eth1_data"),                                                     // 8
+    SSZ_UINT64("eth1_data_votes"),                                               // 9
+    SSZ_UINT64("eth1_deposit_index"),                                            // 10
+    SSZ_UINT64("validators"),                                                    // 11
+    SSZ_UINT64("balances"),                                                      // 12
+    SSZ_UINT64("randao_mixes"),                                                  // 13
+    SSZ_UINT64("slashings"),                                                     // 14
+    SSZ_UINT64("previous_epoch_participation"),                                  // 15
+    SSZ_UINT64("current_epoch_participation"),                                   // 16
+    SSZ_UINT64("justification_bits"),                                            // 17
+    SSZ_UINT64("previous_justified_checkpoint"),                                 // 18
+    SSZ_CONTAINER("current_justified_checkpoint", GLOAS_TEST_CHECKPOINT_FIELDS), // 19
+    SSZ_CONTAINER("finalized_checkpoint", GLOAS_TEST_CHECKPOINT_FIELDS),         // 20
+    SSZ_UINT64("inactivity_scores"),                                             // 21
+    SSZ_CONTAINER("current_sync_committee", GLOAS_TEST_SYNC_COMMITTEE_FIELDS),   // 22
+    SSZ_CONTAINER("next_sync_committee", GLOAS_TEST_SYNC_COMMITTEE_FIELDS),      // 23
+    SSZ_BYTES32("latest_block_hash"),                                            // 24
+    SSZ_UINT64("next_withdrawal_index"),                                         // 25
+    SSZ_UINT64("next_withdrawal_validator_index"),                               // 26
+    SSZ_UINT64("historical_summaries"),                                          // 27
+    SSZ_UINT64("deposit_requests_start_index"),                                  // 28
+    SSZ_UINT64("deposit_balance_to_consume"),                                    // 29
+    SSZ_UINT64("exit_balance_to_consume"),                                       // 30
+    SSZ_UINT64("earliest_exit_epoch"),                                           // 31
+    SSZ_UINT64("consolidation_balance_to_consume"),                              // 32
+    SSZ_UINT64("earliest_consolidation_epoch"),                                  // 33
+    SSZ_UINT64("pending_deposits"),                                              // 34
+    SSZ_UINT64("pending_partial_withdrawals"),                                   // 35
+    SSZ_UINT64("pending_consolidations"),                                        // 36
+    SSZ_UINT64("proposer_lookahead"),                                            // 37
+    SSZ_UINT64("builders"),                                                      // 38
+    SSZ_UINT64("next_withdrawal_builder_index"),                                 // 39
+    SSZ_UINT64("execution_payload_availability"),                                // 40
+    SSZ_UINT64("builder_pending_payments"),                                      // 41
+    SSZ_UINT64("builder_pending_withdrawals"),                                   // 42
+    SSZ_UINT64("latest_execution_payload_bid"),                                  // 43
+    SSZ_UINT64("payload_expected_withdrawals"),                                  // 44
+    SSZ_UINT64("ptc_window")                                                     // 45
 };
 
 static const ssz_def_t GLOAS_TEST_BEACON_STATE_BASE_CONTAINER =
@@ -136,6 +136,11 @@ void test_gloas_state_gindexes(void) {
   // field 1 of the Checkpoint container → 367 * 2 + 1 = 735.
   TEST_ASSERT_EQUAL_UINT64(367, ssz_gindex(&GLOAS_TEST_BEACON_STATE, 1, "finalized_checkpoint"));
   TEST_ASSERT_EQUAL_UINT64(735, ssz_gindex(&GLOAS_TEST_BEACON_STATE, 2, "finalized_checkpoint", "root"));
+
+  // current_justified_checkpoint is the previous field. Its container gindex is
+  // 366 and `.root` is the right child, 733. Same depth as the finalized root.
+  TEST_ASSERT_EQUAL_UINT64(366, ssz_gindex(&GLOAS_TEST_BEACON_STATE, 1, "current_justified_checkpoint"));
+  TEST_ASSERT_EQUAL_UINT64(733, ssz_gindex(&GLOAS_TEST_BEACON_STATE, 2, "current_justified_checkpoint", "root"));
 
   // `historical_summaries` sits at field 27 (progressive chunk gindex 1926) below the
   // `active_fields` mix-in (data root at gindex 2) → 2 * 1024 + 1926 - 2048 = 2950.
@@ -286,6 +291,7 @@ void test_gloas_gindex_helpers_pre_gloas_branches(void) {
   TEST_ASSERT_EQUAL_UINT64(54, c4_current_sync_committee_gindex(C4_CHAIN_MAINNET, deneb_slot));
   TEST_ASSERT_EQUAL_UINT64(55, c4_next_sync_committee_gindex(C4_CHAIN_MAINNET, deneb_slot));
   TEST_ASSERT_EQUAL_UINT64(105, c4_finalized_root_gindex(C4_CHAIN_MAINNET, deneb_slot));
+  TEST_ASSERT_EQUAL_UINT64(103, c4_current_justified_root_gindex(C4_CHAIN_MAINNET, deneb_slot));
   TEST_ASSERT_EQUAL_UINT64(59, c4_historical_summaries_gindex(C4_CHAIN_MAINNET, deneb_slot));
   TEST_ASSERT_EQUAL_UINT64(812, c4_execution_block_hash_gindex(C4_CHAIN_MAINNET, deneb_slot));
 
@@ -293,6 +299,7 @@ void test_gloas_gindex_helpers_pre_gloas_branches(void) {
   TEST_ASSERT_EQUAL_UINT64(86, c4_current_sync_committee_gindex(C4_CHAIN_MAINNET, electra_slot));
   TEST_ASSERT_EQUAL_UINT64(87, c4_next_sync_committee_gindex(C4_CHAIN_MAINNET, electra_slot));
   TEST_ASSERT_EQUAL_UINT64(169, c4_finalized_root_gindex(C4_CHAIN_MAINNET, electra_slot));
+  TEST_ASSERT_EQUAL_UINT64(167, c4_current_justified_root_gindex(C4_CHAIN_MAINNET, electra_slot));
   TEST_ASSERT_EQUAL_UINT64(91, c4_historical_summaries_gindex(C4_CHAIN_MAINNET, electra_slot));
   TEST_ASSERT_EQUAL_UINT64(812, c4_execution_block_hash_gindex(C4_CHAIN_MAINNET, electra_slot));
 
@@ -300,6 +307,7 @@ void test_gloas_gindex_helpers_pre_gloas_branches(void) {
   TEST_ASSERT_EQUAL_UINT64(86, c4_current_sync_committee_gindex(C4_CHAIN_MAINNET, fulu_slot));
   TEST_ASSERT_EQUAL_UINT64(87, c4_next_sync_committee_gindex(C4_CHAIN_MAINNET, fulu_slot));
   TEST_ASSERT_EQUAL_UINT64(169, c4_finalized_root_gindex(C4_CHAIN_MAINNET, fulu_slot));
+  TEST_ASSERT_EQUAL_UINT64(167, c4_current_justified_root_gindex(C4_CHAIN_MAINNET, fulu_slot));
   TEST_ASSERT_EQUAL_UINT64(91, c4_historical_summaries_gindex(C4_CHAIN_MAINNET, fulu_slot));
   TEST_ASSERT_EQUAL_UINT64(812, c4_execution_block_hash_gindex(C4_CHAIN_MAINNET, fulu_slot));
 
@@ -311,6 +319,7 @@ void test_gloas_gindex_helpers_pre_gloas_branches(void) {
   TEST_ASSERT_EQUAL_UINT64(86, c4_current_sync_committee_gindex(C4_CHAIN_GNOSIS, gnosis_electra_slot));
   TEST_ASSERT_EQUAL_UINT64(87, c4_next_sync_committee_gindex(C4_CHAIN_GNOSIS, gnosis_electra_slot));
   TEST_ASSERT_EQUAL_UINT64(169, c4_finalized_root_gindex(C4_CHAIN_GNOSIS, gnosis_electra_slot));
+  TEST_ASSERT_EQUAL_UINT64(167, c4_current_justified_root_gindex(C4_CHAIN_GNOSIS, gnosis_electra_slot));
   TEST_ASSERT_EQUAL_UINT64(91, c4_historical_summaries_gindex(C4_CHAIN_GNOSIS, gnosis_electra_slot));
   TEST_ASSERT_EQUAL_UINT64(812, c4_execution_block_hash_gindex(C4_CHAIN_GNOSIS, gnosis_electra_slot));
 
@@ -321,6 +330,7 @@ void test_gloas_gindex_helpers_pre_gloas_branches(void) {
   TEST_ASSERT_EQUAL_UINT64(2945, c4_current_sync_committee_gindex(C4_CHAIN_PLATABERGET, plataberget_gloas_slot));
   TEST_ASSERT_EQUAL_UINT64(2946, c4_next_sync_committee_gindex(C4_CHAIN_PLATABERGET, plataberget_gloas_slot));
   TEST_ASSERT_EQUAL_UINT64(735, c4_finalized_root_gindex(C4_CHAIN_PLATABERGET, plataberget_gloas_slot));
+  TEST_ASSERT_EQUAL_UINT64(733, c4_current_justified_root_gindex(C4_CHAIN_PLATABERGET, plataberget_gloas_slot));
   TEST_ASSERT_EQUAL_UINT64(2950, c4_historical_summaries_gindex(C4_CHAIN_PLATABERGET, plataberget_gloas_slot));
   TEST_ASSERT_EQUAL_UINT64(2856, c4_execution_block_hash_gindex(C4_CHAIN_PLATABERGET, plataberget_gloas_slot));
 

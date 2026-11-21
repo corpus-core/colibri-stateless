@@ -418,6 +418,13 @@ fork_id_t c4_eth_fork_from_digest(chain_id_t chain_id, const uint8_t digest[4]) 
 #define DENEP_FINALIZED_ROOT_GINDEX           105
 #define ELECTRA_FINALIZED_ROOT_GINDEX         169
 #define GLOAS_FINALIZED_ROOT_GINDEX           735
+// `current_justified_checkpoint` is field 19, the container immediately before
+// `finalized_checkpoint` (field 20). `.root` is the right child of that
+// container, so these sit two gindices left of the finalized-root constants
+// and share their depth. `"safe"` pins this leaf; `"finalized"` pins the other.
+#define DENEP_JUSTIFIED_ROOT_GINDEX   103
+#define ELECTRA_JUSTIFIED_ROOT_GINDEX 167
+#define GLOAS_JUSTIFIED_ROOT_GINDEX   733
 // `historical_summaries` is field 27 of `BeaconState`. Pre-Gloas it sits in a
 // classical container (depth 5 -> 32, depth 6 -> 64 after Electra). Gloas turns
 // `BeaconState` into a `ProgressiveContainer`, so field 27 lives at
@@ -463,6 +470,13 @@ gindex_t c4_finalized_root_gindex(chain_id_t chain_id, uint64_t slot) {
   if (fork >= C4_FORK_GLOAS) return GLOAS_FINALIZED_ROOT_GINDEX;
   if (fork >= C4_FORK_ELECTRA) return ELECTRA_FINALIZED_ROOT_GINDEX;
   return DENEP_FINALIZED_ROOT_GINDEX;
+}
+
+gindex_t c4_current_justified_root_gindex(chain_id_t chain_id, uint64_t slot) {
+  fork_id_t fork = fork_at_slot(chain_id, slot);
+  if (fork >= C4_FORK_GLOAS) return GLOAS_JUSTIFIED_ROOT_GINDEX;
+  if (fork >= C4_FORK_ELECTRA) return ELECTRA_JUSTIFIED_ROOT_GINDEX;
+  return DENEP_JUSTIFIED_ROOT_GINDEX;
 }
 
 gindex_t c4_historical_summaries_gindex(chain_id_t chain_id, uint64_t slot) {
@@ -595,10 +609,10 @@ bool c4_eth_register_chain(c4_state_t* state, json_t data) {
     return false;
   }
 
-  json_t   fork_epochs_json   = json_get(data, "fork_epochs");
-  json_t   fork_versions_json = json_get(data, "fork_versions");
-  size_t   epoch_count        = json_len(fork_epochs_json);
-  size_t   version_count      = json_len(fork_versions_json);
+  json_t fork_epochs_json   = json_get(data, "fork_epochs");
+  json_t fork_versions_json = json_get(data, "fork_versions");
+  size_t epoch_count        = json_len(fork_epochs_json);
+  size_t version_count      = json_len(fork_versions_json);
   if (epoch_count == 0 || version_count != epoch_count + 1 || version_count > C4_FORK_MAX + 1) {
     c4_state_add_error(state, "c4_eth_register_chain: fork_versions must have fork_epochs+1 entries, at most C4_FORK_MAX+1");
     return false;

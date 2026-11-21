@@ -924,6 +924,14 @@ void test_l1_prover_request_block_tag(void) {
     TEST_ASSERT_EQUAL_INT(C4_DATA_TYPE_PROVER, ctx->state.requests->type);
     char* payload = bprintf(NULL, "%r", ctx->state.requests->payload);
     TEST_ASSERT_NOT_NULL_MESSAGE(strstr(payload, cases[i][2]), payload);
+    // A nested verifier checks signatureFinalized at the finalized gindex, so the
+    // L1 "safe" request stays on the 3.1.2 signature proof.
+    uint32_t l1_version = c4_current_version_number();
+    if (strcmp(cases[i][2], "\"safe\"]") == 0 && l1_version > c4_version_number(3, 1, 2))
+      l1_version = c4_version_number(3, 1, 2);
+    char* version = bprintf(NULL, "\"version\":%d", l1_version);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(payload, version), payload);
+    safe_free(version);
     safe_free(payload);
     c4_prover_free(ctx);
   }

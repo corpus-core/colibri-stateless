@@ -31,6 +31,7 @@
 #include "logger.h"
 #include "plugin.h"
 #include "prover.h"
+#include "state_proofs.h"
 #include "tx_cache.h"
 #include "version.h"
 #include <inttypes.h>
@@ -600,13 +601,44 @@ static bool json_is_finalized_tag(json_t block) {
   return block.type == JSON_TYPE_STRING && block.len == 11 && block.start && strncmp(block.start, "\"finalized\"", 11) == 0;
 }
 
+// The justified root has to come from the same attested state the branch will
+// prove. Head's finality checkpoint and that state can diverge, so this path
+// does not read the tag cache. The branch itself is rebuilt when the header
+// proof is assembled; only the leaf is kept here.
+static c4_status_t eth_get_witnessed_justified_root(prover_ctx_t* ctx, bytes32_t data_root) {
+  if (!(ctx->flags & C4_PROVER_FLAG_LODESTAR))
+    THROW_ERROR("safe block requires a Lodestar state proof");
+
+  ssz_ob_t update = {0};
+  TRY_ASYNC(cl_get_light_client_finality_update(ctx, &update));
+
+  ssz_ob_t attested_header = ssz_get(&update, "attestedHeader");
+  ssz_ob_t attested        = ssz_get(&attested_header, "beacon");
+  bytes_t  state_root_b    = ssz_get(&attested, "stateRoot").bytes;
+  if (!attested.def || attested.bytes.len != 112 || state_root_b.len != 32)
+    THROW_ERROR("invalid light client finality update");
+
+  uint64_t slot   = ssz_get_uint64(&attested, "slot");
+  gindex_t gindex = c4_current_justified_root_gindex(ctx->chain_id, slot);
+  if (gindex == 0) THROW_ERROR("unsupported fork for safe header proof");
+
+  bytes32_t state_root = {0};
+  memcpy(state_root, state_root_b.data, 32);
+  bytes_t     branch = NULL_BYTES;
+  c4_status_t status = c4_create_state_proof(ctx, state_root, gindex, &branch, data_root);
+  safe_free(branch.data);
+  return status;
+}
+
 static inline c4_status_t eth_get_block_roots(prover_ctx_t* ctx, json_t block, bytes32_t sig_root, bytes32_t data_root) {
   CHECK_JSON(block, block.len == 68 ? "bytes32" : "block", "block identifier");
   // The finality-update root and the checkpoint cache can diverge. A signatureFinalized
   // proof has to use the same header the branch authenticates, so that path skips the tag cache.
+  // `"safe"` does the same: its leaf is the justified root inside the attested state.
   bool use_signature_finalized = c4_prover_request_is_signature_finalized(ctx->version, block);
+  bool use_signature_safe      = c4_prover_request_is_signature_safe(ctx->version, block);
 #ifdef PROVER_CACHE
-  if (!use_signature_finalized) {
+  if (!use_signature_finalized && !use_signature_safe) {
     beacon_head_t* cached = c4_beacon_cache_get_slot(ctx, block);
     TRACE_ADD_STR(ctx, "block_tag_cached", cached ? "cached" : "missed");
     if (cached) {
@@ -618,8 +650,12 @@ static inline c4_status_t eth_get_block_roots(prover_ctx_t* ctx, json_t block, b
 
   if (strncmp(block.start, "\"latest\"", 8) == 0)
     return C4_SUCCESS; // latest -  we do nothing since 2 empty root_hashes are returned, which will trigger head-requests
-  else if (strncmp(block.start, "\"safe\"", 6) == 0)
-    TRY_ASYNC(eth_get_final_hash(ctx, true, data_root, NULL));
+  else if (strncmp(block.start, "\"safe\"", 6) == 0) {
+    if (use_signature_safe)
+      TRY_ASYNC(eth_get_witnessed_justified_root(ctx, data_root));
+    else
+      TRY_ASYNC(eth_get_final_hash(ctx, true, data_root, NULL));
+  }
   else if (json_is_finalized_tag(block)) {
     if (use_signature_finalized) {
       ssz_ob_t update = {0};
@@ -696,6 +732,7 @@ c4_status_t c4_beacon_get_block_for_eth(prover_ctx_t* ctx, json_t block, eth_blo
   if (!bytes_all_zero(bytes(data_root, 32)) && c4_beacon_cache_get_blockdata(ctx, data_root, beacon_block)) {
     // The cached struct is shared by hash and tag lookups. The flag follows this request.
     beacon_block->finalized_request = c4_prover_request_is_signature_finalized(ctx->version, block);
+    beacon_block->safe_request      = c4_prover_request_is_signature_safe(ctx->version, block);
     return C4_SUCCESS;
   }
 #endif
@@ -710,10 +747,12 @@ c4_status_t c4_beacon_get_block_for_eth(prover_ctx_t* ctx, json_t block, eth_blo
   TRY_ASYNC(c4_beacon_fill_becaon_block_from_eth(ctx, beacon_block, data_root, data_block, sig_block));
   // Store the block before marking it, so a later hash lookup does not inherit the tag.
   beacon_block->finalized_request = false;
+  beacon_block->safe_request      = false;
 #ifdef PROVER_CACHE
   c4_beacon_cache_update_blockdata(ctx, beacon_block, strncmp(block.start, "\"latest\"", 8) == 0, beacon_block->beacon.data_block_root);
 #endif
   beacon_block->finalized_request = c4_prover_request_is_signature_finalized(ctx->version, block);
+  beacon_block->safe_request      = c4_prover_request_is_signature_safe(ctx->version, block);
 
   return C4_SUCCESS;
 }

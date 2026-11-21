@@ -373,7 +373,7 @@ c4_status_t c4_create_gloas_lcu(prover_ctx_t* ctx,
   }
 
   bytes_t finality_branch = NULL_BYTES;
-  status                  = c4_create_state_proof(ctx, attested_state_root, finalized_gindex, &finality_branch);
+  status                  = c4_create_state_proof(ctx, attested_state_root, finalized_gindex, &finality_branch, NULL);
   if (status != C4_SUCCESS) {
     safe_free(next_sync_committee_branch.data);
     return status;
