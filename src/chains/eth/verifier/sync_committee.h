@@ -35,6 +35,27 @@ extern "C" {
 #include "verify.h"
 #include <stdint.h>
 
+/**
+ * Light-client finality requires a two-thirds supermajority of the 512 sync-committee bits.
+ *
+ * At least 342 bits must be set (`count * 3 >= 512 * 2`). Bit order does not matter.
+ *
+ * @param bits sync-committee bit vector (exactly 64 bytes)
+ * @return `true` when the participation reaches the supermajority
+ */
+static inline bool c4_sync_committee_supermajority(bytes_t bits) {
+  if (!bits.data || bits.len != 64) return false;
+  uint32_t count = 0;
+  for (uint32_t i = 0; i < bits.len; i++) {
+    uint8_t value = bits.data[i];
+    while (value) {
+      count += value & 1u;
+      value >>= 1;
+    }
+  }
+  return count * 3u >= 512u * 2u;
+}
+
 #define MAX_SYNC_PERIODS 8
 // max(MAX_SYNC_PERIODS*4=32, 32, uint64+bytes32=40) + 1 status byte = 41
 #define MAX_STATES_SIZE 41

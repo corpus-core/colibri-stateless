@@ -237,6 +237,28 @@ c4_status_t cl_get_finality_checkpoints(prover_ctx_t* ctx, json_t* result) {
   return C4_SUCCESS;
 }
 
+c4_status_t cl_get_light_client_finality_update(prover_ctx_t* ctx, ssz_ob_t* out) {
+  // Fulu-only chains can be validated as the response arrives. A scheduled Gloas fork
+  // shares the endpoint with Fulu, and the body itself distinguishes the two.
+  const ssz_def_t* def = NULL;
+  if (!c4_chain_schedules_fork(ctx->chain_id, C4_FORK_GLOAS)) {
+    def = eth_get_light_client_finality_update(C4_FORK_FULU);
+    if (!def) THROW_ERROR("missing Fulu light client finality update type");
+  }
+  data_request_t* req = NULL;
+  TRY_ASYNC(c4_send_beacon_ssz(ctx, "eth/v1/beacon/light_client/finality_update", NULL, def, 0, out, &req));
+  if (def) return C4_SUCCESS;
+
+  fork_id_t fork = c4_eth_finality_update_fork(out->bytes);
+  out->def       = eth_get_light_client_finality_update(fork);
+  if (!out->def) THROW_ERROR("unsupported light client finality update");
+  if (!(req && req->validated)) {
+    if (!ssz_is_valid(*out, true, &ctx->state)) return C4_ERROR;
+    if (req) req->validated = true;
+  }
+  return C4_SUCCESS;
+}
+
 c4_status_t cl_get_headers_at_slot(prover_ctx_t* ctx, uint64_t slot, json_t* result) {
   char     path[200]   = {0};
   buffer_t path_buffer = stack_buffer(path);

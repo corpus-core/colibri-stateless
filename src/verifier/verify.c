@@ -83,8 +83,10 @@ c4_status_t c4_verify_init(verify_ctx_t* ctx, bytes_t request_bytes, char* metho
   ctx->method   = method;
   ctx->args     = args;
   // The data of a request is a view into the request. Ownership is only taken by the verifier
-  // when it builds the result itself, so the flag is never accepted from the host.
-  ctx->flags = flags & ~((verify_flags_t) VERIFY_FLAG_FREE_DATA);
+  // when it builds the result itself, so FREE_DATA is never accepted from the host.
+  // INNER_BLOCK is set only while `c4_verify_block` is on the stack; a host bit must not
+  // suppress the finalized-tag check.
+  ctx->flags = flags & ~((verify_flags_t) (VERIFY_FLAG_FREE_DATA | VERIFY_FLAG_INNER_BLOCK));
   return C4_SUCCESS;
 }
 

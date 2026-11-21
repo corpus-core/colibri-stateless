@@ -336,6 +336,18 @@ void ssz_add_header_proof(ssz_builder_t* builder, eth_block_t* block_data, block
     case HISTORIC_PROOF_NONE:
       sync_aggregate = block_data->beacon.sync_aggregate;
       break;
+
+    case HISTORIC_PROOF_FINALIZED:
+      // This container stores the aggregate before the attested header. The other
+      // variants append it after their own fields, so this case finishes the builder.
+      // The branch bytes are whatever the caller stored. Finalized uses finalityBranch;
+      // a later justified proof can reuse this container with another branch.
+      ssz_add_bytes(&bp, "sync_committee_bits", ssz_get(&sync_aggregate, "syncCommitteeBits").bytes);
+      ssz_add_bytes(&bp, "sync_committee_signature", ssz_get(&sync_aggregate, "syncCommitteeSignature").bytes);
+      ssz_add_bytes(&bp, "header", block_proof.proof_header);
+      ssz_add_bytes(&bp, "proof", block_proof.historic_proof);
+      ssz_add_builders(builder, "clHeaderProof", bp);
+      return;
   }
   ssz_add_bytes(&bp, "sync_committee_bits", ssz_get(&sync_aggregate, "syncCommitteeBits").bytes);
   ssz_add_bytes(&bp, "sync_committee_signature", ssz_get(&sync_aggregate, "syncCommitteeSignature").bytes);
@@ -831,6 +843,67 @@ static c4_status_t update_syncdata_state(prover_ctx_t* ctx, syncdata_state_t* sy
   return C4_SUCCESS;
 }
 
+static uint32_t gindex_depth(gindex_t gindex) {
+  uint32_t depth = 0;
+  for (gindex_t g = gindex >> 1; g; g >>= 1) depth++;
+  return depth;
+}
+
+static void replace_proof_bytes(bytes_t* dst, bytes_t src) {
+  safe_free(dst->data);
+  *dst = bytes_dup(src);
+}
+
+// Reads the light-client finality update, checks that the requested beacon header is the
+// finalized checkpoint under the attested state, and raises the signing period. The proof
+// bytes are copied only when `materialize` is set, so a `C4_PENDING` retry cannot leak them.
+static c4_status_t load_signature_finalized(prover_ctx_t* ctx, blockroot_proof_t* proof, eth_block_t* block, const chain_spec_t* chain, bool materialize) {
+  ssz_ob_t update = {0};
+  TRY_ASYNC(cl_get_light_client_finality_update(ctx, &update));
+
+  ssz_ob_t finalized_header = ssz_get(&update, "finalizedHeader");
+  ssz_ob_t attested_header  = ssz_get(&update, "attestedHeader");
+  ssz_ob_t finalized        = ssz_get(&finalized_header, "beacon");
+  ssz_ob_t attested         = ssz_get(&attested_header, "beacon");
+  ssz_ob_t branch           = ssz_get(&update, "finalityBranch");
+  ssz_ob_t aggregate        = ssz_get(&update, "syncAggregate");
+  bytes_t  state_root       = ssz_get(&attested, "stateRoot").bytes;
+  if (finalized.bytes.len != 112 || attested.bytes.len != 112 || state_root.len != 32 || aggregate.bytes.len < 160)
+    THROW_ERROR("invalid light client finality update");
+
+  bytes32_t finalized_root = {0};
+  bytes32_t block_root     = {0};
+  ssz_hash_tree_root(finalized, finalized_root);
+  ssz_hash_tree_root(block->beacon.cl_header, block_root);
+  if (memcmp(finalized_root, block_root, 32) != 0)
+    THROW_ERROR("finalized header does not match the requested block");
+
+  uint64_t attested_slot = ssz_get_uint64(&attested, "slot");
+  gindex_t gindex        = c4_finalized_root_gindex(ctx->chain_id, attested_slot);
+  if (gindex == 0) THROW_ERROR("unsupported fork for finalized header proof");
+  if (branch.bytes.len != gindex_depth(gindex) * 32) THROW_ERROR("invalid finality branch length");
+
+  bytes32_t got = {0};
+  if (!ssz_verify_multi_merkle_proof(branch.bytes, bytes(block_root, 32), &gindex, got) || memcmp(got, state_root.data, 32) != 0)
+    THROW_ERROR("finality branch does not prove the requested block");
+
+  bytes_t bits = ssz_get(&aggregate, "syncCommitteeBits").bytes;
+  if (!c4_sync_committee_supermajority(bits))
+    THROW_ERROR("insufficient sync committee participation for finalized header");
+
+  if (attested_slot + 1 == 0) THROW_ERROR("attested slot is missing in finality update");
+  uint64_t period = (uint64_t) ((attested_slot + 1) >> (chain->epochs_per_period_bits + chain->slots_per_epoch_bits));
+  if (proof->sync.required_period < period) proof->sync.required_period = period;
+
+  if (!materialize) return C4_SUCCESS;
+
+  replace_proof_bytes(&proof->proof_header, attested.bytes);
+  replace_proof_bytes(&proof->historic_proof, branch.bytes);
+  proof->sync_aggregate = aggregate;
+  proof->type           = HISTORIC_PROOF_FINALIZED;
+  return C4_SUCCESS;
+}
+
 c4_status_t c4_check_blockroot_proof(prover_ctx_t* ctx, blockroot_proof_t* block_proof, eth_block_t* src_block) {
   if (ctx->flags & C4_PROVER_FLAG_HYBRID) return C4_SUCCESS;
   // EEZ blocks are proven by an L1 prover response. Its sync data is handed to
@@ -850,6 +923,9 @@ c4_status_t c4_check_blockroot_proof(prover_ctx_t* ctx, blockroot_proof_t* block
   uint64_t block_period = (uint64_t) (src_block->slot >> (chain->epochs_per_period_bits + chain->slots_per_epoch_bits));
   if (!block_proof->sync.block_period) block_proof->sync.block_period = block_period;
   block_proof->sync.required_period = max64(block_proof->sync.required_period, block_period);
+  // The committee that signs the attested header can sit one period ahead of the finalized block.
+  if (src_block->finalized_request)
+    TRY_ASYNC(load_signature_finalized(ctx, block_proof, src_block, chain, false));
 
   load_client_periods(ctx, &block_proof->sync);
 
@@ -894,6 +970,11 @@ c4_status_t c4_check_blockroot_proof(prover_ctx_t* ctx, blockroot_proof_t* block
     if (update_status == C4_ERROR ||
         (update_status == C4_PENDING && block_proof->sync.checkpoint && !block_proof->sync.checkpoint_period))
       return update_status;
+  }
+
+  if (src_block->finalized_request) {
+    TRY_ASYNC(load_signature_finalized(ctx, block_proof, src_block, chain, true));
+    return update_status;
   }
 
   TRY_ASYNC(check_historic_proof_direct(ctx, block_proof, src_block));

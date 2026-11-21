@@ -217,21 +217,6 @@ bool eth_check_requested_block(verify_ctx_t* ctx, json_t req_block, bytes_t el_h
   return true;
 }
 
-// Parameter index of the block-tag argument for a given method, or:
-//   -1 : the method has no block-tag argument
-//   -2 : the block tag lives inside the filter object at params[0] (`fromBlock`/`toBlock`)
-// Positions mirror the prover modules (proof_account.c, proof_call.c, proof_block.c, logs_cache.c).
-static int eth_block_tag_index(const char* method) {
-  if (strcmp(method, "eth_getStorageAt") == 0 || strcmp(method, "eth_getProof") == 0) return 2;
-  if (strcmp(method, "eth_call") == 0 || strcmp(method, "eth_estimateGas") == 0 ||
-      strcmp(method, "colibri_simulateTransaction") == 0 || strcmp(method, "eth_getBalance") == 0 ||
-      strcmp(method, "eth_getCode") == 0 || strcmp(method, "eth_getTransactionCount") == 0) return 1;
-  if (strcmp(method, "eth_getBlockByNumber") == 0 || strcmp(method, "eth_getBlockHeader") == 0 ||
-      strcmp(method, "eth_getBlockReceipts") == 0 || strcmp(method, "eth_getTransactionByBlockNumberAndIndex") == 0) return 0;
-  if (strcmp(method, "eth_getLogs") == 0 || strcmp(method, "eth_verifyLogs") == 0) return -2;
-  return -1;
-}
-
 // Returns true if the request targets an unprovable block tag (`"pending"`/`"earliest"`),
 // in which case the method must be treated as `METHOD_UNPROOFABLE`.
 static bool eth_has_unproofable_block_tag(char* method, json_t params) {

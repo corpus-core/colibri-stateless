@@ -36,9 +36,10 @@ extern "C" {
 #include <stdbool.h>
 
 typedef enum {
-  HISTORIC_PROOF_NONE   = 0,
-  HISTORIC_PROOF_DIRECT = 1,
-  HISTORIC_PROOF_HEADER = 2,
+  HISTORIC_PROOF_NONE      = 0, // ETH_HEADER_PROOFS_UNION selector: signature
+  HISTORIC_PROOF_DIRECT    = 1, // historic
+  HISTORIC_PROOF_HEADER    = 2, // headerChain
+  HISTORIC_PROOF_FINALIZED = 4, // signatureFinalized; selector 3 is checkpoint and is not built here
 } historic_proof_type_t;
 
 typedef enum {

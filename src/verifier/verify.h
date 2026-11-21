@@ -80,7 +80,7 @@ typedef uint32_t verify_flags_t;
  *
  * Combine values with bitwise OR. Hosts typically set flags before `c4_verify_init`.
  * Some flags are set by the verifier during execution (e.g. `VERIFY_FLAG_REVERTED`);
- * `VERIFY_FLAG_SYNC_REINIT_TRIED` is internal and must not be set by hosts.
+ * `VERIFY_FLAG_SYNC_REINIT_TRIED` and `VERIFY_FLAG_INNER_BLOCK` are internal and must not be set by hosts.
  *
  * Per-flag semantics are documented on each enumerator below.
  */
@@ -96,6 +96,7 @@ typedef enum {
   VERIFY_FLAG_SYNC_REINIT_TRIED    = 1 << 8,  // internal transient flag: set by the verifier once it has attempted a full sync-state reinitialization (clear + re-bootstrap from a trusted checkpoint) during this verification. Prevents an infinite reinit loop when the requested period is genuinely older than any obtainable committee. Not intended to be set by hosts.
   VERIFY_FLAG_LOGS_COMPLETENESS    = 1 << 9,  // if set, eth_getLogs requires a completeness proof: a plain logs proof is rejected because completeness was requested by the caller.
   VERIFY_FLAG_PERSIST_HEADER_CACHE = 1 << 10, // if set, `c4_rpc_execute` reloads the in-process EL header cache and header tags from storage at the start of the request and writes them back on context free (same pair the CLI uses). Intended for tests so prover `last_block_hash` and hybrid cache hits are reproducible from a storage snapshot. Not needed in production.
+  VERIFY_FLAG_INNER_BLOCK          = 1 << 11, // internal transient flag: set by `c4_verify_block` while a block proof is on the stack. A nested call (eip2935, an L1 block inside an L2 proof) then leaves the `"finalized"` requirement on the outer block. Cleared before `c4_verify_block` returns, including on `C4_PENDING`. Not intended to be set by hosts; `c4_verify_init` strips it.
 } verify_flag_t;
 
 /**
@@ -215,7 +216,7 @@ void c4_verify_free_data(verify_ctx_t* ctx);
  * @param method RPC method name (must not be NULL)
  * @param args RPC parameters as a parsed JSON array
  * @param chain_id chain id for dispatch
- * @param flags verification flags stored in `ctx->flags`
+ * @param flags verification flags stored in `ctx->flags`. `VERIFY_FLAG_FREE_DATA` and `VERIFY_FLAG_INNER_BLOCK` are dropped; the verifier sets those itself.
  * @return `C4_SUCCESS` on successful initialization, `C4_ERROR` if validation fails (see `ctx->state.error`)
  */
 c4_status_t c4_verify_init(verify_ctx_t* ctx, bytes_t request_bytes, char* method, json_t args, chain_id_t chain_id, verify_flags_t flags);

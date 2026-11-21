@@ -223,11 +223,12 @@ void test_el_proof_and_header_proof_names(void) {
 
   const ssz_def_t* cl_header_proof = ssz_get_def(cl, "clHeaderProof");
   TEST_ASSERT_EQUAL_INT(SSZ_TYPE_UNION, cl_header_proof->type);
-  TEST_ASSERT_EQUAL_INT(4, cl_header_proof->def.container.len);
+  TEST_ASSERT_EQUAL_INT(5, cl_header_proof->def.container.len);
   TEST_ASSERT_EQUAL_STRING("signature", cl_header_proof->def.container.elements[0].name);
   TEST_ASSERT_EQUAL_STRING("historic", cl_header_proof->def.container.elements[1].name);
   TEST_ASSERT_EQUAL_STRING("headerChain", cl_header_proof->def.container.elements[2].name);
   TEST_ASSERT_EQUAL_STRING("checkpoint", cl_header_proof->def.container.elements[3].name);
+  TEST_ASSERT_EQUAL_STRING("signatureFinalized", cl_header_proof->def.container.elements[4].name);
 
   const ssz_def_t* checkpoint = eth_ssz_verification_type(ETH_SSZ_VERIFY_CHECKPOINT_PROOF);
   TEST_ASSERT_NOT_NULL(checkpoint);
