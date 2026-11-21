@@ -118,10 +118,17 @@ bool eth_verifier_has_block_header(prover_ctx_t* ctx, eth_block_t* block_data) {
 }
 
 void eth_add_block_proof(prover_ctx_t* ctx, ssz_builder_t* builder, eth_block_t* block_data, blockroot_proof_t* historic_block_proof) {
+  // A cached header proves the block hash, not that the block is the finalized checkpoint.
+  if (block_data->finalized_request && block_data->proof_type != C4_BLOCK_PROOF_TYPE_BEACON) {
+    c4_state_add_error(&ctx->state, "finalized block requires a signatureFinalized proof");
+    return;
+  }
+
   // the blockHash-only variant is safe whenever the verifier already holds the verified
   // header: either the client advertised it as its last verified block (remote mode) or
   // prover and verifier run in the same process and share the header cache (hybrid mode).
-  if (eth_verifier_has_block_header(ctx, block_data)) {
+  // `"finalized"` still needs the checkpoint branch, so that shortcut stays closed.
+  if (!block_data->finalized_request && eth_verifier_has_block_header(ctx, block_data)) {
     // union variant 0 (blockHash): selector byte + 32-byte hash
     uint8_t block_hash_union[33] = {0};
     memcpy(block_hash_union + 1, block_data->el_block_hash, 32);

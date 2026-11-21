@@ -24,7 +24,7 @@
 #include "beacon_types.h"
 #include "ssz.h"
 
-static const ssz_def_t ETH_HEADER_PROOFS_UNION[4];
+static const ssz_def_t ETH_HEADER_PROOFS_UNION[5];
 static const ssz_def_t PROOF_HEADER[4];
 static const ssz_def_t ETH_ACCOUNT_PROOF[4];
 
@@ -110,7 +110,7 @@ static const ssz_def_t ETH_ACCOUNT_PROOF[4];
 //     BeaconBlockHeader --> sig
 // ```
 //
-// Independently, the BeaconBlockHeader itself can be proven in 4 ways.
+// Independently, the BeaconBlockHeader itself can be proven in 5 ways.
 
 // Proof that an RLP execution-layer header belongs to a signed BeaconBlock.
 // `keccak256(elHeader)` is proven against `clHeader.bodyRoot` at `gindex`
@@ -206,12 +206,32 @@ static const ssz_def_t ETH_CHECKPOINT_PROOF[] = {
     SSZ_PROG_LIST("proof", ssz_bytes32)           // currentSyncCommitteeBranch (depth 5 in Deneb, 6 in Electra/Fulu, 11 in Gloas)
 };
 
-static const ssz_def_t ETH_HEADER_PROOFS_UNION[] = {
-    SSZ_CONTAINER(ETH_SSZ_NAME_SIGNATURE, ETH_SIGNATURE_HEADER_PROOF), // proof by providing the signature of the sync committee
-    SSZ_CONTAINER(ETH_SSZ_NAME_HISTORIC, ETH_HISTORIC_HEADER_PROOF),   // proof for a historic block using the state_root of a current block
-    SSZ_CONTAINER(ETH_SSZ_NAME_HEADER_CHAIN, ETH_HEADER_CHAIN_PROOF),  // chain of headers up to a verifiable header
-    SSZ_CONTAINER(ETH_SSZ_NAME_CHECKPOINT, ETH_CHECKPOINT_PROOF)       // WSP anchor via LightClientBootstrap (currentSyncCommittee branch)
+// Sync-committee signature over an attested header, plus one Merkle branch from the
+// requested BeaconBlockHeader to that header's state root. The union selector says
+// which state field the branch authenticates. `signatureFinalized` is the finalized
+// checkpoint (`c4_finalized_root_gindex` of the attested slot). The gindex is not
+// stored: a later justified selector can reuse this container with another index.
+// `proof` is a progressive list because the finalized-root depth differs by fork
+// (Deneb 6, Electra/Fulu 7, Gloas 9).
+static const ssz_def_t ETH_SIGNATURE_FINALIZED_HEADER_PROOF[] = {
+    SSZ_BIT_VECTOR("sync_committee_bits", 512),      // participation bits of the sync committee that signed `header`
+    SSZ_BYTE_VECTOR("sync_committee_signature", 96), // aggregate signature over `header`
+    SSZ_CONTAINER("header", BEACON_BLOCK_HEADER),    // attested beacon header (not the requested block)
+    SSZ_PROG_LIST("proof", ssz_bytes32)              // branch from the requested block root to `header.stateRoot`
 };
+
+static const ssz_def_t ETH_HEADER_PROOFS_UNION[] = {
+    SSZ_CONTAINER(ETH_SSZ_NAME_SIGNATURE, ETH_SIGNATURE_HEADER_PROOF),                     // proof by providing the signature of the sync committee
+    SSZ_CONTAINER(ETH_SSZ_NAME_HISTORIC, ETH_HISTORIC_HEADER_PROOF),                       // proof for a historic block using the state_root of a current block
+    SSZ_CONTAINER(ETH_SSZ_NAME_HEADER_CHAIN, ETH_HEADER_CHAIN_PROOF),                      // chain of headers up to a verifiable header
+    SSZ_CONTAINER(ETH_SSZ_NAME_CHECKPOINT, ETH_CHECKPOINT_PROOF),                          // WSP anchor via LightClientBootstrap (currentSyncCommittee branch)
+    SSZ_CONTAINER(ETH_SSZ_NAME_SIGNATURE_FINALIZED, ETH_SIGNATURE_FINALIZED_HEADER_PROOF), // finalized checkpoint inclusion under the attested state
+};
+
+// `signatureFinalized` is selector 4; do not insert a variant in front of it.
+// `_Static_assert` at file scope is rejected by MSVC's C frontend.
+typedef char c4_header_proofs_union_len_check
+    [(sizeof(ETH_HEADER_PROOFS_UNION) / sizeof(ETH_HEADER_PROOFS_UNION[0]) == 5) ? 1 : -1];
 
 // ::: Execution Layer Header Proof
 //
