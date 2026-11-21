@@ -153,10 +153,9 @@ c4_status_t c4_verify_header(verify_ctx_t* ctx, ssz_ob_t header, ssz_ob_t block_
     return c4_verify_historic_proof(ctx, header, sync_committee_bits, sync_committee_signature, cl_header_proof);
 
   if (strcmp(cl_header_proof.def->name, ETH_SSZ_NAME_SIGNATURE_FINALIZED) == 0) {
-    ssz_ob_t attested = ssz_get(&cl_header_proof, "header");
     // The leaf is the requested header. The gindex follows the attested header's fork.
-    gindex_t gindex = c4_finalized_root_gindex(ctx->chain_id, ssz_get_uint64(&attested, "slot"));
-    return c4_verify_signed_checkpoint_header(ctx, header, cl_header_proof, gindex);
+    ssz_ob_t attested = ssz_get(&cl_header_proof, "header");
+    return c4_verify_signed_checkpoint_header(ctx, header, cl_header_proof, c4_finalized_root_gindex(ctx->chain_id, ssz_get_uint64(&attested, "slot")));
   }
 
   THROW_ERROR("unsupported clHeaderProof variant!");
@@ -164,20 +163,18 @@ c4_status_t c4_verify_header(verify_ctx_t* ctx, ssz_ob_t header, ssz_ob_t block_
 
 c4_status_t c4_verify_signed_checkpoint_header(verify_ctx_t* ctx, ssz_ob_t leaf_header, ssz_ob_t proof, gindex_t gindex) {
   if (gindex == 0) THROW_ERROR("invalid gindex for checkpoint header proof!");
-  ssz_ob_t attested   = ssz_get(&proof, "header");
-  bytes_t  branch     = ssz_get(&proof, "proof").bytes;
-  bytes_t  state_root = ssz_get(&attested, "stateRoot").bytes;
-  if (attested.bytes.len != 112 || state_root.len != 32)
-    THROW_ERROR("invalid attested header in checkpoint header proof!");
+  bytes32_t leaf       = {0};
+  bytes32_t got        = {0};
+  ssz_ob_t  attested   = ssz_get(&proof, "header");
+  bytes_t   branch     = ssz_get(&proof, "proof").bytes;
+  bytes_t   state_root = ssz_get(&attested, "stateRoot").bytes;
+  ssz_ob_t  bits       = ssz_get(&proof, "sync_committee_bits");
+  ssz_ob_t  sig        = ssz_get(&proof, "sync_committee_signature");
 
-  bytes32_t leaf = {0};
-  bytes32_t got  = {0};
   ssz_hash_tree_root(leaf_header, leaf);
   if (!ssz_verify_multi_merkle_proof(branch, bytes(leaf, 32), &gindex, got) || memcmp(got, state_root.data, 32) != 0)
     THROW_ERROR("invalid state root for checkpoint header proof!");
 
-  ssz_ob_t bits = ssz_get(&proof, "sync_committee_bits");
-  ssz_ob_t sig  = ssz_get(&proof, "sync_committee_signature");
   return c4_verify_blockroot_signature(ctx, &attested, &bits, &sig, 0, NULL);
 }
 
