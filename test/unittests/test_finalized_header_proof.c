@@ -36,10 +36,10 @@
 static const ssz_def_t ssz_bytes_1024 = SSZ_BYTES("Bytes", 1073741824);
 #include "verify_proof_types.h"
 
-static const ssz_def_t HEADER_CONTAINER  = SSZ_CONTAINER("BeaconBlockHeader", BEACON_BLOCK_HEADER);
-static const ssz_def_t CL_BLOCK_PROOF    = SSZ_CONTAINER(ETH_SSZ_NAME_CL_PROOF, ETH_CL_HEADER_PROOF);
-static const ssz_def_t SYNC_AGG_CONTAINER = SSZ_CONTAINER("syncAggregate", SYNC_AGGREGATE);
-static const ssz_def_t FINALITY_CHUNKS   = SSZ_VECTOR("chunks", ssz_bytes32, 128);
+static const ssz_def_t HEADER_CONTAINER    = SSZ_CONTAINER("BeaconBlockHeader", BEACON_BLOCK_HEADER);
+static const ssz_def_t CL_BLOCK_PROOF      = SSZ_CONTAINER(ETH_SSZ_NAME_CL_PROOF, ETH_CL_HEADER_PROOF);
+static const ssz_def_t SYNC_AGG_CONTAINER  = SSZ_CONTAINER("syncAggregate", SYNC_AGGREGATE);
+static const ssz_def_t FINALITY_CHUNKS     = SSZ_VECTOR("chunks", ssz_bytes32, 128);
 static const ssz_def_t CHECKPOINT_FIELDS[] = {
     SSZ_BIT_VECTOR("sync_committee_bits", 512),
     SSZ_BYTE_VECTOR("sync_committee_signature", 96),
@@ -167,9 +167,8 @@ void test_signature_finalized_is_union_selector_4(void) {
 }
 
 void test_version_gate_keeps_legacy_clients_on_signature_proof(void) {
-  TEST_ASSERT_TRUE(c4_prover_uses_signature_finalized(c4_version_number(1, 1, 27)));
-  TEST_ASSERT_TRUE(c4_prover_uses_signature_finalized(c4_version_number(2, 9, 9)));
-  TEST_ASSERT_TRUE(c4_prover_uses_signature_finalized(0));
+  TEST_ASSERT_FALSE(c4_prover_uses_signature_finalized(0));
+  TEST_ASSERT_FALSE(c4_prover_uses_signature_finalized(c4_version_number(1, 1, 27)));
   TEST_ASSERT_FALSE(c4_prover_uses_signature_finalized(c4_version_number(3, 0, 0)));
   TEST_ASSERT_FALSE(c4_prover_uses_signature_finalized(c4_version_number(3, 1, 1)));
   TEST_ASSERT_TRUE(c4_prover_uses_signature_finalized(c4_version_number(3, 1, 2)));
@@ -201,10 +200,10 @@ void test_gloas_finality_update_serializes_to_fixed_size(void) {
   TEST_ASSERT_NOT_NULL(def);
   TEST_ASSERT_NULL(eth_get_light_client_finality_update(C4_FORK_ELECTRA));
 
-  uint8_t       header[496]  = {0};
-  uint8_t       branch[288]  = {0};
+  uint8_t       header[496]    = {0};
+  uint8_t       branch[288]    = {0};
   uint8_t       aggregate[160] = {0};
-  ssz_builder_t builder      = ssz_builder_for_def(def);
+  ssz_builder_t builder        = ssz_builder_for_def(def);
   ssz_add_bytes(&builder, "attestedHeader", bytes(header, sizeof(header)));
   ssz_add_bytes(&builder, "finalizedHeader", bytes(header, sizeof(header)));
   ssz_add_bytes(&builder, "finalityBranch", bytes(branch, sizeof(branch)));
@@ -236,9 +235,9 @@ void test_checkpoint_merkle_is_checked_before_participation(void) {
   ssz_ob_t leaf             = {.def = &HEADER_CONTAINER, .bytes = bytes(leaf_raw, sizeof(leaf_raw))};
   ssz_ob_t proof            = build_checkpoint_proof(bytes(bits, 64), bytes(attested_raw, sizeof(attested_raw)), NULL_BYTES);
 
-  verify_ctx_t ctx    = {0};
-  ctx.chain_id        = C4_CHAIN_MAINNET;
-  c4_status_t status  = c4_verify_signed_checkpoint_header(&ctx, leaf, proof, 1);
+  verify_ctx_t ctx   = {0};
+  ctx.chain_id       = C4_CHAIN_MAINNET;
+  c4_status_t status = c4_verify_signed_checkpoint_header(&ctx, leaf, proof, 1);
   TEST_ASSERT_EQUAL_INT(C4_ERROR, status);
   TEST_ASSERT_NOT_NULL(ctx.state.error);
   TEST_ASSERT_NOT_NULL(strstr(ctx.state.error, "invalid state root for checkpoint header proof"));
@@ -251,7 +250,7 @@ void test_checkpoint_header_requires_supermajority(void) {
   uint8_t attested_raw[112] = {0};
   uint8_t bits[64]          = {0};
   leaf_raw[0]               = 1;
-  ssz_ob_t leaf             = {.def = &HEADER_CONTAINER, .bytes = bytes(leaf_raw, sizeof(leaf_raw))};
+  ssz_ob_t  leaf            = {.def = &HEADER_CONTAINER, .bytes = bytes(leaf_raw, sizeof(leaf_raw))};
   bytes32_t root            = {0};
   ssz_hash_tree_root(leaf, root);
   // BeaconBlockHeader: slot 8, proposer 8, parentRoot 32, stateRoot 32, bodyRoot 32.
@@ -269,9 +268,9 @@ void test_checkpoint_header_requires_supermajority(void) {
 }
 
 void test_finalized_tag_uses_to_block_for_logs(void) {
-  verify_ctx_t ctx = {0};
-  char         balance[] = "[\"0x0000000000000000000000000000000000000000\",\"finalized\"]";
-  char         safe[]    = "[\"0x0000000000000000000000000000000000000000\",\"safe\"]";
+  verify_ctx_t ctx         = {0};
+  char         balance[]   = "[\"0x0000000000000000000000000000000000000000\",\"finalized\"]";
+  char         safe[]      = "[\"0x0000000000000000000000000000000000000000\",\"safe\"]";
   char         logs_from[] = "[{\"fromBlock\":\"finalized\",\"toBlock\":\"latest\"}]";
   char         logs_to[]   = "[{\"fromBlock\":\"latest\",\"toBlock\":\"finalized\"}]";
 
@@ -318,8 +317,8 @@ void test_finalized_tag_uses_to_block_for_logs(void) {
 }
 
 void test_finalized_requirement_is_outermost_only(void) {
-  ssz_def_t    def   = {.name = ETH_SSZ_NAME_BLOCK_HASH, .type = SSZ_TYPE_VECTOR};
-  ssz_ob_t     block = {.def = &def};
+  ssz_def_t    def    = {.name = ETH_SSZ_NAME_BLOCK_HASH, .type = SSZ_TYPE_VECTOR};
+  ssz_ob_t     block  = {.def = &def};
   bytes_t      header = {0};
   bytes32_t    hash   = {0};
   verify_ctx_t ctx    = {0};
@@ -332,16 +331,16 @@ void test_finalized_requirement_is_outermost_only(void) {
   c4_status_t status = c4_verify_block(&ctx, block, &header, hash);
   TEST_ASSERT_EQUAL_INT(C4_ERROR, status);
   TEST_ASSERT_NOT_NULL(strstr(ctx.state.error, "signatureFinalized"));
-  TEST_ASSERT_EQUAL_UINT8(0, ctx.block_verify_depth);
+  TEST_ASSERT_EQUAL_INT(0, ctx.flags & VERIFY_FLAG_INNER_BLOCK);
   c4_state_free(&ctx.state);
   ctx.state = (c4_state_t) {0};
 
-  ctx.block_verify_depth = 1;
-  status                 = c4_verify_block(&ctx, block, &header, hash);
+  ctx.flags |= VERIFY_FLAG_INNER_BLOCK;
+  status = c4_verify_block(&ctx, block, &header, hash);
   TEST_ASSERT_EQUAL_INT(C4_ERROR, status);
   TEST_ASSERT_NOT_NULL(ctx.state.error);
   TEST_ASSERT_NULL(strstr(ctx.state.error, "signatureFinalized"));
-  TEST_ASSERT_EQUAL_UINT8(1, ctx.block_verify_depth);
+  TEST_ASSERT_NOT_EQUAL(0, ctx.flags & VERIFY_FLAG_INNER_BLOCK);
   c4_state_free(&ctx.state);
 }
 
@@ -389,10 +388,10 @@ void test_fulu_finality_update_classifies_from_its_preamble(void) {
 }
 
 void test_merkle_is_checked_even_when_participation_passes(void) {
-  uint8_t   leaf_raw[112]     = {0};
-  uint8_t   attested_raw[112] = {0};
-  uint8_t   bits[64]          = {0};
-  leaf_raw[0]                 = 1;
+  uint8_t leaf_raw[112]     = {0};
+  uint8_t attested_raw[112] = {0};
+  uint8_t bits[64]          = {0};
+  leaf_raw[0]               = 1;
   fill_bits(bits, 342);
   ssz_ob_t leaf  = {.def = &HEADER_CONTAINER, .bytes = bytes(leaf_raw, sizeof(leaf_raw))};
   ssz_ob_t proof = build_checkpoint_proof(bytes(bits, 64), bytes(attested_raw, sizeof(attested_raw)), NULL_BYTES);
@@ -409,14 +408,14 @@ void test_merkle_is_checked_even_when_participation_passes(void) {
 }
 
 void test_supermajority_reaches_the_signature_check(void) {
-  uint64_t  electra_slot      = mainnet_electra_slot();
-  gindex_t  gindex            = c4_finalized_root_gindex(C4_CHAIN_MAINNET, electra_slot);
-  uint8_t   leaf_raw[112]     = {0};
-  uint8_t   attested_raw[112] = {0};
-  uint8_t   bits[64]          = {0};
-  leaf_raw[80]                = 7;
+  uint64_t electra_slot      = mainnet_electra_slot();
+  gindex_t gindex            = c4_finalized_root_gindex(C4_CHAIN_MAINNET, electra_slot);
+  uint8_t  leaf_raw[112]     = {0};
+  uint8_t  attested_raw[112] = {0};
+  uint8_t  bits[64]          = {0};
+  leaf_raw[80]               = 7;
   fill_bits(bits, 342);
-  ssz_ob_t  leaf = {.def = &HEADER_CONTAINER, .bytes = bytes(leaf_raw, sizeof(leaf_raw))};
+  ssz_ob_t  leaf       = {.def = &HEADER_CONTAINER, .bytes = bytes(leaf_raw, sizeof(leaf_raw))};
   bytes32_t leaf_root  = {0};
   bytes32_t state_root = {0};
   ssz_hash_tree_root(leaf, leaf_root);
@@ -437,7 +436,7 @@ void test_supermajority_reaches_the_signature_check(void) {
 }
 
 void test_gindex_zero_is_rejected_before_the_branch(void) {
-  uint8_t  bits[64] = {0};
+  uint8_t bits[64] = {0};
   fill_bits(bits, 342);
   uint8_t  raw[112] = {0};
   ssz_ob_t leaf     = {.def = &HEADER_CONTAINER, .bytes = bytes(raw, sizeof(raw))};
@@ -459,11 +458,11 @@ void test_verify_header_binds_finalized_gindex_to_attested_slot(void) {
   TEST_ASSERT_NOT_EQUAL(0, electra_g);
   TEST_ASSERT_NOT_EQUAL(electra_g, earlier_g);
 
-  uint8_t   leaf_raw[112] = {0};
-  leaf_raw[80]            = 7;
-  ssz_ob_t  leaf          = {.def = &HEADER_CONTAINER, .bytes = bytes(leaf_raw, sizeof(leaf_raw))};
-  bytes32_t leaf_root     = {0};
-  bytes32_t state_root    = {0};
+  uint8_t leaf_raw[112] = {0};
+  leaf_raw[80]          = 7;
+  ssz_ob_t  leaf        = {.def = &HEADER_CONTAINER, .bytes = bytes(leaf_raw, sizeof(leaf_raw))};
+  bytes32_t leaf_root   = {0};
+  bytes32_t state_root  = {0};
   ssz_hash_tree_root(leaf, leaf_root);
   bytes_t branch = finalized_branch(bytes(leaf_root, 32), electra_g, state_root);
 
@@ -477,10 +476,10 @@ void test_verify_header_binds_finalized_gindex_to_attested_slot(void) {
   ssz_add_bytes(&variant, "sync_committee_signature", NULL_BYTES);
   ssz_add_bytes(&variant, "header", bytes(attested_raw, sizeof(attested_raw)));
   ssz_add_bytes(&variant, "proof", branch);
-  ssz_ob_t     block  = cl_proof_with_header_variant(variant);
-  verify_ctx_t ctx    = {0};
-  ctx.chain_id        = C4_CHAIN_MAINNET;
-  c4_status_t status  = c4_verify_header(&ctx, leaf, block);
+  ssz_ob_t     block = cl_proof_with_header_variant(variant);
+  verify_ctx_t ctx   = {0};
+  ctx.chain_id       = C4_CHAIN_MAINNET;
+  c4_status_t status = c4_verify_header(&ctx, leaf, block);
   TEST_ASSERT_EQUAL_INT(C4_ERROR, status);
   TEST_ASSERT_NOT_NULL(ctx.state.error);
   TEST_ASSERT_NOT_NULL(strstr(ctx.state.error, "insufficient sync committee participation"));
@@ -494,9 +493,9 @@ void test_verify_header_binds_finalized_gindex_to_attested_slot(void) {
   ssz_add_bytes(&variant, "sync_committee_signature", NULL_BYTES);
   ssz_add_bytes(&variant, "header", bytes(attested_raw, sizeof(attested_raw)));
   ssz_add_bytes(&variant, "proof", branch);
-  block        = cl_proof_with_header_variant(variant);
-  ctx.state    = (c4_state_t) {0};
-  status       = c4_verify_header(&ctx, leaf, block);
+  block     = cl_proof_with_header_variant(variant);
+  ctx.state = (c4_state_t) {0};
+  status    = c4_verify_header(&ctx, leaf, block);
   TEST_ASSERT_EQUAL_INT(C4_ERROR, status);
   TEST_ASSERT_NOT_NULL(strstr(ctx.state.error, "invalid state root for checkpoint header proof"));
   c4_state_free(&ctx.state);
@@ -512,7 +511,7 @@ void test_signature_variant_does_not_satisfy_finalized(void) {
   c4_status_t  status = c4_verify_block(&ctx, block, &header, hash);
   TEST_ASSERT_EQUAL_INT(C4_ERROR, status);
   TEST_ASSERT_NOT_NULL(strstr(ctx.state.error, "requires a signatureFinalized proof"));
-  TEST_ASSERT_EQUAL_UINT8(0, ctx.block_verify_depth);
+  TEST_ASSERT_EQUAL_INT(0, ctx.flags & VERIFY_FLAG_INNER_BLOCK);
   c4_state_free(&ctx.state);
   safe_free(block.bytes.data);
 }
@@ -527,7 +526,7 @@ void test_signature_finalized_variant_passes_the_outer_gate(void) {
   TEST_ASSERT_NOT_NULL(ctx.state.error);
   TEST_ASSERT_NULL(strstr(ctx.state.error, "requires a signatureFinalized proof"));
   TEST_ASSERT_NOT_NULL(strstr(ctx.state.error, "cl proof"));
-  TEST_ASSERT_EQUAL_UINT8(0, ctx.block_verify_depth);
+  TEST_ASSERT_EQUAL_INT(0, ctx.flags & VERIFY_FLAG_INNER_BLOCK);
   c4_state_free(&ctx.state);
   safe_free(block.bytes.data);
 }
@@ -545,8 +544,8 @@ void test_finalized_tag_follows_the_consensus_layer(void) {
   TEST_ASSERT_NULL(strstr(ctx.state.error, "signatureFinalized"));
   c4_state_free(&ctx.state);
 
-  ctx            = finalized_balance_ctx(C4_CHAIN_OP_MAINNET);
-  status         = c4_verify_block(&ctx, block, &header, hash);
+  ctx    = finalized_balance_ctx(C4_CHAIN_OP_MAINNET);
+  status = c4_verify_block(&ctx, block, &header, hash);
   TEST_ASSERT_EQUAL_INT(C4_ERROR, status);
   TEST_ASSERT_NOT_NULL(strstr(ctx.state.error, "requires a signatureFinalized proof"));
   c4_state_free(&ctx.state);
@@ -559,23 +558,7 @@ void test_finalized_tag_follows_the_consensus_layer(void) {
   TEST_ASSERT_EQUAL_INT(C4_ERROR, status);
   TEST_ASSERT_NOT_NULL(strstr(ctx.state.error, "invalid block hash length"));
   TEST_ASSERT_NULL(strstr(ctx.state.error, "signatureFinalized"));
-  TEST_ASSERT_EQUAL_UINT8(0, ctx.block_verify_depth);
-  c4_state_free(&ctx.state);
-}
-
-void test_block_proof_nesting_stops_at_255(void) {
-  ssz_def_t    def    = {.name = ETH_SSZ_NAME_BLOCK_HASH, .type = SSZ_TYPE_VECTOR};
-  ssz_ob_t     block  = {.def = &def};
-  bytes_t      header = {0};
-  bytes32_t    hash   = {0};
-  verify_ctx_t ctx    = finalized_balance_ctx(C4_CHAIN_MAINNET);
-  ctx.block_verify_depth = 255;
-
-  c4_status_t status = c4_verify_block(&ctx, block, &header, hash);
-  TEST_ASSERT_EQUAL_INT(C4_ERROR, status);
-  TEST_ASSERT_NOT_NULL(strstr(ctx.state.error, "block proof nesting too deep"));
-  TEST_ASSERT_NULL(strstr(ctx.state.error, "signatureFinalized"));
-  TEST_ASSERT_EQUAL_UINT8(255, ctx.block_verify_depth);
+  TEST_ASSERT_EQUAL_INT(0, ctx.flags & VERIFY_FLAG_INNER_BLOCK);
   c4_state_free(&ctx.state);
 }
 
@@ -642,7 +625,6 @@ int main(void) {
   RUN_TEST(test_signature_variant_does_not_satisfy_finalized);
   RUN_TEST(test_signature_finalized_variant_passes_the_outer_gate);
   RUN_TEST(test_finalized_tag_follows_the_consensus_layer);
-  RUN_TEST(test_block_proof_nesting_stops_at_255);
   RUN_TEST(test_header_proof_builder_emits_signature_finalized);
   return UNITY_END();
 }

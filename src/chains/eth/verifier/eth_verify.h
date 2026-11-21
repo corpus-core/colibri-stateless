@@ -47,18 +47,34 @@ bool verify_pap_tx(verify_ctx_t* ctx);
 // helper
 // Bits 27-29 are Arbitrum header fields. They stay clear until the chain type
 // is Arbitrum, so Ethereum JSON keeps its previous keys.
-#define ETH_BLOCK_BIT_WITHDRAWALS_ROOT      (1u << 7)
-#define ETH_BLOCK_BIT_WITHDRAWALS           (1u << 11)
-#define ETH_BLOCK_BIT_EXCESS_BLOB_GAS       (1u << 12)
-#define ETH_BLOCK_BIT_PARENT_BEACON_ROOT    (1u << 20)
-#define ETH_BLOCK_BIT_BLOB_GAS_USED         (1u << 24)
-#define ETH_BLOCK_BIT_L1_BLOCK_NUMBER       (1u << 27)
-#define ETH_BLOCK_BIT_SEND_COUNT            (1u << 28)
-#define ETH_BLOCK_BIT_SEND_ROOT             (1u << 29)
-#define ETH_BLOCK_ARB_HEADER_BITS           (ETH_BLOCK_BIT_L1_BLOCK_NUMBER | ETH_BLOCK_BIT_SEND_COUNT | ETH_BLOCK_BIT_SEND_ROOT)
-#define ETH_BLOCK_DATA_MASK_ALL             (0xFFFFFFFFu & ~ETH_BLOCK_ARB_HEADER_BITS)
+#define ETH_BLOCK_BIT_WITHDRAWALS_ROOT           (1u << 7)
+#define ETH_BLOCK_BIT_WITHDRAWALS                (1u << 11)
+#define ETH_BLOCK_BIT_EXCESS_BLOB_GAS            (1u << 12)
+#define ETH_BLOCK_BIT_PARENT_BEACON_ROOT         (1u << 20)
+#define ETH_BLOCK_BIT_BLOB_GAS_USED              (1u << 24)
+#define ETH_BLOCK_BIT_L1_BLOCK_NUMBER            (1u << 27)
+#define ETH_BLOCK_BIT_SEND_COUNT                 (1u << 28)
+#define ETH_BLOCK_BIT_SEND_ROOT                  (1u << 29)
+#define ETH_BLOCK_ARB_HEADER_BITS                (ETH_BLOCK_BIT_L1_BLOCK_NUMBER | ETH_BLOCK_BIT_SEND_COUNT | ETH_BLOCK_BIT_SEND_ROOT)
+#define ETH_BLOCK_DATA_MASK_ALL                  (0xFFFFFFFFu & ~ETH_BLOCK_ARB_HEADER_BITS)
 #define ETH_BLOCK_DATA_MASK_ALL_WITHOUT_REQUESTS ((ETH_BLOCK_DATA_MASK_ALL & ~(1u << 25)) & ~(1u << 26))
 
+/**
+ * Verifies a sync-committee aggregate over a beacon block root.
+ *
+ * Rejects the proof unless `sync_committee_bits` has a 2/3 supermajority, before
+ * the signing root is taken from the block-hash cache or the validators are loaded.
+ * `slot` 0 uses `header.slot + 1`. An invalid signature is tried once more with the
+ * previous period's keys.
+ *
+ * @param ctx verification context
+ * @param header attested beacon header
+ * @param sync_committee_bits participation bits of the aggregate
+ * @param sync_committee_signature aggregate signature
+ * @param slot signing slot, or 0 for `header.slot + 1`
+ * @param pubkey_hash expected sync-committee key hash, or NULL
+ * @return `C4_SUCCESS`, `C4_PENDING`, or `C4_ERROR`
+ */
 c4_status_t c4_verify_blockroot_signature(verify_ctx_t* ctx, ssz_ob_t* header, ssz_ob_t* sync_committee_bits, ssz_ob_t* sync_committee_signature, uint64_t slot, bytes32_t pubkey_hash);
 // Authenticates `header` via `clHeaderProof` of an `ETH_CL_HEADER_PROOF` (`block_proof`).
 c4_status_t c4_verify_header(verify_ctx_t* ctx, ssz_ob_t header, ssz_ob_t block_proof);
@@ -71,9 +87,10 @@ c4_status_t c4_verify_header(verify_ctx_t* ctx, ssz_ob_t header, ssz_ob_t block_
  * `c4_finalized_root_gindex` of the attested slot). The proof does not carry the
  * index, so a later justified selector can reuse the same container.
  *
- * Checks run in this order: Merkle inclusion, a 2/3 sync-committee supermajority,
- * then the BLS aggregate over `proof.header` (`slot` 0, so the signing slot is
- * `header.slot + 1`, including the previous-period fallback).
+ * Checks run in this order: Merkle inclusion, then `c4_verify_blockroot_signature`
+ * over `proof.header`. That function requires a 2/3 sync-committee supermajority
+ * before the BLS aggregate (`slot` 0, so the signing slot is `header.slot + 1`,
+ * including the previous-period fallback).
  *
  * @param ctx verification context
  * @param leaf_header beacon header whose hash tree root is the Merkle leaf
@@ -93,9 +110,11 @@ c4_status_t c4_verify_signed_checkpoint_header(verify_ctx_t* ctx, ssz_ob_t leaf_
 // An L1 header inside a batch-poster update is verified with the chain id switched to that L1.
 // `eip2935` is verified here for every chain: the history contract proves an older block
 // from the state of a newer block of the same chain.
-// The outermost call (`block_verify_depth` == 0) on a chain with its own consensus layer
-// rejects a `"finalized"` request unless the proof is a `clProof` whose `clHeaderProof`
-// is `signatureFinalized`. Nested calls (EEZ L1, eip2935) do not apply that requirement again.
+// On a chain with its own consensus layer, the request's own block rejects a `"finalized"`
+// tag unless the proof is a `clProof` whose `clHeaderProof` is `signatureFinalized`.
+// `c4_verify_block` sets `VERIFY_FLAG_INNER_BLOCK` for the duration of the call, so a nested
+// proof (EEZ L1, eip2935) does not apply that requirement again. Recursion is bounded by
+// `ssz_is_valid` (`SSZ_MAX_NESTING`) before a request is verified.
 c4_status_t c4_verify_block(verify_ctx_t* ctx, ssz_ob_t block, bytes_t* el_header, bytes32_t block_hash);
 
 /**
@@ -318,7 +337,8 @@ static inline int eth_block_tag_index(const char* method) {
 static inline bool eth_request_is_finalized(const verify_ctx_t* ctx) {
   if (!ctx || !ctx->method) return false;
   int    idx = eth_block_tag_index(ctx->method);
-  json_t tag = idx == -2 ? json_get(json_at(ctx->args, 0), "toBlock") : idx < 0 ? (json_t) {0} : json_at(ctx->args, idx);
+  json_t tag = idx == -2 ? json_get(json_at(ctx->args, 0), "toBlock") : idx < 0 ? (json_t) {0}
+                                                                                : json_at(ctx->args, idx);
   return tag.type == JSON_TYPE_STRING && tag.len == sizeof("\"finalized\"") - 1 && tag.start &&
          strncmp(tag.start, "\"finalized\"", sizeof("\"finalized\"") - 1) == 0;
 }

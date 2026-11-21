@@ -865,9 +865,9 @@ static c4_status_t load_signature_finalized(prover_ctx_t* ctx, blockroot_proof_t
   ssz_ob_t attested_header  = ssz_get(&update, "attestedHeader");
   ssz_ob_t finalized        = ssz_get(&finalized_header, "beacon");
   ssz_ob_t attested         = ssz_get(&attested_header, "beacon");
-  ssz_ob_t branch    = ssz_get(&update, "finalityBranch");
-  ssz_ob_t aggregate = ssz_get(&update, "syncAggregate");
-  bytes_t  state_root = ssz_get(&attested, "stateRoot").bytes;
+  ssz_ob_t branch           = ssz_get(&update, "finalityBranch");
+  ssz_ob_t aggregate        = ssz_get(&update, "syncAggregate");
+  bytes_t  state_root       = ssz_get(&attested, "stateRoot").bytes;
   if (finalized.bytes.len != 112 || attested.bytes.len != 112 || state_root.len != 32 || aggregate.bytes.len < 160)
     THROW_ERROR("invalid light client finality update");
 

@@ -178,9 +178,6 @@ c4_status_t c4_verify_signed_checkpoint_header(verify_ctx_t* ctx, ssz_ob_t leaf_
 
   ssz_ob_t bits = ssz_get(&proof, "sync_committee_bits");
   ssz_ob_t sig  = ssz_get(&proof, "sync_committee_signature");
-  if (!c4_sync_committee_supermajority(bits.bytes))
-    THROW_ERROR("insufficient sync committee participation for checkpoint header proof!");
-
   return c4_verify_blockroot_signature(ctx, &attested, &bits, &sig, 0, NULL);
 }
 
@@ -190,6 +187,9 @@ c4_status_t c4_verify_blockroot_signature(verify_ctx_t* ctx, ssz_ob_t* header, s
   bool                 valid      = false;
   const chain_spec_t*  spec       = c4_eth_get_chain_spec(ctx->chain_id);
 
+  // Before the block-hash cache and the validator fetch: a cached signing root
+  // does not say that this aggregate reached a supermajority.
+  if (!sync_committee_bits || !c4_sync_committee_supermajority(sync_committee_bits->bytes)) THROW_ERROR("insufficient sync committee participation!");
   if (slot == 0) slot = ssz_get_uint64(header, "slot") + 1;
   if (slot == 0) THROW_ERROR("slot is missing in beacon header!");
   if (!spec) THROW_ERROR("unsupported chain id!");
@@ -367,10 +367,12 @@ static c4_status_t verify_block_impl(verify_ctx_t* ctx, ssz_ob_t block, bytes_t*
 }
 
 c4_status_t c4_verify_block(verify_ctx_t* ctx, ssz_ob_t block, bytes_t* el_header, bytes32_t block_hash) {
-  bool outermost = ctx->block_verify_depth == 0;
-  if (ctx->block_verify_depth == 255) THROW_ERROR("block proof nesting too deep");
-  ctx->block_verify_depth++;
+  // Set for the whole call, including a nested eip2935 or L1 proof, and cleared on
+  // every return. A `C4_PENDING` retry therefore starts again at the request's own block.
+  // `ssz_is_valid` rejects an object nested past `SSZ_MAX_NESTING` before verification.
+  bool outermost = (ctx->flags & VERIFY_FLAG_INNER_BLOCK) == 0;
+  if (outermost) ctx->flags |= VERIFY_FLAG_INNER_BLOCK;
   c4_status_t status = verify_block_impl(ctx, block, el_header, block_hash, outermost);
-  ctx->block_verify_depth--;
+  if (outermost) ctx->flags &= ~VERIFY_FLAG_INNER_BLOCK;
   return status;
 }
