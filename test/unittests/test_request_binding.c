@@ -300,9 +300,9 @@ void test_unreadable_block_identifiers_are_rejected(void) {
     safe_free(args);
   }
 
-  // `safe` names a block the verifier can not derive from the proof, so it matches every
-  // verified block, like `latest`. `finalized` requires a signatureFinalized header proof.
-  safe_free(assert_accepted(BALANCE_DIR, request, "eth_getBalance", "[\"" BALANCE_ADDRESS "\",\"safe\"]", "safe"));
+  // `safe` and `finalized` name a checkpoint. A proof built for `latest` has no
+  // signatureFinalized header proof, so the verifier rejects both tags.
+  assert_rejected(BALANCE_DIR, request, "eth_getBalance", "[\"" BALANCE_ADDRESS "\",\"safe\"]", "safe", "signatureFinalized");
   assert_rejected(BALANCE_DIR, request, "eth_getBalance", "[\"" BALANCE_ADDRESS "\",\"finalized\"]", "finalized", "signatureFinalized");
   safe_free(request.data);
 }
