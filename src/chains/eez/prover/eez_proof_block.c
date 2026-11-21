@@ -231,11 +231,11 @@ static c4_status_t fetch_l1_anchor_proof(prover_ctx_t* ctx, const eez_chain_conf
     // `c4_append_prover_request_props`: that helper falls back to the client state in the
     // local storage, which on a prover server belongs to somebody else.
     //
-    // `version` is the version of this build, not `ctx->version`: the response is embedded
-    // into a proof of this build, so it must use this wire format. A prover answers older
-    // versions in their legacy format (and a prover context without a client version
-    // defaults to an old one).
-    bprintf(&payload, ",\"version\":%d", c4_current_version_number());
+    // The L1 answer is embedded and checked by the client that sent this request.
+    // `ctx->version` is that client's version: this build for a local proof, and the
+    // version the server copied from the request. A prover answers an older version in
+    // that version's proof format, which is what the client's verifier parses.
+    bprintf(&payload, ",\"version\":%d", ctx->version);
     if (ctx->client_state.data && ctx->client_state.len)
       bprintf(&payload, ",\"c4\":\"0x%x\"", ctx->client_state);
     if (ctx->flags & C4_PROVER_FLAG_ZK_PROOF)
@@ -459,8 +459,8 @@ static c4_status_t resolve_block(prover_ctx_t* ctx, const eez_chain_config_t* co
   bool used_snapshot = false;
 #ifdef HTTP_SERVER
   if (ctx->flags & C4_PROVER_FLAG_UV_SERVER_CTX) {
-    char            path[96]   = {0};
-    buffer_t        path_buf   = stack_buffer(path);
+    char     path[96] = {0};
+    buffer_t path_buf = stack_buffer(path);
     bprintf(&path_buf, "eez_blockhash/%l/%d", anchor_number, (uint32_t) (requested % ETH_EIP2935_HISTORY_WINDOW));
     data_request_t* internal = NULL;
     c4_status_t     st       = c4_send_internal_request_no_throw(ctx, path, NULL, 0, &internal);

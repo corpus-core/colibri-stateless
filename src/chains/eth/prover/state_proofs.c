@@ -524,7 +524,8 @@ bool c4_ssz_compact_to_branch(bytes_t   leaves,
 c4_status_t c4_create_state_proof(prover_ctx_t* ctx,
                                   bytes32_t     state_root,
                                   gindex_t      gindex,
-                                  bytes_t*      proof_result) {
+                                  bytes_t*      proof_result,
+                                  bytes32_t     leaf_out) {
   if (!ctx || !proof_result) return C4_ERROR;
   *proof_result = NULL_BYTES;
   if (gindex < 2) THROW_ERROR("c4_create_state_proof: gindex must be >= 2");
@@ -541,8 +542,9 @@ c4_status_t c4_create_state_proof(prover_ctx_t* ctx,
   safe_free(descriptor.data);
   if (status != C4_SUCCESS) return status;
 
-  bytes_t branch = NULL_BYTES;
-  if (!c4_ssz_compact_to_branch(leaves_ob.bytes, descriptor_ob.bytes, gindex, state_root, &branch))
+  bytes32_t leaf   = {0};
+  bytes_t   branch = NULL_BYTES;
+  if (!c4_ssz_compact_multi_extract(leaves_ob.bytes, descriptor_ob.bytes, NULL, 0, state_root, NULL_BYTES, gindex, leaf_out ? leaf_out : leaf, &branch))
     THROW_ERROR("c4_create_state_proof: compact multi-proof did not reconstruct to state_root");
 
   eth_cu_add_proof(ctx);

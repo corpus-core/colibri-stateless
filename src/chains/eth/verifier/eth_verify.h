@@ -83,9 +83,10 @@ c4_status_t c4_verify_header(verify_ctx_t* ctx, ssz_ob_t header, ssz_ob_t block_
  * Verifies a sync-committee signature over an attested header and one Merkle branch.
  *
  * `leaf_header` is the requested beacon header. Its `hash_tree_root` must sit at
- * `gindex` under `proof.header.stateRoot`. The caller pins `gindex` (finalized:
- * `c4_finalized_root_gindex` of the attested slot). The proof does not carry the
- * index, so a later justified selector can reuse the same container.
+ * `gindex` under `proof.header.stateRoot`. The caller pins `gindex`. A `"finalized"`
+ * request uses `c4_finalized_root_gindex` of the attested slot. A `"safe"` request
+ * uses `c4_current_justified_root_gindex`. The proof does not carry the index;
+ * both tags share the `signatureFinalized` container.
  *
  * Checks run in this order: Merkle inclusion, then `c4_verify_blockroot_signature`
  * over `proof.header`. That function requires a 2/3 sync-committee supermajority
@@ -111,7 +112,10 @@ c4_status_t c4_verify_signed_checkpoint_header(verify_ctx_t* ctx, ssz_ob_t leaf_
 // `eip2935` is verified here for every chain: the history contract proves an older block
 // from the state of a newer block of the same chain.
 // On a chain with its own consensus layer, the request's own block rejects a `"finalized"`
-// tag unless the proof is a `clProof` whose `clHeaderProof` is `signatureFinalized`.
+// or `"safe"` tag unless the proof is a `clProof` whose `clHeaderProof` is `signatureFinalized`.
+// `"safe"` checks `c4_current_justified_root_gindex` and `"finalized"` checks
+// `c4_finalized_root_gindex`, including a nested `signatureFinalized`: the L1 proof inside
+// an EEZ block is the block the tag names.
 // `c4_verify_block` sets `VERIFY_FLAG_INNER_BLOCK` for the duration of the call, so a nested
 // proof (EEZ L1, eip2935) does not apply that requirement again. Recursion is bounded by
 // `ssz_is_valid` (`SSZ_MAX_NESTING`) before a request is verified.
@@ -236,7 +240,8 @@ void c4_eth_eip191_digest_32(const bytes32_t message, bytes32_t out_digest);
  * Returns `true` if `block_tag` is the JSON string `"latest"`.
  *
  * Intentionally narrow: only the literal `"latest"` triggers a freshness check.
- * `"safe"` and `"justified"` still need a separate witness (see #283).
+ * `"safe"` is authenticated by a `signatureFinalized` header proof at `c4_current_justified_root_gindex` in `c4_verify_block`.
+ * `"justified"` still needs a separate witness (see #283).
  * `"finalized"` is authenticated by a `signatureFinalized` header proof in `c4_verify_block`.
  *
  * @param block_tag JSON token from `ctx->args` (usually `json_at(args, idx)`)
@@ -291,6 +296,7 @@ bool eth_check_latest_freshness(verify_ctx_t* ctx, bool is_latest, bool has_ts, 
  * - a block hash (32 bytes) has to be the hash of the verified header
  * - `"latest"` and `"safe"` match every verified block; the age of a `"latest"` block is checked by `eth_check_latest_freshness`
  * - `"finalized"` also matches here, because this function does not learn the block number from the tag. `c4_verify_block` additionally requires a `signatureFinalized` proof for that tag
+ * - `"safe"` matches here for the same reason. `c4_verify_block` additionally requires `signatureFinalized` and checks it at `c4_current_justified_root_gindex`
  * - `"pending"`, `"earliest"` and everything else is rejected
  *
  * @param ctx verification context (error sink)
@@ -341,6 +347,28 @@ static inline bool eth_request_is_finalized(const verify_ctx_t* ctx) {
                                                                                 : json_at(ctx->args, idx);
   return tag.type == JSON_TYPE_STRING && tag.len == sizeof("\"finalized\"") - 1 && tag.start &&
          strncmp(tag.start, "\"finalized\"", sizeof("\"finalized\"") - 1) == 0;
+}
+
+/**
+ * Returns `true` when the request asks for the safe block.
+ *
+ * For `eth_getLogs` and `eth_verifyLogs` only `toBlock` counts: that is the block
+ * the execution proof is anchored to. `fromBlock` stays an open range bound.
+ * Methods without a block tag return `false`.
+ *
+ * Inline so a caller of `c4_verify_block` does not pull the rest of the ETH
+ * verify objects into binaries that only need the header check.
+ *
+ * @param ctx verification context (`method` and `args`)
+ * @return `true` when the relevant block tag is exactly `"safe"`
+ */
+static inline bool eth_request_is_safe(const verify_ctx_t* ctx) {
+  if (!ctx || !ctx->method) return false;
+  int    idx = eth_block_tag_index(ctx->method);
+  json_t tag = idx == -2 ? json_get(json_at(ctx->args, 0), "toBlock") : idx < 0 ? (json_t) {0}
+                                                                                : json_at(ctx->args, idx);
+  return tag.type == JSON_TYPE_STRING && tag.len == sizeof("\"safe\"") - 1 && tag.start &&
+         strncmp(tag.start, "\"safe\"", sizeof("\"safe\"") - 1) == 0;
 }
 
 #ifdef ETH_OBLIVIOUS

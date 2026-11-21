@@ -109,10 +109,12 @@ void test_plataberget_gloas_gindexes_reachable(void) {
   TEST_ASSERT_EQUAL_UINT64(86, c4_current_sync_committee_gindex(C4_CHAIN_PLATABERGET, fulu_slot));
   TEST_ASSERT_EQUAL_UINT64(87, c4_next_sync_committee_gindex(C4_CHAIN_PLATABERGET, fulu_slot));
   TEST_ASSERT_EQUAL_UINT64(169, c4_finalized_root_gindex(C4_CHAIN_PLATABERGET, fulu_slot));
+  TEST_ASSERT_EQUAL_UINT64(167, c4_current_justified_root_gindex(C4_CHAIN_PLATABERGET, fulu_slot));
 
   TEST_ASSERT_EQUAL_UINT64(2945, c4_current_sync_committee_gindex(C4_CHAIN_PLATABERGET, gloas_slot));
   TEST_ASSERT_EQUAL_UINT64(2946, c4_next_sync_committee_gindex(C4_CHAIN_PLATABERGET, gloas_slot));
   TEST_ASSERT_EQUAL_UINT64(735, c4_finalized_root_gindex(C4_CHAIN_PLATABERGET, gloas_slot));
+  TEST_ASSERT_EQUAL_UINT64(733, c4_current_justified_root_gindex(C4_CHAIN_PLATABERGET, gloas_slot));
 }
 
 void test_fork_id_epoch_zero_still_phase0_on_public_networks(void) {

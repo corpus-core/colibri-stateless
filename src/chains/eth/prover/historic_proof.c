@@ -34,6 +34,7 @@
 #include "logger.h"
 #include "prover.h"
 #include "ssz.h"
+#include "state_proofs.h"
 #include "sync_committee.h"
 #include "version.h"
 #include <inttypes.h> // Include this header for PRIu64 and PRIx64
@@ -340,8 +341,9 @@ void ssz_add_header_proof(ssz_builder_t* builder, eth_block_t* block_data, block
     case HISTORIC_PROOF_FINALIZED:
       // This container stores the aggregate before the attested header. The other
       // variants append it after their own fields, so this case finishes the builder.
-      // The branch bytes are whatever the caller stored. Finalized uses finalityBranch;
-      // a later justified proof can reuse this container with another branch.
+      // The branch bytes are whatever the caller stored. Finalized uses finalityBranch.
+      // Safe stores the Lodestar branch of current_justified_checkpoint.root and
+      // still writes this same container.
       ssz_add_bytes(&bp, "sync_committee_bits", ssz_get(&sync_aggregate, "syncCommitteeBits").bytes);
       ssz_add_bytes(&bp, "sync_committee_signature", ssz_get(&sync_aggregate, "syncCommitteeSignature").bytes);
       ssz_add_bytes(&bp, "header", block_proof.proof_header);
@@ -904,6 +906,77 @@ static c4_status_t load_signature_finalized(prover_ctx_t* ctx, blockroot_proof_t
   return C4_SUCCESS;
 }
 
+// Same container as `load_signature_finalized`. The leaf is
+// `current_justified_checkpoint.root` of the attested state, taken from a
+// Lodestar state proof, and the branch is the classical path to that state root.
+static c4_status_t load_signature_safe(prover_ctx_t* ctx, blockroot_proof_t* proof, eth_block_t* block, const chain_spec_t* chain, bool materialize) {
+  if (!(ctx->flags & C4_PROVER_FLAG_LODESTAR))
+    THROW_ERROR("safe block requires a Lodestar state proof");
+
+  ssz_ob_t update = {0};
+  TRY_ASYNC(cl_get_light_client_finality_update(ctx, &update));
+
+  ssz_ob_t attested_header = ssz_get(&update, "attestedHeader");
+  ssz_ob_t attested        = ssz_get(&attested_header, "beacon");
+  ssz_ob_t aggregate       = ssz_get(&update, "syncAggregate");
+  bytes_t  state_root_b    = ssz_get(&attested, "stateRoot").bytes;
+  if (attested.bytes.len != 112 || state_root_b.len != 32 || aggregate.bytes.len < 160)
+    THROW_ERROR("invalid light client finality update");
+
+  uint64_t slot   = ssz_get_uint64(&attested, "slot");
+  gindex_t gindex = c4_current_justified_root_gindex(ctx->chain_id, slot);
+  if (gindex == 0) THROW_ERROR("unsupported fork for safe header proof");
+
+  bytes32_t state_root = {0};
+  memcpy(state_root, state_root_b.data, 32);
+  bytes32_t   leaf   = {0};
+  bytes_t     branch = NULL_BYTES;
+  c4_status_t status = c4_create_state_proof(ctx, state_root, gindex, &branch, leaf);
+  if (status != C4_SUCCESS) return status;
+
+  bytes32_t block_root = {0};
+  ssz_hash_tree_root(block->beacon.cl_header, block_root);
+  if (memcmp(leaf, block_root, 32) != 0) {
+    safe_free(branch.data);
+    THROW_ERROR("justified header does not match the requested block");
+  }
+  if (branch.len != gindex_depth(gindex) * 32) {
+    safe_free(branch.data);
+    THROW_ERROR("invalid justified branch length");
+  }
+
+  bytes32_t got = {0};
+  if (!ssz_verify_multi_merkle_proof(branch, bytes(block_root, 32), &gindex, got) || memcmp(got, state_root, 32) != 0) {
+    safe_free(branch.data);
+    THROW_ERROR("justified branch does not prove the requested block");
+  }
+
+  bytes_t bits = ssz_get(&aggregate, "syncCommitteeBits").bytes;
+  if (!c4_sync_committee_supermajority(bits)) {
+    safe_free(branch.data);
+    THROW_ERROR("insufficient sync committee participation for safe header");
+  }
+
+  if (slot + 1 == 0) {
+    safe_free(branch.data);
+    THROW_ERROR("attested slot is missing in finality update");
+  }
+  uint64_t period = (uint64_t) ((slot + 1) >> (chain->epochs_per_period_bits + chain->slots_per_epoch_bits));
+  if (proof->sync.required_period < period) proof->sync.required_period = period;
+
+  if (!materialize) {
+    safe_free(branch.data);
+    return C4_SUCCESS;
+  }
+
+  replace_proof_bytes(&proof->proof_header, attested.bytes);
+  replace_proof_bytes(&proof->historic_proof, branch);
+  safe_free(branch.data);
+  proof->sync_aggregate = aggregate;
+  proof->type           = HISTORIC_PROOF_FINALIZED;
+  return C4_SUCCESS;
+}
+
 c4_status_t c4_check_blockroot_proof(prover_ctx_t* ctx, blockroot_proof_t* block_proof, eth_block_t* src_block) {
   if (ctx->flags & C4_PROVER_FLAG_HYBRID) return C4_SUCCESS;
   // EEZ blocks are proven by an L1 prover response. Its sync data is handed to
@@ -923,9 +996,17 @@ c4_status_t c4_check_blockroot_proof(prover_ctx_t* ctx, blockroot_proof_t* block
   uint64_t block_period = (uint64_t) (src_block->slot >> (chain->epochs_per_period_bits + chain->slots_per_epoch_bits));
   if (!block_proof->sync.block_period) block_proof->sync.block_period = block_period;
   block_proof->sync.required_period = max64(block_proof->sync.required_period, block_period);
-  // The committee that signs the attested header can sit one period ahead of the finalized block.
-  if (src_block->finalized_request)
-    TRY_ASYNC(load_signature_finalized(ctx, block_proof, src_block, chain, false));
+  // The committee that signs the attested header can sit one period ahead of the checkpoint block.
+  switch (src_block->checkpoint) {
+    case C4_BLOCK_CHECKPOINT_FINALIZED:
+      TRY_ASYNC(load_signature_finalized(ctx, block_proof, src_block, chain, false));
+      break;
+    case C4_BLOCK_CHECKPOINT_SAFE:
+      TRY_ASYNC(load_signature_safe(ctx, block_proof, src_block, chain, false));
+      break;
+    case C4_BLOCK_CHECKPOINT_NONE:
+      break;
+  }
 
   load_client_periods(ctx, &block_proof->sync);
 
@@ -972,9 +1053,15 @@ c4_status_t c4_check_blockroot_proof(prover_ctx_t* ctx, blockroot_proof_t* block
       return update_status;
   }
 
-  if (src_block->finalized_request) {
-    TRY_ASYNC(load_signature_finalized(ctx, block_proof, src_block, chain, true));
-    return update_status;
+  switch (src_block->checkpoint) {
+    case C4_BLOCK_CHECKPOINT_FINALIZED:
+      TRY_ASYNC(load_signature_finalized(ctx, block_proof, src_block, chain, true));
+      return update_status;
+    case C4_BLOCK_CHECKPOINT_SAFE:
+      TRY_ASYNC(load_signature_safe(ctx, block_proof, src_block, chain, true));
+      return update_status;
+    case C4_BLOCK_CHECKPOINT_NONE:
+      break;
   }
 
   TRY_ASYNC(check_historic_proof_direct(ctx, block_proof, src_block));

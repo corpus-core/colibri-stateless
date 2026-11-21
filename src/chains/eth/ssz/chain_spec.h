@@ -80,12 +80,12 @@ typedef struct {
 // qualifiers (which would be UB on genuinely `const` members).
 typedef struct {
   chain_id_t                 chain_id;
-  const uint64_t*            fork_epochs;                 // fork activation epochs, FORKS_END-terminated
+  const uint64_t*            fork_epochs; // fork activation epochs, FORKS_END-terminated
   bytes32_t                  genesis_validators_root;
-  bytes32_t                  zk_sync_keys_root;           // initial zk sync keys root
-  int                        slots_per_epoch_bits;        // 5 = 32 slots per epoch
-  int                        epochs_per_period_bits;      // 8 = 256 epochs per period
-  uint64_t                   weak_subjectivity_epochs;    // max epochs before checkpoint validation required
+  bytes32_t                  zk_sync_keys_root;        // initial zk sync keys root
+  int                        slots_per_epoch_bits;     // 5 = 32 slots per epoch
+  int                        epochs_per_period_bits;   // 8 = 256 epochs per period
+  uint64_t                   weak_subjectivity_epochs; // max epochs before checkpoint validation required
   fork_version_func_t        fork_version_func;
   const uint8_t*             fork_versions;               // optional: pointer to `(C4_FORK_MAX + 1) * 4` bytes; one 4-byte fork version per fork id (phase0 .. HEZE). NULL → use `fork_version_func`. Chains registered through `c4_eth_register_chain` set both: `fork_version_func = generic_fork_version` and this table.
   const eth_blob_schedule_t* blob_schedule;               // EIP-7892 blob schedule, DESCENDING by timestamp, {0,0}-terminated; NULL uses Cancun default
@@ -223,6 +223,22 @@ gindex_t c4_next_sync_committee_gindex(chain_id_t chain_id, uint64_t slot);
  * @return Generalized index used to build/verify the finality Merkle proof
  */
 gindex_t c4_finalized_root_gindex(chain_id_t chain_id, uint64_t slot);
+
+/**
+ * Returns the generalized index of `current_justified_checkpoint.root` within `BeaconState` for the fork active at `slot`.
+ *
+ * The field sits immediately before `finalized_checkpoint`, so the root is two positions to the left of `c4_finalized_root_gindex` and the branch has the same depth:
+ * - Deneb:   103
+ * - Electra: 167 (Fulu keeps the Electra layout for these fields)
+ * - Gloas:   733
+ *
+ * A `"safe"` request verifies `signatureFinalized` against this index. A `"finalized"` request keeps `c4_finalized_root_gindex`. The proof does not store the index.
+ *
+ * @param chain_id Chain identifier used to look up fork epochs
+ * @param slot Beacon slot; used to derive the epoch and thus the active fork
+ * @return Generalized index used to build/verify the justified-checkpoint Merkle proof
+ */
+gindex_t c4_current_justified_root_gindex(chain_id_t chain_id, uint64_t slot);
 
 /**
  * Returns the generalized index of the `historical_summaries` field within `BeaconState`

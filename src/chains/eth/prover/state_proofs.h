@@ -52,12 +52,16 @@ extern "C" {
  * @param gindex generalized index of the leaf inside `BeaconState` (must be >= 2)
  * @param proof_result output; `N * 32` bytes, leaf-to-root order. Heap-allocated on
  *                     `C4_SUCCESS`; caller must `safe_free(proof_result->data)`
+ * @param leaf_out when non-NULL, receives the 32-byte value at `gindex`. For a
+ *                 `Bytes32` field this is the field itself. Left untouched unless
+ *                 the call returns `C4_SUCCESS`.
  * @return `C4_SUCCESS`, `C4_PENDING`, or `C4_ERROR`
  */
 c4_status_t c4_create_state_proof(prover_ctx_t* ctx,
                                   bytes32_t     state_root,
                                   gindex_t      gindex,
-                                  bytes_t*      proof_result);
+                                  bytes_t*      proof_result,
+                                  bytes32_t     leaf_out);
 
 /**
  * Computes the ChainSafe compact-multi-proof descriptor for a set of

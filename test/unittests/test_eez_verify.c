@@ -872,8 +872,8 @@ void test_l1_prover_request(void) {
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(payload, "\"method\":\"eth_getStorageAt\""), payload);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(payload, "\"params\":[\"0x" ROLLUPX_PROXY "\",\"0x" ROLLUPX_ROOT_SLOT "\",\"latest\"]"), payload);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(payload, "\"c4\":\"0x0173070000\""), payload);
-  char* version = bprintf(NULL, "\"version\":%d,", c4_current_version_number());
-  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(payload, version), "the version of this build, not the (older) default of the prover context");
+  char* version = bprintf(NULL, "\"version\":%d,", ctx->version);
+  TEST_ASSERT_NOT_NULL_MESSAGE(strstr(payload, version), "the L1 request carries the client version of the prover context");
   safe_free(version);
   TEST_ASSERT_EQUAL_UINT32_MESSAGE(12, req->ttl, "one L1 slot");
   TEST_ASSERT_NULL_MESSAGE(strstr(payload, "signers"), "a 32-byte witness key is a private key and must not be sent");
@@ -919,11 +919,15 @@ void test_l1_prover_request_block_tag(void) {
   };
   for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
     prover_ctx_t* ctx = c4_prover_create((char*) cases[i][0], (char*) cases[i][1], ROLLUPX, 0);
+    ctx->version      = c4_version_number(3, 0, 4);
     TEST_ASSERT_EQUAL_INT_MESSAGE(C4_PENDING, c4_prover_execute(ctx), cases[i][1]);
     TEST_ASSERT_NOT_NULL(ctx->state.requests);
     TEST_ASSERT_EQUAL_INT(C4_DATA_TYPE_PROVER, ctx->state.requests->type);
     char* payload = bprintf(NULL, "%r", ctx->state.requests->payload);
     TEST_ASSERT_NOT_NULL_MESSAGE(strstr(payload, cases[i][2]), payload);
+    char* version = bprintf(NULL, "\"version\":%d", ctx->version);
+    TEST_ASSERT_NOT_NULL_MESSAGE(strstr(payload, version), payload);
+    safe_free(version);
     safe_free(payload);
     c4_prover_free(ctx);
   }
@@ -1898,12 +1902,12 @@ void test_prover_sends_l1_client_state_to_l1_prover(void) {
   safe_free(payload);
   c4_prover_free(ctx);
 
-  // the version is the one of this build, not the one of the client
+  // the embedded L1 proof is verified by this client, so the request uses its version
   ctx          = c4_prover_create("eth_blockNumber", "[]", ROLLUPX, 0);
   ctx->version = c4_version_number(1, 0, 0);
   TEST_ASSERT_EQUAL_INT(C4_PENDING, c4_prover_execute(ctx));
   payload  = bprintf(NULL, "%r", ctx->state.requests->payload);
-  expected = bprintf(NULL, "\"version\":%d}", c4_current_version_number());
+  expected = bprintf(NULL, "\"version\":%d}", ctx->version);
   TEST_ASSERT_NOT_NULL_MESSAGE(strstr(payload, expected), payload);
   safe_free(expected);
   safe_free(payload);

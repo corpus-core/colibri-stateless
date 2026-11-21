@@ -208,10 +208,10 @@ static const ssz_def_t ETH_CHECKPOINT_PROOF[] = {
 
 // Sync-committee signature over an attested header, plus one Merkle branch from the
 // requested BeaconBlockHeader to that header's state root. The union selector says
-// which state field the branch authenticates. `signatureFinalized` is the finalized
-// checkpoint (`c4_finalized_root_gindex` of the attested slot). The gindex is not
-// stored: a later justified selector can reuse this container with another index.
-// `proof` is a progressive list because the finalized-root depth differs by fork
+// which state field the branch authenticates. `signatureFinalized` carries either
+// checkpoint: a `"finalized"` request pins `c4_finalized_root_gindex` of the attested
+// slot, a `"safe"` request pins `c4_current_justified_root_gindex`. The gindex is not
+// stored. Both leaves have the same depth, so one progressive list fits both branches
 // (Deneb 6, Electra/Fulu 7, Gloas 9).
 static const ssz_def_t ETH_SIGNATURE_FINALIZED_HEADER_PROOF[] = {
     SSZ_BIT_VECTOR("sync_committee_bits", 512),      // participation bits of the sync committee that signed `header`
@@ -225,7 +225,7 @@ static const ssz_def_t ETH_HEADER_PROOFS_UNION[] = {
     SSZ_CONTAINER(ETH_SSZ_NAME_HISTORIC, ETH_HISTORIC_HEADER_PROOF),                       // proof for a historic block using the state_root of a current block
     SSZ_CONTAINER(ETH_SSZ_NAME_HEADER_CHAIN, ETH_HEADER_CHAIN_PROOF),                      // chain of headers up to a verifiable header
     SSZ_CONTAINER(ETH_SSZ_NAME_CHECKPOINT, ETH_CHECKPOINT_PROOF),                          // WSP anchor via LightClientBootstrap (currentSyncCommittee branch)
-    SSZ_CONTAINER(ETH_SSZ_NAME_SIGNATURE_FINALIZED, ETH_SIGNATURE_FINALIZED_HEADER_PROOF), // finalized checkpoint inclusion under the attested state
+    SSZ_CONTAINER(ETH_SSZ_NAME_SIGNATURE_FINALIZED, ETH_SIGNATURE_FINALIZED_HEADER_PROOF), // finalized or safe checkpoint inclusion under the attested state; the request tag picks the gindex
 };
 
 // `signatureFinalized` is selector 4; do not insert a variant in front of it.

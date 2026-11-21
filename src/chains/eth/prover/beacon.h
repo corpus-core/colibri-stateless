@@ -52,6 +52,15 @@ typedef enum {
   C4_BLOCK_PROOF_TYPE_EEZ       = 3, // `eez` is set; the block hash is proven by an L1 account proof, or by an `eip2935` proof on top of it
 } c4_block_proof_type_t;
 
+// Which `signatureFinalized` branch a request wants. `NONE` is also an older client
+// that still receives the plain `signature` header proof. `"finalized"` and `"safe"`
+// cannot both apply.
+typedef enum {
+  C4_BLOCK_CHECKPOINT_NONE      = 0,
+  C4_BLOCK_CHECKPOINT_FINALIZED = 1, // tag is "finalized"; branch is `finalized_checkpoint.root`
+  C4_BLOCK_CHECKPOINT_SAFE      = 2, // tag is "safe"; same container, branch is `current_justified_checkpoint.root`
+} c4_block_checkpoint_t;
+
 typedef struct {
   bytes_t   block_hash_branch;        // merkle branch from execution blockHash to the CL body root
   uint64_t  block_hash_branch_gindex; // gindex of that branch
@@ -87,12 +96,13 @@ typedef struct {
 } eth_block_eez_t;
 
 typedef struct {
-  c4_block_proof_type_t proof_type;        // which side of the union is valid
-  bool                  finalized_request; // tag is "finalized" and the client wants signatureFinalized. Not part of the cache: written after the cache store and overwritten on every hit.
-  bytes_t               el_header;         // RLP-serialized execution-layer header
-  ssz_ob_t              el_body;           // execution payload, or at least transactions + withdrawals
-  bytes32_t             el_block_hash;     // keccak(el_header)
-  uint64_t              slot;              // beacon slot, or EL block number when no CL header exists
+  c4_block_proof_type_t proof_type; // which side of the union is valid
+  // Not part of the cache: cleared before the store, written after it, and overwritten on every hit.
+  c4_block_checkpoint_t checkpoint;
+  bytes_t               el_header;     // RLP-serialized execution-layer header
+  ssz_ob_t              el_body;       // execution payload, or at least transactions + withdrawals
+  bytes32_t             el_block_hash; // keccak(el_header)
+  uint64_t              slot;          // beacon slot, or EL block number when no CL header exists
   union {
     eth_block_beacon_t    beacon;
     eth_block_sequencer_t sequencer;
@@ -116,16 +126,41 @@ static inline bool c4_prover_uses_signature_finalized(uint32_t version) {
 }
 
 /**
- * Returns `true` when this prover request must prove the block with `signatureFinalized`.
+ * Selects the safe-header proof for a prover client version.
+ *
+ * Versions newer than 3.1.2 prove `"safe"` with the same `signatureFinalized`
+ * container as `"finalized"`, but the branch is `current_justified_checkpoint.root`.
+ * A 3.1.2 verifier always checks that container at the finalized gindex, so it
+ * still receives the plain `signature` header proof.
+ *
+ * @param version `prover_ctx_t.version`
+ * @return `true` when a safe request must be proven with `signatureFinalized`
+ */
+static inline bool c4_prover_uses_signature_safe(uint32_t version) {
+  return version > c4_version_number(3, 1, 2);
+}
+
+/**
+ * Returns the checkpoint branch this prover request must build.
+ *
+ * `"finalized"` selects `C4_BLOCK_CHECKPOINT_FINALIZED` when `version` is newer
+ * than 3.1.1. `"safe"` selects `C4_BLOCK_CHECKPOINT_SAFE` when `version` is newer
+ * than 3.1.2; that proof uses the same `signatureFinalized` container, with the
+ * branch of `current_justified_checkpoint.root`. A 3.1.2 verifier always checks
+ * that container at the finalized gindex, so it still receives the plain
+ * `signature` header proof. Any other tag does the same.
  *
  * @param version `prover_ctx_t.version`
  * @param block JSON block tag from the RPC arguments
- * @return `true` for a `"finalized"` tag when `version` is newer than 3.1.1
+ * @return the checkpoint the request names, or `C4_BLOCK_CHECKPOINT_NONE`
  */
-static inline bool c4_prover_request_is_signature_finalized(uint32_t version, json_t block) {
-  return c4_prover_uses_signature_finalized(version) &&
-         block.type == JSON_TYPE_STRING && block.len == 11 && block.start &&
-         strncmp(block.start, "\"finalized\"", 11) == 0;
+static inline c4_block_checkpoint_t c4_prover_block_checkpoint(uint32_t version, json_t block) {
+  if (block.type != JSON_TYPE_STRING || !block.start) return C4_BLOCK_CHECKPOINT_NONE;
+  if (c4_prover_uses_signature_finalized(version) && block.len == 11 && strncmp(block.start, "\"finalized\"", 11) == 0)
+    return C4_BLOCK_CHECKPOINT_FINALIZED;
+  if (c4_prover_uses_signature_safe(version) && block.len == 6 && strncmp(block.start, "\"safe\"", 6) == 0)
+    return C4_BLOCK_CHECKPOINT_SAFE;
+  return C4_BLOCK_CHECKPOINT_NONE;
 }
 
 // :: Verified Header Cache
