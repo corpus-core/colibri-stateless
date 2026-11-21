@@ -113,7 +113,9 @@ c4_status_t c4_verify_signed_checkpoint_header(verify_ctx_t* ctx, ssz_ob_t leaf_
 // from the state of a newer block of the same chain.
 // On a chain with its own consensus layer, the request's own block rejects a `"finalized"`
 // or `"safe"` tag unless the proof is a `clProof` whose `clHeaderProof` is `signatureFinalized`.
-// `"safe"` then checks `c4_current_justified_root_gindex`; `"finalized"` checks `c4_finalized_root_gindex`.
+// `"safe"` checks `c4_current_justified_root_gindex` and `"finalized"` checks
+// `c4_finalized_root_gindex`, including a nested `signatureFinalized`: the L1 proof inside
+// an EEZ block is the block the tag names.
 // `c4_verify_block` sets `VERIFY_FLAG_INNER_BLOCK` for the duration of the call, so a nested
 // proof (EEZ L1, eip2935) does not apply that requirement again. Recursion is bounded by
 // `ssz_is_valid` (`SSZ_MAX_NESTING`) before a request is verified.

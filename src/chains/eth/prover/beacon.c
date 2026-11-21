@@ -635,10 +635,9 @@ static inline c4_status_t eth_get_block_roots(prover_ctx_t* ctx, json_t block, b
   // The finality-update root and the checkpoint cache can diverge. A signatureFinalized
   // proof has to use the same header the branch authenticates, so that path skips the tag cache.
   // `"safe"` does the same: its leaf is the justified root inside the attested state.
-  bool use_signature_finalized = c4_prover_request_is_signature_finalized(ctx->version, block);
-  bool use_signature_safe      = c4_prover_request_is_signature_safe(ctx->version, block);
+  c4_block_checkpoint_t checkpoint = c4_prover_block_checkpoint(ctx->version, block);
 #ifdef PROVER_CACHE
-  if (!use_signature_finalized && !use_signature_safe) {
+  if (checkpoint == C4_BLOCK_CHECKPOINT_NONE) {
     beacon_head_t* cached = c4_beacon_cache_get_slot(ctx, block);
     TRACE_ADD_STR(ctx, "block_tag_cached", cached ? "cached" : "missed");
     if (cached) {
@@ -651,13 +650,13 @@ static inline c4_status_t eth_get_block_roots(prover_ctx_t* ctx, json_t block, b
   if (strncmp(block.start, "\"latest\"", 8) == 0)
     return C4_SUCCESS; // latest -  we do nothing since 2 empty root_hashes are returned, which will trigger head-requests
   else if (strncmp(block.start, "\"safe\"", 6) == 0) {
-    if (use_signature_safe)
+    if (checkpoint == C4_BLOCK_CHECKPOINT_SAFE)
       TRY_ASYNC(eth_get_witnessed_justified_root(ctx, data_root));
     else
       TRY_ASYNC(eth_get_final_hash(ctx, true, data_root, NULL));
   }
   else if (json_is_finalized_tag(block)) {
-    if (use_signature_finalized) {
+    if (checkpoint == C4_BLOCK_CHECKPOINT_FINALIZED) {
       ssz_ob_t update = {0};
       TRY_ASYNC(cl_get_light_client_finality_update(ctx, &update));
       ssz_ob_t finalized_header = ssz_get(&update, "finalizedHeader");
@@ -730,9 +729,8 @@ c4_status_t c4_beacon_get_block_for_eth(prover_ctx_t* ctx, json_t block, eth_blo
 #ifdef PROVER_CACHE
   // is the data_root already cached?
   if (!bytes_all_zero(bytes(data_root, 32)) && c4_beacon_cache_get_blockdata(ctx, data_root, beacon_block)) {
-    // The cached struct is shared by hash and tag lookups. The flag follows this request.
-    beacon_block->finalized_request = c4_prover_request_is_signature_finalized(ctx->version, block);
-    beacon_block->safe_request      = c4_prover_request_is_signature_safe(ctx->version, block);
+    // The cached struct is shared by hash and tag lookups. The checkpoint follows this request.
+    beacon_block->checkpoint = c4_prover_block_checkpoint(ctx->version, block);
     return C4_SUCCESS;
   }
 #endif
@@ -746,13 +744,11 @@ c4_status_t c4_beacon_get_block_for_eth(prover_ctx_t* ctx, json_t block, eth_blo
 
   TRY_ASYNC(c4_beacon_fill_becaon_block_from_eth(ctx, beacon_block, data_root, data_block, sig_block));
   // Store the block before marking it, so a later hash lookup does not inherit the tag.
-  beacon_block->finalized_request = false;
-  beacon_block->safe_request      = false;
+  beacon_block->checkpoint = C4_BLOCK_CHECKPOINT_NONE;
 #ifdef PROVER_CACHE
   c4_beacon_cache_update_blockdata(ctx, beacon_block, strncmp(block.start, "\"latest\"", 8) == 0, beacon_block->beacon.data_block_root);
 #endif
-  beacon_block->finalized_request = c4_prover_request_is_signature_finalized(ctx->version, block);
-  beacon_block->safe_request      = c4_prover_request_is_signature_safe(ctx->version, block);
+  beacon_block->checkpoint = c4_prover_block_checkpoint(ctx->version, block);
 
   return C4_SUCCESS;
 }

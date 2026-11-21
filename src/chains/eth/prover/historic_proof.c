@@ -997,10 +997,16 @@ c4_status_t c4_check_blockroot_proof(prover_ctx_t* ctx, blockroot_proof_t* block
   if (!block_proof->sync.block_period) block_proof->sync.block_period = block_period;
   block_proof->sync.required_period = max64(block_proof->sync.required_period, block_period);
   // The committee that signs the attested header can sit one period ahead of the checkpoint block.
-  if (src_block->finalized_request)
-    TRY_ASYNC(load_signature_finalized(ctx, block_proof, src_block, chain, false));
-  else if (src_block->safe_request)
-    TRY_ASYNC(load_signature_safe(ctx, block_proof, src_block, chain, false));
+  switch (src_block->checkpoint) {
+    case C4_BLOCK_CHECKPOINT_FINALIZED:
+      TRY_ASYNC(load_signature_finalized(ctx, block_proof, src_block, chain, false));
+      break;
+    case C4_BLOCK_CHECKPOINT_SAFE:
+      TRY_ASYNC(load_signature_safe(ctx, block_proof, src_block, chain, false));
+      break;
+    case C4_BLOCK_CHECKPOINT_NONE:
+      break;
+  }
 
   load_client_periods(ctx, &block_proof->sync);
 
@@ -1047,13 +1053,15 @@ c4_status_t c4_check_blockroot_proof(prover_ctx_t* ctx, blockroot_proof_t* block
       return update_status;
   }
 
-  if (src_block->finalized_request) {
-    TRY_ASYNC(load_signature_finalized(ctx, block_proof, src_block, chain, true));
-    return update_status;
-  }
-  if (src_block->safe_request) {
-    TRY_ASYNC(load_signature_safe(ctx, block_proof, src_block, chain, true));
-    return update_status;
+  switch (src_block->checkpoint) {
+    case C4_BLOCK_CHECKPOINT_FINALIZED:
+      TRY_ASYNC(load_signature_finalized(ctx, block_proof, src_block, chain, true));
+      return update_status;
+    case C4_BLOCK_CHECKPOINT_SAFE:
+      TRY_ASYNC(load_signature_safe(ctx, block_proof, src_block, chain, true));
+      return update_status;
+    case C4_BLOCK_CHECKPOINT_NONE:
+      break;
   }
 
   TRY_ASYNC(check_historic_proof_direct(ctx, block_proof, src_block));

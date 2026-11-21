@@ -282,8 +282,9 @@ static c4_status_t verify_block_by_blockhash(verify_ctx_t* ctx, ssz_ob_t block, 
 
 // Verifies the clProof union variant: checks the RLP header against the beacon block
 // (merkle proof to the body root) and verifies the CL header signature chain.
-// `safe_gindex` is set only for the request's own block when the tag is `"safe"`.
-// A nested proof keeps the finalized gindex even if the outer request asked for `"safe"`.
+// `safe_gindex` follows the request tag. `"safe"` uses the justified root, including
+// when this proof is the L1 block nested inside an EEZ proof. The requirement that
+// the variant be `signatureFinalized` stays on the outermost block.
 static c4_status_t verify_block_by_blockproof(verify_ctx_t* ctx, ssz_ob_t block, bytes_t* el_header, bytes32_t block_hash, bool safe_gindex) {
   bytes_t   raw_header = ssz_get(&block, "elHeader").bytes;
   bytes32_t body_root  = {0};
@@ -356,7 +357,7 @@ static c4_status_t verify_block_impl(verify_ctx_t* ctx, ssz_ob_t block, bytes_t*
     // so it passes here.
     if (c4_get_l1_chain_id_for_l2(ctx->chain_id) != ctx->chain_id)
       THROW_ERROR("clProof is not valid for a chain without its own consensus layer!");
-    return verify_block_by_blockproof(ctx, block, el_header, block_hash, outermost && eth_request_is_safe(ctx));
+    return verify_block_by_blockproof(ctx, block, el_header, block_hash, eth_request_is_safe(ctx));
   }
 
   if (strcmp(block.def->name, ETH_SSZ_NAME_WITNESS_PROOF) == 0)

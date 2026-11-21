@@ -397,8 +397,7 @@ static c4_status_t create_beacon_block(prover_ctx_t* ctx, json_t block, eth_bloc
   beacon_block->slot = eth_el_header_get_uint64(local->el_header, EL_BLOCK_NUMBER);
   // Hybrid keeps only the execution header. A checkpoint tag still has to be marked so
   // the proof builder does not reduce it to blockHash, which the verifier rejects.
-  beacon_block->finalized_request = c4_prover_request_is_signature_finalized(ctx->version, block);
-  beacon_block->safe_request      = c4_prover_request_is_signature_safe(ctx->version, block);
+  beacon_block->checkpoint = c4_prover_block_checkpoint(ctx->version, block);
   return C4_SUCCESS;
 }
 

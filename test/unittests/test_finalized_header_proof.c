@@ -230,11 +230,13 @@ void test_version_gate_keeps_legacy_clients_on_signature_proof(void) {
   TEST_ASSERT_TRUE(c4_prover_uses_signature_safe(c4_version_number(3, 1, 3)));
   json_t safe_tag = json_parse("\"safe\"");
   json_t fin_tag  = json_parse("\"finalized\"");
-  TEST_ASSERT_TRUE(c4_prover_request_is_signature_safe(c4_version_number(3, 1, 3), safe_tag));
-  TEST_ASSERT_FALSE(c4_prover_request_is_signature_safe(c4_version_number(3, 1, 3), fin_tag));
-  TEST_ASSERT_FALSE(c4_prover_request_is_signature_safe(c4_version_number(3, 1, 2), safe_tag));
+  TEST_ASSERT_EQUAL_INT(C4_BLOCK_CHECKPOINT_SAFE, c4_prover_block_checkpoint(c4_version_number(3, 1, 3), safe_tag));
+  TEST_ASSERT_EQUAL_INT(C4_BLOCK_CHECKPOINT_FINALIZED, c4_prover_block_checkpoint(c4_version_number(3, 1, 3), fin_tag));
+  TEST_ASSERT_EQUAL_INT(C4_BLOCK_CHECKPOINT_FINALIZED, c4_prover_block_checkpoint(c4_version_number(3, 1, 2), fin_tag));
+  TEST_ASSERT_EQUAL_INT(C4_BLOCK_CHECKPOINT_NONE, c4_prover_block_checkpoint(c4_version_number(3, 1, 1), fin_tag));
+  TEST_ASSERT_EQUAL_INT(C4_BLOCK_CHECKPOINT_NONE, c4_prover_block_checkpoint(c4_version_number(3, 1, 2), safe_tag));
   json_t safe_prefix = json_parse("\"safeX\"");
-  TEST_ASSERT_FALSE(c4_prover_request_is_signature_safe(c4_version_number(3, 1, 3), safe_prefix));
+  TEST_ASSERT_EQUAL_INT(C4_BLOCK_CHECKPOINT_NONE, c4_prover_block_checkpoint(c4_version_number(3, 1, 3), safe_prefix));
 }
 
 void test_local_prover_uses_this_build_version(void) {
@@ -697,11 +699,13 @@ void test_checkpoint_gindex_follows_the_outer_request(void) {
   ctx.flags = 0;
   expect_verify_block_error(&ctx, fin_block, "invalid state root for checkpoint header proof", "insufficient sync committee participation");
 
+  // The L1 proof inside an EEZ block is verified with this flag set. The tag still
+  // picks the gindex, so `"safe"` stays on the justified root.
   ctx.flags = VERIFY_FLAG_INNER_BLOCK;
-  expect_verify_block_error(&ctx, fin_block, "insufficient sync committee participation", "invalid state root");
+  expect_verify_block_error(&ctx, just_block, "insufficient sync committee participation", "invalid state root");
   TEST_ASSERT_NOT_EQUAL(0, ctx.flags & VERIFY_FLAG_INNER_BLOCK);
   ctx.flags = VERIFY_FLAG_INNER_BLOCK;
-  expect_verify_block_error(&ctx, just_block, "invalid state root for checkpoint header proof", "insufficient sync committee participation");
+  expect_verify_block_error(&ctx, fin_block, "invalid state root for checkpoint header proof", "insufficient sync committee participation");
 
   ctx.args  = json_parse(fin_args);
   ctx.flags = 0;
@@ -872,14 +876,14 @@ void test_safe_without_beacon_proof_is_rejected(void) {
   blockroot_proof_t historic = {0};
   ssz_builder_t     builder  = {0};
   block.proof_type           = C4_BLOCK_PROOF_TYPE_NONE;
-  block.safe_request         = true;
+  block.checkpoint           = C4_BLOCK_CHECKPOINT_SAFE;
   eth_add_block_proof(ctx, &builder, &block, &historic);
   TEST_ASSERT_NOT_NULL(ctx->state.error);
   TEST_ASSERT_NOT_NULL(strstr(ctx->state.error, "safe block requires a signatureFinalized proof"));
   c4_state_free(&ctx->state);
   ctx->state = (c4_state_t) {0};
 
-  block.safe_request = false;
+  block.checkpoint = C4_BLOCK_CHECKPOINT_NONE;
   eth_add_block_proof(ctx, &builder, &block, &historic);
   TEST_ASSERT_NOT_NULL(ctx->state.error);
   TEST_ASSERT_NOT_NULL(strstr(ctx->state.error, "clProof requires beacon proof data"));
