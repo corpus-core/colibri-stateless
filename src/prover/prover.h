@@ -151,15 +151,15 @@ typedef struct cache_entry {
 typedef struct prover_trace_span prover_trace_span_t;
 #endif
 typedef struct {
-  char*          method;           ///< RPC method name (heap-owned)
-  json_t         params;           ///< RPC parameters as parsed JSON array (owns `start` buffer)
-  bytes_t        proof;            ///< Encoded proof bytes when generation succeeds (heap-owned)
-  chain_id_t     chain_id;         ///< Target chain for module dispatch
-  c4_state_t     state;            ///< Pending requests and error message
-  prover_flags_t flags;            ///< Bitmask of `prover_flag_types_t`
-  bytes_t        client_state;     ///< Optional synced-period / checkpoint snapshot from the client
-  bytes32_t      last_block_hash;  ///< Cached EL block hash; skips redundant block proofs when it matches the request
-  bytes_t        witness_key;      ///< Witness signer key material for checkpoint signing
+  char*          method;          ///< RPC method name (heap-owned)
+  json_t         params;          ///< RPC parameters as parsed JSON array (owns `start` buffer)
+  bytes_t        proof;           ///< Encoded proof bytes when generation succeeds (heap-owned)
+  chain_id_t     chain_id;        ///< Target chain for module dispatch
+  c4_state_t     state;           ///< Pending requests and error message
+  prover_flags_t flags;           ///< Bitmask of `prover_flag_types_t`
+  bytes_t        client_state;    ///< Optional synced-period / checkpoint snapshot from the client
+  bytes32_t      last_block_hash; ///< Cached EL block hash; skips redundant block proofs when it matches the request
+  bytes_t        witness_key;     ///< Witness signer key material for checkpoint signing
 #ifdef PROVER_CACHE
   cache_entry_t* cache; ///< Per-request cache list (server builds; promotes to global on free)
 #endif
@@ -180,6 +180,8 @@ typedef struct {
  *
  * Always returns a non-NULL context. On invalid input, `ctx->state.error` is set
  * and subsequent `c4_prover_execute` calls return `C4_ERROR`.
+ * `ctx->version` starts as this build's client version. A server replaces it
+ * with the requesting client's version before execution.
  *
  * @param method RPC method to prove (must not be NULL)
  * @param params JSON array string, or NULL for `"[]"`

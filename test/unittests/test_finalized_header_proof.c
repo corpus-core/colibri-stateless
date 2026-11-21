@@ -168,10 +168,19 @@ void test_signature_finalized_is_union_selector_4(void) {
 
 void test_version_gate_keeps_legacy_clients_on_signature_proof(void) {
   TEST_ASSERT_FALSE(c4_prover_uses_signature_finalized(0));
-  TEST_ASSERT_FALSE(c4_prover_uses_signature_finalized(c4_version_number(1, 1, 27)));
+  TEST_ASSERT_FALSE(c4_prover_uses_signature_finalized(c4_version_number(3, 1, 1)));
   TEST_ASSERT_FALSE(c4_prover_uses_signature_finalized(c4_version_number(3, 0, 0)));
   TEST_ASSERT_FALSE(c4_prover_uses_signature_finalized(c4_version_number(3, 1, 1)));
   TEST_ASSERT_TRUE(c4_prover_uses_signature_finalized(c4_version_number(3, 1, 2)));
+}
+
+void test_local_prover_uses_this_build_version(void) {
+  prover_ctx_t* ctx = c4_prover_create("eth_chainId", "[]", C4_CHAIN_MAINNET, 0);
+  TEST_ASSERT_NOT_NULL(ctx);
+  TEST_ASSERT_EQUAL_UINT32(c4_current_version_number(), ctx->version);
+  if (c4_current_version_number() > c4_version_number(3, 1, 1))
+    TEST_ASSERT_TRUE(c4_prover_uses_signature_finalized(ctx->version));
+  c4_prover_free(ctx);
 }
 
 void test_finality_update_fork_from_body(void) {
@@ -610,6 +619,7 @@ int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_signature_finalized_is_union_selector_4);
   RUN_TEST(test_version_gate_keeps_legacy_clients_on_signature_proof);
+  RUN_TEST(test_local_prover_uses_this_build_version);
   RUN_TEST(test_finality_update_fork_from_body);
   RUN_TEST(test_gloas_finality_update_serializes_to_fixed_size);
   RUN_TEST(test_supermajority_threshold_is_two_thirds);

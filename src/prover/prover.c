@@ -295,7 +295,9 @@ prover_ctx_t* c4_prover_create(char* method, char* params, chain_id_t chain_id, 
   prover_ctx_t* ctx = (prover_ctx_t*) safe_calloc(1, sizeof(prover_ctx_t));
   ctx->chain_id     = chain_id;
   ctx->flags        = flags;
-  ctx->version      = c4_version_number(1, 1, 27); // this is the default since it allows full support.
+  // A local prover is checked by the verifier of this same build, so it speaks
+  // this build's client version. The HTTP server replaces it with the caller's version.
+  ctx->version = c4_current_version_number();
 
   // Input validation
   if (!method) {
