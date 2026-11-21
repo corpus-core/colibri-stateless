@@ -104,10 +104,11 @@ typedef enum {
 #define ETH_SSZ_NAME_EIP2935         "eip2935"
 #define ETH_SSZ_NAME_ARB_FEED_PROOF  "arbFeedProof"
 /** `ETH_HEADER_PROOFS_UNION`: */
-#define ETH_SSZ_NAME_SIGNATURE    "signature"
-#define ETH_SSZ_NAME_HISTORIC     "historic"
-#define ETH_SSZ_NAME_HEADER_CHAIN "headerChain"
-#define ETH_SSZ_NAME_CHECKPOINT   "checkpoint"
+#define ETH_SSZ_NAME_SIGNATURE             "signature"
+#define ETH_SSZ_NAME_HISTORIC              "historic"
+#define ETH_SSZ_NAME_HEADER_CHAIN          "headerChain"
+#define ETH_SSZ_NAME_CHECKPOINT            "checkpoint"
+#define ETH_SSZ_NAME_SIGNATURE_FINALIZED   "signatureFinalized"
 /** `C4_ETH_SYNCDATA_BOOTSTRAP_UNION` (the checkpoint variant; the header-proof variant is `ETH_SSZ_NAME_CHECKPOINT`): */
 #define ETH_SSZ_NAME_CHECKPOINT_PROOF "CheckpointProof"
 /** `C4_ETH_REQUEST_SYNCDATA_UNION`: */
@@ -142,6 +143,36 @@ const ssz_def_t* c4_eth_execution_payload_def(chain_id_t chain_id);
 #endif
 const ssz_def_t* eth_get_light_client_update(fork_id_t fork);
 const ssz_def_t* eth_get_light_client_bootstrap(fork_id_t fork);
+
+// Wire size of a Gloas LightClientFinalityUpdate (fully fixed):
+// 2 * 496-byte light-client headers + 9 * 32 finality branch + 160-byte sync aggregate + 8-byte signature slot.
+#define C4_GLOAS_LIGHT_CLIENT_FINALITY_UPDATE_SIZE 1448u
+// Fixed preamble of a Fulu LightClientFinalityUpdate. The first SSZ offset equals this length.
+// Two 4-byte offsets + 7 * 32 finality branch + 160-byte sync aggregate + 8-byte signature slot.
+#define C4_FULU_LIGHT_CLIENT_FINALITY_UPDATE_FIXED 400u
+
+/**
+ * Returns the SSZ container for a `LightClientFinalityUpdate`.
+ *
+ * Fulu keeps the Electra light-client header and a finality branch of length 7.
+ * Gloas uses its own header and a branch of length 9. Earlier forks have no definition here.
+ *
+ * @param fork fork identifier
+ * @return container definition, or NULL when `fork` is not Fulu or Gloas
+ */
+const ssz_def_t* eth_get_light_client_finality_update(fork_id_t fork);
+
+/**
+ * Classifies a raw `LightClientFinalityUpdate` body without the `Eth-Consensus-Version` header.
+ *
+ * A Gloas update is exactly `C4_GLOAS_LIGHT_CLIENT_FINALITY_UPDATE_SIZE` bytes.
+ * A longer body whose first little-endian offset equals `C4_FULU_LIGHT_CLIENT_FINALITY_UPDATE_FIXED`
+ * is Fulu (and Electra, which shares that layout). Anything else is unsupported.
+ *
+ * @param raw response body
+ * @return `C4_FORK_GLOAS`, `C4_FORK_FULU`, or `C4_FORK_INVALID`
+ */
+fork_id_t c4_eth_finality_update_fork(bytes_t raw);
 //  c4 specific
 const ssz_def_t*       eth_ssz_verification_type(eth_ssz_type_t type);
 extern const ssz_def_t ssz_transactions_bytes;
@@ -156,6 +187,8 @@ extern const ssz_def_t ELECTRA_LIGHT_CLIENT_UPDATE[7];
 extern const ssz_def_t GLOAS_LIGHT_CLIENT_HEADER[3];
 extern const ssz_def_t GLOAS_LIGHT_CLIENT_BOOTSTRAP[3];
 extern const ssz_def_t GLOAS_LIGHT_CLIENT_UPDATE[7];
+extern const ssz_def_t FULU_LIGHT_CLIENT_FINALITY_UPDATE_CONTAINER;
+extern const ssz_def_t GLOAS_LIGHT_CLIENT_FINALITY_UPDATE_CONTAINER;
 extern const ssz_def_t DENEP_EXECUTION_PAYLOAD[17];
 extern const ssz_def_t GNOSIS_EXECUTION_PAYLOAD[17];
 extern const ssz_def_t DENEP_WITHDRAWAL_CONTAINER;

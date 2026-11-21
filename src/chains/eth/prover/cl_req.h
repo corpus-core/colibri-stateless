@@ -65,6 +65,18 @@ extern "C" {
 c4_status_t cl_get_finality_checkpoints(prover_ctx_t* ctx, json_t* result);
 
 /**
+ * `GET /eth/v1/beacon/light_client/finality_update` as SSZ.
+ *
+ * When the chain does not schedule Gloas, the body is validated as a Fulu update.
+ * Otherwise the fork is taken from the body (`c4_eth_finality_update_fork`).
+ *
+ * @param ctx prover context
+ * @param result receives the decoded update
+ * @return `C4_SUCCESS`, `C4_PENDING`, or `C4_ERROR`
+ */
+c4_status_t cl_get_light_client_finality_update(prover_ctx_t* ctx, ssz_ob_t* result);
+
+/**
  * `GET /eth/v1/beacon/headers?slot=`.
  *
  * A Nimbus/Lodestar empty-slot 404 becomes `JSON_TYPE_NOT_FOUND` instead of

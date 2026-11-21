@@ -65,6 +65,20 @@ const ssz_def_t GLOAS_LIGHT_CLIENT_UPDATE[7] = {
     SSZ_CONTAINER("syncAggregate", SYNC_AGGREGATE),
     SSZ_UINT64("signatureSlot")};
 
+// Gloas LightClientFinalityUpdate is fully fixed: two 496-byte headers, a 9-node
+// finality branch, the sync aggregate and the signature slot.
+static const ssz_def_t GLOAS_LIGHT_CLIENT_FINALITY_UPDATE[] = {
+    SSZ_CONTAINER("attestedHeader", GLOAS_LIGHT_CLIENT_HEADER),
+    SSZ_CONTAINER("finalizedHeader", GLOAS_LIGHT_CLIENT_HEADER),
+    SSZ_VECTOR("finalityBranch", ssz_bytes32, 9),
+    SSZ_CONTAINER("syncAggregate", SYNC_AGGREGATE),
+    SSZ_UINT64("signatureSlot")};
+
+const ssz_def_t GLOAS_LIGHT_CLIENT_FINALITY_UPDATE_CONTAINER = SSZ_CONTAINER("LightClientFinalityUpdate", GLOAS_LIGHT_CLIENT_FINALITY_UPDATE);
+
+_Static_assert(C4_GLOAS_LIGHT_CLIENT_FINALITY_UPDATE_SIZE == 2 * 496 + 9 * 32 + 64 + 96 + 8,
+               "Gloas LightClientFinalityUpdate size");
+
 // -----------------------------------------------------------------------------
 // Prover-only definitions: full block / bid / envelope parsing
 // -----------------------------------------------------------------------------

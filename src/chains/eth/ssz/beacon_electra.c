@@ -245,6 +245,21 @@ const ssz_def_t ELECTRA_LIGHT_CLIENT_UPDATE[7] = {
     SSZ_CONTAINER("syncAggregate", SYNC_AGGREGATE),        // the aggregates signature of the sync committee
     SSZ_UINT64("signatureSlot")};                          // the slot of the signature
 
+// LightClientFinalityUpdate from Fulu onward. Fulu keeps the Electra light-client header
+// and a finality branch of length 7. The two headers are variable, so the serialized
+// body starts with their offsets; the first offset is the fixed preamble below.
+static const ssz_def_t FULU_LIGHT_CLIENT_FINALITY_UPDATE[] = {
+    SSZ_CONTAINER("attestedHeader", LIGHT_CLIENT_HEADER),
+    SSZ_CONTAINER("finalizedHeader", LIGHT_CLIENT_HEADER),
+    SSZ_VECTOR("finalityBranch", ssz_bytes32, 7),
+    SSZ_CONTAINER("syncAggregate", SYNC_AGGREGATE),
+    SSZ_UINT64("signatureSlot")};
+
+const ssz_def_t FULU_LIGHT_CLIENT_FINALITY_UPDATE_CONTAINER = SSZ_CONTAINER("LightClientFinalityUpdate", FULU_LIGHT_CLIENT_FINALITY_UPDATE);
+
+_Static_assert(C4_FULU_LIGHT_CLIENT_FINALITY_UPDATE_FIXED == 4 + 4 + 7 * 32 + 64 + 96 + 8,
+               "Fulu LightClientFinalityUpdate fixed preamble");
+
 static const ssz_def_t BEACON_BLOCKHEADER_CONTAINER C4_UNUSED = SSZ_CONTAINER("BeaconBlockHeader", BEACON_BLOCK_HEADER);
 
 // the light client bootstrap is used for initial sync from a trusted checkpoint

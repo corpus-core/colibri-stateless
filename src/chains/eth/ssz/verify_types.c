@@ -25,6 +25,7 @@
 // description: The SSZ union type defintions defining datastructure of a proof for eth.
 
 #include "beacon_types.h"
+#include "bytes.h"
 #include "ssz.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -198,6 +199,27 @@ const ssz_def_t* eth_get_light_client_update(fork_id_t fork) {
  * @param fork Fork identifier
  * @return Pointer to the SSZ container definition for the bootstrap variant, or NULL for unsupported forks
  */
+const ssz_def_t* eth_get_light_client_finality_update(fork_id_t fork) {
+  switch (fork) {
+    case C4_FORK_FULU:
+      return &FULU_LIGHT_CLIENT_FINALITY_UPDATE_CONTAINER;
+    case C4_FORK_GLOAS:
+      return &GLOAS_LIGHT_CLIENT_FINALITY_UPDATE_CONTAINER;
+    default:
+      return NULL;
+  }
+}
+
+fork_id_t c4_eth_finality_update_fork(bytes_t raw) {
+  if (!raw.data || raw.len < 4) return C4_FORK_INVALID;
+  // Length wins over the first offset: a Gloas slot can numerically equal the Fulu preamble.
+  if (raw.len == C4_GLOAS_LIGHT_CLIENT_FINALITY_UPDATE_SIZE) return C4_FORK_GLOAS;
+  if (raw.len > C4_FULU_LIGHT_CLIENT_FINALITY_UPDATE_FIXED &&
+      uint32_from_le(raw.data) == C4_FULU_LIGHT_CLIENT_FINALITY_UPDATE_FIXED)
+    return C4_FORK_FULU;
+  return C4_FORK_INVALID;
+}
+
 const ssz_def_t* eth_get_light_client_bootstrap(fork_id_t fork) {
   switch (fork) {
     case C4_FORK_PHASE0:

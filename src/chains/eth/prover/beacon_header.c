@@ -388,21 +388,24 @@ static c4_status_t hybrid_fetch_and_verify(prover_ctx_t* ctx, json_t block, hybr
 
 // -- Hybrid: Resolve Block Identifier and Return eth_block_t (proof_type NONE) --
 
-static c4_status_t create_beacon_block(prover_ctx_t* ctx, eth_block_t* beacon_block, local_cache_entry_t* local) {
+static c4_status_t create_beacon_block(prover_ctx_t* ctx, json_t block, eth_block_t* beacon_block, local_cache_entry_t* local) {
   memset(beacon_block, 0, sizeof(eth_block_t));
   memcpy(beacon_block->el_block_hash, local->block_hash, 32);
   beacon_block->proof_type = C4_BLOCK_PROOF_TYPE_NONE;
   beacon_block->el_header  = local->el_header;
   if (local->el_body.def) beacon_block->el_body = local->el_body;
   beacon_block->slot = eth_el_header_get_uint64(local->el_header, EL_BLOCK_NUMBER);
+  // Hybrid keeps only the execution header. A finalized tag still has to be marked so
+  // the proof builder does not reduce it to blockHash, which the verifier rejects.
+  beacon_block->finalized_request = c4_prover_request_is_signature_finalized(ctx->version, block);
   return C4_SUCCESS;
 }
 
-static c4_status_t store_local_cache_entry(prover_ctx_t* ctx, bytes32_t cache_key, verified_header_entry_t* cached, eth_block_t* beacon_block) {
+static c4_status_t store_local_cache_entry(prover_ctx_t* ctx, json_t block, bytes32_t cache_key, verified_header_entry_t* cached, eth_block_t* beacon_block) {
   uint32_t size     = sizeof(local_cache_entry_t) + cached->el_header.len + (cached->el_body.def ? cached->el_body.bytes.len : 0);
   bytes_t  existing = c4_state_cache_get(&ctx->state, cache_key);
   if (existing.data)
-    return create_beacon_block(ctx, beacon_block, (void*) existing.data);
+    return create_beacon_block(ctx, block, beacon_block, (void*) existing.data);
 
   local_cache_entry_t* local = safe_calloc(1, size);
   memcpy(local->block_hash, cached->block_hash, 32);
@@ -412,7 +415,7 @@ static c4_status_t store_local_cache_entry(prover_ctx_t* ctx, bytes32_t cache_ke
     local->el_body.bytes = bytes_cpy(local, sizeof(local_cache_entry_t) + cached->el_header.len, cached->el_body.bytes);
   }
   c4_state_cache_set(&ctx->state, cache_key, bytes((void*) local, size));
-  return create_beacon_block(ctx, beacon_block, local);
+  return create_beacon_block(ctx, block, beacon_block, local);
 }
 
 c4_status_t c4_hybrid_get_block_for_eth(prover_ctx_t* ctx, json_t block, eth_block_t* beacon_block, bool with_body) {
@@ -458,7 +461,7 @@ c4_status_t c4_hybrid_get_block_for_eth(prover_ctx_t* ctx, json_t block, eth_blo
   bytes_t              existing = c4_state_cache_get(&ctx->state, cache_key);
   local_cache_entry_t* local    = existing.data ? (local_cache_entry_t*) existing.data : NULL;
   if (local && (!with_body || local->el_body.def))
-    return create_beacon_block(ctx, beacon_block, local);
+    return create_beacon_block(ctx, block, beacon_block, local);
 
   // now check header_cache
   verified_header_entry_t* cached = NULL;
@@ -468,7 +471,7 @@ c4_status_t c4_hybrid_get_block_for_eth(prover_ctx_t* ctx, json_t block, eth_blo
     cached = c4_header_cache_get_by_hash(ctx->chain_id, block_hash);
 
   if (cached && (!with_body || cached->el_body.def))
-    return store_local_cache_entry(ctx, cache_key, cached, beacon_block);
+    return store_local_cache_entry(ctx, block, cache_key, cached, beacon_block);
 
   // no cached entry yet, we need a request.
   if (tag < HEADER_TAG_COUNT && !g_header_tags[tag].fetching_since_ms) {
@@ -518,5 +521,5 @@ c4_status_t c4_hybrid_get_block_for_eth(prover_ctx_t* ctx, json_t block, eth_blo
     }
   }
 
-  return create_beacon_block(ctx, beacon_block, &result);
+  return create_beacon_block(ctx, block, beacon_block, &result);
 }

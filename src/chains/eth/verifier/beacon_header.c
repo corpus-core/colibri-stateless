@@ -152,7 +152,36 @@ c4_status_t c4_verify_header(verify_ctx_t* ctx, ssz_ob_t header, ssz_ob_t block_
   if (strcmp(cl_header_proof.def->name, ETH_SSZ_NAME_HISTORIC) == 0)
     return c4_verify_historic_proof(ctx, header, sync_committee_bits, sync_committee_signature, cl_header_proof);
 
+  if (strcmp(cl_header_proof.def->name, ETH_SSZ_NAME_SIGNATURE_FINALIZED) == 0) {
+    ssz_ob_t attested = ssz_get(&cl_header_proof, "header");
+    // The leaf is the requested header. The gindex follows the attested header's fork.
+    gindex_t gindex = c4_finalized_root_gindex(ctx->chain_id, ssz_get_uint64(&attested, "slot"));
+    return c4_verify_signed_checkpoint_header(ctx, header, cl_header_proof, gindex);
+  }
+
   THROW_ERROR("unsupported clHeaderProof variant!");
+}
+
+c4_status_t c4_verify_signed_checkpoint_header(verify_ctx_t* ctx, ssz_ob_t leaf_header, ssz_ob_t proof, gindex_t gindex) {
+  if (gindex == 0) THROW_ERROR("invalid gindex for checkpoint header proof!");
+  ssz_ob_t attested   = ssz_get(&proof, "header");
+  bytes_t  branch     = ssz_get(&proof, "proof").bytes;
+  bytes_t  state_root = ssz_get(&attested, "stateRoot").bytes;
+  if (attested.bytes.len != 112 || state_root.len != 32)
+    THROW_ERROR("invalid attested header in checkpoint header proof!");
+
+  bytes32_t leaf = {0};
+  bytes32_t got  = {0};
+  ssz_hash_tree_root(leaf_header, leaf);
+  if (!ssz_verify_multi_merkle_proof(branch, bytes(leaf, 32), &gindex, got) || memcmp(got, state_root.data, 32) != 0)
+    THROW_ERROR("invalid state root for checkpoint header proof!");
+
+  ssz_ob_t bits = ssz_get(&proof, "sync_committee_bits");
+  ssz_ob_t sig  = ssz_get(&proof, "sync_committee_signature");
+  if (!c4_sync_committee_supermajority(bits.bytes))
+    THROW_ERROR("insufficient sync committee participation for checkpoint header proof!");
+
+  return c4_verify_blockroot_signature(ctx, &attested, &bits, &sig, 0, NULL);
 }
 
 c4_status_t c4_verify_blockroot_signature(verify_ctx_t* ctx, ssz_ob_t* header, ssz_ob_t* sync_committee_bits, ssz_ob_t* sync_committee_signature, uint64_t slot, bytes32_t pubkey_hash) {
@@ -295,8 +324,18 @@ void c4_register_block_proof_verify(chain_type_t chain_type, c4_verify_block_ext
   verify_block_hooks[chain_type] = fn;
 }
 
-c4_status_t c4_verify_block(verify_ctx_t* ctx, ssz_ob_t block, bytes_t* el_header, bytes32_t block_hash) {
+static c4_status_t verify_block_impl(verify_ctx_t* ctx, ssz_ob_t block, bytes_t* el_header, bytes32_t block_hash, bool outermost) {
   if (!block.def) THROW_ERROR("invalid block type!");
+  // Only the request's own block must be the finalized checkpoint. A nested L1 or
+  // eip2935 proof keeps the chain id or the method args of the outer request, so
+  // the tag check stays on the outermost call of a chain that has a consensus layer.
+  if (outermost && eth_request_is_finalized(ctx) && c4_get_l1_chain_id_for_l2(ctx->chain_id) == ctx->chain_id) {
+    if (strcmp(block.def->name, ETH_SSZ_NAME_CL_PROOF) != 0)
+      THROW_ERROR("finalized block requires a signatureFinalized proof");
+    ssz_ob_t cl_header_proof = ssz_get(&block, "clHeaderProof");
+    if (!cl_header_proof.def || strcmp(cl_header_proof.def->name, ETH_SSZ_NAME_SIGNATURE_FINALIZED) != 0)
+      THROW_ERROR("finalized block requires a signatureFinalized proof");
+  }
   if (strcmp(block.def->name, ETH_SSZ_NAME_BLOCK_HASH) == 0)
     return verify_block_by_blockhash(ctx, block, el_header, block_hash);
 
@@ -325,4 +364,13 @@ c4_status_t c4_verify_block(verify_ctx_t* ctx, ssz_ob_t block, bytes_t* el_heade
     return verify_block_hooks[type](ctx, block, el_header, block_hash);
 
   THROW_ERROR("invalid block type!");
+}
+
+c4_status_t c4_verify_block(verify_ctx_t* ctx, ssz_ob_t block, bytes_t* el_header, bytes32_t block_hash) {
+  bool outermost = ctx->block_verify_depth == 0;
+  if (ctx->block_verify_depth == 255) THROW_ERROR("block proof nesting too deep");
+  ctx->block_verify_depth++;
+  c4_status_t status = verify_block_impl(ctx, block, el_header, block_hash, outermost);
+  ctx->block_verify_depth--;
+  return status;
 }

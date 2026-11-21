@@ -119,6 +119,7 @@ typedef struct {
   uint64_t       min_latest_block_ts; ///< Minimum allowed `block.timestamp` for `"latest"` freshness checks; `0` disables
   void*          user_data;           ///< Optional method-specific state preserved across `C4_PENDING` rounds
   void (*user_data_free)(void*);      ///< Called from `c4_verify_free_data` to release `user_data`; may be NULL
+  uint8_t        block_verify_depth;  ///< Nesting of `c4_verify_block`. `c4_verify_init` zeroes it. The finalized-tag check runs only at depth 0.
 } verify_ctx_t;
 
 /**

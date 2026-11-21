@@ -26,9 +26,12 @@
 
 #include "../util/json.h"
 #include "../util/ssz.h"
+#include "../util/version.h"
 #include "cl_req.h"
 #include "header_cache.h"
 #include "prover.h"
+#include <stdbool.h>
+#include <string.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -84,8 +87,9 @@ typedef struct {
 } eth_block_eez_t;
 
 typedef struct {
-  c4_block_proof_type_t proof_type;    // which side of the union is valid
-  bytes_t               el_header;     // RLP-serialized execution-layer header
+  c4_block_proof_type_t proof_type;        // which side of the union is valid
+  bool                  finalized_request; // tag is "finalized" and the client wants signatureFinalized. Not part of the cache: written after the cache store and overwritten on every hit.
+  bytes_t               el_header;         // RLP-serialized execution-layer header
   ssz_ob_t              el_body;       // execution payload, or at least transactions + withdrawals
   bytes32_t             el_block_hash; // keccak(el_header)
   uint64_t              slot;          // beacon slot, or EL block number when no CL header exists
@@ -95,6 +99,35 @@ typedef struct {
     eth_block_eez_t       eez;
   };
 } eth_block_t;
+
+/**
+ * Selects the finalized-header proof for a prover client version.
+ *
+ * Clients from 3.0.0 through 3.1.1 keep the plain `signature` header proof so an
+ * older verifier can still parse it. The prover default (`1.1.27`) and every
+ * client newer than 3.1.1 get `signatureFinalized`.
+ *
+ * @param version `prover_ctx_t.version`
+ * @return `true` when a finalized request must be proven with `signatureFinalized`
+ */
+static inline bool c4_prover_uses_signature_finalized(uint32_t version) {
+  uint32_t legacy_from = c4_version_number(3, 0, 0);
+  uint32_t legacy_to   = c4_version_number(3, 1, 1);
+  return version < legacy_from || version > legacy_to;
+}
+
+/**
+ * Returns `true` when this prover request must prove the block with `signatureFinalized`.
+ *
+ * @param version `prover_ctx_t.version`
+ * @param block JSON block tag from the RPC arguments
+ * @return `true` for a `"finalized"` tag on a non-legacy client version
+ */
+static inline bool c4_prover_request_is_signature_finalized(uint32_t version, json_t block) {
+  return c4_prover_uses_signature_finalized(version) &&
+         block.type == JSON_TYPE_STRING && block.len == 11 && block.start &&
+         strncmp(block.start, "\"finalized\"", 11) == 0;
+}
 
 // :: Verified Header Cache
 //
