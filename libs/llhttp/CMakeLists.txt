@@ -28,15 +28,19 @@ if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.24.0")
   cmake_policy(SET CMP0135 NEW)
 endif()
 
-# Use the tarball URL (EXCLUDE_FROM_ALL suppresses llhttp's own install rules)
+# Use the tarball URL of the release/v9.2.1 commit, checked by its hash
+# (EXCLUDE_FROM_ALL suppresses llhttp's own install rules). A local copy can
+# be used instead with -DFETCHCONTENT_SOURCE_DIR_LLHTTP=<dir>.
 if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.24.0")
   FetchContent_Declare(llhttp
-    URL "https://github.com/nodejs/llhttp/archive/refs/tags/release/v9.2.1.tar.gz"
+    URL "https://github.com/nodejs/llhttp/archive/610a87d755f6bae466cd871c2ba97574ccac5483.tar.gz"
+    URL_HASH SHA256=fd0c4232a2cba3e741d0a14b02cfb9f1cf37869d7a318cc33373668a0fe1db28
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     EXCLUDE_FROM_ALL)
 else()
   FetchContent_Declare(llhttp
-    URL "https://github.com/nodejs/llhttp/archive/refs/tags/release/v9.2.1.tar.gz"
+    URL "https://github.com/nodejs/llhttp/archive/610a87d755f6bae466cd871c2ba97574ccac5483.tar.gz"
+    URL_HASH SHA256=fd0c4232a2cba3e741d0a14b02cfb9f1cf37869d7a318cc33373668a0fe1db28
     EXCLUDE_FROM_ALL)
 endif()
 

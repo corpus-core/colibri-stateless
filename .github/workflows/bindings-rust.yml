@@ -35,6 +35,11 @@ jobs:
 
     runs-on: ${{ matrix.os }}
 
+    # build.rs keeps its CMake tree under OUT_DIR unless told otherwise;
+    # the packaging steps below collect the archives from this directory.
+    env:
+      COLIBRI_CMAKE_BUILD_DIR: ${{ github.workspace }}/build-rust/${{ matrix.target }}
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4

@@ -1,6 +1,8 @@
 [package]
 name = "colibri-stateless"
-version = "0.1.0"
+# Kept equal to the release tag: `build.rs` builds the C core with this
+# version (`C4_VERSION`), which it reports to remote provers.
+version = "3.2.1"
 edition = "2021"
 rust-version = "1.75"
 authors = ["corpus.core <office@corpus.core>", "Colibri Contributors"]
@@ -31,8 +33,13 @@ include = [
 # so verifying Base / OP Mainnet / other OP-Stack rollups works out of the
 # box. Disable with `--no-default-features` for Ethereum-only consumers who
 # want to avoid pulling the OP module into their binary.
-default = ["op"]
+default = ["op", "prebuilt"]
 op = []
+# Let `build.rs` download the prebuilt native archive of this version from
+# GitHub Releases when there are neither C sources (crates.io install) nor
+# `COLIBRI_LIB_DIR`. On by default. Without it the build never downloads
+# anything itself.
+prebuilt = []
 
 [dependencies]
 libc = "0.2"

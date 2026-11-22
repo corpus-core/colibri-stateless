@@ -80,12 +80,14 @@ endif()
 
 
 
-# include evmone
+# include evmone, pinned by commit (v0.23.0; its submodules are pinned by
+# that commit). A local copy can be used instead with
+# -DFETCHCONTENT_SOURCE_DIR_EVMONE_EXTERNAL=<dir>; it is patched in place
+# below, so point it at a copy.
 FetchContent_Declare(
     evmone_external
     GIT_REPOSITORY https://github.com/ipsilon/evmone.git
-    GIT_TAG v0.23.0
-    GIT_SHALLOW TRUE
+    GIT_TAG 2184b24461ae20398520f0bc5023cb7dcc0e003c # v0.23.0
     GIT_SUBMODULES_RECURSE TRUE
 )
 

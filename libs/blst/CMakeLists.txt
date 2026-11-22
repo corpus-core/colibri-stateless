@@ -33,12 +33,12 @@ endif()
 # Ensure the output directory exists
 file(MAKE_DIRECTORY ${BLST_LIB_OUTPUT_DIR})
 
-# Fetch the blst repository
+# Fetch the blst repository, pinned by commit (v0.3.13). A local copy can
+# be used instead with -DFETCHCONTENT_SOURCE_DIR_BLST=<dir>.
 FetchContent_Declare(
     blst
     GIT_REPOSITORY https://github.com/supranational/blst
-    GIT_TAG v0.3.13
-    GIT_SHALLOW TRUE
+    GIT_TAG 52cc60d78591a56abb2f3d0bd1cdafc6ba242997 # v0.3.13
 )
 
 FetchContent_MakeAvailable(blst)

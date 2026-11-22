@@ -22,11 +22,13 @@
 # Erforderlich für FetchContent
 include(FetchContent)
 
-# Fetch Unity test framework (EXCLUDE_FROM_ALL suppresses Unity's own install rules)
+# Fetch Unity test framework, pinned by commit (v2.5.2). EXCLUDE_FROM_ALL
+# suppresses Unity's own install rules. A local copy can be used instead
+# with -DFETCHCONTENT_SOURCE_DIR_UNITY=<dir>.
 FetchContent_Declare(
     unity
     GIT_REPOSITORY https://github.com/ThrowTheSwitch/Unity.git
-    GIT_TAG v2.5.2
+    GIT_TAG 0b899aec14d3a9abb2bf260ac355f0f28630a6a3 # v2.5.2
     EXCLUDE_FROM_ALL
 )
 

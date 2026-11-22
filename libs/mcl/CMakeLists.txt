@@ -2,10 +2,12 @@ cmake_minimum_required(VERSION 3.14)
 
 include(FetchContent)
 
+# Pinned by commit (v3.04). A local copy can be used instead with
+# -DFETCHCONTENT_SOURCE_DIR_MCL=<dir>.
 FetchContent_Declare(
   mcl
   GIT_REPOSITORY https://github.com/herumi/mcl.git
-  GIT_TAG        v3.04
+  GIT_TAG        877aa82ecc55dc111922492ad600e177d78dfc29 # v3.04
 )
 
 # Options for MCL - Optimized for Portability and CI Stability

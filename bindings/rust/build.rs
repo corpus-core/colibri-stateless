@@ -13,12 +13,17 @@
 //    build a curated set of targets, then either merge them into a
 //    single archive or emit multiple `-l static=<name>` directives.
 // 3. Published mode: when installed from crates.io the C sources are
-//    missing; the script attempts to download a prebuilt archive from
-//    GitHub Releases matching the crate version.
+//    missing; with the `prebuilt` feature (default) the script downloads
+//    a prebuilt archive from GitHub Releases matching the crate version.
+//    Without it, the build never downloads anything itself.
 //
 // `DOCS_RS=1` and `COLIBRI_SKIP_NATIVE=1` skip everything (used by
 // rustdoc and CI systems that build the native library separately).
-// `COLIBRI_CMAKE_BUILD_DIR` relocates the CMake tree of scenario 2.
+// `COLIBRI_CMAKE_BUILD_DIR` relocates the CMake tree of scenario 2, which
+// otherwise lives under `OUT_DIR`. `C4_VERSION` overrides the version
+// the C core is built with (default: the crate version). `FETCHCONTENT_*`
+// variables are passed to CMake, e.g. `FETCHCONTENT_FULLY_DISCONNECTED=ON`
+// or `FETCHCONTENT_SOURCE_DIR_BLST=<dir>` to build from local sources.
 
 use std::env;
 use std::fs;
@@ -29,6 +34,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=COLIBRI_LIB_DIR");
     println!("cargo:rerun-if-env-changed=COLIBRI_CMAKE_BUILD_DIR");
     println!("cargo:rerun-if-env-changed=COLIBRI_SKIP_NATIVE");
+    println!("cargo:rerun-if-env-changed=C4_VERSION");
     println!("cargo:rerun-if-env-changed=DOCS_RS");
     println!("cargo:rerun-if-env-changed=CARGO_FEATURE_OP");
     println!("cargo:rerun-if-changed=build.rs");
@@ -64,8 +70,9 @@ fn main() {
 
 /// Re-run the build script when the C sources change.
 ///
-/// Deliberately does **not** watch the CMake output directory: that
-/// lives inside the repository, so watching it would make every build
+/// Deliberately does **not** watch the CMake output directory: it can
+/// live inside the repository (on Windows, or via
+/// `COLIBRI_CMAKE_BUILD_DIR`), and watching it would make every build
 /// dirty the inputs of the next one and Cargo would rebuild forever.
 fn emit_source_rerun_hints(repo_root: &Path) {
     for rel in [
@@ -150,8 +157,13 @@ fn resolve_link_setup(manifest_dir: &Path, target: &str) -> LinkSetup {
         }
     }
 
-    if let Some(setup) = fetch_prebuilt(target) {
-        return setup;
+    // Downloading is opt-in through the `prebuilt` feature (on by
+    // default), so `default-features = false` builds stay offline.
+    let prebuilt = env::var_os("CARGO_FEATURE_PREBUILT").is_some();
+    if prebuilt {
+        if let Some(setup) = fetch_prebuilt(target) {
+            return setup;
+        }
     }
 
     panic!(
@@ -159,32 +171,43 @@ fn resolve_link_setup(manifest_dir: &Path, target: &str) -> LinkSetup {
          \n\
          Set COLIBRI_LIB_DIR=<dir with the static archives> to point at\n\
          pre-built static libraries, or build from a git checkout so `build.rs` can\n\
-         invoke CMake automatically. See bindings/rust/README.md for\n\
-         details."
+         invoke CMake automatically{}. See bindings/rust/README.md for\n\
+         details.",
+        if prebuilt {
+            ""
+        } else {
+            ", or enable the `prebuilt` feature to download a release archive"
+        }
     );
 }
 
 /// Directory the CMake tree is configured and built in.
 ///
-/// Deliberately **not** derived from `OUT_DIR`: that path contains the
-/// profile plus a Cargo build hash (`.../release/build/colibri-stateless-<hash>/out`)
-/// and pushes the deep `_deps/evmone_external-src/.git/modules/...`
-/// paths of the vendored dependencies past Windows' 260-character
-/// `MAX_PATH` limit, which makes the FetchContent submodule clone fail
-/// with "Filename too long".
+/// `COLIBRI_CMAKE_BUILD_DIR` when set. Otherwise `OUT_DIR`, so the build
+/// never writes into the source tree, which may be a shared Cargo git
+/// checkout or a read-only vendored copy.
+///
+/// Windows hosts keep the tree in `build-rust/<target>` at the repo root
+/// by default: `OUT_DIR` contains the profile plus a Cargo build hash
+/// (`.../release/build/colibri-stateless-<hash>/out`) and pushes the
+/// deep `_deps/evmone_external-src/.git/modules/...` paths of the
+/// vendored dependencies past Windows' 260-character `MAX_PATH` limit,
+/// which makes the FetchContent submodule clone fail with "Filename too
+/// long". Override with `COLIBRI_CMAKE_BUILD_DIR` when that default still
+/// ends up too long (e.g. a deeply nested checkout).
 ///
 /// The sub-directory encodes whether `CHAIN_OP` is on or off so that a
 /// previous build with the opposite feature setting cannot pollute the
 /// current archive set (CMake caches `CHAIN_OP` in `CMakeCache.txt` and
 /// the generated dispatcher differs between the two configurations).
-///
-/// Override with `COLIBRI_CMAKE_BUILD_DIR` when the default still ends
-/// up too long (e.g. a deeply nested checkout on Windows).
 fn cmake_build_root(repo_root: &Path, target: &str, op_enabled: bool) -> PathBuf {
-    // `/build-*` is git-ignored at the repo root.
-    let base = env::var("COLIBRI_CMAKE_BUILD_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| repo_root.join("build-rust").join(target));
+    let base = match env::var_os("COLIBRI_CMAKE_BUILD_DIR") {
+        Some(dir) => PathBuf::from(dir),
+        // `/build-*` is git-ignored at the repo root.
+        None if cfg!(windows) => repo_root.join("build-rust").join(target),
+        None => PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR must be set by cargo"))
+            .join("cmake"),
+    };
     if op_enabled {
         base
     } else {
@@ -215,9 +238,13 @@ fn build_with_cmake(repo_root: &Path, target: &str) -> LinkSetup {
         .define("CHAIN_OP", if op_enabled { "ON" } else { "OFF" })
         .define("CMAKE_BUILD_TYPE", "Release")
         .define("CMAKE_POSITION_INDEPENDENT_CODE", "ON")
+        // Not `git describe`: a Cargo git checkout need not carry the
+        // tags, and a vendored copy has no `.git` at all.
+        .define("C4_VERSION", c4_version())
         // `build` builds ALL_BUILD implicitly, which contains every
         // registered chain module plus the deps.
         .build_target("verifier");
+    forward_fetchcontent_settings(&mut cfg);
     let dst = cfg.build();
     let build_dir = dst.join("build");
 
@@ -275,6 +302,40 @@ fn build_with_cmake(repo_root: &Path, target: &str) -> LinkSetup {
     LinkSetup {
         search_paths,
         static_libs,
+    }
+}
+
+/// Version the C core is built with: `C4_VERSION` when set, otherwise
+/// the crate version. The core reports it to remote provers
+/// (`c4_current_version_number`), which pick the proof format by it.
+fn c4_version() -> String {
+    env::var("C4_VERSION")
+        .ok()
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| env::var("CARGO_PKG_VERSION").expect("CARGO_PKG_VERSION must be set"))
+}
+
+/// Pass CMake's `FETCHCONTENT_*` settings through from the environment:
+/// `FETCHCONTENT_FULLY_DISCONNECTED=ON` forbids any download, and
+/// `FETCHCONTENT_SOURCE_DIR_<NAME>` builds a third-party dependency from
+/// a local copy instead of fetching it.
+fn forward_fetchcontent_settings(cfg: &mut cmake::Config) {
+    for name in [
+        "FETCHCONTENT_FULLY_DISCONNECTED",
+        "FETCHCONTENT_UPDATES_DISCONNECTED",
+        "FETCHCONTENT_BASE_DIR",
+        "FETCHCONTENT_SOURCE_DIR_BLST",
+        "FETCHCONTENT_SOURCE_DIR_EVMONE_EXTERNAL",
+        "FETCHCONTENT_SOURCE_DIR_INTX",
+        "FETCHCONTENT_SOURCE_DIR_ZSTD",
+    ] {
+        println!("cargo:rerun-if-env-changed={name}");
+    }
+    for (key, value) in env::vars_os() {
+        if let Some(key) = key.to_str().filter(|k| k.starts_with("FETCHCONTENT_")) {
+            println!("cargo:rerun-if-env-changed={key}");
+            cfg.define(key, value);
+        }
     }
 }
 
