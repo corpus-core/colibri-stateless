@@ -31,6 +31,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=COLIBRI_SKIP_NATIVE");
     println!("cargo:rerun-if-env-changed=DOCS_RS");
     println!("cargo:rerun-if-env-changed=CARGO_FEATURE_OP");
+    println!("cargo:rerun-if-env-changed=CARGO_FEATURE_PROVER");
     println!("cargo:rerun-if-changed=build.rs");
 
     let target = env::var("TARGET").expect("TARGET env var must be set by cargo");
@@ -173,23 +174,30 @@ fn resolve_link_setup(manifest_dir: &Path, target: &str) -> LinkSetup {
 /// `MAX_PATH` limit, which makes the FetchContent submodule clone fail
 /// with "Filename too long".
 ///
-/// The sub-directory encodes whether `CHAIN_OP` is on or off so that a
-/// previous build with the opposite feature setting cannot pollute the
-/// current archive set (CMake caches `CHAIN_OP` in `CMakeCache.txt` and
-/// the generated dispatcher differs between the two configurations).
+/// The sub-directories encode whether `CHAIN_OP` and `PROVER` are off so
+/// that a previous build with the opposite feature setting cannot pollute
+/// the current archive set (CMake caches both in `CMakeCache.txt`, and
+/// the generated dispatchers differ between the configurations).
 ///
 /// Override with `COLIBRI_CMAKE_BUILD_DIR` when the default still ends
 /// up too long (e.g. a deeply nested checkout on Windows).
-fn cmake_build_root(repo_root: &Path, target: &str, op_enabled: bool) -> PathBuf {
+fn cmake_build_root(
+    repo_root: &Path,
+    target: &str,
+    op_enabled: bool,
+    prover_enabled: bool,
+) -> PathBuf {
     // `/build-*` is git-ignored at the repo root.
-    let base = env::var("COLIBRI_CMAKE_BUILD_DIR")
+    let mut dir = env::var("COLIBRI_CMAKE_BUILD_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|_| repo_root.join("build-rust").join(target));
-    if op_enabled {
-        base
-    } else {
-        base.join("no-op")
+    if !op_enabled {
+        dir = dir.join("no-op");
     }
+    if !prover_enabled {
+        dir = dir.join("no-prover");
+    }
+    dir
 }
 
 /// Invoke CMake in the repo checkout to produce the archives, then
@@ -206,13 +214,18 @@ fn build_with_cmake(repo_root: &Path, target: &str) -> LinkSetup {
     // enabled (default). When disabled the OP-Stack chain module is left
     // out of both the CMake build and the subsequent extra-target walk.
     let op_enabled = env::var_os("CARGO_FEATURE_OP").is_some();
-    let out_dir = cmake_build_root(repo_root, target, op_enabled);
+    // Without the `prover` feature the C core is built verifier-only:
+    // no prover code is compiled, and the RPC context never proves
+    // locally.
+    let prover_enabled = env::var_os("CARGO_FEATURE_PROVER").is_some();
+    let out_dir = cmake_build_root(repo_root, target, op_enabled, prover_enabled);
     let mut cfg = cmake::Config::new(repo_root);
     cfg.out_dir(&out_dir)
         .define("CURL", "OFF")
         .define("CLI", "OFF")
         .define("HTTP_SERVER", "OFF")
         .define("CHAIN_OP", if op_enabled { "ON" } else { "OFF" })
+        .define("PROVER", if prover_enabled { "ON" } else { "OFF" })
         .define("CMAKE_BUILD_TYPE", "Release")
         .define("CMAKE_POSITION_INDEPENDENT_CODE", "ON")
         // `build` builds ALL_BUILD implicitly, which contains every
@@ -225,10 +238,17 @@ fn build_with_cmake(repo_root: &Path, target: &str) -> LinkSetup {
     // pulled in by "verifier" alone. A second build call reuses the
     // same build directory and just adds targets. The OP targets are
     // only pulled in when the `op` feature is active, matching
-    // `CHAIN_OP` above.
-    let mut extra_targets: Vec<&str> = vec!["prover", "eth_verifier", "eth_prover", "api_ffi"];
+    // `CHAIN_OP` above, and the prover targets only with `prover`,
+    // matching `PROVER`.
+    let mut extra_targets: Vec<&str> = vec!["eth_verifier", "api_ffi"];
+    if prover_enabled {
+        extra_targets.extend(["prover", "eth_prover"]);
+    }
     if op_enabled {
-        extra_targets.extend(["op_verifier", "op_prover"]);
+        extra_targets.push("op_verifier");
+        if prover_enabled {
+            extra_targets.push("op_prover");
+        }
     }
     for tgt in extra_targets {
         // Use raw `cmake --build <dir> --target <t>` so we don't reset

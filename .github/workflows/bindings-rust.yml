@@ -165,14 +165,23 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         working-directory: bindings/rust
         shell: bash
-        # Guards the `--no-default-features` link path (CHAIN_OP=OFF)
-        # for consumers that only verify Ethereum L1. Build-only --
-        # cargo test is NOT run with --no-default-features because the
-        # shared fixture suite (test/data/op_*) requires the OP
-        # verifier; those fixtures are expected to return
-        # "Unsupported chain" when OP is off, which is the correct
-        # behaviour but would fail the fixture-equality check.
+        # Guards the `--no-default-features` link path (CHAIN_OP=OFF,
+        # PROVER=OFF) for consumers that only verify Ethereum L1. The
+        # shared fixture suite is NOT run with --no-default-features:
+        # the fixtures under test/data/op_* require the OP verifier and
+        # those without a remote prover require the local prover; they
+        # are expected to fail when the features are off, which is the
+        # correct behaviour but would fail the fixture-equality check.
         run: cargo build --release --target ${{ matrix.target }} --no-default-features
+
+      - name: cargo test (no default features, verifier-only)
+        if: matrix.os == 'ubuntu-latest'
+        working-directory: bindings/rust
+        shell: bash
+        # The tests that need neither OP nor the prover, among them the
+        # verifier-only behaviour (no local proving after a failed
+        # remote proof).
+        run: cargo test --release --target ${{ matrix.target }} --no-default-features --lib --test method_support --test storage_test --test remote_proof_failure -- --test-threads=1
 
       - name: cargo test (release)
         working-directory: bindings/rust

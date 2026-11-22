@@ -123,7 +123,8 @@ CI builds prebuilds per platform and bundles them into the npm package (`prebuil
 
 **Build**: `cargo build` inside the monorepo drives CMake to produce
 `libapi.a` + `libapi_ffi.a` and the individual chain archives, then
-links them into the crate. Downstream users on crates.io get prebuilt
+links them into the crate. `--no-default-features` builds the C core
+verifier-only (`PROVER=OFF`, no `op`). Downstream users on crates.io get prebuilt
 native archives from the matching GitHub Release.
 
 ## Docker

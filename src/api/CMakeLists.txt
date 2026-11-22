@@ -26,7 +26,10 @@ add_library(api STATIC
   colibri_common.c
 )
 target_include_directories(api PUBLIC .)
-target_link_libraries(api PUBLIC prover verifier)
+if(PROVER)
+  target_link_libraries(api PUBLIC prover)
+endif()
+target_link_libraries(api PUBLIC verifier)
 if(TARGET eth_verifier)
   target_link_libraries(api PUBLIC eth_verifier)
 endif()

@@ -31,8 +31,16 @@ include = [
 # so verifying Base / OP Mainnet / other OP-Stack rollups works out of the
 # box. Disable with `--no-default-features` for Ethereum-only consumers who
 # want to avoid pulling the OP module into their binary.
-default = ["op"]
+default = ["op", "prover"]
 op = []
+# The prover: `Prover`, `Colibri::create_proof`, and in the CMake build the
+# prover libraries. On by default. Without it (`default-features = false`)
+# the C core is built with `PROVER=OFF`: it only verifies, the RPC context
+# takes proofs from a remote prover (remote or proxy mode) and never proves
+# locally, also not when the remote prover fails. Like `op`, it only
+# changes the CMake build; prebuilt and `COLIBRI_LIB_DIR` archives are
+# linked as they are.
+prover = []
 
 [dependencies]
 libc = "0.2"
@@ -60,8 +68,14 @@ path = "examples/rpc.rs"
 name = "storage"
 path = "examples/storage.rs"
 
+[[test]]
+name = "proof_roundtrip"
+path = "tests/proof_roundtrip.rs"
+required-features = ["prover"]
+
 [package.metadata.docs.rs]
 # docs.rs cannot build the native library (no network, sandboxed). Skip the
 # native build via the DOCS_RS env var and only produce documentation.
 rustdoc-args = ["--cfg", "docsrs"]
 no-default-features = true
+features = ["prover"]

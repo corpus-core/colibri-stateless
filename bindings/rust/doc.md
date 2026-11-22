@@ -413,7 +413,7 @@ the mechanism you use to decode CCIP-Read / `OffchainLookup` errors.
 
 The crate is intentionally lean:
 
-- `default = ["op"]`.
+- `default = ["op", "prover"]`.
 - `op` -- enable the OP-Stack verifier and prover in the underlying C
   core (`CHAIN_OP=ON`). On by default so verifying Base, OP Mainnet
   and other OP-Stack rollups works out of the box. Disable with
@@ -423,6 +423,11 @@ The crate is intentionally lean:
   downloaded from GitHub always contain OP support. When disabled,
   the dispatcher returns `Unsupported chain` for OP-Stack chain
   IDs; Ethereum-family IDs are unaffected.
+- `prover` -- the prover (`Prover`, `Colibri::create_proof`). On by
+  default. Without it the C core is built with `PROVER=OFF`: it only
+  verifies, contexts run in remote or proxy mode, and a failed remote
+  proof ends the request with an error instead of a local proof. Only
+  affects the CMake path, like `op`.
 - All the heavy lifting -- rustls, tokio, reqwest -- is pulled in
   through minimal feature selections so cross-compilation and audits
   stay predictable.
