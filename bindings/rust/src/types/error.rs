@@ -166,6 +166,8 @@ pub enum ColibriError {
     #[error("JSON parse error: {0}")]
     Json(#[from] serde_json::Error),
 
+    /// A reqwest transport error. Only with the `http` feature.
+    #[cfg(feature = "http")]
     #[error("HTTP client error: {0}")]
     HttpClient(#[from] reqwest::Error),
 

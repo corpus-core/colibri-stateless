@@ -413,7 +413,7 @@ the mechanism you use to decode CCIP-Read / `OffchainLookup` errors.
 
 The crate is intentionally lean:
 
-- `default = ["op"]`.
+- `default = ["op", "http"]`.
 - `op` -- enable the OP-Stack verifier and prover in the underlying C
   core (`CHAIN_OP=ON`). On by default so verifying Base, OP Mainnet
   and other OP-Stack rollups works out of the box. Disable with
@@ -423,6 +423,11 @@ The crate is intentionally lean:
   downloaded from GitHub always contain OP support. When disabled,
   the dispatcher returns `Unsupported chain` for OP-Stack chain
   IDs; Ethereum-family IDs are unaffected.
+- `http` -- the high-level async `Colibri` client (reqwest on tokio)
+  and the `ColibriError::HttpClient` variant. On by default. Without
+  it the crate keeps `RpcCtx`, `Verifier`, `Prover`, storage and the
+  helpers, and tokio, reqwest, futures and async-trait drop out of
+  the dependency tree, for hosts that do their own I/O.
 - All the heavy lifting -- rustls, tokio, reqwest -- is pulled in
   through minimal feature selections so cross-compilation and audits
   stay predictable.

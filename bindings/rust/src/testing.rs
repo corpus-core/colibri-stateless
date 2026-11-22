@@ -15,15 +15,18 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+#[cfg(feature = "http")]
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
 
 use crate::storage::Storage;
+#[cfg(feature = "http")]
 use crate::types::{ColibriError, DataRequest};
 
 /// Maximum length of a mock filename base (matches
 /// `C4_MAX_MOCKNAME_LEN` in `src/util/state.c`).
+#[cfg(feature = "http")]
 const MAX_MOCKNAME_LEN: usize = 100;
 
 /// A single fixture loaded from `test/data/<name>/test.json`.
@@ -282,12 +285,17 @@ impl Storage for FileBackedMockStorage {
 /// [`RequestHandler`] backed by fixture files stored next to the
 /// `test.json` file. Filenames follow the same convention as
 /// `c4_req_mockname` in `src/util/state.c` (used across bindings).
+/// Only with the `http` feature.
+///
+/// [`RequestHandler`]: crate::RequestHandler
+#[cfg(feature = "http")]
 pub struct FileBackedMockRequestHandler {
     dir: PathBuf,
     request_count: Mutex<u32>,
     max_requests: u32,
 }
 
+#[cfg(feature = "http")]
 impl FileBackedMockRequestHandler {
     /// Create a handler serving fixtures from `dir`.
     pub fn new(dir: impl Into<PathBuf>) -> Self {
@@ -388,12 +396,14 @@ impl FileBackedMockRequestHandler {
     }
 }
 
+#[cfg(feature = "http")]
 fn glob_match(pattern: &str, name: &str) -> bool {
     // Very small subset: `*foo*` -> contains "foo".
     let trimmed = pattern.trim_matches('*');
     trimmed.is_empty() || name.contains(trimmed)
 }
 
+#[cfg(feature = "http")]
 #[async_trait]
 impl super::core::RequestHandler for FileBackedMockRequestHandler {
     async fn handle(&self, request: &DataRequest) -> Result<Vec<u8>, ColibriError> {
