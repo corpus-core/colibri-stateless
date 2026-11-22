@@ -109,6 +109,9 @@ CI builds prebuilds per platform and bundles them into the npm package (`prebuil
   (`c4_create_rpc_ctx` / `c4_rpc_execute_json_status`).
 - `src/core/{prover,verifier,rpc}.rs` -- RAII wrappers around the C
   prover / verifier / rpc contexts, `Drop`-safe.
+- `src/core/pending.rs` -- `Step` / `PendingRequest`: `execute()` on
+  the contexts returns pending requests that borrow their context, so
+  they are answered without `unsafe`.
 - `src/ffi.rs` -- Manually maintained `extern "C"` declarations
   mirroring `src/api/colibri.h` + `src/util/plugin.h`.
 - `src/storage/` -- `Storage` trait plus `MemoryStorage` /

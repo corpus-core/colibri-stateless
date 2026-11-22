@@ -1,5 +1,9 @@
 //! `unsafe` wrappers around `c4_req_set_response` / `c4_req_set_error`.
 //!
+//! The contexts' `execute()` methods hand out
+//! [`PendingRequest`](super::PendingRequest)s instead, which answer the
+//! same requests without `unsafe`.
+//!
 //! These are the raw hooks the state machine loop uses to deliver
 //! data (or an error) back to a pending request. They deliberately
 //! stay `unsafe` because `req_ptr` is an untyped C pointer whose
