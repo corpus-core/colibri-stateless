@@ -66,10 +66,19 @@ impl Verifier {
     /// back as [`PendingRequest`](super::PendingRequest)s that borrow this
     /// context until they are answered.
     pub fn execute(&mut self) -> Result<Step<'_>, ColibriError> {
+        self.execute_with_status().map(|(step, _)| step)
+    }
+
+    /// Like [`execute`](Self::execute), and also returns the JSON status
+    /// text the step was parsed from, as the C core wrote it, for hosts
+    /// that log, forward or compare it. Its `req_ptr` values are the
+    /// requests' [`req_ptr`](crate::DataRequest::req_ptr).
+    pub fn execute_with_status(&mut self) -> Result<(Step<'_>, String), ColibriError> {
         let raw = self.execute_json_status()?;
         // SAFETY: `raw` is the status this context just returned, and the
         // step borrows the context mutably.
-        unsafe { Step::from_json(&raw) }
+        let step = unsafe { Step::from_json(&raw) }?;
+        Ok((step, raw))
     }
 
     /// Advance the verifier state machine one step. See

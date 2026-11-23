@@ -82,3 +82,28 @@ fn unanswered_request_stays_pending() {
     again.set_response(br#"{"jsonrpc":"2.0","id":1,"result":"0x1"}"#, 0);
     assert!(matches!(ctx.execute().unwrap(), Step::Success { .. }));
 }
+
+#[test]
+#[serial]
+fn status_text_comes_with_its_step() {
+    let mut ctx = gas_price_ctx();
+    let (step, status) = ctx.execute_with_status().unwrap();
+    let request = single_request(step);
+    let parsed: serde_json::Value = serde_json::from_str(&status).expect("JSON status");
+    assert_eq!(parsed["status"], "pending");
+    assert_eq!(parsed["requests"].as_array().map(Vec::len), Some(1));
+    // The text names the request by the pointer the step's value carries.
+    let pointer = &parsed["requests"][0]["req_ptr"];
+    let pointer = pointer
+        .as_u64()
+        .or_else(|| pointer.as_str().and_then(|s| s.parse().ok()))
+        .expect("req_ptr");
+    assert_eq!(pointer, request.req_ptr);
+    request.set_response(br#"{"jsonrpc":"2.0","id":1,"result":"0x2"}"#, 0);
+
+    let (step, status) = ctx.execute_with_status().unwrap();
+    assert!(matches!(step, Step::Success { result: Some(ref r) } if r == &json!("0x2")));
+    let parsed: serde_json::Value = serde_json::from_str(&status).expect("JSON status");
+    assert_eq!(parsed["status"], "success");
+    assert_eq!(parsed["result"], json!("0x2"));
+}
