@@ -48,7 +48,7 @@ static bool mem_get(char* key, buffer_t* buffer) {
 static void mem_set(char* key, bytes_t value) {
   strncpy(g_key, key, sizeof(g_key) - 1);
   free(g_value.data);
-  g_value = bytes_dup(value);
+  g_value = value.len ? bytes_dup(value) : NULL_BYTES;
 }
 
 static void mem_del(char* key) {
@@ -100,6 +100,34 @@ void test_pending_entry_carries_the_fixed_time(void) {
   TEST_ASSERT_EQUAL_UINT64(1800000000, stored_timestamp());
 }
 
+void test_adding_again_refreshes_the_entry(void) {
+  bytes32_t hash;
+  memset(hash, 0xef, 32);
+  c4_set_fixed_time(1800000000);
+  pap_tx_cache_add_pending(1, hash);
+  c4_set_fixed_time(1800000000 + 100);
+  pap_tx_cache_add_pending(1, hash);
+  TEST_ASSERT_EQUAL_UINT32(40, g_value.len);
+  TEST_ASSERT_EQUAL_UINT64(1800000000 + 100, stored_timestamp());
+}
+
+void test_removing_prunes_entries_expired_at_the_fixed_time(void) {
+  bytes32_t old_hash, other;
+  memset(old_hash, 0x11, 32);
+  memset(other, 0x22, 32);
+  c4_set_fixed_time(1800000000);
+  pap_tx_cache_add_pending(1, old_hash);
+  c4_set_fixed_time(1800000000 + 10);
+  pap_tx_cache_add_pending(1, other);
+  TEST_ASSERT_EQUAL_UINT32(80, g_value.len);
+
+  // At this time the first entry is past its TTL, the second isn't: removing
+  // the second leaves nothing.
+  c4_set_fixed_time(1800000000 + PAP_PENDING_TX_TTL_S + 1);
+  pap_tx_cache_remove_pending(1, other);
+  TEST_ASSERT_EQUAL_UINT32(0, g_value.len);
+}
+
 void test_pending_entry_expires_after_its_ttl(void) {
   bytes32_t hash;
   memset(hash, 0xcd, 32);
@@ -121,6 +149,8 @@ int main(void) {
 #ifdef PAP
   RUN_TEST(test_pending_entry_carries_the_fixed_time);
   RUN_TEST(test_pending_entry_expires_after_its_ttl);
+  RUN_TEST(test_adding_again_refreshes_the_entry);
+  RUN_TEST(test_removing_prunes_entries_expired_at_the_fixed_time);
 #endif
   return UNITY_END();
 }

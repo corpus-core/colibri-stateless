@@ -218,8 +218,10 @@ static void set_state(chain_id_t chain_id, char* dirname) {
 
     if (content.data) {
       if (strncmp(filename, "tx_pending_", 11) == 0) {
+        // The verifier's clock, so a test that fixes it (`c4_set_fixed_time`) sees
+        // its pending entries as fresh at that time.
         for (uint32_t off = 0; off + 40 <= content.len; off += 40) {
-          uint64_t ts = (uint64_t) time(NULL);
+          uint64_t ts = c4_now_unix_s();
           for (int b = 0; b < 8; b++)
             content.data[off + 32 + b] = (uint8_t) (ts >> (b * 8));
         }
@@ -255,8 +257,10 @@ static void set_state(chain_id_t chain_id, char* dirname) {
 
     if (content.data) {
       if (strncmp(filename, "tx_pending_", 11) == 0) {
+        // The verifier's clock, so a test that fixes it (`c4_set_fixed_time`) sees
+        // its pending entries as fresh at that time.
         for (uint32_t off = 0; off + 40 <= content.len; off += 40) {
-          uint64_t ts = (uint64_t) time(NULL);
+          uint64_t ts = c4_now_unix_s();
           for (int b = 0; b < 8; b++)
             content.data[off + 32 + b] = (uint8_t) (ts >> (b * 8));
         }
