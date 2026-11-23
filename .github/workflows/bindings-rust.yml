@@ -166,13 +166,17 @@ jobs:
         working-directory: bindings/rust
         shell: bash
         # Guards the `--no-default-features` link path (CHAIN_OP=OFF)
-        # for consumers that only verify Ethereum L1. Build-only --
-        # cargo test is NOT run with --no-default-features because the
-        # shared fixture suite (test/data/op_*) requires the OP
-        # verifier; those fixtures are expected to return
-        # "Unsupported chain" when OP is off, which is the correct
-        # behaviour but would fail the fixture-equality check.
+        # for consumers that only verify Ethereum L1.
         run: cargo build --release --target ${{ matrix.target }} --no-default-features
+
+      - name: cargo test (no default features)
+        if: matrix.os == 'ubuntu-latest'
+        working-directory: bindings/rust
+        shell: bash
+        # Everything that builds without `http` and `op`, doctests
+        # included. The shared fixture suite needs the `http` client
+        # and is skipped (its test/data/op_* fixtures need OP anyway).
+        run: cargo test --release --target ${{ matrix.target }} --no-default-features -- --test-threads=1
 
       - name: cargo test (release)
         working-directory: bindings/rust

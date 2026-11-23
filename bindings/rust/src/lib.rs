@@ -8,10 +8,11 @@
 //! cryptographically verified RPC call:
 //!
 //! ```no_run
+//! # #[cfg(feature = "http")]
+//! # async fn run() -> Result<(), colibri_stateless::ColibriError> {
 //! use colibri_stateless::{Colibri, MAINNET};
 //! use serde_json::json;
 //!
-//! # async fn run() -> Result<(), colibri_stateless::ColibriError> {
 //! let client = Colibri::builder(MAINNET).build();
 //! let balance = client
 //!     .rpc("eth_getBalance", &json!(["0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045", "latest"]))
