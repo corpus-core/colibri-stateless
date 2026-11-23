@@ -155,6 +155,27 @@ void c4_set_parallel_for(c4_parallel_for_fn fn);
  */
 c4_parallel_for_fn c4_get_parallel_for(void);
 
+/**
+ * Fixes the wall clock the verifier reads, in Unix seconds; 0 (the default) uses the system clock.
+ *
+ * The verifier reads the wall clock only for the age of the PAP transaction cache and of its
+ * pending list (`pap_tx_cache.c`, `verify_pap_tx.c`). A host that replays recorded traffic, or a
+ * test, sets it to the instant the traffic was recorded, so the same input gives the same data
+ * requests and the same stored bytes. It is process-wide: set it before a context runs, not
+ * while one does.
+ *
+ * @param unix_seconds the fixed time, or 0 for the system clock
+ */
+void c4_set_fixed_time(uint64_t unix_seconds);
+
+/**
+ * Returns the current Unix time in seconds: the time fixed by `c4_set_fixed_time`, or the
+ * system clock.
+ *
+ * @return Unix time in seconds
+ */
+uint64_t c4_now_unix_s(void);
+
 #ifdef __cplusplus
 }
 #endif

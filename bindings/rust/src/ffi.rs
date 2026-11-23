@@ -167,6 +167,10 @@ extern "C" {
     /// Clear in-process prover/verifier caches (test isolation).
     pub fn c4_reset_caches();
 
+    /// Fix the wall clock the verifier reads (Unix seconds); 0 uses the
+    /// system clock. Global, not per-context.
+    pub fn c4_set_fixed_time(unix_seconds: u64);
+
     // ------------------------------------------------------------------
     // Storage plugin (src/util/plugin.h)
     // ------------------------------------------------------------------

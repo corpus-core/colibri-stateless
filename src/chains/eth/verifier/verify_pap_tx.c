@@ -33,11 +33,11 @@
 #include "pap_req.h"
 #include "pap_tx_cache.h"
 #include "pap_tx_cache_types.h"
+#include "plugin.h"
 #include "ssz.h"
 #include "sync_committee.h"
 #include "verify.h"
 #include <string.h>
-#include <time.h>
 
 #define PAP_TX_CACHE_STALE_THRESHOLD_S 12
 
@@ -194,7 +194,7 @@ static bool get_tx_index_and_block(verify_ctx_t* ctx, bytes32_t requested_hash, 
       pap_tx_cache_remove_pending(ctx->chain_id, requested_hash);
     }
     else {
-      uint64_t now  = (uint64_t) time(NULL);
+      uint64_t now  = c4_now_unix_s();
       uint64_t last = pap_tx_cache_last_updated(ctx->chain_id);
       // last == 0 means the in-memory snapshot was restored from storage and
       // has not been fetched from the prover in this session.

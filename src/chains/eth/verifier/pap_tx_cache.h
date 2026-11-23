@@ -143,8 +143,9 @@ void pap_tx_cache_reset(void);
 /**
  * Adds a transaction hash to the persistent pending list.
  *
- * The hash is stored with `time(NULL)` as timestamp. If the hash
- * already exists the entry is refreshed (timestamp updated).
+ * The hash is stored with `c4_now_unix_s()` as timestamp (the system clock, or the time
+ * fixed by `c4_set_fixed_time`). If the hash already exists the entry is refreshed
+ * (timestamp updated).
  * Expired entries (older than `PAP_PENDING_TX_TTL_S`) are pruned.
  *
  * @param chain_id target chain

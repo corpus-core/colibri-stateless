@@ -29,7 +29,6 @@
 #include "plugin.h"
 #include "ssz.h"
 #include <string.h>
-#include <time.h>
 
 /* ── tx cache ── */
 
@@ -122,7 +121,7 @@ void pap_tx_cache_populate_from_ssz(chain_id_t chain_id, bytes_t ssz_data) {
   }
 
   update_max_block();
-  g_cache.last_updated = (uint64_t) time(NULL);
+  g_cache.last_updated = c4_now_unix_s();
 
   storage_plugin_t plugin = {0};
   c4_get_storage_config(&plugin);
@@ -182,7 +181,7 @@ void pap_tx_cache_merge_from_ssz(chain_id_t chain_id, bytes_t ssz_data) {
   ssz_ob_t new_snapshot = {.bytes = ssz_data, .def = &PAP_TX_CACHE_SNAPSHOT};
   uint32_t new_len      = ssz_len(new_snapshot);
   if (new_len == 0) {
-    g_cache.last_updated = (uint64_t) time(NULL);
+    g_cache.last_updated = c4_now_unix_s();
     return;
   }
 
@@ -228,7 +227,7 @@ void pap_tx_cache_merge_from_ssz(chain_id_t chain_id, bytes_t ssz_data) {
   }
 
   update_max_block();
-  g_cache.last_updated = (uint64_t) time(NULL);
+  g_cache.last_updated = c4_now_unix_s();
 
   storage_plugin_t plugin = {0};
   c4_get_storage_config(&plugin);
@@ -301,7 +300,7 @@ static void pending_write_entry(buffer_t* buf, const bytes32_t tx_hash, uint64_t
 }
 
 void pap_tx_cache_add_pending(chain_id_t chain_id, bytes32_t tx_hash) {
-  uint64_t now  = (uint64_t) time(NULL);
+  uint64_t now  = c4_now_unix_s();
   ssz_ob_t list = pending_load_list(chain_id);
 
   buffer_t out   = {0};
@@ -337,7 +336,7 @@ void pap_tx_cache_add_pending(chain_id_t chain_id, bytes32_t tx_hash) {
 }
 
 bool pap_tx_cache_is_pending(chain_id_t chain_id, bytes32_t tx_hash) {
-  uint64_t now  = (uint64_t) time(NULL);
+  uint64_t now  = c4_now_unix_s();
   ssz_ob_t list = pending_load_list(chain_id);
   if (!list.bytes.data) return false;
 
@@ -358,7 +357,7 @@ bool pap_tx_cache_is_pending(chain_id_t chain_id, bytes32_t tx_hash) {
 }
 
 void pap_tx_cache_remove_pending(chain_id_t chain_id, bytes32_t tx_hash) {
-  uint64_t now  = (uint64_t) time(NULL);
+  uint64_t now  = c4_now_unix_s();
   ssz_ob_t list = pending_load_list(chain_id);
   if (!list.bytes.data) return;
 

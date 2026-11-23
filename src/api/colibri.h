@@ -1322,6 +1322,18 @@ void* c4_create_rpc_ctx(char* method, char* params, uint64_t chain_id, uint32_t 
 void c4_set_checkpoint(uint64_t chain_id, const char* trusted_checkpoint);
 
 /**
+ * Fixes the wall clock the verifier reads, in Unix seconds; 0 (the default) uses the system clock.
+ *
+ * The verifier reads the wall clock only for the age of the PAP transaction cache and of its
+ * pending list. A host that replays recorded traffic, or a test, sets it to the instant the
+ * traffic was recorded, so the same input gives the same data requests and the same stored
+ * bytes. It is process-wide: set it before a context runs, not while one does.
+ *
+ * @param unix_seconds the fixed time, or 0 for the system clock
+ */
+void c4_set_fixed_time(uint64_t unix_seconds);
+
+/**
  * Clears all in-process prover and verifier caches.
  *
  * Use this between fixture-backed tests that share one process. Must not

@@ -27,6 +27,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #define MAX_SYNC_STATES_DEFAULT 3
 
@@ -195,6 +196,16 @@ void c4_set_parallel_for(c4_parallel_for_fn fn) {
 
 c4_parallel_for_fn c4_get_parallel_for(void) {
   return g_parallel_for;
+}
+
+static uint64_t g_fixed_time = 0;
+
+void c4_set_fixed_time(uint64_t unix_seconds) {
+  g_fixed_time = unix_seconds;
+}
+
+uint64_t c4_now_unix_s(void) {
+  return g_fixed_time ? g_fixed_time : (uint64_t) time(NULL);
 }
 
 static void batch_poster_key(chain_id_t chain_id, char out[100]) {
