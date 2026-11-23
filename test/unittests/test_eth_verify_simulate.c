@@ -571,6 +571,51 @@ void test_simulation_positions_follow_delegatecall_code(void) {
   evm_call_ctx_free(&evm);
 }
 
+// STATICCALL(gas 0xffff, to, no input, 32 bytes of output at 0), then
+// RETURN those 32 bytes.
+static size_t staticcall_and_return(uint8_t* code, const address_t to) {
+  const uint8_t head[] = {0x60, 0x20, 0x60, 0x00, 0x60, 0x00, 0x60, 0x00, 0x73};
+  const uint8_t tail[] = {0x61, 0xff, 0xff, 0xfa, 0x50, 0x60, 0x20, 0x60, 0x00, 0xf3};
+  memcpy(code, head, sizeof(head));
+  memcpy(code + sizeof(head), to, 20);
+  memcpy(code + sizeof(head) + 20, tail, sizeof(tail));
+  return sizeof(head) + 20 + sizeof(tail);
+}
+
+void test_call_releases_the_results_of_nested_calls(void) {
+  // A calls B, which calls C, which returns 42: C's result is made inside
+  // B's call frame, the case that leaked (#444). Valgrind's job fails on a
+  // definite leak.
+  address_t a = {0}, b = {0}, c = {0};
+  memset(a, 0x11, 20);
+  memset(b, 0x22, 20);
+  memset(c, 0x33, 20);
+  const uint8_t c_code[] = {0x60, 0x2a, 0x60, 0x00, 0x52, 0x60, 0x20, 0x60, 0x00, 0xf3};
+  uint8_t       a_code[64], b_code[64];
+  size_t        a_len = staticcall_and_return(a_code, b);
+  size_t        b_len = staticcall_and_return(b_code, c);
+
+  verify_ctx_t ctx = {0};
+  ctx.chain_id     = C4_CHAIN_MAINNET;
+  ctx.args         = json_parse(
+      "[{\"from\":\"0x4444444444444444444444444444444444444444\","
+              "\"to\":\"0x1111111111111111111111111111111111111111\","
+              "\"gas\":\"0xf4240\"},\"latest\"]");
+
+  evm_call_ctx_t evm       = {0};
+  evm.accounts             = make_runtime(a, a_code, a_len);
+  evm.accounts->next       = make_runtime(b, b_code, b_len);
+  evm.accounts->next->next = make_runtime(c, c_code, sizeof(c_code));
+
+  TEST_ASSERT_EQUAL_INT(C4_SUCCESS, eth_run_call_evmone_with_events(&ctx, &evm, false));
+  TEST_ASSERT_FALSE(evm.reverted);
+  TEST_ASSERT_NULL(ctx.state.error);
+  TEST_ASSERT_EQUAL_UINT32(32, evm.call_result.len);
+  TEST_ASSERT_EQUAL_UINT8(0x2a, evm.call_result.data[31]);
+
+  evm_call_ctx_free(&evm);
+}
+
 void test_simulation_keeps_reads_of_reverted_subcall(void) {
   // The value transfer makes the child frame work on copies of caller and target,
   // so the SLOAD only marks the child's copy, which is dropped by the REVERT.
@@ -659,6 +704,7 @@ int main(void) {
   RUN_TEST(test_simulation_positions_records_each_jumpdest_once);
   RUN_TEST(test_simulation_positions_follow_delegatecall_code);
   RUN_TEST(test_simulation_keeps_reads_of_reverted_subcall);
+  RUN_TEST(test_call_releases_the_results_of_nested_calls);
 #endif
   RUN_TEST(test_simulate_pap_reverted_read);
   RUN_TEST(test_simulate_pap_reverted_read_is_proven);
