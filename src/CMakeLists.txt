@@ -30,7 +30,8 @@ endif()
 add_subdirectory(chains)
 # The host API needs the verifier only; without the prover (PROVER=OFF) its
 # RPC context verifies proofs from a remote prover and never proves locally.
-if(VERIFIER)
+# Embedded builds have no host API.
+if(VERIFIER AND NOT EMBEDDED)
     add_subdirectory(api)
 endif()
 if(CLI)

@@ -359,6 +359,47 @@ jobs:
       - name: Check unused C symbols in src/
         run: python3 scripts/check_unused.py
 
+  # The public verifier-only configuration: PROVER=OFF, other options at
+  # their defaults. It builds the libraries, the host API and colibri-ssz,
+  # and refuses options whose components link the prover.
+  build-verifier-only:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install curl
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libcurl4-openssl-dev
+
+      - name: Configure CMake (PROVER=OFF)
+        run: cmake -B build-verifier-only -S . -DCMAKE_BUILD_TYPE=Release -DPROVER=OFF
+
+      - name: Build
+        run: cmake --build build-verifier-only --parallel 4
+
+      - name: Check that the build is verifier-only
+        shell: bash
+        run: |
+          set -euo pipefail
+          find build-verifier-only -name 'libapi_ffi.a' | grep -q .
+          test -x build-verifier-only/bin/colibri-ssz
+          test ! -e build-verifier-only/bin/colibri-prover
+          test ! -e build-verifier-only/bin/colibri-verifier
+          if find build-verifier-only -name 'lib*prover*.a' | grep .; then
+            echo "prover archives were built"
+            exit 1
+          fi
+
+      - name: Options that need the prover are refused
+        shell: bash
+        run: |
+          if cmake -B build-refused -S . -DPROVER=OFF -DHTTP_SERVER=ON > refused.log 2>&1; then
+            echo "PROVER=OFF with HTTP_SERVER=ON was accepted"
+            exit 1
+          fi
+          grep -q "HTTP_SERVER=ON needs the prover" refused.log
+
   static_analysis:
     runs-on: ubuntu-latest
     steps:

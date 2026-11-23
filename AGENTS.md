@@ -279,6 +279,8 @@ ctest --test-dir build/default  # Run tests
 | `SHAREDLIB` | OFF | Build shared library |
 | `COVERAGE` | OFF | Enable coverage tracking |
 
+`PROVER=OFF` gives a verifier-only build: the libraries, the host API (`src/api`, `api_ffi`; remote and proxy mode only, no local proving) and `colibri-ssz`. `colibri-prover` and `colibri-verifier` are not built, and `HTTP_SERVER`, `INSTALLER`, `TEST` and the language-binding options (`WASM`, `NODE_ADDON`, `KOTLIN`, `SWIFT`, `C4_PYTHON`, `DART`) are refused at configure time, since they link the prover.
+
 <!-- AUTO:CMAKE_OPTIONS:START -->
 
 ### All CMake Options (auto-generated)

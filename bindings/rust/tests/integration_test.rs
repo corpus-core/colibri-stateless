@@ -57,6 +57,14 @@ fn build_client(tc: &TestCase) -> Colibri {
         .build()
 }
 
+/// Whether this build can verify the fixture: without the `prover`
+/// feature only the fixtures served by a remote prover, without `op` none
+/// of the OP-Stack ones.
+fn verifiable_in_this_build(tc: &TestCase) -> bool {
+    (cfg!(feature = "prover") || tc.remote_prover)
+        && (cfg!(feature = "op") || !tc.name.starts_with("op_"))
+}
+
 async fn run_case(tc: TestCase) -> Result<serde_json::Value, ColibriError> {
     let client = build_client(&tc);
     client.rpc(&tc.method, &tc.params).await
@@ -120,12 +128,18 @@ async fn all_fixtures() {
 
     let mut passed = 0usize;
     let mut skipped = 0usize;
+    let mut unsupported = 0usize;
     let mut failures = Vec::<String>::new();
     for tc in cases {
         let name = tc.name.clone();
         let has_expected = tc.has_expected_result;
         let expected = tc.expected_result.clone();
         eprintln!("--- {} ({}) chain={} ---", name, tc.method, tc.chain_id);
+        if !verifiable_in_this_build(&tc) {
+            unsupported += 1;
+            eprintln!("  (skipped: needs the `prover` or `op` feature)");
+            continue;
+        }
         match run_case(tc).await {
             Ok(result) => {
                 if !has_expected {
@@ -149,13 +163,15 @@ async fn all_fixtures() {
     }
 
     eprintln!(
-        "\nfixtures: {} passed, {} skipped (no expected), {} failed",
+        "\nfixtures: {} passed, {} skipped (no expected), {} skipped (feature off), {} failed",
         passed,
         skipped,
+        unsupported,
         failures.len()
     );
     for f in &failures {
         eprintln!("  {f}");
     }
     assert!(failures.is_empty(), "{} fixture(s) failed", failures.len());
+    assert!(passed > 0, "no fixture was verified");
 }

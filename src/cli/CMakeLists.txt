@@ -25,17 +25,25 @@ if (WASM OR SWIFT)
 endif()
 
 if (CLI)    
+    # colibri-prover and colibri-verifier use the prover. A verifier-only
+    # build (PROVER=OFF) builds and installs colibri-ssz alone.
+    if (NOT PROVER)
+        message(STATUS "PROVER=OFF: building colibri-ssz only; colibri-prover and colibri-verifier need the prover")
+    endif()
+
+    if (PROVER)
     add_executable(colibri-prover prover.c)
     set_target_properties(colibri-prover PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
     )
+    endif()
 
     add_executable(colibri-ssz ssz.c)
-    target_link_libraries(colibri-ssz PRIVATE 
-      verifier
-      prover
-      eth_verifier
-    )
+    target_link_libraries(colibri-ssz PRIVATE verifier)
+    if (PROVER)
+        target_link_libraries(colibri-ssz PRIVATE prover)
+    endif()
+    target_link_libraries(colibri-ssz PRIVATE eth_verifier)
     set_target_properties(colibri-ssz PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
     )
@@ -55,6 +63,7 @@ if (CLI)
         )
     endif()
 
+    if (PROVER)
     add_executable(colibri-verifier verifier.c)
     set_target_properties(colibri-verifier PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
@@ -104,28 +113,42 @@ if (CLI)
             )
 
     endif()
+    endif() # PROVER: colibri-prover, colibri-verifier
 
     # Install targets
     include(GNUInstallDirs)
-    install(TARGETS colibri-prover colibri-verifier colibri-ssz
+    if (PROVER)
+    install(TARGETS colibri-prover colibri-verifier
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    )
+    endif()
+    install(TARGETS colibri-ssz
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
     )
     if(WIN32)
+        if (PROVER)
         install(CODE "
             execute_process(COMMAND \${CMAKE_COMMAND} -E copy
                 \$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}/colibri-verifier${CMAKE_EXECUTABLE_SUFFIX}
                 \$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}/colibri${CMAKE_EXECUTABLE_SUFFIX})
             message(STATUS \"Copying: colibri-verifier -> colibri\")
+        ")
+        endif()
+        install(CODE "
             execute_process(COMMAND \${CMAKE_COMMAND} -E copy
                 \$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}/colibri-ssz${CMAKE_EXECUTABLE_SUFFIX}
                 \$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}/ssz${CMAKE_EXECUTABLE_SUFFIX})
             message(STATUS \"Copying: colibri-ssz -> ssz\")
         ")
     else()
+        if (PROVER)
         install(CODE "
             execute_process(COMMAND \${CMAKE_COMMAND} -E create_symlink
                 colibri-verifier \$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}/colibri)
             message(STATUS \"Creating symlink: colibri -> colibri-verifier\")
+        ")
+        endif()
+        install(CODE "
             execute_process(COMMAND \${CMAKE_COMMAND} -E create_symlink
                 colibri-ssz \$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}/ssz)
             message(STATUS \"Creating symlink: ssz -> colibri-ssz\")
