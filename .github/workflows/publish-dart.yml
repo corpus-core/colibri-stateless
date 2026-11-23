@@ -54,9 +54,6 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Set up Dart (OIDC publisher identity)
-        uses: dart-lang/setup-dart@v1
-
       - name: Install CMake
         run: |
           if ! command -v cmake &> /dev/null; then
@@ -90,6 +87,12 @@ jobs:
         run: |
           ./bindings/dart/flutter/colibri_flutter/scripts/build_native_libs.sh --all
 
+      # Mint OIDC tokens immediately before each publish. The GitHub ID token
+      # expires within ~10 minutes; a single setup-dart at job start fails the
+      # Flutter upload after natives + the pub.dev wait (v3.2.1: invalid timestamps).
+      - name: Set up Dart OIDC (colibri_stateless)
+        uses: dart-lang/setup-dart@v1
+
       - name: Publish colibri_stateless to pub.dev
         env:
           C4_VERSION: ${{ steps.version.outputs.version }}
@@ -116,6 +119,9 @@ jobs:
           done
           echo "Timed out waiting for colibri_stateless $V on pub.dev"
           exit 1
+
+      - name: Set up Dart OIDC (colibri_flutter)
+        uses: dart-lang/setup-dart@v1
 
       - name: Publish colibri_flutter to pub.dev
         env:
