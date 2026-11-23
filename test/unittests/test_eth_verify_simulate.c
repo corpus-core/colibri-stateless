@@ -642,6 +642,50 @@ void test_simulation_keeps_reads_of_reverted_subcall(void) {
   safe_free(result.bytes.data);
   evm_call_ctx_free(&evm);
 }
+
+void test_call_releases_precompile_output(void) {
+  // MSTORE 0x2a, STATICCALL identity (0x04) with that word, RETURN the copy.
+  // Identity's output is a malloc block. The results list used to free only the
+  // node, so Valgrind reports a definite leak of this buffer.
+  uint8_t code[64];
+  const uint8_t head[] = {
+      0x60, 0x2a,
+      0x60, 0x00,
+      0x52,
+      0x60, 0x20,
+      0x60, 0x20,
+      0x60, 0x20,
+      0x60, 0x00,
+      0x73};
+  memcpy(code, head, sizeof(head));
+  memset(code + sizeof(head), 0, 20);
+  code[sizeof(head) + 19] = 0x04;
+  const uint8_t tail[] = {0x61, 0xff, 0xff, 0xfa, 0x50, 0x60, 0x20, 0x60, 0x20, 0xf3};
+  size_t        len    = sizeof(head) + 20;
+  memcpy(code + len, tail, sizeof(tail));
+  len += sizeof(tail);
+
+  address_t contract = {0};
+  memset(contract, 0x11, 20);
+
+  verify_ctx_t ctx = {0};
+  ctx.chain_id     = C4_CHAIN_MAINNET;
+  ctx.args         = json_parse(
+      "[{\"from\":\"0x2222222222222222222222222222222222222222\","
+              "\"to\":\"0x1111111111111111111111111111111111111111\","
+              "\"gas\":\"0xf4240\"},\"latest\"]");
+
+  evm_call_ctx_t evm = {0};
+  evm.accounts       = make_runtime(contract, code, len);
+
+  TEST_ASSERT_EQUAL_INT(C4_SUCCESS, eth_run_call_evmone_with_events(&ctx, &evm, false));
+  TEST_ASSERT_FALSE(evm.reverted);
+  TEST_ASSERT_NULL(ctx.state.error);
+  TEST_ASSERT_EQUAL_UINT32(32, evm.call_result.len);
+  TEST_ASSERT_EQUAL_UINT8(0x2a, evm.call_result.data[31]);
+
+  evm_call_ctx_free(&evm);
+}
 #endif
 
 int main(void) {
@@ -659,6 +703,7 @@ int main(void) {
   RUN_TEST(test_simulation_positions_records_each_jumpdest_once);
   RUN_TEST(test_simulation_positions_follow_delegatecall_code);
   RUN_TEST(test_simulation_keeps_reads_of_reverted_subcall);
+  RUN_TEST(test_call_releases_precompile_output);
 #endif
   RUN_TEST(test_simulate_pap_reverted_read);
   RUN_TEST(test_simulate_pap_reverted_read_is_proven);

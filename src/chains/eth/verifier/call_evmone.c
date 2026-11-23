@@ -152,6 +152,25 @@ static void add_evm_result(evmone_context_t* ctx, struct evmone_result* result) 
   ctx->results              = new_result;
 }
 
+/**
+ * Hands a heap buffer to an evmone result.
+ *
+ * `result->output_data` must already point at `output->data`. The block stays
+ * alive until `evmone_release_result` runs the release callback. `output` is
+ * detached so the caller does not free it. Fixed buffers (`allocated < 0`) and
+ * empty buffers are left untouched.
+ *
+ * @param result result that references `output->data`
+ * @param output buffer whose malloc block is transferred
+ */
+static void adopt_precompile_output(struct evmone_result* result, buffer_t* output) {
+  if (output->allocated <= 0 || !output->data.data) return;
+  result->release_callback = (void*) evmone_free_malloc_output;
+  output->data.data        = NULL;
+  output->allocated        = 0;
+  output->data.len         = 0;
+}
+
 static bool host_account_exists(void* context, const evmc_address* addr) {
   evmone_context_t* ctx = (evmone_context_t*) context;
   debug_print_address("account_exists for", addr);
@@ -497,6 +516,7 @@ static void host_call(void* context, const struct evmone_message* msg, const uin
     result->output_data     = output.data.data;
     result->output_size     = output.data.len;
     result->gas_refund      = 0;
+    adopt_precompile_output(result, &output);
     /* Do not copy pre_result_t into EVMC status_code: PRE_INVALID_INPUT==3
      * would otherwise look like EVMC out-of-gas. */
     if (pre_result == PRE_SUCCESS && gas_used <= gas_limit) {

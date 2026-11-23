@@ -46,6 +46,8 @@ typedef struct {
   uint8_t bytes[32];
 } evmc_bytes32;
 
+struct evmc_result;
+
 #else
 /* Include the actual EVMC types for non-WASM builds */
 #include <evmc/evmc.h>
@@ -191,6 +193,19 @@ evmone_result evmone_execute(
 
 /* Release result resources */
 void evmone_release_result(evmone_result* result);
+
+/**
+ * Frees `result->output_data` with `free`.
+ *
+ * Host code stores this as `evmone_result.release_callback` when the output was
+ * allocated with `malloc`, as precompile buffers are. `evmone_release_result`
+ * calls it once. The pointer is the base of the allocation; `output_size` may
+ * be smaller than the block, and may be 0 when a failed precompile still
+ * allocated.
+ *
+ * @param result execution result whose `output_data` is a `malloc` block, or NULL
+ */
+void evmone_free_malloc_output(const struct evmc_result* result);
 
 /**
  * Callback invoked for every KECCAK256 opcode during EVM execution.
