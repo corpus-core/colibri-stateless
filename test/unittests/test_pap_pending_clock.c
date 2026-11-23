@@ -27,6 +27,8 @@
 #include "../../src/util/bytes.h"
 #include "../../src/util/plugin.h"
 #include "unity.h"
+#include <stdbool.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -80,6 +82,46 @@ void test_system_clock_by_default(void) {
   uint64_t now    = c4_now_unix_s();
   uint64_t after  = (uint64_t) time(NULL);
   TEST_ASSERT_TRUE(now >= before && now <= after);
+}
+
+// The repository's root, from this file's path (`<root>/test/unittests/...`).
+static size_t root_length(const char* here) {
+  for (const char* p = strstr(here, "unittests"); p; p = strstr(p + 1, "unittests")) {
+    size_t at = (size_t) (p - here);
+    if (at >= 5 && (here[at - 1] == '/' || here[at - 1] == '\\') && strncmp(here + at - 5, "test", 4) == 0)
+      return at - 5;
+  }
+  return 0;
+}
+
+// `rel` reads no system clock directly: a `time(NULL)` there would escape
+// `c4_set_fixed_time`.
+static void assert_no_system_clock(const char* rel) {
+  const char* here = __FILE__;
+  size_t      root = root_length(here);
+  TEST_ASSERT_TRUE_MESSAGE(root > 0, "the repository root from __FILE__");
+  char path[2048];
+  snprintf(path, sizeof(path), "%.*s%s", (int) root, here, rel);
+  FILE* f = fopen(path, "rb");
+  TEST_ASSERT_NOT_NULL_MESSAGE(f, path);
+  fseek(f, 0, SEEK_END);
+  long len = ftell(f);
+  fseek(f, 0, SEEK_SET);
+  char* text = calloc((size_t) len + 1, 1);
+  TEST_ASSERT_NOT_NULL(text);
+  TEST_ASSERT_EQUAL_UINT64((uint64_t) len, (uint64_t) fread(text, 1, (size_t) len, f));
+  fclose(f);
+  bool direct = strstr(text, "time(NULL)") || strstr(text, "time(0)");
+  free(text);
+  TEST_ASSERT_FALSE_MESSAGE(direct, rel);
+}
+
+// Every clock read of the PAP cache and its lookup goes through `c4_now_unix_s`,
+// including the cache's age (`last_updated`, and the lookup's staleness check),
+// which the tests below don't reach.
+void test_the_pap_cache_reads_the_verifier_clock(void) {
+  assert_no_system_clock("src/chains/eth/verifier/pap_tx_cache.c");
+  assert_no_system_clock("src/chains/eth/verifier/verify_pap_tx.c");
 }
 
 #ifdef PAP
@@ -146,6 +188,7 @@ int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_fixed_time);
   RUN_TEST(test_system_clock_by_default);
+  RUN_TEST(test_the_pap_cache_reads_the_verifier_clock);
 #ifdef PAP
   RUN_TEST(test_pending_entry_carries_the_fixed_time);
   RUN_TEST(test_pending_entry_expires_after_its_ttl);
