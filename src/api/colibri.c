@@ -115,6 +115,16 @@ void c4_verify_set_min_latest_block_ts(void* ptr, uint64_t ts) {
   ctx->ctx.min_latest_block_ts = ts;
 }
 
+char* c4_decode_proof(bytes_t proof) {
+  const ssz_def_t* def = c4_get_req_type_from_req(proof);
+  if (!def) return NULL;
+  ssz_ob_t request = {.def = def, .bytes = proof};
+  // Checked as the verifier checks a proof before it reads one (`c4_verify_init`): the
+  // JSON encoder trusts the offsets and lengths it walks.
+  if (!ssz_is_valid(request, true, NULL)) return NULL;
+  return bprintf(NULL, "%Z", request);
+}
+
 int c4_get_method_support(uint64_t chain_id, char* method, char* params, uint32_t flags) {
   return (int) c4_get_method_type((chain_id_t) chain_id, method,
                                   params ? json_parse(params) : (json_t){0}, (verify_flags_t) flags);

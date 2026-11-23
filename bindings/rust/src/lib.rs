@@ -44,7 +44,7 @@ pub mod testing;
 pub mod types;
 
 pub use core::{
-    get_current_version_number, get_method_support, get_method_type, req_set_error,
+    decode_proof, get_current_version_number, get_method_support, get_method_type, req_set_error,
     req_set_response, reset_caches, Colibri, ColibriBuilder, ColibriConfig, Prover, RequestHandler,
     RpcCtx, Verifier,
 };

@@ -1157,6 +1157,21 @@ void c4_verify_free_ctx(void* ctx);
 void c4_verify_set_min_latest_block_ts(void* ctx, uint64_t ts);
 
 /**
+ * Decodes a proof (an SSZ `C4Request`) into JSON, without verifying it.
+ *
+ * The type is read from the proof's own header, as `c4_verify_create_ctx()` reads it, and the
+ * proof is checked as an SSZ object of that type (`ssz_is_valid`, recursively) before it is
+ * encoded. For such a proof the WASM binding's `c4w_decode_proof` returns the same text.
+ *
+ * **Memory Management**: The returned string must be freed by the caller using `free()`.
+ *
+ * @param proof the proof bytes
+ * @return the proof as a JSON string, or NULL if its header names no known type or it is
+ *         not a valid object of that type
+ */
+char* c4_decode_proof(bytes_t proof);
+
+/**
  * Queries whether a specific RPC method is supported and how it should be handled.
  *
  * Not all Ethereum RPC methods can be cryptographically proven. This function returns
