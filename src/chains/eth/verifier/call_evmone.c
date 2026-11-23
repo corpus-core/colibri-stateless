@@ -644,6 +644,9 @@ static void host_call(void* context, const struct evmone_message* msg, const uin
       execution_code_size);
 
   EVM_LOG("Child call complete. Status: %d, Gas left: %l", exec_result.status_code, (size_t) exec_result.gas_left);
+  // The child ran in a copy of this context, so the results of the calls it
+  // made are on its list: adopt it, or they are never released.
+  ctx->results = child.results;
 
   if (trace) {
     trace->gas_used  = (uint64_t) (msg->gas - exec_result.gas_left);
