@@ -1161,7 +1161,7 @@ void c4_verify_set_min_latest_block_ts(void* ctx, uint64_t ts);
  *
  * The type is read from the proof's own header, as `c4_verify_create_ctx()` reads it, and the
  * proof is checked as an SSZ object of that type (`ssz_is_valid`, recursively) before it is
- * encoded. For such a proof the WASM binding's `c4w_decode_proof` returns the same text.
+ * encoded. The WASM binding's `c4w_decode_proof` is this function.
  *
  * **Memory Management**: The returned string must be freed by the caller using `free()`.
  *

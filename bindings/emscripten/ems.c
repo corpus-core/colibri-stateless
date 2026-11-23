@@ -21,6 +21,7 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include "colibri.h"
 #include "colibri_common.h"
 #include "plugin.h"
 #include "sync_committee.h"
@@ -152,11 +153,11 @@ void EMSCRIPTEN_KEEPALIVE c4w_rpc_ctx_set_min_latest_block_ts(void* ctx, uint64_
 
 /* ── Utilities ── */
 
+// The proof comes from outside (a prover), so it is checked before the JSON
+// encoder walks it: see `c4_decode_proof`.
 char* EMSCRIPTEN_KEEPALIVE c4w_decode_proof(uint8_t* data, size_t len) {
-  bytes_t          req_data = bytes(data, len);
-  const ssz_def_t* def      = c4_get_req_type_from_req(req_data);
-  if (!def) return NULL;
-  return bprintf(NULL, "%Z", (ssz_ob_t){.def = def, .bytes = req_data});
+  if ((uint64_t) len > UINT32_MAX) return NULL;
+  return c4_decode_proof(bytes(data, (uint32_t) len));
 }
 
 void EMSCRIPTEN_KEEPALIVE c4w_req_free(data_request_t* client_update) {

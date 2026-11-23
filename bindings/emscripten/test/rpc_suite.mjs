@@ -227,6 +227,13 @@ export async function run_rpc_suite(t, Colibri, decode_proof) {
             await assert.rejects(() => decode_proof(new Uint8Array([0xff, 0xff, 0xff, 0xff, 0xff])), /Unknown proof format/);
         });
 
+    if (decode_proof)
+        await t.test('decode_proof rejects bytes that are no valid proof', async () => {
+            // short input selects the Ethereum request container; it must be checked, not walked
+            await assert.rejects(() => decode_proof(new Uint8Array([])), /Unknown proof format/);
+            await assert.rejects(() => decode_proof(new Uint8Array([0, 0, 1, 0, 0xff, 0xff, 0xff, 0xff])), /Unknown proof format/);
+        });
+
     const tests = fs.readdirSync(testdir).filter(f => fs.existsSync(`${testdir}/${f}/test.json`));
     for (const test of tests) {
         await t.test(`run ${test}`, async () => {
@@ -254,6 +261,7 @@ export async function run_rpc_suite(t, Colibri, decode_proof) {
             if (decode_proof) {
                 const decoded = await decode_proof(proof);
                 assert.ok(decoded && typeof decoded === 'object', 'decoded proof should be an object');
+                await assert.rejects(() => decode_proof(proof.subarray(0, proof.length >> 1)), /Unknown proof format/, 'half a proof should not decode');
             }
 
             // benchmark verifyProof
