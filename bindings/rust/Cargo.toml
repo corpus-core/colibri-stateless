@@ -26,6 +26,7 @@ include = [
     "doc.md",
     "LICENSE",
     "wrapper.h",
+    "fetchcontent-deps.txt",
 ]
 
 [features]

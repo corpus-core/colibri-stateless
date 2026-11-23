@@ -21,9 +21,11 @@
 // rustdoc and CI systems that build the native library separately).
 // `COLIBRI_CMAKE_BUILD_DIR` relocates the CMake tree of scenario 2, which
 // otherwise lives under `OUT_DIR`. `C4_VERSION` overrides the version
-// the C core is built with (default: the crate version). `FETCHCONTENT_*`
-// variables are passed to CMake, e.g. `FETCHCONTENT_FULLY_DISCONNECTED=ON`
-// or `FETCHCONTENT_SOURCE_DIR_BLST=<dir>` to build from local sources.
+// the C core is built with (default: the crate version). CMake's
+// FetchContent settings are passed through: `FETCHCONTENT_FULLY_DISCONNECTED`,
+// `FETCHCONTENT_UPDATES_DISCONNECTED`, `FETCHCONTENT_BASE_DIR`, and
+// `FETCHCONTENT_SOURCE_DIR_<NAME>` (build a dependency from local sources)
+// for every dependency listed in `fetchcontent-deps.txt`.
 
 use std::env;
 use std::fs;
@@ -315,26 +317,31 @@ fn c4_version() -> String {
         .unwrap_or_else(|| env::var("CARGO_PKG_VERSION").expect("CARGO_PKG_VERSION must be set"))
 }
 
-/// Pass CMake's `FETCHCONTENT_*` settings through from the environment:
+/// Pass CMake's FetchContent settings through from the environment:
 /// `FETCHCONTENT_FULLY_DISCONNECTED=ON` forbids any download, and
 /// `FETCHCONTENT_SOURCE_DIR_<NAME>` builds a third-party dependency from
 /// a local copy instead of fetching it.
+///
+/// One fixed list serves both the forwarding and the rerun directives,
+/// so Cargo reruns this script when any of them is set, changed or
+/// removed. The dependency names come from `fetchcontent-deps.txt`.
 fn forward_fetchcontent_settings(cfg: &mut cmake::Config) {
-    for name in [
+    let deps = include_str!("fetchcontent-deps.txt")
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(|dep| format!("FETCHCONTENT_SOURCE_DIR_{dep}"));
+    let settings = [
         "FETCHCONTENT_FULLY_DISCONNECTED",
         "FETCHCONTENT_UPDATES_DISCONNECTED",
         "FETCHCONTENT_BASE_DIR",
-        "FETCHCONTENT_SOURCE_DIR_BLST",
-        "FETCHCONTENT_SOURCE_DIR_EVMONE_EXTERNAL",
-        "FETCHCONTENT_SOURCE_DIR_INTX",
-        "FETCHCONTENT_SOURCE_DIR_ZSTD",
-    ] {
+    ]
+    .into_iter()
+    .map(String::from);
+    for name in settings.chain(deps) {
         println!("cargo:rerun-if-env-changed={name}");
-    }
-    for (key, value) in env::vars_os() {
-        if let Some(key) = key.to_str().filter(|k| k.starts_with("FETCHCONTENT_")) {
-            println!("cargo:rerun-if-env-changed={key}");
-            cfg.define(key, value);
+        if let Some(value) = env::var_os(&name) {
+            cfg.define(&name, value);
         }
     }
 }

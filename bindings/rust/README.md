@@ -102,10 +102,12 @@ static archive. Where that archive comes from depends on your build:
     (override with the `C4_VERSION` environment variable), not
     `git describe`; remote provers pick the proof format by it.
   - Third-party sources (blst, evmone, intx, ...) are fetched by CMake
-    at pinned commits. `FETCHCONTENT_*` environment variables are
-    passed to CMake: `FETCHCONTENT_SOURCE_DIR_<NAME>=<dir>` builds one
-    from a local copy, `FETCHCONTENT_FULLY_DISCONNECTED=ON` forbids any
-    download.
+    at pinned commits. These environment variables are passed to
+    CMake: `FETCHCONTENT_SOURCE_DIR_<NAME>=<dir>` (names in
+    `fetchcontent-deps.txt`) builds that dependency from a local copy,
+    `FETCHCONTENT_FULLY_DISCONNECTED=ON` forbids any download, and
+    `FETCHCONTENT_UPDATES_DISCONNECTED` and `FETCHCONTENT_BASE_DIR`
+    work as in CMake.
 - **BYO archives** -- set `COLIBRI_LIB_DIR=/path/to/dir/with/archives`;
   every static archive in that directory is linked. Handy for embedded
   or cross-compilation targets not covered by the Release matrix.
