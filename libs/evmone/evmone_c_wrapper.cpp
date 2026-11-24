@@ -3,6 +3,7 @@
  */
 #include "evmone_c_wrapper.h"
 
+#include <cstdlib>
 #include <cstring>
 #include <memory>
 #include <string>
@@ -390,6 +391,11 @@ extern "C" evmone_result evmone_execute(
   c_result.release_context  = nullptr;
 
   return c_result;
+}
+
+extern "C" void evmone_free_malloc_output(const struct evmc_result* result) {
+  if (!result || !result->output_data) return;
+  std::free(const_cast<uint8_t*>(result->output_data));
 }
 
 /* Release result resources */
