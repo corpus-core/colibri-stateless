@@ -31,7 +31,7 @@ bool c4_handle_status(client_t* client) {
           "\"last_sync_event\":%l, "
           "\"last_request_time\":%l, "
           "\"open_requests\":%l "
-          "}", // End of stats object and main object
+          "}}", // End of stats object and main object
           http_server.stats.total_requests, http_server.stats.total_errors,
           (now - http_server.stats.last_sync_event) / 1000,
           (now - http_server.stats.last_request_time) / 1000,

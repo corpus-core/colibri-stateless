@@ -457,7 +457,8 @@ int memcache_set(mc_t* client, char* key, size_t keylen, char* value, size_t val
       return -1;
     }
     op->op.set.keylen = keylen;
-    op->op.set.value  = strndup(value, value_len);
+    // values may be binary (SSZ) and contain NUL bytes, so strndup would truncate the copy
+    op->op.set.value = (char*) bytes_dup(bytes(value, value_len)).data;
     if (!op->op.set.value) {
       safe_free(op->op.set.key);
       safe_free(op);
