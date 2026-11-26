@@ -316,13 +316,27 @@ c4_status_t c4_send_eth_rpc(prover_ctx_t* ctx, char* method, char* params, uint3
     buffer_free(&buffer);
     if (c4_state_is_pending(data_request)) return C4_PENDING;
     if (!data_request->error && data_request->response.data) {
-      json_t response = json_parse((char*) data_request->response.data);
-      if (response.type != JSON_TYPE_OBJECT) {
+      // Responses can be large (block receipts > 800kB) and this function runs on every prover pass,
+      // so we walk the top-level properties exactly once and pick up `error` and `result` on the way
+      // instead of scanning the whole body for json_parse and again for each json_get.
+      const char* body = (const char*) data_request->response.data;
+      while (*body == ' ' || *body == '\t' || *body == '\r' || *body == '\n') body++;
+      json_t  response = {.type = *body == '{' ? JSON_TYPE_OBJECT : JSON_TYPE_INVALID, .start = body, .len = data_request->response.len - (size_t) (body - (const char*) data_request->response.data)};
+      json_t  error    = {.type = JSON_TYPE_NOT_FOUND, .start = body, .len = 0};
+      json_t  res      = {.type = JSON_TYPE_NOT_FOUND, .start = body, .len = 0};
+      bytes_t name     = NULL_BYTES;
+      json_t  prop     = json_next_value(response, &name, JSON_NEXT_FIRST);
+      for (; prop.type != JSON_TYPE_NOT_FOUND && prop.type != JSON_TYPE_INVALID; prop = json_next_value(prop, &name, JSON_NEXT_PROPERTY)) {
+        if (name.len == 5 && memcmp(name.data, "error", 5) == 0 && error.type == JSON_TYPE_NOT_FOUND)
+          error = prop;
+        else if (name.len == 6 && memcmp(name.data, "result", 6) == 0 && res.type == JSON_TYPE_NOT_FOUND)
+          res = prop;
+      }
+      if (prop.type == JSON_TYPE_INVALID) { // not an object, or the body is truncated / malformed
         ctx->state.error = strdup("Invalid JSON response");
         return C4_ERROR;
       }
 
-      json_t error = json_get(response, "error");
       if (error.type == JSON_TYPE_OBJECT) {
         json_t code = json_get(error, "code");
         if (code.len == 6 && strncmp(code.start, "-32602", 6) == 0)
@@ -345,7 +359,6 @@ c4_status_t c4_send_eth_rpc(prover_ctx_t* ctx, char* method, char* params, uint3
       else if (error.type == JSON_TYPE_STRING)
         THROW_ERROR_WITH("Error when calling eth-rpc for %s (params: %s) : %j", method, params, error);
 
-      json_t res = json_get(response, "result");
       if (res.type == JSON_TYPE_NOT_FOUND || res.type == JSON_TYPE_INVALID ||
           (res.type == JSON_TYPE_NULL && (strcmp(method, "eth_getBlockReceipts") == 0)))
         RETRY_REQUEST(data_request);

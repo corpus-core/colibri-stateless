@@ -706,7 +706,9 @@ c4_status_t c4_beacon_fill_becaon_block_from_eth(prover_ctx_t* ctx,
   memcpy(beacon_block->beacon.sign_parent_root, ssz_get(&sig_block, "parentRoot").bytes.data, 32);
   memcpy(beacon_block->beacon.data_block_root, data_root, 32);
   keccak(beacon_block->el_header, beacon_block->el_block_hash);
-  ssz_hash_tree_root(beacon_block->beacon.cl_body, beacon_block->beacon.cl_body_root); // TODO: we are already calculating the body_root when creating the branch, why not reuse it?
+  // the body_root was already calculated when the block-hash branch was created (get_el_header_and_branch)
+  // and stored as the last field of the beacon header, so we reuse it instead of merkleizing the body again.
+  memcpy(beacon_block->beacon.cl_body_root, el_data.cl_header.bytes.data + 112 - 32, 32);
 
   return C4_SUCCESS;
 }
