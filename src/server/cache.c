@@ -635,8 +635,9 @@ static void on_get_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf)
 
     // Check for "END" response (cache miss)
     // Need to check for "\r\n" after END for robustness
-    char* end_marker = (char*) memmem(response, req_data->buffer.data.len, "END\r\n", 5);
-    if (end_marker == response) { // END is at the very beginning
+    // Only an END at the very beginning means "miss". Searching the whole buffer for it (memmem) on every
+    // read callback rescans everything received so far, which is quadratic for large values (> 1MB receipts).
+    if (req_data->buffer.data.len >= 5 && memcmp(response, "END\r\n", 5) == 0) {
       done = true;
       uv_read_stop(stream); // Stop reading if protocol END received
     }
