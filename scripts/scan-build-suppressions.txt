@@ -1,10 +1,25 @@
-# scan-build known false positives (one pattern per line; '#' = comment)
+# scan-build false positives only. A report that matches no line is a real finding
+# and fails scripts/scan-build-apply-suppressions.sh.
+#
 # Format: FILE:FUNCTION:DESCRIPTION_SUBSTRING
-# Match: report is ignored if BUGFILE contains FILE, FUNCTIONNAME equals FUNCTION, BUGDESC contains DESCRIPTION_SUBSTRING
+# Match: BUGFILE contains FILE, FUNCTIONNAME equals FUNCTION, BUGDESC contains DESCRIPTION_SUBSTRING.
+# Every active pattern needs a comment that says why it is not a bug.
 #
-# See in-code comment in src/api/colibri.c (c4_verify_create_ctx) for the rationale; Valgrind shows no leak.
-src/api/colibri.c:c4_verify_create_ctx:Potential leak of memory pointed to by 'args_copy'
+# Verdicts for build_static_analysis/scan-build-results/2026-11-26-115535-40549-1
+# (fixed in source, so they are not active patterns):
 #
-# c4_prover_create uses safe_calloc which zero-initialises the struct (including state.error = NULL).
-# scan-build cannot track this across function boundaries and reports state.error as uninitialised.
-src/api/colibri_common.c:create_prover_from_request:Branch condition evaluates to a garbage value
+# REAL — src/util/json_validate.c json_validate
+#   "Dereference of null pointer". json_validate_cached() accepts a NULL def and
+#   forwarded it. json_validate() now returns an error instead of reading *def.
+#
+# REAL — src/api/colibri.c c4_verify_create_ctx
+#   "Potential leak of memory pointed to by 'args_copy'". json_parse() skips
+#   leading whitespace, so ctx->args.start was not the strdup base that
+#   c4_verify_free_ctx() frees. The token is now copied into its own buffer and
+#   the original allocation is freed before c4_verify_init().
+#
+# FALSE POSITIVE — src/api/colibri_common.c create_prover_from_request
+#   "Branch condition evaluates to a garbage value" on pctx->state.error.
+#   c4_prover_create() zero-fills with safe_calloc(). The warning existed because
+#   the prototype was marked M_RET (ownership_returns(malloc)), which tells
+#   scan-build the returned block is uninitialized. That annotation was removed.

@@ -223,6 +223,9 @@ static const char* json_validate_def(json_t val, const char* def, const char* er
 
 const char* json_validate(json_t val, const char* def, const char* error_prefix) {
   // parse the definition
+  // NULL is a caller error. json_validate_cached() explicitly allows a null def
+  // (it hashes only when def is non-null) and then forwards it here.
+  if (!def) ERROR("%sinvalid json def", error_prefix ? error_prefix : "");
 
   const char* current = def;
   int         level   = 0;

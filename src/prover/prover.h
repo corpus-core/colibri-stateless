@@ -189,7 +189,10 @@ typedef struct {
  * @param flags bitmask of `prover_flag_types_t`
  * @return newly allocated context; release with `c4_prover_free`
  */
-prover_ctx_t* c4_prover_create(char* method, char* params, chain_id_t chain_id, prover_flags_t flags) M_RET;
+// The context is zero-filled with safe_calloc(). Do not mark this M_RET:
+// ownership_returns(malloc) tells scan-build the block is uninitialized, so
+// reads of state.error are reported as garbage. That report is not a real bug.
+prover_ctx_t* c4_prover_create(char* method, char* params, chain_id_t chain_id, prover_flags_t flags);
 
 /**
  * Releases all resources owned by `ctx`, including the context struct.
