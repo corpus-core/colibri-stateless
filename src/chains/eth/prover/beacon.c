@@ -708,6 +708,7 @@ c4_status_t c4_beacon_fill_becaon_block_from_eth(prover_ctx_t* ctx,
   keccak(beacon_block->el_header, beacon_block->el_block_hash);
   // the body_root was already calculated when the block-hash branch was created (get_el_header_and_branch)
   // and stored as the last field of the beacon header, so we reuse it instead of merkleizing the body again.
+  if (!el_data.cl_header.bytes.data || el_data.cl_header.bytes.len != 112) THROW_ERROR("missing beacon header for the block");
   memcpy(beacon_block->beacon.cl_body_root, el_data.cl_header.bytes.data + 112 - 32, 32);
 
   return C4_SUCCESS;
