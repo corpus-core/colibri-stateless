@@ -413,6 +413,43 @@ static int on_message_complete(llhttp_t* parser) {
     return 0;
   }
 
+  // Load shedding: when the event loop is overloaded, reject new requests early with 503,
+  // so a load balancer can retry them on another instance instead of queueing them here.
+  // The signal is the smoothed event-loop lag (how long a new callback waits before it runs):
+  // below shed_lag_min_ms nothing is rejected, above shed_lag_max_ms everything non-exempt is,
+  // in between the rejection probability rises linearly. max_open_requests is a hard limit.
+  // Monitoring endpoints, the period store (used by slave provers), GET proofs (hybrid mode,
+  // mostly served from cache) and eth_blockNumber are never rejected.
+  if (http_server.shed_lag_max_ms > 0 || http_server.max_open_requests > 0) {
+    uint64_t lag_ms = http_server.stats.loop_lag_ewma_ns / 1000000;
+    double   p_shed = 0;
+    if (http_server.max_open_requests > 0 && http_server.stats.open_requests > (uint64_t) http_server.max_open_requests)
+      p_shed = 1;
+    else if (http_server.shed_lag_max_ms > 0 && lag_ms >= (uint64_t) http_server.shed_lag_max_ms)
+      p_shed = 1;
+    else if (http_server.shed_lag_max_ms > http_server.shed_lag_min_ms && lag_ms > (uint64_t) http_server.shed_lag_min_ms)
+      p_shed = (double) (lag_ms - (uint64_t) http_server.shed_lag_min_ms) / (double) (http_server.shed_lag_max_ms - http_server.shed_lag_min_ms);
+
+    if (p_shed > 0) {
+      const char* path   = client->request.path ? client->request.path : "";
+      bool        exempt = strcmp(path, "/health") == 0 || strcmp(path, "/ready") == 0 || strcmp(path, "/metrics") == 0 ||
+                    strcmp(path, "/version") == 0 || strncmp(path, "/period_store", 13) == 0 ||
+                    (client->request.method == C4_DATA_METHOD_GET && strncmp(path, "/proof/", 7) == 0);
+      if (!exempt && client->request.payload && client->request.payload_len) {
+        json_t method = json_get(json_parse((char*) client->request.payload), "method");
+        if (method.type == JSON_TYPE_STRING && json_equal_string(method, "eth_blockNumber")) exempt = true;
+      }
+      if (!exempt && (p_shed >= 1 || (double) rand() / (double) RAND_MAX < p_shed)) {
+        http_server.stats.shed_total++;
+        client->close_after_response = true;
+        const char* body    = "{\"error\":\"Server is overloaded, please try another server\"}";
+        const char* headers = "Retry-After: 1\r\n";
+        c4_http_respond_ex(client, 503, "application/json", bytes((uint8_t*) body, strlen(body)), bytes((uint8_t*) headers, strlen(headers)));
+        return 0;
+      }
+    }
+  }
+
   for (int i = 0; i < handlers_count; i++) {
     if (handlers[i](client)) return 0;
   }
@@ -607,7 +644,7 @@ static void http_respond_ex(client_t* client, int status, char* content_type, by
   }
 
   uv_buf_t    uvbuf[4]; // [0]=status+fixed headers, [1]=extra headers, [2]=header block terminator, [3]=body
-  const char* conn_header_val = llhttp_should_keep_alive(&client->parser) ? "keep-alive" : "close";
+  const char* conn_header_val = (!client->close_after_response && llhttp_should_keep_alive(&client->parser)) ? "keep-alive" : "close";
   const char* header_fmt      = "HTTP/1.1 %d %s\r\nContent-Type: %s\r\nContent-Length: %d\r\nConnection: %s\r\n";
 
   int header_n = snprintf(NULL, 0, header_fmt, status, status_text(status), content_type, body.len, conn_header_val);

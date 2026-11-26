@@ -808,7 +808,16 @@ bool c4_handle_metrics(client_t* client) {
   bprintf(&data, "colibri_event_loop_lag_seconds %f\n", loop_lag_seconds);
   bprintf(&data, "# HELP colibri_event_loop_lag_seconds_max Max observed event-loop lag in seconds since start.\n");
   bprintf(&data, "# TYPE colibri_event_loop_lag_seconds_max gauge\n");
-  bprintf(&data, "colibri_event_loop_lag_seconds_max %f\n\n", loop_lag_seconds_max);
+  bprintf(&data, "colibri_event_loop_lag_seconds_max %f\n", loop_lag_seconds_max);
+  bprintf(&data, "# HELP colibri_event_loop_lag_ewma_seconds Smoothed event-loop lag in seconds (EWMA, ~200 ms), used for load shedding.\n");
+  bprintf(&data, "# TYPE colibri_event_loop_lag_ewma_seconds gauge\n");
+  bprintf(&data, "colibri_event_loop_lag_ewma_seconds %f\n", (double) http_server.stats.loop_lag_ewma_ns / 1e9);
+  bprintf(&data, "# HELP colibri_open_requests Currently open incoming requests.\n");
+  bprintf(&data, "# TYPE colibri_open_requests gauge\n");
+  bprintf(&data, "colibri_open_requests %l\n", http_server.stats.open_requests);
+  bprintf(&data, "# HELP colibri_requests_shed_total Requests rejected with 503 because the server was overloaded.\n");
+  bprintf(&data, "# TYPE colibri_requests_shed_total counter\n");
+  bprintf(&data, "colibri_requests_shed_total %l\n\n", http_server.stats.shed_total);
 
   // Beacon Watcher Event-Metriken
   bprintf(&data, "# HELP colibri_beacon_events_total Total number of beacon events processed.\n");

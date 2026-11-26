@@ -784,6 +784,35 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /ready:
+    get:
+      tags:
+        - Health
+      summary: Readiness Check
+      description: |
+        Readiness for load balancers. Returns 503 while the server is overloaded
+        (smoothed event-loop lag at or above `C4_SHED_LAG_MAX_MS`, or more than
+        `C4_MAX_OPEN_REQUESTS` open requests), so the instance can be taken out of
+        rotation instead of being restarted. Use `/health` for liveness.
+      operationId: readinessCheck
+      responses:
+        '200':
+          description: Server accepts load
+          content:
+            application/json:
+              example:
+                status: ready
+                loop_lag_ms: 4
+                open_requests: 12
+        '503':
+          description: Server is overloaded
+          content:
+            application/json:
+              example:
+                status: overloaded
+                loop_lag_ms: 312
+                open_requests: 240
+
   /metrics:
     get:
       tags:

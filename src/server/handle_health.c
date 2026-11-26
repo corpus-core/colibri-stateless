@@ -40,3 +40,19 @@ bool c4_handle_status(client_t* client) {
   buffer_free(&data);
   return true;
 }
+
+bool c4_handle_ready(client_t* client) {
+  if (strcmp(client->request.path, "/ready") != 0) return false;
+
+  // Readiness for load balancers: report 503 while the server would reject (nearly) all requests,
+  // so the instance is taken out of rotation instead of being restarted. Liveness stays on /health.
+  uint64_t lag_ms     = http_server.stats.loop_lag_ewma_ns / 1000000;
+  bool     overloaded = (http_server.shed_lag_max_ms > 0 && lag_ms >= (uint64_t) http_server.shed_lag_max_ms) ||
+                    (http_server.max_open_requests > 0 && http_server.stats.open_requests > (uint64_t) http_server.max_open_requests);
+  buffer_t data = {0};
+  bprintf(&data, "{\"status\":\"%s\", \"loop_lag_ms\":%l, \"open_requests\":%l}",
+          overloaded ? "overloaded" : "ready", lag_ms, http_server.stats.open_requests);
+  c4_http_respond(client, overloaded ? 503 : 200, "application/json", data.data);
+  buffer_free(&data);
+  return true;
+}

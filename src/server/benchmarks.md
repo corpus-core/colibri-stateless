@@ -395,7 +395,7 @@ With realistic client traffic, one prover instance served 30-35 requests/s at a 
 - **CPU per request:** about 20 ms with realistic traffic, 50–100 ms in the worst case. From about 30 requests/s the event loop is often fully busy, so an instance saturates at about 0.75 cores, well before using a full core.
 - **Latency per method** (realistic, 30 req/s): `eth_blockNumber` p50 2 ms, p95 82 ms; `eth_getBlockByNumber` p50 4 ms, p95 95 ms; `eth_getLogs` p50 38 ms, p95 0.21 s; `eth_getTransactionReceipt` p50 0.10 s, p95 0.33 s; `eth_call` p50 83 ms, p95 1.4 s.
 - **Response sizes** (realistic): `eth_call` 11 KB, `eth_getTransactionReceipt` and `eth_getBalance` 5 KB, `eth_getTransactionByHash` 3 KB, `eth_blockNumber` 1.1 KB, `eth_getLogs` 1–5 KB, `eth_getBlockByNumber` about 170 KB; 16 KB on average across the mix.
-- **Overload:** beyond the saturation point requests queue up, latency rises to tens of seconds and the health check eventually restarts the instance. Until load shedding is in place, the instance count should leave headroom (see Deployment).
+- **Overload:** these measurements were taken before load shedding existed. Beyond the saturation point requests queued up, latency rose to tens of seconds and the health check eventually restarted the instance. Since then the prover rejects requests early with 503 when its event loop is overloaded (see Overload protection), so a load balancer can move them to another instance.
 
 For planning we use **25 requests/s per instance for realistic traffic** and 7 requests/s per instance for the worst case.
 
@@ -409,7 +409,9 @@ In remote mode, each client request triggers 2–4 requests to the execution and
 | Realistic profile (4 GB memcached) | 30 req/s | 69–70 req/s | 2.2–2.4 | 18–20 % | about 1.9 |
 | Worst case, widely spread blocks | 10 req/s | 41 req/s | 4.1 | 39 % | about 2.5 |
 
-With realistic traffic most upstream requests are `eth_getProof` and `eth_createAccessList`, both triggered by `eth_call`; with block-heavy traffic, beacon blocks (`/eth/v2/beacon/blocks`), beacon headers and `eth_getBlockReceipts` dominate. The prover received about 155 KB from the nodes per client request with realistic traffic and about 390 KB with block-heavy traffic. Upstream latency stayed at 5–30 ms per request on our nodes.
+With realistic traffic most upstream requests are `eth_getProof` and `eth_createAccessList`, both triggered by `eth_call`; with block-heavy traffic, beacon blocks (`/eth/v2/beacon/blocks`), beacon headers and `eth_getBlockReceipts` dominate. The prover received about 155 KB from the nodes per client request with realistic traffic and about 390 KB with block-heavy traffic. Upstream latency on our nodes was 5–30 ms per request at low load and rose to 60–140 ms on average at 30 client requests/s (`eth_getProof` about 140 ms); part of the requests went to a remote fallback provider. Nodes with lower latency mainly reduce client latency, see the note on node latency below.
+
+**Node latency and capacity.** The prover waits for its nodes asynchronously, so node latency does not consume prover CPU and hardly changes the capacity per instance. It does add directly to client latency: an `eth_call` runs `eth_createAccessList` and then `eth_getProof` one after the other, so most of its latency is node time, while the prover itself spends about 20 ms of CPU. Faster nodes therefore lower p50 and p95 latency and the number of requests in flight. The nodes' own throughput for `eth_getProof` becomes the limit for the whole setup: 100 client requests/s cause about 80 `eth_getProof` and 60 `eth_createAccessList` calls per second at a low cache hit rate.
 
 The low memcached hit rate in the realistic test comes from the test itself: almost every `eth_call` asked for a different address at the newest block, and each new block creates new cache keys. Real users concentrate on popular contracts and addresses, so we expect a higher hit rate in production.
 
@@ -470,7 +472,57 @@ These are planning values based on 25 requests/s per instance for realistic traf
 - `BEACON_EVENTS=true`: caches new blocks as soon as the beacon client announces them, so `latest` queries are served from cache.
 - `DATA`: a persistent volume for the period store.
 - Slave mode via `period_master_url`: the prover fetches period store data from a master (we can provide ours) instead of building two years of history itself. Slaves do not generate the ZK proofs for sync committee transitions, so they need no proving key and incur no proving costs.
-- Health check on `/health` with a generous timeout (for example 10 s and 5 retries). Under overload the endpoint answers late, and a strict check combined with automatic restarts turns a load peak into an outage.
+- Health checks: use `/ready` for the load balancer (503 while the instance is overloaded) and `/health` only for liveness, such as container restarts, with a generous timeout (for example 10 s and 5 retries). Restarting an overloaded instance turns a load peak into an outage.
+
+## Overload protection
+
+The prover protects itself against overload by rejecting new requests early, instead of queueing them until latency and memory run away. The signal is the smoothed event-loop lag, which measures how long a newly arrived request waits before the server even starts working on it.
+
+| Setting | Default | Effect |
+| --- | --- | --- |
+| `C4_SHED_LAG_MIN_MS` | 50 | Above this smoothed loop lag, requests start being rejected with a rising probability |
+| `C4_SHED_LAG_MAX_MS` | 250 | At this loop lag, all non-exempt requests are rejected (`0` turns lag-based shedding off) |
+| `C4_MAX_OPEN_REQUESTS` | 1000 | Hard limit for concurrently open requests (`0` = unlimited) |
+
+- Rejected requests get HTTP `503` with `Retry-After: 1` and `Connection: close`.
+- Never rejected: `/health`, `/ready`, `/metrics`, `/version`, `/period_store` (used by slave provers), `GET /proof/...` (hybrid mode, mostly served from cache) and `eth_blockNumber`.
+- `GET /ready` returns `503` while the instance rejects all requests, so the load balancer can take it out of rotation until it recovers.
+- The defaults are first values and will be calibrated with further load tests; `colibri_event_loop_lag_ewma_seconds` shows the lag the thresholds act on.
+
+**Load balancer configuration.** Proof requests are sent as `POST`, and most load balancers do not retry `POST` requests on another server by default. Proof requests are idempotent, so retrying them is safe.
+
+nginx:
+
+```nginx
+upstream colibri_mainnet {
+    server 10.0.0.11:8090 max_fails=0;
+    server 10.0.0.12:8090 max_fails=0;
+}
+server {
+    location / {
+        proxy_pass http://colibri_mainnet;
+        proxy_next_upstream error timeout http_503 non_idempotent;
+        proxy_next_upstream_tries 2;
+    }
+}
+```
+
+`max_fails=0` keeps nginx from marking an instance as failed after a single 503 from load shedding.
+
+HAProxy:
+
+```
+backend colibri_mainnet
+    option httpchk GET /ready
+    http-check expect status 200
+    retry-on 503 conn-failure empty-response response-timeout
+    retries 2
+    option redispatch 1
+    server p1 10.0.0.11:8090 check inter 2s fall 2 rise 2
+    server p2 10.0.0.12:8090 check inter 2s fall 2 rise 2
+```
+
+Load shedding protects against too many requests, not against single expensive ones, such as an `eth_call` that touches thousands of storage slots. Limits per request are planned (see Outlook); volumetric attacks should be handled at the load balancer or CDN, for example with rate limits per client IP.
 
 ## Monitoring
 
@@ -479,6 +531,9 @@ Each prover exposes Prometheus metrics at `/metrics`; the event-loop idle ratio 
 | Metric | What it tells you |
 | --- | --- |
 | `colibri_event_loop_idle_ratio` | Share of time the event loop is idle; near 0 means the instance is saturated |
+| `colibri_event_loop_lag_ewma_seconds` | Smoothed event-loop lag that load shedding acts on |
+| `colibri_open_requests` | Currently open client requests |
+| `colibri_requests_shed_total` | Requests rejected with 503 because the instance was overloaded |
 | `colibri_public_requests_total`, `colibri_public_errors_total` | Client requests and errors |
 | `colibri_method_requests_total`, `colibri_method_duration_milliseconds_total`, `colibri_method_size_bytes_total` | Requests, total time and response bytes per method; label `type` separates client (`public`) from upstream (`eth`, `beacon`) calls |
 | `colibri_eth_requests_total`, `colibri_beacon_requests_total` and their `_cached_total` | Upstream requests and how many were served from memcached |
@@ -494,7 +549,7 @@ We also recommend the standard memcached exporter: a steady eviction rate (`memc
 We are working on raising the capacity per instance, so the figures in this document are a conservative baseline rather than a ceiling.
 
 - **Event loop:** moving parsing and serialization of large upstream responses from the event loop to worker threads, so that one instance can use more than one core.
-- **Load shedding:** answering with HTTP 503 above a configurable number of open requests, so that the load balancer moves traffic to another instance instead of queueing it.
+- **Limits per request:** caps on the number of storage slots and accounts per proof, on block ranges and results for `eth_getLogs`, and a deadline per request, so that single expensive requests cannot occupy an instance.
 - **Latency metrics:** histograms per method, so p95 and p99 latency can be monitored directly.
 
 We will share updated measurements once these changes are released.

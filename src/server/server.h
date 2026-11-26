@@ -47,6 +47,8 @@ typedef struct {
   double   loop_idle_ratio;    // idle ratio over last sampling window (0..1)
   uint64_t loop_lag_ns_last;   // last measured loop lag (ns)
   uint64_t loop_lag_ns_max;    // max observed loop lag since start (ns)
+  uint64_t loop_lag_ewma_ns;   // smoothed loop lag (EWMA, ~200 ms time constant), used for load shedding
+  uint64_t shed_total;         // requests rejected with 503 because the server was overloaded
   // Beacon watcher event counters (TEST and runtime diagnostics)
   uint64_t beacon_events_total;
   uint64_t beacon_events_head;
@@ -158,6 +160,11 @@ typedef struct {
   int proxy_enabled;
   /** Comma-separated domain patterns allowed for proxy URLs (e.g. `*.alchemy.com,infura.io`). */
   char* proxy_allowed_domains;
+
+  // Load shedding (overload protection)
+  int shed_lag_min_ms;   // smoothed event-loop lag (ms) above which requests start being rejected (probabilistically)
+  int shed_lag_max_ms;   // smoothed event-loop lag (ms) at which all non-exempt requests are rejected (0 = lag-based shedding off)
+  int max_open_requests; // hard limit for concurrently open requests (0 = unlimited)
 } http_server_t;
 
 // Method support tracking for RPC methods
@@ -255,6 +262,7 @@ typedef struct {
   bool    being_closed;             // Flag to track if this client is being closed
   bool    message_complete_reached; // True if on_message_complete was called for the current request
   bool    keep_alive_idle;          // True if the connection is idle in keep-alive mode, awaiting next request
+  bool    close_after_response;     // Force `Connection: close` for the next response (e.g. 503 on overload)
   size_t  headers_size_received;    // Total size of headers received (for DoS protection)
   size_t  body_size_received;       // Actual body bytes received (for request smuggling protection)
   // Incoming b3 context (optional)
@@ -576,6 +584,8 @@ bool c4_handle_config_ui(client_t* client);
 bool c4_handle_openapi(client_t* client);
 /** `GET /version` — build/version metadata. */
 bool c4_handle_version(client_t* client);
+/** `GET /ready` — readiness for load balancers: 200 when accepting load, 503 when overloaded. */
+bool c4_handle_ready(client_t* client);
 /** `POST /rpc` — JSON-RPC with optional verification. */
 bool c4_handle_unverified_rpc_request(client_t* client);
 

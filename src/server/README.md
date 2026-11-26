@@ -219,6 +219,18 @@ These knobs tune the heuristic load balancing (AIMD) and the RPC head polling us
 
 With `LOG_LEVEL=4`, the server logs head polling results (per RPC server) to help diagnose routing decisions.
 
+### Load Shedding
+
+When the event loop is overloaded, the server rejects new requests early with `503` (`Retry-After: 1`, `Connection: close`), so a load balancer can retry them on another instance. The signal is the smoothed event-loop lag (EWMA, about 200 ms): below `C4_SHED_LAG_MIN_MS` nothing is rejected, at `C4_SHED_LAG_MAX_MS` all non-exempt requests are, in between the rejection probability rises linearly. `/health`, `/ready`, `/metrics`, `/version`, `/period_store`, `GET /proof/...` (hybrid mode) and `eth_blockNumber` are never rejected.
+
+| Variable | Default | Description |
+|---|---|---|
+| `C4_SHED_LAG_MIN_MS` | `50` | Smoothed loop lag (ms) above which requests start being rejected |
+| `C4_SHED_LAG_MAX_MS` | `250` | Smoothed loop lag (ms) at which all non-exempt requests are rejected (`0` = off) |
+| `C4_MAX_OPEN_REQUESTS` | `1000` | Hard limit for concurrently open requests (`0` = unlimited) |
+
+`GET /ready` returns `503` while the server is fully shedding; use it as the load balancer's health check and keep `/health` for liveness (container restarts). Metrics: `colibri_event_loop_lag_ewma_seconds`, `colibri_open_requests`, `colibri_requests_shed_total`.
+
 **Important caching notes:**
 
 - **Memcached:** Almost all external requests are cached with a 24h TTL, dramatically reducing load on RPC/Beacon endpoints and improving response times.

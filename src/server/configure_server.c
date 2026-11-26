@@ -55,6 +55,11 @@ http_server_t http_server = {
     .latency_bias_offset_ms          = 50,  // ms,
     .max_parallel_requests           = 10,  // Request dispatch throttling
 
+    // Load shedding defaults
+    .shed_lag_min_ms   = 50,
+    .shed_lag_max_ms   = 250,
+    .max_open_requests = 1000,
+
     // cURL pool defaults
     .curl.http2_enabled         = 1,
     .curl.pool_max_host         = 4,
@@ -149,6 +154,12 @@ static void config() {
   conf_int(&http_server.latency_backpressure_power_x100, "C4_LATENCY_BACKPRESSURE_POWER_X100", "latency_backpressure_power_x100", 0, "exponent*100 for backpressure penalty (e.g. 200=2.0)", 50, 1000);
   conf_int(&http_server.latency_bias_offset_ms, "C4_LATENCY_BIAS_OFFSET_MS", "latency_bias_offset_ms", 0, "offset added to latency for stability (ms)", 0, 1000);
   conf_int(&http_server.max_parallel_requests, "C4_MAX_PARALLEL_REQUESTS", "max_parallel_requests", 0, "max requests dispatched per batch (0=unlimited)", 0, 1000);
+
+  // Load shedding (ENV/args)
+  c4_configure_add_section("load shedding");
+  conf_int(&http_server.shed_lag_min_ms, "C4_SHED_LAG_MIN_MS", "shed_lag_min_ms", 0, "smoothed event-loop lag (ms) above which requests start being rejected with 503", 1, 60000);
+  conf_int(&http_server.shed_lag_max_ms, "C4_SHED_LAG_MAX_MS", "shed_lag_max_ms", 0, "smoothed event-loop lag (ms) at which all non-exempt requests are rejected (0=off)", 0, 60000);
+  conf_int(&http_server.max_open_requests, "C4_MAX_OPEN_REQUESTS", "max_open_requests", 0, "max concurrently open requests before rejecting with 503 (0=unlimited)", 0, 1000000);
 
   // cURL pool configuration (ENV/args)
   conf_int(&http_server.curl.http2_enabled, "C4_HTTP2", "http2", 0, "enable HTTP/2 (0/1)", 0, 1);

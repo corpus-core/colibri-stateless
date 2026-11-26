@@ -109,6 +109,9 @@ static void           on_loop_metrics_timer(uv_timer_t* h) {
   uint64_t lag_ns                    = now_ns > expected_ns ? (now_ns - expected_ns) : 0;
   http_server.stats.loop_lag_ns_last = lag_ns;
   if (lag_ns > http_server.stats.loop_lag_ns_max) http_server.stats.loop_lag_ns_max = lag_ns;
+  // Smoothed lag for load shedding: EWMA with alpha 0.05 per 10 ms tick (~200 ms time constant),
+  // so single slow callbacks do not trigger shedding, but sustained overload does.
+  http_server.stats.loop_lag_ewma_ns = (uint64_t) (0.95 * (double) http_server.stats.loop_lag_ewma_ns + 0.05 * (double) lag_ns);
   // Idle time metrics
   uint64_t idle_total                  = uv_metrics_idle_time(uv_default_loop());
   uint64_t idle_delta                  = (idle_total >= last_idle_ns_total) ? (idle_total - last_idle_ns_total) : 0;
@@ -152,6 +155,7 @@ int c4_server_start(server_instance_t* instance, int port) {
   c4_register_http_handler(c4_handle_proof_request);
   c4_register_http_handler(c4_handle_metrics);
   c4_register_http_handler(c4_handle_status);
+  c4_register_http_handler(c4_handle_ready);
   c4_register_http_handler(c4_handle_version);
 
   UV_CHECK("TCP initialization", uv_tcp_init(instance->loop, &instance->server), instance);
