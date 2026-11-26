@@ -371,7 +371,7 @@ The L1 provers hold a fixed internal proof cache of 100 MB (Merkle tries of rece
 
 ## Load behavior and capacity
 
-With realistic client traffic, one prover instance served 30 requests/s at a p95 latency of 1.2 s using about 0.6 cores; a worst-case mix saturates it at about 10 requests/s. We ran two profiles against one Ethereum mainnet instance in 5-minute stages of fixed request rates:
+With realistic client traffic, one prover instance served 30-35 requests/s at a p95 latency of 1.2 s using about 0.6 cores; a worst-case mix saturates it at about 10 requests/s. We ran two profiles against one Ethereum mainnet instance in 5-minute stages of fixed request rates:
 
 - **Realistic:** the method mix of a public RPC provider (Chainstack statistics, without `eth_chainId`, which the verifier answers locally): about 55 % `eth_call`, 13 % `eth_getTransactionReceipt`, 10 % `eth_blockNumber`, 7 % `eth_getBalance`, 5 % each `eth_getBlockByNumber` and `eth_getTransactionByHash`, 3 % `eth_getLogs`. Requests carry the client state and, for 70 % of them, the hash of the block the client already knows (`last_block_hash`); 80 % target the latest 64 blocks. Measured with v3.2.1, which includes first event-loop optimizations.
 - **Worst case:** no client state, so a light client bootstrap (about 25 KB) is fetched and attached to every response; a mix dominated by full blocks, receipts and logs; half of the requests target older blocks up to two years back. Measured with v3.1.1.
