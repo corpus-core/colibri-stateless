@@ -345,6 +345,19 @@ void test_json_validate_null() {
   safe_free((char*) err);
 }
 
+void test_json_validate_null_def() {
+  // A NULL schema must return an error. json_validate_cached() used to forward
+  // it and dereference the pointer.
+  json_t      value = json_parse("1");
+  const char* err   = json_validate(value, NULL, "x:");
+  TEST_ASSERT_EQUAL_STRING("x:invalid json def", err);
+  safe_free((char*) err);
+
+  err = json_validate_cached(value, NULL, "");
+  TEST_ASSERT_EQUAL_STRING("invalid json def", err);
+  safe_free((char*) err);
+}
+
 void test_json_validate_getlogs_filter() {
   // Mirrors JSON_GET_LOGS_FILTER_FIELDS: `address` (top-level '|') must be last, `topics` uses
   // '|' only inside brackets and may contain null wildcard positions.
@@ -1100,6 +1113,7 @@ int main(void) {
   RUN_TEST(test_json_validate_or);
   RUN_TEST(test_json_validate_or_in_object);
   RUN_TEST(test_json_validate_null);
+  RUN_TEST(test_json_validate_null_def);
   RUN_TEST(test_json_validate_getlogs_filter);
   RUN_TEST(test_bprintf);
   RUN_TEST(test_bprintf_extended);

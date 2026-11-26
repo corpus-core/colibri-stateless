@@ -76,20 +76,35 @@ void* c4_verify_create_ctx(bytes_t proof, char* method, char* args, uint64_t cha
   if (!ctx) return NULL;
   ctx->proof = bytes_dup(proof);
   char* method_copy = method ? strdup(method) : NULL;
-  char* args_copy   = args ? strdup(args) : NULL;
-  json_t args_json  = args_copy ? json_parse(args_copy) : (json_t){0};
+  // json_parse() skips leading whitespace, so the token is not the allocation
+  // base of the strdup. c4_verify_free_ctx() frees ctx->args.start, which must
+  // therefore be its own buffer. Copying the token also drops the original
+  // allocation before c4_verify_init(), so scan-build can see it is released.
+  char*  args_buf   = args ? strdup(args) : NULL;
+  json_t args_json  = {0};
+  char*  args_owned = NULL;
+  if (args_buf) {
+    json_t parsed = json_parse(args_buf);
+    if (parsed.type != JSON_TYPE_INVALID && parsed.type != JSON_TYPE_NOT_FOUND && parsed.start && parsed.len) {
+      args_owned = safe_malloc(parsed.len + 1);
+      memcpy(args_owned, parsed.start, parsed.len);
+      args_owned[parsed.len] = 0;
+      args_json              = parsed;
+      args_json.start        = args_owned;
+    }
+    free(args_buf);
+  }
   if (c4_verify_init(&ctx->ctx, ctx->proof, method_copy, args_json, (chain_id_t) chain_id, (verify_flags_t) flags) != C4_SUCCESS) {
     if (ctx->proof.data) free(ctx->proof.data);
     free(method_copy);
-    free(args_copy);
+    free(args_owned);
+    c4_state_free(&ctx->ctx.state);
     free(ctx);
     return NULL;
   }
   c4_set_checkpoint((chain_id_t) chain_id, trusted_checkpoint);
-  /* method_copy and args_copy are transferred to ctx (ctx->ctx.method, ctx->ctx.args.start) and
-   * freed in c4_verify_free_ctx() below. scan-build reports a false-positive leak here because
-   * it does not track inter-procedural ownership; suppressed in scripts/scan-build-suppressions.txt.
-   * Valgrind confirms no leak. */
+  // method_copy and args_owned are now owned by ctx (ctx->method, ctx->args.start)
+  // and released in c4_verify_free_ctx().
   return (void*) ctx;
 }
 

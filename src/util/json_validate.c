@@ -223,6 +223,9 @@ static const char* json_validate_def(json_t val, const char* def, const char* er
 
 const char* json_validate(json_t val, const char* def, const char* error_prefix) {
   // parse the definition
+  // NULL is a caller error. json_validate_cached() explicitly allows a null def
+  // (it hashes only when def is non-null) and then forwards it here.
+  if (!def) ERROR("%sinvalid json def", error_prefix ? error_prefix : "");
 
   const char* current = def;
   int         level   = 0;
@@ -267,10 +270,12 @@ const char* json_validate(json_t val, const char* def, const char* error_prefix)
 }
 
 // Lightweight cache for json validation results (non-security critical).
-// We use a small ring buffer of the last N hashes, computed over (def || 0x00 || val.bytes).
-#define JSON_VALIDATE_CACHE_COUNT 10
+// Direct-mapped table of hashes computed over (def || 0x00 || val.bytes): the slot is taken from the
+// hash itself, so a lookup is a single compare and a colliding entry simply replaces the older one.
+// Large payloads like block receipts are requested per block, so the table must cover far more than
+// a handful of blocks, otherwise every request for a slightly older block validates again (8kB RAM).
+#define JSON_VALIDATE_CACHE_COUNT 1024 // must be a power of 2
 static uint64_t json_validate_cache[JSON_VALIDATE_CACHE_COUNT] = {0};
-static uint32_t json_validate_cache_idx                        = 0;
 
 static inline uint64_t fnv1a64_update(uint64_t h, const uint8_t* d, size_t n) {
   for (size_t i = 0; i < n; i++) {
@@ -288,14 +293,11 @@ const char* json_validate_cached(json_t val, const char* def, const char* error_
   h           = fnv1a64_update(h, &sep, 1);
   if (val.start && val.len) h = fnv1a64_update(h, (const uint8_t*) val.start, val.len);
 
-  for (uint32_t i = 0; i < JSON_VALIDATE_CACHE_COUNT; i++) {
-    if (json_validate_cache[i] == h) return NULL; // cache hit → already validated
-  }
+  if (h == 0) h = 1; // 0 marks an empty slot
+  uint64_t* slot = json_validate_cache + (h & (JSON_VALIDATE_CACHE_COUNT - 1));
+  if (*slot == h) return NULL; // cache hit → already validated
 
   const char* err = json_validate(val, def, error_prefix);
-  if (!err) {
-    json_validate_cache[json_validate_cache_idx] = h;
-    json_validate_cache_idx                      = (json_validate_cache_idx + 1) % JSON_VALIDATE_CACHE_COUNT;
-  }
+  if (!err) *slot = h;
   return err;
 }

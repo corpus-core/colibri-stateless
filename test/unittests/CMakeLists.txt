@@ -68,6 +68,10 @@ foreach(test_source ${TEST_SOURCES})
         target_link_libraries(${test_name} PRIVATE "-Wl,--start-group")
     endif()
     target_link_libraries(${test_name} PRIVATE api verifier prover eth_verifier eth_prover)
+    # c4_verify_create_ctx lives in api_ffi (colibri.c), not in api.
+    if("${test_name}" STREQUAL "test_colibri_ffi")
+        target_link_libraries(${test_name} PRIVATE api_ffi)
+    endif()
 
     # The eth chain module sets USE_CHECKPOINTZ via directory-scoped add_definitions,
     # which does NOT propagate to consumers. Tests that include eth verifier headers

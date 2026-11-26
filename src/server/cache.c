@@ -457,7 +457,8 @@ int memcache_set(mc_t* client, char* key, size_t keylen, char* value, size_t val
       return -1;
     }
     op->op.set.keylen = keylen;
-    op->op.set.value  = strndup(value, value_len);
+    // values may be binary (SSZ) and contain NUL bytes, so strndup would truncate the copy
+    op->op.set.value = (char*) bytes_dup(bytes(value, value_len)).data;
     if (!op->op.set.value) {
       safe_free(op->op.set.key);
       safe_free(op);
@@ -634,8 +635,9 @@ static void on_get_read(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf)
 
     // Check for "END" response (cache miss)
     // Need to check for "\r\n" after END for robustness
-    char* end_marker = (char*) memmem(response, req_data->buffer.data.len, "END\r\n", 5);
-    if (end_marker == response) { // END is at the very beginning
+    // Only an END at the very beginning means "miss". Searching the whole buffer for it (memmem) on every
+    // read callback rescans everything received so far, which is quadratic for large values (> 1MB receipts).
+    if (req_data->buffer.data.len >= 5 && memcmp(response, "END\r\n", 5) == 0) {
       done = true;
       uv_read_stop(stream); // Stop reading if protocol END received
     }

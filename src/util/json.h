@@ -310,6 +310,8 @@ json_t json_dup(json_t json);
  *     printf("Validation error: %s\n", err);
  *     free((void*)err);
  *   }
+ *
+ * A NULL `def` is not dereferenced. It returns an allocated error string.
  */
 const char* json_validate(json_t value, const char* def, const char* error_prefix);
 
@@ -322,7 +324,7 @@ const char* json_validate(json_t value, const char* def, const char* error_prefi
  * this performance use-case.
  *
  * @param value JSON value to validate
- * @param def schema definition string
+ * @param def schema definition string. NULL returns an allocated error, same as `json_validate`
  * @param error_prefix prefix for error messages
  * @return NULL on success, dynamically allocated error message on failure
  */

@@ -68,7 +68,11 @@ c4_status_t c4_proof_block_receipts(prover_ctx_t* ctx) {
   TRY_ADD_ASYNC(status, eth_getBlockReceipts(ctx, json_parse(block_num_hex), &block_receipts));
   TRY_ADD_ASYNC(status, c4_check_blockroot_proof(ctx, &block_proof, &block));
   TRY_ADD_ASYNC(status, c4_get_syncdata_proof(ctx, &block_proof.sync, &sync_proof));
-  TRY_ASYNC(status);
+  TRY_ASYNC_CATCH(status, c4_free_block_proof(&block_proof); ssz_builder_free(&sync_proof));
+
+  // all data are fetched: serializing the receipts (JSON -> RLP) and assembling the proof is cpu-bound,
+  // so we do it in a worker thread instead of blocking the event loop.
+  REQUEST_WORKER_THREAD_CATCH(ctx, c4_free_block_proof(&block_proof); ssz_builder_free(&sync_proof));
 
   // serialize all receipts to RLP and build the receipts list (single pass to avoid repeated json parsing)
   ssz_builder_t proof_builder = ssz_builder_for_type(ETH_SSZ_VERIFY_BLOCK_RECEIPTS_PROOF);

@@ -238,9 +238,11 @@ static void tracing_enqueue_body(buffer_t* body) {
   curl_easy_setopt(easy, CURLOPT_HTTPHEADER, ctx->headers);
   curl_easy_setopt(easy, CURLOPT_POSTFIELDS, ctx->body.data.data ? (char*) ctx->body.data.data : "");
   curl_easy_setopt(easy, CURLOPT_POSTFIELDSIZE, (long) ctx->body.data.len);
-  // Short timeouts to avoid long-hung exports; still non-blocking via multi
-  curl_easy_setopt(easy, CURLOPT_TIMEOUT_MS, 500L);
-  curl_easy_setopt(easy, CURLOPT_CONNECTTIMEOUT_MS, 250L);
+  // The export is non-blocking, so a generous timeout costs nothing. It must be well above the longest time the
+  // event loop can be busy: curl measures wall-clock time, and with 500ms a loop that was blocked by proof work
+  // declared the export as timed out before it even looked at the response - losing the traces exactly under load.
+  curl_easy_setopt(easy, CURLOPT_TIMEOUT_MS, 10000L);
+  curl_easy_setopt(easy, CURLOPT_CONNECTTIMEOUT_MS, 3000L);
   c4_curl_configure_ssl(easy);
   // Capture a small response body for diagnostics
   curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION, trace_write_callback);

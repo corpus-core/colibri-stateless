@@ -18,6 +18,20 @@ int main(int argc, char* argv[]) {
     }
   }
 
+  // libuv creates its thread pool lazily on first use with UV_THREADPOOL_SIZE threads (default: 4), shared by
+  // the proof workers (uv_queue_work) and all file io of the period store. With only 4 threads cpu-heavy proofs
+  // queue up while most cores stay idle, so unless the operator set the variable we size it to the available cores.
+  // This must happen before anything touches the pool.
+  char   threadpool_size[16] = {0};
+  size_t threadpool_len      = sizeof(threadpool_size);
+  if (uv_os_getenv("UV_THREADPOOL_SIZE", threadpool_size, &threadpool_len) == UV_ENOENT) {
+    unsigned int cores = uv_available_parallelism();
+    if (cores < 4) cores = 4;
+    if (cores > 64) cores = 64;
+    snprintf(threadpool_size, sizeof(threadpool_size), "%u", cores);
+    uv_os_setenv("UV_THREADPOOL_SIZE", threadpool_size);
+  }
+
   // c4_configure returns true when --help/-h was handled; it does not call
   // exit() so tests can keep the process alive. In production we terminate
   // here, otherwise the server would start despite the user asking for usage.
