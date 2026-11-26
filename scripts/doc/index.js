@@ -61,7 +61,7 @@ const doc_files = [
     "util/state.h",
     "api/colibri.h",
     "server/API.md",
-
+    "server/benchmarks.md",
 ]
 
 // the folders where to replace the links
