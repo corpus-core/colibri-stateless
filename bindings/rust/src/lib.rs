@@ -23,7 +23,9 @@
 //! Lower-level building blocks are also exposed:
 //!
 //! - [`Prover`] / [`Verifier`] / [`RpcCtx`] wrap the corresponding C
-//!   contexts and let you drive the state machine yourself.
+//!   contexts and let you drive the state machine yourself: `execute()`
+//!   returns a [`Step`] whose [`PendingRequest`]s are answered without
+//!   `unsafe`.
 //! - [`get_method_support`] classifies an RPC method (proofable, local,
 //!   ...).
 //! - [`Storage`] plus [`FileStorage`] / [`MemoryStorage`] persist the
@@ -45,8 +47,8 @@ pub mod types;
 
 pub use core::{
     get_current_version_number, get_method_support, get_method_type, req_set_error,
-    req_set_response, reset_caches, Colibri, ColibriBuilder, ColibriConfig, Prover, RequestHandler,
-    RpcCtx, Verifier,
+    req_set_response, reset_caches, Colibri, ColibriBuilder, ColibriConfig, PendingRequest, Prover,
+    RequestHandler, RpcCtx, Step, Verifier,
 };
 pub use storage::{
     default_storage, register_storage, register_storage_at, DefaultStorage, FileStorage,

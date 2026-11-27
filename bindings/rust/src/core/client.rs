@@ -18,15 +18,15 @@ use reqwest::Client as HttpClient;
 use serde_json::Value as JsonValue;
 
 use super::helpers::get_current_version_number;
+use super::pending::{PendingRequest, Step};
 use super::prover::Prover;
-use super::request::{set_error as req_set_error, set_response as req_set_response};
 use super::rpc::{set_checkpoint, RpcCtx};
 use super::verifier::Verifier;
 use crate::storage::{register_storage, FileStorage, MemoryStorage, Storage};
 use crate::types::{
     default_beacon_apis, default_checkpointz, default_eth_rpcs, default_provers, ColibriError,
     DataRequest, Encoding, HttpMethod, PrivacyMode, ProverMode, RequestType, RevertError, RpcError,
-    Status, MAINNET,
+    MAINNET,
 };
 
 /// Configuration for a [`Colibri`] client -- endpoint lists, prover
@@ -139,8 +139,8 @@ impl ColibriConfig {
 /// `c4_req_set_error` calls.
 #[async_trait]
 pub trait RequestHandler: Send + Sync {
-    /// Serve the given request. Returning `Err` triggers
-    /// `c4_req_set_error(req_ptr, ...)`.
+    /// Serve the given request. Returning `Err` answers the request with
+    /// the error ([`PendingRequest::set_error`]).
     async fn handle(&self, request: &DataRequest) -> Result<Vec<u8>, ColibriError>;
 }
 
@@ -393,14 +393,13 @@ impl Colibri {
         ctx.set_min_latest_block_ts(self.config.min_latest_block_ts());
 
         loop {
-            let raw = ctx.execute_json_status()?;
-            match Status::parse(&raw)? {
-                Status::Pending { requests } => {
-                    self.handle_requests(&requests, true).await;
+            match ctx.execute()? {
+                Step::Pending { requests } => {
+                    self.handle_requests(requests, true).await;
                 }
-                Status::Success { result } => return Ok(result.unwrap_or(JsonValue::Null)),
-                Status::Revert { data } => return Err(RevertError { data }.into()),
-                Status::Error { message } => {
+                Step::Success { result } => return Ok(result.unwrap_or(JsonValue::Null)),
+                Step::Revert { data } => return Err(RevertError { data }.into()),
+                Step::Error { message } => {
                     return Err(RpcError::new(message).into());
                 }
             }
@@ -423,16 +422,21 @@ impl Colibri {
         )?;
 
         loop {
-            let raw = prover.execute_json_status()?;
-            match Status::parse(&raw)? {
-                Status::Pending { requests } => {
-                    self.handle_requests(&requests, false).await;
+            // The step borrows `prover`; it ends with this statement, so the
+            // proof can be read afterwards.
+            let done = match prover.execute()? {
+                Step::Pending { requests } => {
+                    self.handle_requests(requests, false).await;
+                    false
                 }
-                Status::Success { .. } => return prover.get_proof(),
-                Status::Revert { data } => return Err(RevertError { data }.into()),
-                Status::Error { message } => {
+                Step::Success { .. } => true,
+                Step::Revert { data } => return Err(RevertError { data }.into()),
+                Step::Error { message } => {
                     return Err(crate::types::ProofError::Generation(message).into());
                 }
+            };
+            if done {
+                return prover.get_proof();
             }
         }
     }
@@ -457,14 +461,13 @@ impl Colibri {
         verifier.set_min_latest_block_ts(self.config.min_latest_block_ts());
 
         loop {
-            let raw = verifier.execute_json_status()?;
-            match Status::parse(&raw)? {
-                Status::Pending { requests } => {
-                    self.handle_requests(&requests, true).await;
+            match verifier.execute()? {
+                Step::Pending { requests } => {
+                    self.handle_requests(requests, true).await;
                 }
-                Status::Success { result } => return Ok(result.unwrap_or(JsonValue::Null)),
-                Status::Revert { data } => return Err(RevertError { data }.into()),
-                Status::Error { message } => {
+                Step::Success { result } => return Ok(result.unwrap_or(JsonValue::Null)),
+                Step::Revert { data } => return Err(RevertError { data }.into()),
+                Step::Error { message } => {
                     return Err(crate::types::VerificationError::Failed(message).into());
                 }
             }
@@ -475,56 +478,44 @@ impl Colibri {
     // Request handling.
     // ------------------------------------------------------------------
 
-    async fn handle_requests(&self, requests: &[DataRequest], use_prover_fallback: bool) {
+    async fn handle_requests(&self, requests: Vec<PendingRequest<'_>>, use_prover_fallback: bool) {
         let futs = requests
-            .iter()
+            .into_iter()
             .map(|req| self.handle_single_request(req, use_prover_fallback));
-        // Errors here have already been forwarded to the C core via
-        // `c4_req_set_error`; the outer `join_all` swallows them.
+        // Every request is answered inside its future, with a response
+        // or an error.
         join_all(futs).await;
     }
 
-    async fn handle_single_request(&self, req: &DataRequest, use_prover_fallback: bool) {
+    async fn handle_single_request(&self, req: PendingRequest<'_>, use_prover_fallback: bool) {
         // Respect the delay hint used by e.g. oblivious-node retries.
         if req.delay > 0 {
             tokio::time::sleep(Duration::from_millis(req.delay as u64)).await;
         }
 
         // Injected mock handler wins -- used by the testing module.
-        //
-        // Safety: `req.req_ptr` originates from a `pending` status
-        // returned by the very context we are still executing (see
-        // `Colibri::rpc` / `create_proof` / `verify_proof`). It stays
-        // valid until the next `execute_json_status` call, which is
-        // strictly after this fanout completes.
         if let Some(handler) = self.request_handler.as_ref() {
-            match handler.handle(req).await {
-                Ok(bytes) => unsafe { req_set_response(req.req_ptr, &bytes, 0) },
-                Err(err) => unsafe {
-                    let _ = req_set_error(req.req_ptr, &err.to_string(), 0);
-                },
+            match handler.handle(&req).await {
+                Ok(bytes) => req.set_response(&bytes, 0),
+                Err(err) => req.set_error(&err.to_string(), 0),
             }
             return;
         }
 
-        let servers = self.pick_servers(req, use_prover_fallback);
+        let servers = self.pick_servers(&req, use_prover_fallback);
         if servers.is_empty() {
             let message = if req.request_type == RequestType::EthRpc {
                 format!("no RPC configured for chain_id {}", req.chain_id)
             } else {
                 format!("no servers configured for {:?}", req.request_type)
             };
-            unsafe {
-                let _ = req_set_error(req.req_ptr, &message, 0);
-            }
+            req.set_error(&message, 0);
             return;
         }
 
-        match self.execute_http(req, &servers).await {
-            Ok((bytes, node_index)) => unsafe { req_set_response(req.req_ptr, &bytes, node_index) },
-            Err(err) => unsafe {
-                let _ = req_set_error(req.req_ptr, &err.to_string(), 0);
-            },
+        match self.execute_http(&req, &servers).await {
+            Ok((bytes, node_index)) => req.set_response(&bytes, node_index),
+            Err(err) => req.set_error(&err.to_string(), 0),
         }
     }
 
@@ -673,4 +664,27 @@ fn is_get_proof(req: &DataRequest) -> bool {
         req.payload.as_ref().and_then(|p| p.get("method")),
         Some(JsonValue::String(m)) if m == "eth_getProof"
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn assert_send<T: Send>(_: &T) {}
+
+    // `Colibri`'s futures hold pending requests across awaits; they must
+    // stay `Send` so callers can spawn them on a multi-threaded runtime.
+    #[test]
+    fn client_futures_are_send() {
+        // Built by hand: `ColibriBuilder::build` registers a global storage.
+        let client = Colibri {
+            config: ColibriConfig::new(MAINNET),
+            http: HttpClient::new(),
+            request_handler: None,
+        };
+        let params = JsonValue::Array(Vec::new());
+        assert_send(&client.rpc("eth_blockNumber", &params));
+        assert_send(&client.create_proof("eth_blockNumber", &params));
+        assert_send(&client.verify_proof(&[], "eth_blockNumber", &params));
+    }
 }

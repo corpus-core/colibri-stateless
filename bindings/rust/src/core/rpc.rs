@@ -2,6 +2,7 @@
 //! RPC" entry point that combines proof generation and verification in
 //! one context.
 
+use super::pending::Step;
 use crate::ffi;
 use crate::types::{ColibriError, ProverMode};
 use std::ffi::{c_void, CStr, CString};
@@ -42,7 +43,28 @@ impl RpcCtx {
         Ok(Self { ctx })
     }
 
-    /// Advance the RPC state machine one step.
+    /// Advance the RPC state machine one step. Pending requests come back
+    /// as [`PendingRequest`](super::PendingRequest)s that borrow this
+    /// context until they are answered.
+    pub fn execute(&mut self) -> Result<Step<'_>, ColibriError> {
+        self.execute_with_status().map(|(step, _)| step)
+    }
+
+    /// Like [`execute`](Self::execute), and also returns the JSON status
+    /// text the step was parsed from, as the C core wrote it, for hosts
+    /// that log, forward or compare it. Its `req_ptr` values are the
+    /// requests' [`req_ptr`](crate::DataRequest::req_ptr).
+    pub fn execute_with_status(&mut self) -> Result<(Step<'_>, String), ColibriError> {
+        let raw = self.execute_json_status()?;
+        // SAFETY: `raw` is the status this context just returned, and the
+        // step borrows the context mutably.
+        let step = unsafe { Step::from_json(&raw) }?;
+        Ok((step, raw))
+    }
+
+    /// Advance the RPC state machine one step and return the raw JSON
+    /// status. Prefer [`execute`](Self::execute), whose pending requests
+    /// can be answered without `unsafe`.
     pub fn execute_json_status(&mut self) -> Result<String, ColibriError> {
         unsafe {
             let ptr = ffi::c4_rpc_execute_json_status(self.ctx);
