@@ -246,6 +246,18 @@ if(EMBEDDED)
     set(BLS_SIGNATURES_USE_STATIC ON)
 endif()
 
+# A verifier-only build (PROVER=OFF) consists of the libraries, the host API
+# (src/api, api_ffi) and colibri-ssz. The components behind these options link
+# the prover, so they are refused here instead of failing at link time.
+if(NOT PROVER AND NOT EMBEDDED)
+    foreach(_c4_needs_prover HTTP_SERVER INSTALLER TEST WASM NODE_ADDON KOTLIN SWIFT C4_PYTHON DART)
+        if(${_c4_needs_prover})
+            message(FATAL_ERROR "${_c4_needs_prover}=ON needs the prover, which PROVER=OFF leaves out. "
+                "Turn ${_c4_needs_prover} off for a verifier-only build, or keep PROVER=ON.")
+        endif()
+    endforeach()
+endif()
+
 if(SWIFT)
 
     # Set deployment target before any targets are created
@@ -668,7 +680,11 @@ endif()
 if(SHAREDLIB AND NOT EMBEDDED)
     add_library(c4 SHARED src/util/version.c src/api/colibri.c src/api/colibri_common.c)
     target_include_directories(c4 PRIVATE ${CMAKE_SOURCE_DIR}/src/api)
-    target_link_libraries(c4 PRIVATE crypto verifier util blst  prover    verifier eth_verifier)
+    target_link_libraries(c4 PRIVATE crypto verifier util blst)
+    if(PROVER)
+        target_link_libraries(c4 PRIVATE prover)
+    endif()
+    target_link_libraries(c4 PRIVATE verifier eth_verifier)
     set_target_properties(c4 PROPERTIES
         LIBRARY_OUTPUT_DIRECTORY ${OUTPUT_DIRECTORY}
         VERSION 1.0
@@ -682,11 +698,17 @@ set(ZSH_COMPLETIONS_DIR "${CMAKE_INSTALL_DATAROOTDIR}/zsh/site-functions"
     CACHE STRING "Path for zsh completion scripts (relative to install prefix)")
 if(CLI)
     install(FILES
-        scripts/completion/_colibri
-        scripts/completion/_colibri-prover
         scripts/completion/_colibri-ssz
         DESTINATION ${ZSH_COMPLETIONS_DIR}
     )
+    # colibri (colibri-verifier) and colibri-prover are only built with the prover
+    if(PROVER)
+        install(FILES
+            scripts/completion/_colibri
+            scripts/completion/_colibri-prover
+            DESTINATION ${ZSH_COMPLETIONS_DIR}
+        )
+    endif()
 endif()
 if(HTTP_SERVER)
     install(FILES

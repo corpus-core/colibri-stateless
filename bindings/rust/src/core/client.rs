@@ -18,6 +18,7 @@ use reqwest::Client as HttpClient;
 use serde_json::Value as JsonValue;
 
 use super::helpers::get_current_version_number;
+#[cfg(feature = "prover")]
 use super::prover::Prover;
 use super::request::{set_error as req_set_error, set_response as req_set_response};
 use super::rpc::{set_checkpoint, RpcCtx};
@@ -409,6 +410,8 @@ impl Colibri {
 
     /// Generate a proof for `method(params)` and return the raw proof
     /// bytes. Skips verification -- use [`verify_proof`] afterwards.
+    /// Needs the `prover` feature.
+    #[cfg(feature = "prover")]
     pub async fn create_proof(
         &self,
         method: &str,

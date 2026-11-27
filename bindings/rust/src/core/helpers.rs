@@ -47,6 +47,7 @@ pub fn get_current_version_number() -> u32 {
 // ---------------------------------------------------------------------
 
 /// Copy the memory referenced by `bytes` into an owned [`Vec<u8>`].
+#[cfg(feature = "prover")]
 pub(crate) fn bytes_to_vec(bytes: ffi::bytes_t) -> Vec<u8> {
     if bytes.data.is_null() || bytes.len == 0 {
         Vec::new()

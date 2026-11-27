@@ -39,6 +39,15 @@ void c4_prover_header_tags_clear(void);
 #include <string.h>
 #define MAX_PROOF_DEPTH 10 // max number of proofs requested by the verifier
 
+#ifndef PROVER
+// Prover flags this file reads for remote proof requests; same bits as
+// `prover_flag_types_t` in `prover.h`, which is not part of this build.
+enum {
+  C4_PROVER_FLAG_ZK_PROOF     = 1 << 7,
+  C4_PROVER_FLAG_LIGHT_CLIENT = 1 << 11,
+};
+#endif
+
 static bool bytes_memmem(bytes_t p, const char* needle) {
   size_t nl = strlen(needle);
   if (!p.data || p.len < nl) return false;
@@ -443,6 +452,14 @@ c4_rpc_ctx_t* c4_rpc_ctx_create(const char* method, const char* params, chain_id
     ctx->phase = RPC_PHASE_DONE;
     return ctx;
   }
+#ifndef PROVER
+  // Local, hybrid and light-client mode build (part of) the proof locally.
+  if (prover_mode != C4_PROVER_MODE_REMOTE && prover_mode != C4_PROVER_MODE_PROXY) {
+    ctx->error = strdup("prover_mode needs the local prover, which this build leaves out (PROVER=OFF); use remote or proxy mode");
+    ctx->phase = RPC_PHASE_DONE;
+    return ctx;
+  }
+#endif
   ctx->method       = strdup(method);
   ctx->params       = strdup(params ? params : "[]");
   ctx->chain_id     = chain_id;
@@ -451,10 +468,12 @@ c4_rpc_ctx_t* c4_rpc_ctx_create(const char* method, const char* params, chain_id
   ctx->prover_mode  = prover_mode;
   ctx->phase        = RPC_PHASE_INIT;
   ctx->method_type  = METHOD_UNDEFINED;
+#ifdef PROVER
   if (prover_mode == C4_PROVER_MODE_HYBRID || prover_mode == C4_PROVER_MODE_LIGHT_CLIENT)
     ctx->prover_flags |= C4_PROVER_FLAG_HYBRID;
   if (prover_mode == C4_PROVER_MODE_LIGHT_CLIENT)
     ctx->prover_flags |= C4_PROVER_FLAG_LIGHT_CLIENT;
+#endif
   return ctx;
 }
 
@@ -532,6 +551,7 @@ static c4_status_t rpc_start_verifier(c4_rpc_ctx_t* ctx, bytes_t proof) {
   return rpc_handle_verifying(ctx);
 }
 
+#ifdef PROVER
 static bool        check_proving_prover_requests(c4_rpc_ctx_t* ctx);
 static c4_status_t handle_request_prover(c4_rpc_ctx_t* ctx);
 
@@ -556,6 +576,7 @@ static c4_status_t rpc_handle_proving(c4_rpc_ctx_t* ctx) {
   ctx->phase = RPC_PHASE_DONE;
   return C4_ERROR;
 }
+#endif
 
 static c4_status_t rpc_handle_remote_proof(c4_rpc_ctx_t* ctx) {
   if (!ctx->rpc_state.requests) {
@@ -586,11 +607,18 @@ static c4_status_t rpc_handle_remote_proof(c4_rpc_ctx_t* ctx) {
 
   // fallback to local proving in case of an error
   if (ctx->rpc_state.requests->error) {
+#ifdef PROVER
     c4_request_free(ctx->rpc_state.requests);
     ctx->rpc_state.requests = NULL;
     ctx->prover             = c4_prover_create(ctx->method, ctx->params, ctx->chain_id, ctx->prover_flags);
     ctx->phase              = RPC_PHASE_PROVING;
     return rpc_handle_proving(ctx);
+#else
+    // without the prover there is no local proof to fall back to
+    ctx->error = bprintf(NULL, "remote proof failed (no local proving): %s", ctx->rpc_state.requests->error);
+    ctx->phase = RPC_PHASE_DONE;
+    return C4_ERROR;
+#endif
   }
 
   if (ctx->rpc_state.requests->response.data) {
@@ -665,6 +693,7 @@ static c4_status_t rpc_handle_unproofable(c4_rpc_ctx_t* ctx) {
 /* ── Local prover for PROVER requests: emitted by the verifier (PAP), or by a main prover
       that runs locally (proof of another chain, e.g. the L1 proof of an EEZ anchor) ── */
 
+#ifdef PROVER
 static data_request_t* find_pending_prover_request(c4_state_t* state) {
   for (data_request_t* req = state->requests; req; req = req->next) {
     if (req->type == C4_DATA_TYPE_PROVER && c4_state_is_pending(req))
@@ -728,6 +757,7 @@ static void free_request_prover(c4_rpc_ctx_t* ctx) {
   safe_free(ctx->request_prover);
   ctx->request_prover = NULL;
 }
+#endif
 
 bool c4_is_remote_delegated_prover_method(const char* method) {
   if (!method) return false;
@@ -736,6 +766,7 @@ bool c4_is_remote_delegated_prover_method(const char* method) {
          strcmp(method, "eth_getBlockByHash") == 0;
 }
 
+#ifdef PROVER
 static bool is_remote_delegated_method(data_request_t* req) {
   if (req->method != C4_DATA_METHOD_POST) return req->method == C4_DATA_METHOD_GET;
   if (!req->payload.data || !req->payload.len || req->payload.len > (UINT32_MAX - 1)) return false;
@@ -771,6 +802,8 @@ static bool start_request_prover(c4_rpc_ctx_t* ctx, data_request_t* prover_req) 
   return true;
 }
 
+#endif
+
 // returns true if there is a prover request which needs to be handled
 static bool check_prover_requests(c4_rpc_ctx_t* ctx) {
   if (ctx->request_prover) return true;
@@ -778,6 +811,9 @@ static bool check_prover_requests(c4_rpc_ctx_t* ctx) {
     enrich_pending_prover_requests(ctx);
     return false;
   }
+#ifndef PROVER
+  return false; // not reached: without the prover only remote and proxy contexts are created
+#else
   data_request_t* prover_req = find_pending_prover_request(&ctx->verifier.state);
   if (!prover_req) return false;
   if ((ctx->prover_mode == C4_PROVER_MODE_HYBRID || ctx->prover_mode == C4_PROVER_MODE_LIGHT_CLIENT) && is_remote_delegated_method(prover_req)) {
@@ -785,7 +821,10 @@ static bool check_prover_requests(c4_rpc_ctx_t* ctx) {
     return false;
   }
   return start_request_prover(ctx, prover_req);
+#endif
 }
+
+#ifdef PROVER
 
 /**
  * Checks whether the main prover waits for a proof that is built locally.
@@ -837,11 +876,14 @@ static c4_status_t handle_request_prover(c4_rpc_ctx_t* ctx) {
       return C4_PENDING;
   }
 }
+#endif
 
 static c4_status_t rpc_handle_verifying(c4_rpc_ctx_t* ctx) {
   for (int i = 0; i < MAX_PROOF_DEPTH; i++) {
+#ifdef PROVER
     if (ctx->request_prover) // if the verifier requested proof, we need to handle it first.
       TRY_ASYNC(handle_request_prover(ctx));
+#endif
 
     c4_status_t status = c4_verify(&ctx->verifier);
     if (status == C4_SUCCESS || status == C4_ERROR) { // are we done?
@@ -879,10 +921,17 @@ c4_status_t c4_rpc_execute(c4_rpc_ctx_t* ctx) {
             return rpc_handle_remote_proof(ctx);
           }
           else { // local or hybrid: create the proof locally
+#ifdef PROVER
             ctx->prover               = c4_prover_create(ctx->method, ctx->params, ctx->chain_id, ctx->prover_flags);
             ctx->phase                = RPC_PHASE_PROVING;
             ctx->prover->client_state = bytes_dup(ctx->client_state);
             return rpc_handle_proving(ctx);
+#else
+            // not reached: `c4_rpc_ctx_create` refuses these modes without the prover
+            ctx->error = strdup("local proving is not available (PROVER=OFF)");
+            ctx->phase = RPC_PHASE_DONE;
+            return C4_ERROR;
+#endif
           }
 
         case METHOD_LOCAL:
@@ -902,7 +951,11 @@ c4_status_t c4_rpc_execute(c4_rpc_ctx_t* ctx) {
     }
 
     case RPC_PHASE_PROVING:
+#ifdef PROVER
       return rpc_handle_proving(ctx);
+#else
+      return C4_ERROR; // not reached: no context enters this phase without the prover
+#endif
 
     case RPC_PHASE_VERIFYING:
       return rpc_handle_verifying(ctx);
@@ -922,14 +975,18 @@ c4_status_t c4_rpc_execute(c4_rpc_ctx_t* ctx) {
 
 c4_state_t* c4_rpc_get_state(c4_rpc_ctx_t* ctx) {
   switch (ctx->phase) {
+#ifdef PROVER
     case RPC_PHASE_PROVING:
       // a local prover for a PROVER request of the main prover runs first
       if (ctx->request_prover)
         return &ctx->request_prover->ctx->state;
       return ctx->prover ? &ctx->prover->state : NULL;
+#endif
     case RPC_PHASE_VERIFYING:
+#ifdef PROVER
       if (ctx->request_prover)
         return &ctx->request_prover->ctx->state;
+#endif
       return &ctx->verifier.state;
     case RPC_PHASE_RPC:
       return &ctx->rpc_state;
@@ -943,10 +1000,14 @@ c4_state_t* c4_rpc_get_state(c4_rpc_ctx_t* ctx) {
 void c4_rpc_ctx_free(c4_rpc_ctx_t* ctx) {
   if (!ctx) return;
   rpc_save_header_cache(ctx);
+#ifdef PROVER
   free_request_prover(ctx);
+#endif
   if (ctx->method) free(ctx->method);
   if (ctx->params) free(ctx->params);
+#ifdef PROVER
   if (ctx->prover) c4_prover_free(ctx->prover);
+#endif
   c4_verify_free_data(&ctx->verifier);
   if (ctx->proof_owned && ctx->proof.data) free(ctx->proof.data);
   if (ctx->witness_keys.data) free(ctx->witness_keys.data);
@@ -991,8 +1052,10 @@ char* c4_rpc_build_json_status(c4_rpc_ctx_t* ctx, bool req_ptr_as_string) {
         bprintf(&buf, "\"error\": \"%S\"", ctx->error);
       else if (ctx->phase == RPC_PHASE_VERIFYING || ctx->phase == RPC_PHASE_DONE)
         bprintf(&buf, "\"error\": \"%S\"", ctx->verifier.state.error);
+#ifdef PROVER
       else if (ctx->prover && ctx->prover->state.error)
         bprintf(&buf, "\"error\": \"%S\"", ctx->prover->state.error);
+#endif
       else
         bprintf(&buf, "\"error\": \"unknown error\"");
       break;

@@ -122,6 +122,20 @@ static archive. Where that archive comes from depends on your build:
   `Unsupported chain` for any OP-Stack chain ID (10 / 8453 / 480 /
   …); Ethereum-family chain IDs (1, 11155111, 100, …) are unaffected.
 
+- `prover` (default) -- the prover: `Prover`, `Colibri::create_proof`
+  and, in the CMake build, the prover libraries. Without it the C core
+  is built with `PROVER=OFF`: no prover code is compiled, contexts run
+  in remote or proxy mode only (local and hybrid mode end with an
+  error), and a failed remote proof ends the request with an error
+  instead of a local proof:
+
+  ```toml
+  colibri-stateless = { version = "0.1", default-features = false }
+  ```
+
+  Like `op`, it only affects the CMake path; prebuilt and
+  `COLIBRI_LIB_DIR` archives are linked as they are.
+
 ## Testing against shared fixtures
 
 The same fixtures in `test/data/*` used by the C / Python / Dart /

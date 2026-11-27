@@ -40,6 +40,8 @@ typedef struct {
   bool         initialised;
 } c4_verify_ctx_t;
 
+// The prover functions exist only in builds with the prover (`PROVER=ON`).
+#ifdef PROVER
 prover_t* c4_create_prover_ctx(char* method, char* params, uint64_t chain_id, uint32_t flags) {
   return (void*) c4_prover_create(method, params, chain_id, flags);
 }
@@ -53,6 +55,7 @@ char* c4_prover_execute_json_status(prover_t* prover) {
 void c4_free_prover_ctx(prover_t* ctx) {
   c4_prover_free((prover_ctx_t*) ctx);
 }
+#endif
 
 void c4_req_set_response(void* req_ptr, bytes_t data, uint16_t node_index) {
   data_request_t* ctx      = (data_request_t*) req_ptr;
@@ -66,10 +69,12 @@ void c4_req_set_error(void* req_ptr, char* error, uint16_t node_index) {
   ctx->response_node_index = node_index;
 }
 
+#ifdef PROVER
 bytes_t c4_prover_get_proof(prover_t* prover) {
   prover_ctx_t* ctx = (prover_ctx_t*) prover;
   return ctx->proof;
 }
+#endif
 
 void* c4_verify_create_ctx(bytes_t proof, char* method, char* args, uint64_t chain_id, char* trusted_checkpoint, uint32_t flags) {
   c4_verify_ctx_t* ctx = calloc(1, sizeof(c4_verify_ctx_t));

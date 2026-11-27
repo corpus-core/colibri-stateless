@@ -28,9 +28,20 @@
 extern "C" {
 #endif
 
+#ifdef PROVER
 #include "prover.h"
+#endif
 #include "verify.h"
 #include <stdbool.h>
+#include <stdint.h>
+
+#ifndef PROVER
+// Built without the prover (`PROVER=OFF`): the RPC context only verifies
+// proofs fetched from a remote prover and never creates a prover context.
+// The types keep the layout of `c4_rpc_ctx_t` the same in both builds.
+typedef uint32_t               prover_flags_t; ///< same as in `prover.h`
+typedef struct c4_prover_ctx_s prover_ctx_t;   ///< opaque; always NULL without the prover
+#endif
 
 /* ── Standalone checkpoint setter (chain-global, not per-context) ── */
 
@@ -170,6 +181,11 @@ typedef struct {
 
 /**
  * Creates a new unified RPC context.
+ *
+ * In a build without the prover (`PROVER=OFF`) only `C4_PROVER_MODE_REMOTE` and
+ * `C4_PROVER_MODE_PROXY` are accepted: a context in another mode ends with an error on
+ * its first step, and a failed remote proof ends the context with an error instead of
+ * falling back to a local proof.
  *
  * @param method RPC method name (e.g. "eth_getBalance"). Copied internally.
  * @param params JSON array string of params. Copied internally.
