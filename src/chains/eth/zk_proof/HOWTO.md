@@ -41,6 +41,21 @@ by hand. Do not let it overwrite the v6 Groth16 points.
 Rebuild `zk_verifier` and confirm old fixtures skip rather than fail
 (`test/unittests/test_zk_proof.c`).
 
+The current guest commits a 32-byte `program_hash` at public-value offset 136
+(168 bytes total). The host supplies `program_vkey_hash` from the current ELF's
+verification key; the guest preserves that identity across every child proof.
+The C sync verifier reconstructs the appended hash from the registered outer key,
+so both the pinned program hash and this public commitment must rotate together.
+Do not reuse a compressed proof or public-value file from a guest without this
+commitment, even when its committee roots and period would otherwise match.
+
+Rebuild the host with `cargo build --release --locked -p eth-sync-script` and deploy
+the host, frozen ELF, and native verifier together. The previous host input format
+does not include `program_vkey_hash` and cannot be used with this guest.
+The host rejects a previous key that differs from the current ELF's key before
+execution or proving. `--execute` remains simulation; use compressed/Groth16 proof
+generation and verification to establish the cryptographic recursion linkage.
+
 ## 3. Pick the first proof period
 
 `eth_proof_sync` for period `P` fetches LCU(`P-2`) and LCU(`P-1`):
@@ -83,6 +98,10 @@ Cross-check against an *old* recursive `zk_pub.bin` if one is still around:
 - Bytes `0..31` (`current_keys_root`) on a **recursive** proof are the *old chain* anchor,
   not this period's `oldKeys`. Only a non-recursive baseline has
   `current_keys_root == oldKeys` HTR.
+- For a newly generated 168-byte output, bytes `136..167` must be the SP1
+  `hash_bn254()` encoding of the selected program VK. The sync verifier rebuilds
+  these bytes from its registered key instead of accepting a separate identity.
+
 
 Write the pubkeys-only root into `chain_spec_t.zk_sync_keys_root` in
 `src/chains/eth/ssz/chain_spec.c` and pin it in
@@ -122,7 +141,7 @@ export SP1_PRIVATE_KEY_FILE=/path/to/.proverkey   # gitignored
 `--execute` / `--prove` write the same filenames the period-store prover consumes:
 
 ```
-zk_pub.bin          current = oldKeys HTR, next = newKeys HTR, period = P
+zk_pub.bin          168 bytes: current = oldKeys HTR, next = newKeys HTR, period = P, program hash
 zk_proof_g16.bin    356-byte Groth16
 zk_proof.bin        compressed (recursion input for P+1)
 zk_vk_raw.bin       compressed VK (recursion input for P+1)

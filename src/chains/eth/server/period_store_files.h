@@ -36,7 +36,7 @@ extern "C" {
 #define C4_PS_ZK_GROTH16   "zk_groth16.bin"   /**< SP1 Groth16 proof bundle */
 #define C4_PS_ZK_PROOF_G16 "zk_proof_g16.bin" /**< raw Groth16 proof (packed into ssz + verified locally) */
 #define C4_PS_ZK_VK        "zk_vk.bin"        /**< Groth16 verification key */
-#define C4_PS_ZK_PUB       "zk_pub.bin"       /**< public values (verified locally) */
+#define C4_PS_ZK_PUB       "zk_pub.bin"       /**< 168-byte VerificationOutput (verified locally) */
 #define C4_PS_ZK_PROOF     "zk_proof.bin"     /**< compressed proof (recursion input for next period) */
 #define C4_PS_ZK_VK_RAW    "zk_vk_raw.bin"    /**< compressed vk (recursion input for next period) */
 #define C4_PS_ZK_PROOF_SSZ "zk_proof.ssz"     /**< packed `ZKSyncDataV6` for the verifier */

@@ -5,8 +5,7 @@ mod bls;
 
 use bls::verify_signature;
 use eth_sync_common::merkle::{create_root_hash, sha256_merkle, verify_merkle_proof, verify_slot};
-use eth_sync_common::{SP1GuestInput, VerificationOutput};
-use sha2::{Digest, Sha256};
+use eth_sync_common::{program_hash_from_vkey, SP1GuestInput, VerificationOutput};
 
 fn count_bits_set_512(bits: &[u8; 64]) -> u32 {
     bits.iter().map(|b| b.count_ones()).sum()
@@ -52,6 +51,7 @@ pub fn main() {
     // Read the input structure from the host
     let input = sp1_zkvm::io::read::<SP1GuestInput>();
     let proof_data = input.proof_data;
+    let program_hash = program_hash_from_vkey(&input.program_vkey_hash);
 
     // Initialize output current keys with the current step's input (Default: Step-by-step)
     // If recursion is active, this will be overwritten by the previous proof's start root.
@@ -59,51 +59,19 @@ pub fn main() {
 
     // --- RECURSION LOGIC ---
     if let Some(rec_data) = input.recursion_data {
-        // 1. Verify the previous SP1 proof
-        // This syscall checks that 'rec_data.vkey_hash' (the program that ran)
-        // and 'rec_data.public_values_digest' (the output it claimed) are valid.
+        // Verify against the authorized program, not a key chosen by the child.
+        // The public commitment below binds this input to the outer verifier's pinned key.
         sp1_zkvm::lib::verify::verify_sp1_proof(
-            &rec_data.vkey_hash,
+            &input.program_vkey_hash,
             &rec_data.public_values_digest,
         );
-
-        // 2. Verify that the provided full 'public_values' match the verified digest
-        let mut hasher = Sha256::new();
-        hasher.update(&rec_data.public_values);
-        let hash_result = hasher.finalize();
-        let calculated_digest: [u8; 32] = hash_result.into();
-
-        if calculated_digest != rec_data.public_values_digest {
-            panic!("Public Values Hash Mismatch");
-        }
-
-        // 3. Deserialize the previous proof's output
-        let prev_output: VerificationOutput = bincode::deserialize(&rec_data.public_values)
-            .expect("Failed to deserialize prev public values");
-
-        // AGGREGATION LOGIC:
-        // If we are verifying recursively, our "start state" is the start state of the previous proof.
-        // This allows us to prove a chain A->B->C with a single proof that attests "A->C".
-        output_current_keys_root = prev_output.current_keys_root;
-
-        // 4. Chain Continuity Checks
-
-        // Calculate current period from the slot in the header
-        // Slot is divided by 32 (slots per epoch) * 256 (epochs per period) = 8192
-        let current_period = u64::from_le_bytes(proof_data.slot_bytes) >> 13; // / 8192
-
-        // Check Period Continuity: The previous proof must have output the period we are currently in.
-        if prev_output.next_period != current_period {
-            panic!(
-                "Period mismatch: Prev target {} != Current {}",
-                prev_output.next_period, current_period
-            );
-        }
-
-        // Check Key Continuity: The 'next_keys' from the previous proof must match our 'current_keys'.
-        if prev_output.next_keys_root != proof_data.current_keys_root {
-            panic!("Key mismatch: Chain broken");
-        }
+        let previous = rec_data.verify_public_values(
+            &program_hash,
+            &proof_data.current_keys_root,
+            u64::from_le_bytes(proof_data.slot_bytes) >> 13,
+        );
+        // Inherit the original anchor only after program identity and continuity agree.
+        output_current_keys_root = previous.current_keys_root;
     }
 
     let slot = u64::from_le_bytes(proof_data.slot_bytes);
@@ -299,6 +267,7 @@ pub fn main() {
         next_period: proof_data.next_period,         // Period Number
         attested_header_root,
         domain,
+        program_hash,
     };
 
     sp1_zkvm::io::commit(&output);

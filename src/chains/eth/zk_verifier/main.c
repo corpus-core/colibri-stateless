@@ -34,6 +34,16 @@ int main(int argc, char** argv) {
     return 1;
   }
 
+  // The CLI consumes the application VerificationOutput rather than arbitrary
+  // generic public values, so reject truncated or legacy layouts before hashing it.
+  if (pub.len != C4_ZK_VERIFICATION_OUTPUT_LEN) {
+    fprintf(stderr, "Invalid public values length: %u (expected %u)\n",
+            (unsigned) pub.len, (unsigned) C4_ZK_VERIFICATION_OUTPUT_LEN);
+    free(proof.data);
+    free(pub.data);
+    return 1;
+  }
+
   // Verify
   bool valid = verify_zk_proof(proof, pub);
 
