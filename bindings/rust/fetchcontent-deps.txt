@@ -1,0 +1,14 @@
+# The third-party dependencies CMake fetches with FetchContent: the
+# upper-cased names of their FetchContent_Declare calls in libs/ and test/.
+# build.rs passes FETCHCONTENT_SOURCE_DIR_<NAME> through to CMake for each
+# of them and reruns when one changes. tests/fetchcontent_deps.rs checks
+# this list against the CMake files.
+BLST
+EVMONE_EXTERNAL
+INTX
+LIBTOMMATH
+LIBUV
+LLHTTP
+MCL
+UNITY
+ZSTD

@@ -23,11 +23,13 @@ cmake_minimum_required(VERSION 3.11)
 
 include(FetchContent)
 
-# Fetch intx from GitHub (EXCLUDE_FROM_ALL suppresses intx's own install rules)
+# Fetch intx from GitHub, pinned by commit (v0.15.0). EXCLUDE_FROM_ALL
+# suppresses intx's own install rules. A local copy can be used instead
+# with -DFETCHCONTENT_SOURCE_DIR_INTX=<dir>.
 FetchContent_Declare(
     intx
     GIT_REPOSITORY https://github.com/chfast/intx.git
-    GIT_TAG v0.15.0
+    GIT_TAG 0306b495820a5259563e5055f0a8b726b9ae4e0b # v0.15.0
     EXCLUDE_FROM_ALL
 )
 

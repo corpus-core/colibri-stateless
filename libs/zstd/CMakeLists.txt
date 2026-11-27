@@ -28,24 +28,26 @@ if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.24.0")
   cmake_policy(SET CMP0135 NEW)
 endif()
 
-# Fetch ZSTD from GitHub - use different approach for Android to avoid URL parsing issues
+# Fetch ZSTD from GitHub, pinned by commit (v1.5.6) - use different approach for Android to avoid URL parsing issues.
+# A local copy can be used instead with -DFETCHCONTENT_SOURCE_DIR_ZSTD=<dir>.
 if(ANDROID)
     # For Android builds, use GIT_REPOSITORY to avoid URL parsing issues in older CMake versions
     FetchContent_Declare(zstd
         GIT_REPOSITORY "https://github.com/facebook/zstd.git"
-        GIT_TAG "v1.5.6"
-        GIT_SHALLOW TRUE)
+        GIT_TAG "794ea1b0afca0f020f4e57b6732332231fb23c70") # v1.5.6
 else()
-    # For other platforms, use URL approach for consistency
+    # For other platforms, use URL approach for consistency; the archive of the pinned commit is checked by its hash
     if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.24.0")
         # CMake 3.24+: Use DOWNLOAD_EXTRACT_TIMESTAMP
         FetchContent_Declare(zstd
-            URL "https://github.com/facebook/zstd/archive/refs/tags/v1.5.6.tar.gz"
+            URL "https://github.com/facebook/zstd/archive/794ea1b0afca0f020f4e57b6732332231fb23c70.tar.gz"
+            URL_HASH SHA256=33eaa5611d330dbc037e32554521d4e4a8edf2358df7d9b74d586c510a4bcec6
             DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
     else()
         # CMake < 3.24: Don't use DOWNLOAD_EXTRACT_TIMESTAMP
         FetchContent_Declare(zstd
-            URL "https://github.com/facebook/zstd/archive/refs/tags/v1.5.6.tar.gz")
+            URL "https://github.com/facebook/zstd/archive/794ea1b0afca0f020f4e57b6732332231fb23c70.tar.gz"
+            URL_HASH SHA256=33eaa5611d330dbc037e32554521d4e4a8edf2358df7d9b74d586c510a4bcec6)
     endif()
 endif()
 

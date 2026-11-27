@@ -17,7 +17,8 @@ an ultra-light prover / verifier for Ethereum and OP-Stack chains.
   Swift bindings; nothing chain-specific lives in the Rust layer.
 - Ships without vendored C sources on crates.io; `build.rs`
   downloads a matching prebuilt archive from the corresponding GitHub
-  Release, or builds from source inside the monorepo.
+  Release (`prebuilt` feature, on by default), or builds from source
+  inside the monorepo.
 
 ## Quick start
 
@@ -83,18 +84,30 @@ See the full API tour in the crate-level docs on
 The Rust crate is a thin `unsafe` shim on top of the `libc4.a` C
 static archive. Where that archive comes from depends on your build:
 
-- **`crates.io` install** -- `build.rs` downloads
-  `colibri-native-<target>.tar.gz` from the GitHub Release matching
-  the crate version. Supported targets: `x86_64-unknown-linux-gnu`,
-  `aarch64-apple-darwin`, `x86_64-apple-darwin`,
-  `x86_64-pc-windows-msvc`.
-- **Monorepo checkout** -- `build.rs` shells out to CMake and links
-  the just-built archives. Requires CMake ≥ 3.20 and a C compiler. The
-  CMake tree is placed in `build-rust/<target>/` at the repository
-  root rather than under `target/`, because the vendored dependencies
-  create paths that exceed Windows' 260-character `MAX_PATH` limit.
-  Override the location with `COLIBRI_CMAKE_BUILD_DIR` if even that is
-  too long for your checkout.
+- **`crates.io` install** -- with the `prebuilt` feature (on by
+  default), `build.rs` downloads `colibri-native-<target>.tar.gz` from
+  the GitHub Release matching the crate version. Supported targets:
+  `x86_64-unknown-linux-gnu`, `aarch64-apple-darwin`,
+  `x86_64-apple-darwin`, `x86_64-pc-windows-msvc`. Without the feature
+  `build.rs` never downloads anything itself.
+- **Monorepo checkout** (including a Cargo git dependency) --
+  `build.rs` shells out to CMake and links the just-built archives.
+  Requires CMake ≥ 3.20 and a C compiler. The CMake tree is placed
+  under Cargo's `OUT_DIR`, so the source checkout stays untouched. On
+  Windows hosts it stays in `build-rust/<target>/` at the repository
+  root, because the vendored dependencies create paths that exceed
+  Windows' 260-character `MAX_PATH` limit under `target/`. Override the
+  location with `COLIBRI_CMAKE_BUILD_DIR`.
+  - The C core is built with `C4_VERSION` set to the crate version
+    (override with the `C4_VERSION` environment variable), not
+    `git describe`; remote provers pick the proof format by it.
+  - Third-party sources (blst, evmone, intx, ...) are fetched by CMake
+    at pinned commits. These environment variables are passed to
+    CMake: `FETCHCONTENT_SOURCE_DIR_<NAME>=<dir>` (names in
+    `fetchcontent-deps.txt`) builds that dependency from a local copy,
+    `FETCHCONTENT_FULLY_DISCONNECTED=ON` forbids any download, and
+    `FETCHCONTENT_UPDATES_DISCONNECTED` and `FETCHCONTENT_BASE_DIR`
+    work as in CMake.
 - **BYO archives** -- set `COLIBRI_LIB_DIR=/path/to/dir/with/archives`;
   every static archive in that directory is linked. Handy for embedded
   or cross-compilation targets not covered by the Release matrix.
@@ -121,6 +134,11 @@ static archive. Where that archive comes from depends on your build:
   When the feature is disabled, the generated dispatcher reports
   `Unsupported chain` for any OP-Stack chain ID (10 / 8453 / 480 /
   …); Ethereum-family chain IDs (1, 11155111, 100, …) are unaffected.
+
+- `prebuilt` (default) -- lets `build.rs` download the release
+  archive matching the crate version when neither C sources nor
+  `COLIBRI_LIB_DIR` are available (crates.io install). Turn it off for
+  builds that must not download anything.
 
 ## Testing against shared fixtures
 

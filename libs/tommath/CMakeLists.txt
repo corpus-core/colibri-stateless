@@ -23,11 +23,12 @@ cmake_minimum_required(VERSION 3.11)
 
 include(FetchContent)
 
-# Fetch LibTomMath from GitHub
+# Fetch LibTomMath from GitHub, pinned by commit (v1.3.0). A local copy can
+# be used instead with -DFETCHCONTENT_SOURCE_DIR_LIBTOMMATH=<dir>.
 FetchContent_Declare(
     libtommath
     GIT_REPOSITORY https://github.com/libtom/libtommath.git
-    GIT_TAG v1.3.0  # Use the latest stable version
+    GIT_TAG 95d80fd8229d05dd6cb4ec88bc8d4f5377ff00ef # v1.3.0
 )
 
 # Make the content available

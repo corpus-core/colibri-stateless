@@ -117,9 +117,10 @@ CI builds prebuilds per platform and bundles them into the npm package (`prebuil
 - `src/testing.rs` -- `discover_tests`, `FileBackedMockStorage`,
   `FileBackedMockRequestHandler` -- replays the shared
   `test/data/*` fixtures used by every binding.
-- `build.rs` -- Hybrid: `cmake` build inside the monorepo, downloads
-  prebuilt archives on `crates.io`, honours `COLIBRI_LIB_DIR` and
-  `DOCS_RS`.
+- `build.rs` -- Hybrid: `cmake` build inside the monorepo (tree under
+  `OUT_DIR`, `C4_VERSION` = crate version), downloads prebuilt archives
+  on `crates.io` (`prebuilt` feature), honours `COLIBRI_LIB_DIR`,
+  `COLIBRI_CMAKE_BUILD_DIR`, `FETCHCONTENT_*` and `DOCS_RS`.
 
 **Build**: `cargo build` inside the monorepo drives CMake to produce
 `libapi.a` + `libapi_ffi.a` and the individual chain archives, then

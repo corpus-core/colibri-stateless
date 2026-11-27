@@ -28,15 +28,19 @@ if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.24.0")
   cmake_policy(SET CMP0135 NEW)
 endif()
 
-# Fetch libuv from GitHub (EXCLUDE_FROM_ALL suppresses libuv's own install rules)
+# Fetch libuv from GitHub, the archive of the v1.50.0 commit checked by its hash
+# (EXCLUDE_FROM_ALL suppresses libuv's own install rules). A local copy can be
+# used instead with -DFETCHCONTENT_SOURCE_DIR_LIBUV=<dir>.
 if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.24.0")
   FetchContent_Declare(libuv
-      URL "https://github.com/libuv/libuv/archive/refs/tags/v1.50.0.tar.gz"
+      URL "https://github.com/libuv/libuv/archive/8fb9cb919489a48880680a56efecff6a7dfb4504.tar.gz"
+      URL_HASH SHA256=9e7949925f1bc0ce0b65e32c8171923edd73c8ffca81a2fbb758841826ff22e2
       DOWNLOAD_EXTRACT_TIMESTAMP TRUE
       EXCLUDE_FROM_ALL)
 else()
   FetchContent_Declare(libuv
-      URL "https://github.com/libuv/libuv/archive/refs/tags/v1.50.0.tar.gz"
+      URL "https://github.com/libuv/libuv/archive/8fb9cb919489a48880680a56efecff6a7dfb4504.tar.gz"
+      URL_HASH SHA256=9e7949925f1bc0ce0b65e32c8171923edd73c8ffca81a2fbb758841826ff22e2
       EXCLUDE_FROM_ALL)
 endif()
 
