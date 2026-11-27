@@ -114,6 +114,7 @@ extern "C" {
 
     /// L1 chain id that settles `chain_id`: Ethereum mainnet for an EEZ L2 such as RollupX,
     /// `chain_id` itself for every other chain.
+    #[cfg_attr(not(feature = "http"), allow(dead_code))] // used by the `http` client only
     pub fn c4_get_l1_chain_id_for_l2(chain_id: u64) -> u64;
 
     /// Query whether an RPC method is proofable / unproofable / local /

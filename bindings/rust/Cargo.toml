@@ -31,18 +31,24 @@ include = [
 # so verifying Base / OP Mainnet / other OP-Stack rollups works out of the
 # box. Disable with `--no-default-features` for Ethereum-only consumers who
 # want to avoid pulling the OP module into their binary.
-default = ["op"]
+default = ["op", "http"]
 op = []
+# The high-level async `Colibri` client, which fetches pending data with
+# reqwest on tokio. On by default. Hosts that do their own I/O can build
+# with `default-features = false`: the context types (`RpcCtx`, `Verifier`,
+# `Prover`), storage and helpers stay, and tokio, reqwest, futures and
+# async-trait drop out of the dependency tree.
+http = ["dep:tokio", "dep:reqwest", "dep:futures", "dep:async-trait"]
 
 [dependencies]
 libc = "0.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
-tokio = { version = "1", default-features = false, features = ["rt", "sync", "macros", "time"] }
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+tokio = { version = "1", default-features = false, features = ["rt", "sync", "macros", "time"], optional = true }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"], optional = true }
 thiserror = "2"
-futures = { version = "0.3", default-features = false, features = ["std", "async-await"] }
-async-trait = "0.1"
+futures = { version = "0.3", default-features = false, features = ["std", "async-await"], optional = true }
+async-trait = { version = "0.1", optional = true }
 
 [build-dependencies]
 cmake = "0.1"
@@ -55,13 +61,26 @@ serial_test = "3"
 [[example]]
 name = "rpc"
 path = "examples/rpc.rs"
+required-features = ["http"]
 
 [[example]]
 name = "storage"
 path = "examples/storage.rs"
+required-features = ["http"]
+
+[[test]]
+name = "integration_test"
+path = "tests/integration_test.rs"
+required-features = ["http"]
+
+[[test]]
+name = "proof_roundtrip"
+path = "tests/proof_roundtrip.rs"
+required-features = ["http"]
 
 [package.metadata.docs.rs]
 # docs.rs cannot build the native library (no network, sandboxed). Skip the
 # native build via the DOCS_RS env var and only produce documentation.
 rustdoc-args = ["--cfg", "docsrs"]
 no-default-features = true
+features = ["http"]

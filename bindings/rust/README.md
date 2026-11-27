@@ -122,6 +122,17 @@ static archive. Where that archive comes from depends on your build:
   `Unsupported chain` for any OP-Stack chain ID (10 / 8453 / 480 /
   …); Ethereum-family chain IDs (1, 11155111, 100, …) are unaffected.
 
+- `http` (default) -- the high-level async `Colibri` client, which
+  fetches pending data with `reqwest` on `tokio`, and the
+  `ColibriError::HttpClient` variant. Hosts that do their own I/O can
+  turn it off and drive `RpcCtx` / `Verifier` / `Prover` themselves;
+  tokio, reqwest, futures and async-trait then drop out of the
+  dependency tree:
+
+  ```toml
+  colibri-stateless = { version = "0.1", default-features = false, features = ["op"] }
+  ```
+
 ## Testing against shared fixtures
 
 The same fixtures in `test/data/*` used by the C / Python / Dart /

@@ -10,9 +10,10 @@
 //! # Example: in-memory storage
 //!
 //! ```no_run
+//! # #[cfg(feature = "http")]
+//! # async fn run() -> Result<(), colibri_stateless::ColibriError> {
 //! use colibri_stateless::{Colibri, ColibriConfig, MemoryStorage, MAINNET};
 //!
-//! # async fn run() -> Result<(), colibri_stateless::ColibriError> {
 //! let client = Colibri::builder(MAINNET)
 //!     .storage(MemoryStorage::default())
 //!     .build();

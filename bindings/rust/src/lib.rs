@@ -8,10 +8,11 @@
 //! cryptographically verified RPC call:
 //!
 //! ```no_run
+//! # #[cfg(feature = "http")]
+//! # async fn run() -> Result<(), colibri_stateless::ColibriError> {
 //! use colibri_stateless::{Colibri, MAINNET};
 //! use serde_json::json;
 //!
-//! # async fn run() -> Result<(), colibri_stateless::ColibriError> {
 //! let client = Colibri::builder(MAINNET).build();
 //! let balance = client
 //!     .rpc("eth_getBalance", &json!(["0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045", "latest"]))
@@ -19,6 +20,11 @@
 //! println!("balance: {balance}");
 //! # Ok(()) }
 //! ```
+//!
+//! [`Colibri`] needs the `http` feature (on by default), which brings in
+//! tokio and reqwest. With `default-features = false` the crate keeps
+//! the lower-level building blocks below, for hosts that do their own
+//! I/O.
 //!
 //! Lower-level building blocks are also exposed:
 //!
@@ -45,9 +51,10 @@ pub mod types;
 
 pub use core::{
     get_current_version_number, get_method_support, get_method_type, req_set_error,
-    req_set_response, reset_caches, Colibri, ColibriBuilder, ColibriConfig, Prover, RequestHandler,
-    RpcCtx, Verifier,
+    req_set_response, reset_caches, set_checkpoint, Prover, RpcCtx, Verifier,
 };
+#[cfg(feature = "http")]
+pub use core::{Colibri, ColibriBuilder, ColibriConfig, RequestHandler};
 pub use storage::{
     default_storage, register_storage, register_storage_at, DefaultStorage, FileStorage,
     MemoryStorage, Storage,
