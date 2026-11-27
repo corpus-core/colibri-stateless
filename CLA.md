@@ -88,3 +88,5 @@ Personal identity and contact details and authorization documents must not be pu
 7.4 Only this English version is binding. Translations are provided for convenience only.
 
 Contact: jork@corpuscore.tech
+
+Contributor privacy notice (not part of this agreement): https://gist.github.com/steffenkux/0fd7f812c64116d25608f0d419e7dff0#file-privacy-md
