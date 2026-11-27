@@ -322,6 +322,34 @@ static bool req_bootstrap(c4_state_t* state, bytes32_t block_root, chain_id_t ch
   return false;
 }
 
+/**
+ * Bind a bootstrap's full sync committee to its beacon header's state root.
+ *
+ * @param ctx Verification context receiving any validation error
+ * @param beacon Structurally validated bootstrap beacon header
+ * @param committee Structurally validated current sync committee, including aggregate key
+ * @param branch Fork-specific currentSyncCommitteeBranch from the bootstrap
+ * @return C4_SUCCESS if the Merkle branch matches, C4_ERROR otherwise
+ */
+static c4_status_t verify_bootstrap_committee(verify_ctx_t* ctx, ssz_ob_t beacon, ssz_ob_t committee, bytes_t branch) {
+  ssz_ob_t state_root = ssz_get(&beacon, "stateRoot");
+  uint64_t slot = ssz_get_uint64(&beacon, "slot");
+
+  // Verify merkle proof for current sync committee
+  bytes32_t sync_root   = {0};
+  bytes32_t merkle_root = {0};
+  ssz_hash_tree_root(committee, sync_root);
+
+  // Get current sync committee gindex based on fork
+  uint64_t gindex = c4_current_sync_committee_gindex(ctx->chain_id, slot);
+  if (gindex == 0) THROW_ERROR("Bootstrap data: unsupported committee gindex");
+  ssz_verify_single_merkle_proof(branch, sync_root, gindex, merkle_root);
+
+  if (memcmp(merkle_root, state_root.bytes.data, 32))
+    THROW_ERROR("Invalid merkle proof in bootstrap");
+  return C4_SUCCESS;
+}
+
 c4_status_t c4_handle_bootstrap(verify_ctx_t* ctx, bytes_t bootstrap_data, bytes32_t trusted_checkpoint) {
   // Parse bootstrap data as SSZ. The bootstrap container layout differs by fork
   // (branch depth changes), so we resolve it via the central helper.
@@ -343,7 +371,6 @@ c4_status_t c4_handle_bootstrap(verify_ctx_t* ctx, bytes_t bootstrap_data, bytes
   ssz_ob_t beacon                 = ssz_get(&header, "beacon");
   ssz_ob_t current_sync_committee = ssz_get(&bootstrap, "currentSyncCommittee");
   ssz_ob_t sync_committee_branch  = ssz_get(&bootstrap, "currentSyncCommitteeBranch");
-  ssz_ob_t state_root             = ssz_get(&beacon, "stateRoot");
   uint64_t slot                   = ssz_get_uint64(&beacon, "slot");
 
   // Calculate blockhash
@@ -354,18 +381,7 @@ c4_status_t c4_handle_bootstrap(verify_ctx_t* ctx, bytes_t bootstrap_data, bytes
   if (memcmp(blockhash, trusted_checkpoint, 32))
     THROW_ERROR("Bootstrap header blockhash does not match trusted checkpoint");
 
-  // Verify merkle proof for current sync committee
-  bytes32_t sync_root   = {0};
-  bytes32_t merkle_root = {0};
-  ssz_hash_tree_root(current_sync_committee, sync_root);
-
-  // Get current sync committee gindex based on fork
-  uint64_t gindex = c4_current_sync_committee_gindex(ctx->chain_id, slot);
-
-  ssz_verify_single_merkle_proof(sync_committee_branch.bytes, sync_root, gindex, merkle_root);
-
-  if (memcmp(merkle_root, state_root.bytes.data, 32))
-    THROW_ERROR("Invalid merkle proof in bootstrap");
+  TRY_ASYNC(verify_bootstrap_committee(ctx, beacon, current_sync_committee, sync_committee_branch.bytes));
 
   // Calculate current period from slot (no +1 because this is currentSyncCommittee)
   const chain_spec_t* spec   = c4_eth_get_chain_spec(ctx->chain_id);
@@ -793,10 +809,10 @@ INTERNAL c4_status_t c4_verify_checkpointz_root(verify_ctx_t* ctx, uint64_t slot
  * Two independent trust paths must agree on the same `currentSyncCommittee` for the
  * checkpointz-anchored finalized slot:
  *
- *   - **Chain-of-trust** (LCU chain): the apply loop above followed signatures from the
- *     last cached period up to the bootstrap period; this populated the local cache with
- *     `nextSyncCommittee.pubkeys` for every period along the way. The LCU for period
- *     `bootstrap_period - 1` carries the pubkeys vector that should match `bootstrap_period`.
+ *   - **Chain-of-trust** (LCU chain): after this pre-check succeeds, the apply loop follows
+ *     signatures from the last cached period and persists `nextSyncCommittee.pubkeys`
+ *     for each verified transition. Before applying, the LCU for period
+ *     `bootstrap_period - 1` supplies the candidate pubkeys for `bootstrap_period`.
  *
  *   - **Anchor-to-canonical** (checkpointz Bootstrap): we fetch the current finalized
  *     checkpoint via `head/finality_checkpoints`, then a `LightClientBootstrap` for that
@@ -812,6 +828,7 @@ INTERNAL c4_status_t c4_verify_checkpointz_root(verify_ctx_t* ctx, uint64_t slot
  *   1. `c4_req_checkpointz_status` -- current finalized (`slot`, `root`)
  *   2. `req_bootstrap` for that root -- SSZ-validated `LightClientBootstrap`
  *   3. Verify the bootstrap header's `hash_tree_root` matches the checkpointz root
+ *      Also verify `currentSyncCommitteeBranch` against the anchored header's state root.
  *   4. Extract `bootstrap_pubkeys_root = hash_tree_root(currentSyncCommittee.pubkeys)`
  *   5. Scan the cached LCU responses for the update with `attested_slot` in period
  *      `bootstrap_period - 1`; its `nextSyncCommittee.pubkeys` are the chain-of-trust
@@ -826,7 +843,7 @@ INTERNAL c4_status_t c4_verify_checkpointz_root(verify_ctx_t* ctx, uint64_t slot
  *
  * ⚠️ Disabling increases long-range attack risk during extended offline periods.
  *
- * @param ctx Verification context (with already-applied LCU responses on `ctx->state.requests`)
+ * @param ctx Verification context (with fetched, not yet applied LCU responses on `ctx->state.requests`)
  * @param sync_state Current sync committee state (`highest_period` reflects the cached state)
  * @param target_period Target period to sync to
  * @return `C4_SUCCESS` if both paths agree (or no WSP gap), `C4_ERROR` on mismatch /
@@ -890,6 +907,13 @@ static c4_status_t c4_check_weak_subjectivity(verify_ctx_t* ctx, c4_sync_validat
     return c4_state_add_error(&ctx->state, "WSP bootstrap: header root does not match checkpointz");
   }
 
+  // A matching header hash does not authenticate the committee fields outside it.
+  ssz_ob_t committee_branch = ssz_get(&bootstrap, "currentSyncCommitteeBranch");
+  if (verify_bootstrap_committee(ctx, beacon, current_sync_committee, committee_branch.bytes) != C4_SUCCESS) {
+    clear_sync_state(ctx->chain_id);
+    return C4_ERROR;
+  }
+
   // 4. Compute the canonical pubkeys root for `bootstrap_period`.
   bytes32_t bootstrap_pubkeys_root = {0};
   ssz_hash_tree_root(bootstrap_pubkeys, bootstrap_pubkeys_root);
@@ -930,6 +954,8 @@ static c4_status_t c4_check_weak_subjectivity(verify_ctx_t* ctx, c4_sync_validat
       if (!lcu_def) continue;
 
       ssz_ob_t update          = {.bytes = client_update_bytes, .def = lcu_def};
+      // This pre-check runs before the apply loop validates these responses.
+      if (!ssz_is_valid(update, true, &ctx->state)) return C4_ERROR;
       ssz_ob_t attested        = ssz_get(&update, "attestedHeader");
       ssz_ob_t attested_beacon = ssz_get(&attested, "beacon");
       uint64_t attested_slot   = ssz_get_uint64(&attested_beacon, "slot");
@@ -1177,11 +1203,7 @@ INTERNAL const c4_status_t c4_get_validators(verify_ctx_t* ctx, uint32_t period,
 
     // Strategy 3: Normal sync path - fetch light_client_updates from lowest to target period
     bytes_t light_client_updates = {0};
-    if (req_client_update(&ctx->state, sync_state.lowest_period, sync_state.current_period - sync_state.lowest_period, ctx->chain_id, &light_client_updates)) {
-      if (!c4_handle_client_updates(ctx, light_client_updates))
-        return c4_state_get_pending_request(&ctx->state) ? C4_PENDING : c4_state_add_error(&ctx->state, "Failed to handle light client updates");
-    }
-    else
+    if (!req_client_update(&ctx->state, sync_state.lowest_period, sync_state.current_period - sync_state.lowest_period, ctx->chain_id, &light_client_updates))
       return ctx->state.error ? C4_ERROR : C4_PENDING;
 
     // Check weak subjectivity period BEFORE loading new sync state
@@ -1189,6 +1211,11 @@ INTERNAL const c4_status_t c4_get_validators(verify_ctx_t* ctx, uint32_t period,
 #ifdef USE_CHECKPOINTZ
     TRY_ASYNC(c4_check_weak_subjectivity(ctx, &sync_state, period));
 #endif
+
+    // Do not publish any fetched committees until their independent anchor passes.
+    // PENDING must leave shared storage unchanged for retries and other contexts.
+    if (!c4_handle_client_updates(ctx, light_client_updates))
+      return c4_state_get_pending_request(&ctx->state) ? C4_PENDING : c4_state_add_error(&ctx->state, "Failed to handle light client updates");
 
     // Load new sync state after successful WSP check
     sync_state = get_validators_from_cache(ctx, period);
