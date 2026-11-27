@@ -27,6 +27,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #define MAX_SYNC_STATES_DEFAULT 3
 
@@ -195,6 +196,35 @@ void c4_set_parallel_for(c4_parallel_for_fn fn) {
 
 c4_parallel_for_fn c4_get_parallel_for(void) {
   return g_parallel_for;
+}
+
+// The host may set the fixed time while contexts run on other threads, so it is
+// accessed atomically: with MSVC's interlocked intrinsics, or with the compiler's
+// atomics where 64-bit ones are lock-free (every target the bindings build for).
+// The project doesn't depend on stdatomic.h (older MSVC). Targets without
+// lock-free 64-bit atomics (bare-metal Cortex-M) run single-threaded.
+#if defined(_MSC_VER) && !defined(__clang__)
+#include <intrin.h>
+static volatile __int64 g_fixed_time = 0;
+#define FIXED_TIME_STORE(v) _InterlockedExchange64(&g_fixed_time, (__int64) (v))
+#define FIXED_TIME_LOAD()   ((uint64_t) _InterlockedCompareExchange64(&g_fixed_time, 0, 0))
+#elif defined(__GCC_ATOMIC_LLONG_LOCK_FREE) && __GCC_ATOMIC_LLONG_LOCK_FREE == 2
+static uint64_t g_fixed_time = 0;
+#define FIXED_TIME_STORE(v) __atomic_store_n(&g_fixed_time, (uint64_t) (v), __ATOMIC_RELAXED)
+#define FIXED_TIME_LOAD()   __atomic_load_n(&g_fixed_time, __ATOMIC_RELAXED)
+#else
+static volatile uint64_t g_fixed_time = 0;
+#define FIXED_TIME_STORE(v) (g_fixed_time = (uint64_t) (v))
+#define FIXED_TIME_LOAD()   ((uint64_t) g_fixed_time)
+#endif
+
+void c4_set_fixed_time(uint64_t unix_seconds) {
+  FIXED_TIME_STORE(unix_seconds);
+}
+
+uint64_t c4_now_unix_s(void) {
+  uint64_t fixed = FIXED_TIME_LOAD();
+  return fixed ? fixed : (uint64_t) time(NULL);
 }
 
 static void batch_poster_key(chain_id_t chain_id, char out[100]) {

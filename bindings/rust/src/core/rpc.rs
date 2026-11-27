@@ -108,3 +108,15 @@ pub fn set_checkpoint(chain_id: u64, checkpoint: &str) -> Result<(), ColibriErro
 pub fn reset_caches() {
     unsafe { ffi::c4_reset_caches() };
 }
+
+/// Fixes the wall clock the verifier reads, in Unix seconds; `None` (or
+/// `Some(0)`) goes back to the system clock (mirrors `c4_set_fixed_time`).
+///
+/// The verifier reads the clock only for the age of the PAP transaction
+/// cache and of its pending list. A host that replays recorded traffic, or
+/// a test, fixes it to the instant the traffic was recorded, so the same
+/// input gives the same data requests and the same stored bytes. It is
+/// process-wide: set it before a context runs, not while one does.
+pub fn set_fixed_time(unix_seconds: Option<u64>) {
+    unsafe { ffi::c4_set_fixed_time(unix_seconds.unwrap_or(0)) };
+}
