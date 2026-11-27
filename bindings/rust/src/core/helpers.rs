@@ -42,6 +42,27 @@ pub fn get_current_version_number() -> u32 {
     unsafe { ffi::c4_get_current_version_number() }
 }
 
+/// Decode a proof (an SSZ `C4Request`) into its JSON text without
+/// verifying it (`c4_decode_proof`). `None` when the proof's header names
+/// no known type or the bytes are not a valid object of that type.
+pub fn decode_proof(proof: &[u8]) -> Option<String> {
+    // `bytes_t` holds a 32-bit length.
+    if u32::try_from(proof.len()).is_err() {
+        return None;
+    }
+    let ptr = unsafe { ffi::c4_decode_proof(slice_as_bytes(proof)) };
+    if ptr.is_null() {
+        return None;
+    }
+    // SAFETY: a non-NULL result is a NUL-terminated string the C core
+    // allocated with `malloc` and hands over to the caller.
+    let text = unsafe { std::ffi::CStr::from_ptr(ptr) }
+        .to_string_lossy()
+        .into_owned();
+    unsafe { libc::free(ptr as *mut libc::c_void) };
+    Some(text)
+}
+
 // ---------------------------------------------------------------------
 // bytes_t helpers used by the low-level context wrappers.
 // ---------------------------------------------------------------------

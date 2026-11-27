@@ -1009,3 +1009,13 @@ char* c4_rpc_build_json_status(c4_rpc_ctx_t* ctx, bool req_ptr_as_string) {
 
   return bprintf(&buf, "}");
 }
+
+char* c4i_decode_proof(bytes_t proof) {
+  const ssz_def_t* def = c4_get_req_type_from_req(proof);
+  if (!def) return NULL;
+  ssz_ob_t request = {.def = def, .bytes = proof};
+  // Checked as the verifier checks a proof before it reads one (`c4_verify_init`): the
+  // JSON encoder trusts the offsets and lengths it walks.
+  if (!ssz_is_valid(request, true, NULL)) return NULL;
+  return bprintf(NULL, "%Z", request);
+}

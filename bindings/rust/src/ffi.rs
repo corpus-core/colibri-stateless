@@ -98,6 +98,11 @@ extern "C" {
 
     pub fn c4_verify_set_min_latest_block_ts(ctx: *mut c_void, ts: u64);
 
+    /// Decode a proof into JSON without verifying it; NULL when its header
+    /// names no known type or it is not a valid object of that type. The
+    /// caller frees the result.
+    pub fn c4_decode_proof(proof: bytes_t) -> *mut c_char;
+
     pub fn c4_verify_free_ctx(ctx: *mut c_void);
 
     // ------------------------------------------------------------------

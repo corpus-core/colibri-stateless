@@ -326,6 +326,18 @@ char* c4i_build_verifier_json_status(c4_status_t status, c4_state_t* state,
                                      ssz_ob_t result, bool reverted,
                                      bool req_ptr_as_string);
 
+/**
+ * Decodes a proof (an SSZ `C4Request`) into JSON, without verifying it, once
+ * it is checked as an SSZ object of the type its header names. Shared by
+ * `c4_decode_proof()` (the C FFI) and the WASM binding's `c4w_decode_proof`,
+ * which links `api` but not `api_ffi`.
+ *
+ * @param proof the proof bytes
+ * @return heap-allocated JSON string (caller must `free()`), or NULL if the
+ *         header names no known type or the bytes are not a valid object of it
+ */
+char* c4i_decode_proof(bytes_t proof);
+
 #ifdef __cplusplus
 }
 #endif

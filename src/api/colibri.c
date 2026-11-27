@@ -130,6 +130,10 @@ void c4_verify_set_min_latest_block_ts(void* ptr, uint64_t ts) {
   ctx->ctx.min_latest_block_ts = ts;
 }
 
+char* c4_decode_proof(bytes_t proof) {
+  return c4i_decode_proof(proof);
+}
+
 int c4_get_method_support(uint64_t chain_id, char* method, char* params, uint32_t flags) {
   return (int) c4_get_method_type((chain_id_t) chain_id, method,
                                   params ? json_parse(params) : (json_t){0}, (verify_flags_t) flags);

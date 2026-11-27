@@ -15,7 +15,7 @@ mod rpc;
 mod verifier;
 
 pub use client::{Colibri, ColibriBuilder, ColibriConfig, RequestHandler};
-pub use helpers::{get_current_version_number, get_method_support, get_method_type};
+pub use helpers::{decode_proof, get_current_version_number, get_method_support, get_method_type};
 pub use prover::Prover;
 pub use request::{set_error as req_set_error, set_response as req_set_response};
 pub use rpc::{reset_caches, RpcCtx};
